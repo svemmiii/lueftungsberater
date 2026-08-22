@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+- Hassfest: `config_subentries.room.initiate_flow` für Hinzufügen und Konfigurieren ergänzt.
+- Keine weitere Änderung an der Lüftungslogik gegenüber v0.6.2.
+
+
 ## 0.6.2
 - HACS/Hassfest-Korrekturen für die erste Alpha.
 - `manifest.json` in Hassfest-Reihenfolge gebracht (`domain`, `name`, danach alphabetisch).

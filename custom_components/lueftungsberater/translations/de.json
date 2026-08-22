@@ -30,6 +30,10 @@
   "config_subentries": {
     "room": {
       "entry_type": "Raum",
+      "initiate_flow": {
+        "reconfigure": "Raum konfigurieren",
+        "user": "Raum hinzufügen"
+      },
       "step": {
         "user": {
           "title": "Raum hinzufügen",
