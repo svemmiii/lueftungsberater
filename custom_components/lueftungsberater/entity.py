@@ -42,5 +42,5 @@ class LueftungsberaterRoomEntity(
                 if str(self.hass.config.language).lower().startswith("de")
                 else "Room ventilation advisor"
             ),
-            sw_version="0.6.8",
+            sw_version="0.6.9",
         )

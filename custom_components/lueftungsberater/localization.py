@@ -85,6 +85,14 @@ def _number(value: Any, language: str, digits: int = 1) -> str:
     return text.replace(".", ",") if language == "de" else text
 
 
+NNBSP = "\u202f"
+
+
+def _measurement(value: str, unit: str) -> str:
+    """Keep a numeric value and its unit together across line wrapping."""
+    return f"{value}{NNBSP}{unit}"
+
+
 def _temperature(value_c: Any, language: str, unit: str) -> str:
     try:
         number = float(value_c)
@@ -95,7 +103,7 @@ def _temperature(value_c: Any, language: str, unit: str) -> str:
         unit = "°F"
     else:
         unit = "°C"
-    return f"{_number(number, language, 1)} {unit}"
+    return _measurement(_number(number, language, 1), unit)
 
 
 def recommendation_text(key: str, language: str | None) -> str:
@@ -113,16 +121,16 @@ def _continue_reason(args: dict[str, Any], lang: str, unit: str) -> str:
     if args.get("continue_co2"):
         ppm = _number(args.get("co2"), lang, 0)
         parts.append(
-            f"CO₂ liegt noch bei {ppm} ppm"
+            f"CO₂ liegt noch bei {_measurement(ppm, 'ppm')}"
             if lang == "de"
-            else f"CO₂ is still at {ppm} ppm"
+            else f"CO₂ is still at {_measurement(ppm, 'ppm')}"
         )
     if args.get("continue_moisture"):
         diff = _number(args.get("diff"), lang, 1)
         parts.append(
-            f"die Außenluft ist rund {diff} g/m³ trockener"
+            f"die Außenluft ist rund {_measurement(diff, 'g/m³')} trockener"
             if lang == "de"
-            else f"the outdoor air is about {diff} g/m³ drier"
+            else f"the outdoor air is about {_measurement(diff, 'g/m³')} drier"
         )
     if args.get("continue_cooling"):
         ti = _temperature(args.get("ti"), lang, unit)
@@ -203,11 +211,11 @@ def reason_text(
             "weather_wind_danger": "Es gilt eine Unwetterwarnung vor starkem Wind. Lass die Fenster besser geschlossen.",
             "weather_exceptional_danger": "Der Wetterdienst meldet eine außergewöhnliche Wetterlage. Lass die Fenster vorsichtshalber geschlossen.",
             "airing_finished": "Der Luftaustausch reicht im Moment aus. Du kannst die Fenster wieder schließen.",
-            "co2_critical_rain": f"CO₂ liegt bei {n(a.get('co2'), 0)} ppm und ist damit sehr hoch. Trotz des Regens ist ein kurzer Luftaustausch sinnvoll – aber nur kurz und unter Beobachtung.",
-            "co2_critical": f"CO₂ liegt bei {n(a.get('co2'), 0)} ppm und ist damit sehr hoch. Jetzt zu lüften hat klare Priorität.",
-            "co2_ventilate": f"CO₂ liegt bei {n(a.get('co2'), 0)} ppm und ist erhöht. Draußen passen die Bedingungen, deshalb lohnt sich jetzt ein Luftaustausch.",
-            "co2_wait": f"CO₂ liegt bei {n(a.get('co2'), 0)} ppm und ist erhöht. Die Außenbedingungen sind gerade aber ungünstig, deshalb ist kurzes Warten die bessere Wahl.",
-            "humidity_ventilate": f"Drinnen liegen {n(a.get('humidity'), 0)} % relative Feuchte an. Draußen enthält die Luft rund {n(a.get('diff'), 1)} g/m³ weniger Wasser – Lüften hilft also beim Trocknen.",
+            "co2_critical_rain": f"CO₂ liegt bei {_measurement(n(a.get('co2'), 0), 'ppm')} und ist damit sehr hoch. Trotz des Regens ist ein kurzer Luftaustausch sinnvoll – aber nur kurz und unter Beobachtung.",
+            "co2_critical": f"CO₂ liegt bei {_measurement(n(a.get('co2'), 0), 'ppm')} und ist damit sehr hoch. Jetzt zu lüften hat klare Priorität.",
+            "co2_ventilate": f"CO₂ liegt bei {_measurement(n(a.get('co2'), 0), 'ppm')} und ist erhöht. Draußen passen die Bedingungen, deshalb lohnt sich jetzt ein Luftaustausch.",
+            "co2_wait": f"CO₂ liegt bei {_measurement(n(a.get('co2'), 0), 'ppm')} und ist erhöht. Die Außenbedingungen sind gerade aber ungünstig, deshalb ist kurzes Warten die bessere Wahl.",
+            "humidity_ventilate": f"Drinnen liegen {_measurement(n(a.get('humidity'), 0), '%')} relative Feuchte an. Draußen enthält die Luft rund {_measurement(n(a.get('diff'), 1), 'g/m³')} weniger Wasser – Lüften hilft also beim Trocknen.",
             "humidity_wait": "Die Luftfeuchte drinnen ist erhöht, draußen gibt es im Moment aber kaum einen Trocknungsvorteil. Warte besser noch etwas.",
             "cooling": f"Drinnen sind es {t(a.get('ti'))}, bei einem Soll von {t(a.get('target'))}. Draußen sind es {t(a.get('ta'))} – Lüften hilft jetzt beim Abkühlen.",
             "warming": f"Drinnen sind es {t(a.get('ti'))}, bei einem Soll von {t(a.get('target'))}. Draußen ist es wärmer und die Außenluft eignet sich gerade zum Lüften.",
@@ -215,7 +223,7 @@ def reason_text(
             "routine_wait": f"Seit rund {n(a.get('hours'), 1)} Stunden wurde keine bestätigte Lüftung erfasst. Die Bedingungen draußen passen gerade aber nicht gut genug – warte lieber noch etwas.",
             "outside_too_hot": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Beim Lüften würdest du gerade zusätzliche Wärme hereinholen – die Fenster bleiben besser zu.",
             "outside_too_cold": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Lüften würde den Raum gerade unnötig auskühlen – deshalb besser geschlossen lassen.",
-            "outside_more_humid": f"Die Außenluft enthält rund {n(a.get('amount'), 1)} g/m³ mehr Wasser als die Luft drinnen. Lüften würde die Feuchte eher hereinholen als herausbringen.",
+            "outside_more_humid": f"Die Außenluft enthält rund {_measurement(n(a.get('amount'), 1), 'g/m³')} mehr Wasser als die Luft drinnen. Lüften würde die Feuchte eher hereinholen als herausbringen.",
             "inside_too_dry": "Die Luft drinnen ist bereits ziemlich trocken. Lüften würde sie im Moment noch weiter austrocknen – deshalb besser warten.",
             "rain_now": "Draußen fällt gerade Niederschlag. Wenn es nicht dringend nötig ist, warte mit dem Lüften besser kurz.",
             "rain_soon": "In Kürze wird Niederschlag erwartet. Wenn es nicht dringend nötig ist, ist ein etwas späterer Zeitpunkt zum Lüften wahrscheinlich besser.",
@@ -246,11 +254,11 @@ def reason_text(
             "weather_wind_danger": "A severe strong-wind warning is active. It is better to keep the windows closed.",
             "weather_exceptional_danger": "The weather service is reporting exceptional conditions. Keep the windows closed as a precaution.",
             "airing_finished": "The air exchange is sufficient for now. You can close the windows again.",
-            "co2_critical_rain": f"CO₂ is at {n(a.get('co2'), 0)} ppm, which is very high. A short air exchange is still worthwhile despite the rain, but keep it brief and monitor the situation.",
-            "co2_critical": f"CO₂ is at {n(a.get('co2'), 0)} ppm, which is very high. Opening the windows now should take priority.",
-            "co2_ventilate": f"CO₂ is at {n(a.get('co2'), 0)} ppm and is elevated. Outdoor conditions are suitable, so this is a good time to open the windows and exchange the air.",
-            "co2_wait": f"CO₂ is at {n(a.get('co2'), 0)} ppm and is elevated, but outdoor conditions are unfavorable right now. Waiting briefly is the better choice.",
-            "humidity_ventilate": f"Indoor relative humidity is {n(a.get('humidity'), 0)}%. The outdoor air contains about {n(a.get('diff'), 1)} g/m³ less water, so opening the windows will help dry the room.",
+            "co2_critical_rain": f"CO₂ is at {_measurement(n(a.get('co2'), 0), 'ppm')}, which is very high. A short air exchange is still worthwhile despite the rain, but keep it brief and monitor the situation.",
+            "co2_critical": f"CO₂ is at {_measurement(n(a.get('co2'), 0), 'ppm')}, which is very high. Opening the windows now should take priority.",
+            "co2_ventilate": f"CO₂ is at {_measurement(n(a.get('co2'), 0), 'ppm')} and is elevated. Outdoor conditions are suitable, so this is a good time to open the windows and exchange the air.",
+            "co2_wait": f"CO₂ is at {_measurement(n(a.get('co2'), 0), 'ppm')} and is elevated, but outdoor conditions are unfavorable right now. Waiting briefly is the better choice.",
+            "humidity_ventilate": f"Indoor relative humidity is {_measurement(n(a.get('humidity'), 0), '%')}. The outdoor air contains about {_measurement(n(a.get('diff'), 1), 'g/m³')} less water, so opening the windows will help dry the room.",
             "humidity_wait": "Indoor humidity is elevated, but the outdoor air offers very little drying benefit right now. It is better to wait a little longer.",
             "cooling": f"It is {t(a.get('ti'))} indoors with a target of {t(a.get('target'))}. Outside it is {t(a.get('ta'))}, so ventilating will help cool the room.",
             "warming": f"It is {t(a.get('ti'))} indoors with a target of {t(a.get('target'))}. The outdoor air is warmer and suitable for ventilation right now.",
@@ -258,7 +266,7 @@ def reason_text(
             "routine_wait": f"No confirmed ventilation has been recorded for about {n(a.get('hours'), 1)} hours, but outdoor conditions are not good enough right now. It is better to wait a little longer.",
             "outside_too_hot": f"It is {t(a.get('ti'))} indoors and {t(a.get('ta'))} outside. Opening the windows now would bring extra heat in, so it is better to keep them closed.",
             "outside_too_cold": f"It is {t(a.get('ti'))} indoors and {t(a.get('ta'))} outside. Opening the windows now would cool the room unnecessarily, so it is better to keep them closed.",
-            "outside_more_humid": f"The outdoor air contains about {n(a.get('amount'), 1)} g/m³ more water than the indoor air. Opening the windows would bring moisture in rather than remove it.",
+            "outside_more_humid": f"The outdoor air contains about {_measurement(n(a.get('amount'), 1), 'g/m³')} more water than the indoor air. Opening the windows would bring moisture in rather than remove it.",
             "inside_too_dry": "The indoor air is already quite dry. Opening the windows now would dry it out even further, so it is better to wait.",
             "rain_now": "Precipitation is falling outside right now. Unless ventilation is urgent, it is better to wait a little.",
             "rain_soon": "Precipitation is expected shortly. Unless ventilation is urgent, a slightly later time will probably be better.",

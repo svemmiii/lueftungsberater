@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.9
+- Messwert und Einheit werden in Karten und natürlich formulierten Begründungen als untrennbare Einheit dargestellt. Dadurch kann z. B. `69,8 °F` nicht mehr so umbrechen, dass `°F` alleine in der nächsten Zeile steht.
+- Dafür wird ein schmaler geschützter Abstand zwischen Zahl und Einheit verwendet; bei Platzmangel wandern Zahl und Einheit gemeinsam in die nächste Zeile.
+- Gilt neben °C/°F auch für %, ppm und g/m³.
+- Keine Änderung an Lüftungs-, Warn-, Schwellen- oder Farblogik.
+
 ## 0.6.8
 - Vollständige natürliche Laufzeit-Lokalisierung für Deutsch und Englisch ergänzt. Empfehlungen und Begründungen werden nicht wortwörtlich maschinell übersetzt, sondern pro Sprache eigenständig formuliert.
 - Die Entscheidungsengine liefert jetzt sprachneutrale Bedeutungs-Keys und Messwerte; die Formulierung erfolgt erst in einer eigenen Lokalisierungsschicht.

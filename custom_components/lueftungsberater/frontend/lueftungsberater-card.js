@@ -1,3 +1,5 @@
+const LB_NNBSP = "\u202F";
+
 const LB_I18N = {
   de: {
     "recommendation.open_now": "Jetzt lüften",
@@ -255,6 +257,10 @@ class LueftungsberaterCard extends HTMLElement {
     return Boolean(entityId && this._hass?.states?.[entityId]);
   }
 
+  _valueUnit(value, unit) {
+    return `${value}${LB_NNBSP}${unit}`;
+  }
+
   _metric(text, entityId, title = null) {
     title = title || lbT(this._hass, "history_open");
     const escaped = this._escape(text);
@@ -431,12 +437,12 @@ class LueftungsberaterCard extends HTMLElement {
     if (ti !== null && ta !== null) {
       const parts = [
         this._metric(
-          lbT(this._hass, "metric.inside", { value: `${ti} ${tempUnit}` }),
+          lbT(this._hass, "metric.inside", { value: this._valueUnit(ti, tempUnit) }),
           a.source_temperature_inside,
           lbT(this._hass, "metric.indoor_temperature_open")
         ),
         this._metric(
-          `${lbT(this._hass, "metric.outside", { value: `${ta} ${tempUnit}` })}${this._fallbackSuffix(a.outdoor_temperature_source)}`,
+          `${lbT(this._hass, "metric.outside", { value: this._valueUnit(ta, tempUnit) })}${this._fallbackSuffix(a.outdoor_temperature_source)}`,
           a.source_temperature_outside,
           lbT(this._hass, "metric.outdoor_temperature_open")
         ),
@@ -445,7 +451,7 @@ class LueftungsberaterCard extends HTMLElement {
       if (target !== null) {
         parts.push(
           this._metric(
-            lbT(this._hass, "metric.target", { value: `${target} ${tempUnit}` }),
+            lbT(this._hass, "metric.target", { value: this._valueUnit(target, tempUnit) }),
             a.source_target_temperature,
             lbT(this._hass, "metric.thermostat_open")
           )
@@ -461,12 +467,12 @@ class LueftungsberaterCard extends HTMLElement {
     if (hi !== null && ho !== null) {
       const rh = [
         this._metric(
-          lbT(this._hass, "metric.inside", { value: `${hi} %` }),
+          lbT(this._hass, "metric.inside", { value: this._valueUnit(hi, "%") }),
           a.source_humidity_inside,
           lbT(this._hass, "metric.indoor_humidity_open")
         ),
         this._metric(
-          `${lbT(this._hass, "metric.outside", { value: `${ho} %` })}${this._fallbackSuffix(a.outdoor_humidity_source)}`,
+          `${lbT(this._hass, "metric.outside", { value: this._valueUnit(ho, "%") })}${this._fallbackSuffix(a.outdoor_humidity_source)}`,
           a.source_humidity_outside,
           lbT(this._hass, "metric.outdoor_humidity_open")
         ),
@@ -476,14 +482,14 @@ class LueftungsberaterCard extends HTMLElement {
 
       if (ahi !== null && aho !== null) {
         html += ` · ${this._metric(
-          lbT(this._hass, "metric.inside", { value: `${ahi} g/m³` }),
+          lbT(this._hass, "metric.inside", { value: this._valueUnit(ahi, "g/m³") }),
           a.source_absolute_humidity_inside,
           lbT(this._hass, "metric.absolute_humidity_open")
-        )} · ${lbT(this._hass, "metric.outside", { value: `${aho} g/m³` })}`;
+        )} · ${lbT(this._hass, "metric.outside", { value: this._valueUnit(aho, "g/m³") })}`;
       }
 
       if (diff !== null) {
-        html += ` · Δ ${diff} g/m³`;
+        html += ` · Δ ${this._valueUnit(diff, "g/m³")}`;
       }
 
       rows.push({
@@ -497,7 +503,7 @@ class LueftungsberaterCard extends HTMLElement {
     if (a.has_co2 === true) {
       if (co2ppm !== null) {
         let co2Text = `CO₂: ${this._metric(
-          `${co2ppm} ppm`,
+          this._valueUnit(co2ppm, "ppm"),
           a.source_co2,
           lbT(this._hass, "co2.history")
         )} · ${this._escape(this._co2Label(a.co2_status))}`;
