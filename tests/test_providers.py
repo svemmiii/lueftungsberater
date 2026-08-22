@@ -153,6 +153,7 @@ def test_pouring_is_rain_but_not_automatically_weather_danger():
     assert result.rain_now is True
     assert result.weather_danger is False
     assert result.weather_caution is False
+    assert result.weather_reason_key == "weather_heavy_rain_current"
 
 
 def test_dwd_level_2_warning_is_caution_not_red_danger():
@@ -175,6 +176,7 @@ def test_dwd_level_2_warning_is_caution_not_red_danger():
     result = _evaluate_dwd_warning_entities(hass, [entity])
     assert result.weather_caution is True
     assert result.weather_danger is False
+    assert result.weather_reason_key == "weather_heavy_rain_caution"
 
 
 def test_dwd_level_3_warning_is_red_danger():
@@ -197,6 +199,7 @@ def test_dwd_level_3_warning_is_red_danger():
     result = _evaluate_dwd_warning_entities(hass, [entity])
     assert result.weather_danger is True
     assert result.weather_caution is False
+    assert result.weather_reason_key == "weather_heavy_rain_danger"
 
 
 
@@ -223,6 +226,7 @@ def test_dwd_uses_level_of_relevant_warning_not_sensor_maximum():
     result = _evaluate_dwd_warning_entities(hass, [entity])
     assert result.weather_caution is True
     assert result.weather_danger is False
+    assert result.weather_reason_key == "weather_heavy_rain_caution"
 
 def test_generic_moderate_weather_warning_is_caution():
     from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
@@ -242,6 +246,7 @@ def test_generic_moderate_weather_warning_is_caution():
     result = _evaluate_nina_like_entities(hass, [entity])
     assert result.weather_caution is True
     assert result.weather_danger is False
+    assert result.weather_reason_key == "weather_heavy_rain_caution"
 
 
 def test_generic_severe_weather_warning_is_danger():
@@ -262,3 +267,4 @@ def test_generic_severe_weather_warning_is_danger():
     result = _evaluate_nina_like_entities(hass, [entity])
     assert result.weather_danger is True
     assert result.weather_caution is False
+    assert result.weather_reason_key == "weather_heavy_rain_danger"

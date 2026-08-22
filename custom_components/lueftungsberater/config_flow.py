@@ -8,6 +8,8 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry, ConfigSubentryFlow
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import UnitOfTemperature
+from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.data_entry_flow import SectionConfig, section
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
@@ -64,7 +66,7 @@ def _warning_source_options(
     options: list[SelectOptionDict] = [
         SelectOptionDict(
             value=WARNING_SOURCE_NONE,
-            label="Kein Warndienst",
+            label=WARNING_SOURCE_NONE,
         )
     ]
 
@@ -123,6 +125,7 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                 SelectSelectorConfig(
                     options=_warning_source_options(hass),
                     mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="warning_source",
                 )
             ),
             vol.Optional(CONF_MANUAL_OUTDOOR): section(
@@ -138,30 +141,69 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
     )
 
 
-ROOM_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_ROOM_NAME): TextSelector(TextSelectorConfig()),
-        vol.Required(CONF_INDOOR_TEMP): _entity("sensor"),
-        vol.Required(CONF_INDOOR_HUMIDITY): _entity("sensor"),
-        vol.Optional(CONF_CO2): _entity("sensor"),
-        vol.Optional(CONF_WINDOWS): _entity(
-            "binary_sensor",
-            multiple=True,
-        ),
-        vol.Optional(CONF_CLIMATE): _entity("climate"),
-        vol.Optional(
-            CONF_TARGET_TEMP,
-            default=DEFAULT_TARGET_TEMP,
-        ): NumberSelector(
-            NumberSelectorConfig(
-                min=5,
-                max=35,
-                step=0.5,
-                mode=NumberSelectorMode.BOX,
-            )
-        ),
-    }
-)
+def _display_temperature(hass: HomeAssistant, value_c: float) -> float:
+    unit = str(hass.config.units.temperature_unit)
+    if unit == UnitOfTemperature.CELSIUS:
+        return value_c
+    return float(TemperatureConverter.convert(value_c, UnitOfTemperature.CELSIUS, unit))
+
+
+def _stored_temperature(hass: HomeAssistant, value: Any) -> float:
+    """Normalize a config-flow target temperature to stored Celsius."""
+    number = float(value)
+    unit = str(hass.config.units.temperature_unit)
+    if unit == UnitOfTemperature.CELSIUS:
+        return number
+    return float(TemperatureConverter.convert(number, unit, UnitOfTemperature.CELSIUS))
+
+
+def _room_schema(hass: HomeAssistant) -> vol.Schema:
+    unit = str(hass.config.units.temperature_unit)
+    min_value = _display_temperature(hass, 5.0)
+    max_value = _display_temperature(hass, 35.0)
+    default_value = _display_temperature(hass, DEFAULT_TARGET_TEMP)
+    step = 0.5 if unit == UnitOfTemperature.CELSIUS else 1.0
+    if unit != UnitOfTemperature.CELSIUS:
+        default_value = round(default_value)
+
+    return vol.Schema(
+        {
+            vol.Required(CONF_ROOM_NAME): TextSelector(TextSelectorConfig()),
+            vol.Required(CONF_INDOOR_TEMP): _entity("sensor"),
+            vol.Required(CONF_INDOOR_HUMIDITY): _entity("sensor"),
+            vol.Optional(CONF_CO2): _entity("sensor"),
+            vol.Optional(CONF_WINDOWS): _entity(
+                "binary_sensor",
+                multiple=True,
+            ),
+            vol.Optional(CONF_CLIMATE): _entity("climate"),
+            vol.Optional(
+                CONF_TARGET_TEMP,
+                default=default_value,
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=min_value,
+                    max=max_value,
+                    step=step,
+                    mode=NumberSelectorMode.BOX,
+                    unit_of_measurement=unit,
+                )
+            ),
+        }
+    )
+
+
+def _normalize_room_input(
+    hass: HomeAssistant,
+    user_input: dict[str, Any],
+) -> dict[str, Any]:
+    data = dict(user_input)
+    if CONF_TARGET_TEMP in data:
+        data[CONF_TARGET_TEMP] = _stored_temperature(
+            hass, data[CONF_TARGET_TEMP]
+        )
+    return data
+
 
 
 class LueftungsberaterConfigFlow(
@@ -254,14 +296,15 @@ class RoomSubentryFlow(ConfigSubentryFlow):
     ):
         if user_input is not None:
             name = user_input[CONF_ROOM_NAME].strip()
+            data = _normalize_room_input(self.hass, user_input)
             return self.async_create_entry(
                 title=name,
-                data=user_input,
+                data=data,
                 unique_id=name.casefold(),
             )
         return self.async_show_form(
             step_id="user",
-            data_schema=ROOM_SCHEMA,
+            data_schema=_room_schema(self.hass),
         )
 
     async def async_step_reconfigure(
@@ -273,16 +316,22 @@ class RoomSubentryFlow(ConfigSubentryFlow):
 
         if user_input is not None:
             name = user_input[CONF_ROOM_NAME].strip()
+            data = _normalize_room_input(self.hass, user_input)
             return self.async_update_and_abort(
                 entry,
                 subentry,
                 title=name,
-                data=user_input,
+                data=data,
             )
 
+        defaults = dict(subentry.data)
+        if CONF_TARGET_TEMP in defaults:
+            defaults[CONF_TARGET_TEMP] = _display_temperature(
+                self.hass, float(defaults[CONF_TARGET_TEMP])
+            )
         schema = self.add_suggested_values_to_schema(
-            ROOM_SCHEMA,
-            dict(subentry.data),
+            _room_schema(self.hass),
+            defaults,
         )
         return self.async_show_form(
             step_id="reconfigure",

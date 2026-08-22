@@ -37,6 +37,10 @@ class LueftungsberaterRoomEntity(
             identifiers={(DOMAIN, self.subentry.subentry_id)},
             name=f"Lüftungsberater {self.subentry.title}",
             manufacturer="Lüftungsberater",
-            model="Raum-Lüftungsberater",
-            sw_version="0.6.7",
+            model=(
+                "Raum-Lüftungsberater"
+                if str(self.hass.config.language).lower().startswith("de")
+                else "Room ventilation advisor"
+            ),
+            sw_version="0.6.8",
         )

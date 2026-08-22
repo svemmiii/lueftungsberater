@@ -1,3 +1,174 @@
+const LB_I18N = {
+  de: {
+    "recommendation.open_now": "Jetzt lüften",
+    "recommendation.keep_open": "Weiter lüften",
+    "recommendation.can_close": "Lüften kann beendet werden",
+    "recommendation.short_observation": "Nur kurz lüften und im Blick behalten",
+    "recommendation.better_close": "Besser schließen",
+    "recommendation.caution_keep_closed": "Vorsicht – lieber geschlossen lassen",
+    "recommendation.keep_closed": "Geschlossen lassen",
+    "recommendation.close_now": "Jetzt schließen",
+    "recommendation.wait": "Besser noch etwas warten",
+    "co2.very_good": "sehr gut",
+    "co2.good": "gut",
+    "co2.elevated": "erhöht",
+    "co2.high": "hoch",
+    "co2.critical": "kritisch",
+    "co2.unknown": "unbekannt",
+    "weather_service": "Wetterdienst",
+    "history_open": "Verlauf öffnen",
+    "setup.title": "Raum auswählen",
+    "setup.description": "Wähle im visuellen Editor einen Lüftungsberater-Raum aus.",
+    "entity_missing": "Entity {entity} nicht gefunden.",
+    "window.open_since": "Fenster / Tür gerade offen · seit {minutes} Min.",
+    "window.open": "Fenster / Tür gerade offen",
+    "airing.open": "Lüftung öffnen",
+    "airing.last": "Letzte bestätigte Lüftung: vor {hours} h",
+    "airing.history": "Lüftungsverlauf öffnen",
+    "airing.none": "Noch keine bestätigte Lüftung erfasst",
+    "metric.inside": "{value} innen",
+    "metric.outside": "{value} außen",
+    "metric.target": "{value} Soll",
+    "metric.temperature": "Temperatur",
+    "metric.humidity": "Luftfeuchte",
+    "metric.indoor_temperature_open": "Innentemperatur öffnen",
+    "metric.outdoor_temperature_open": "Außentemperatur öffnen",
+    "metric.thermostat_open": "Thermostat öffnen",
+    "metric.indoor_humidity_open": "Innenfeuchte öffnen",
+    "metric.outdoor_humidity_open": "Außenfeuchte öffnen",
+    "metric.absolute_humidity_open": "Absolute Innenfeuchte öffnen",
+    "co2.history": "CO₂-Verlauf öffnen",
+    "co2.grace": "Sensor kurz nicht verfügbar, letzter gültiger Wert",
+    "co2.unavailable": "CO₂-Sensor nicht verfügbar · Bewertung vorübergehend ohne CO₂",
+    "co2.open": "CO₂-Sensor öffnen",
+    "warning.open": "Warn-/Quelldaten öffnen",
+    "why": "Warum diese Empfehlung?",
+    "duration": "⏱️ Empfohlene Lüftungsdauer:",
+    "hint": "Messwerte antippen für Verlauf · Karte antippen für Details",
+    "picker.room.name": "Lüftungsberater – Raum",
+    "picker.room.description": "Detaillierte Lüftungsempfehlung für einen einzelnen Raum.",
+    "overview.invalid_entities": "entities muss eine Liste von Entity-IDs sein.",
+    "overview.no_rooms": "Keine Räume",
+    "overview.room": "Raum",
+    "overview.rooms": "Räume",
+    "overview.critical": "kritisch",
+    "overview.attention": "beachten",
+    "overview.all_good": "alles im grünen Bereich",
+    "overview.open": "offen",
+    "overview.no_reason": "Keine Begründung verfügbar",
+    "overview.empty_title": "Keine Lüftungsberater-Räume gefunden.",
+    "overview.empty_description": "Räume werden automatisch erkannt oder können per entities: angegeben werden.",
+    "picker.overview.name": "Lüftungsberater – Übersicht",
+    "picker.overview.description": "Kompakte Übersicht über alle oder ausgewählte Lüftungsberater-Räume.",
+    "editor.room": "Raum",
+    "editor.select_room": "Raum auswählen …",
+    "editor.card_name": "Kartenname (optional)",
+    "editor.card_name_placeholder": "z. B. Wohnzimmer",
+    "editor.room_hint": "Empfehlung, Farbe, Begründung und Messwerte werden automatisch übernommen.",
+    "editor.title": "Titel",
+    "editor.rooms": "Räume",
+    "editor.rooms_hint": "Sind alle angehakt, werden automatisch auch neue Räume aufgenommen."
+  },
+  en: {
+    "recommendation.open_now": "Ventilate now",
+    "recommendation.keep_open": "Keep ventilating",
+    "recommendation.can_close": "You can stop ventilating now",
+    "recommendation.short_observation": "Ventilate briefly and keep an eye on it",
+    "recommendation.better_close": "Better close the windows",
+    "recommendation.caution_keep_closed": "Better keep the windows closed for now",
+    "recommendation.keep_closed": "Keep the windows closed",
+    "recommendation.close_now": "Close the windows now",
+    "recommendation.wait": "Better wait a little longer",
+    "co2.very_good": "very good",
+    "co2.good": "good",
+    "co2.elevated": "elevated",
+    "co2.high": "high",
+    "co2.critical": "critical",
+    "co2.unknown": "unknown",
+    "weather_service": "weather service",
+    "history_open": "Open history",
+    "setup.title": "Select a room",
+    "setup.description": "Choose a Ventilation Advisor room in the visual editor.",
+    "entity_missing": "Entity {entity} was not found.",
+    "window.open_since": "Window / door is open · for {minutes} min",
+    "window.open": "Window / door is open",
+    "airing.open": "Open ventilation details",
+    "airing.last": "Last confirmed ventilation: {hours} h ago",
+    "airing.history": "Open ventilation history",
+    "airing.none": "No confirmed ventilation has been recorded yet",
+    "metric.inside": "{value} indoors",
+    "metric.outside": "{value} outside",
+    "metric.target": "{value} target",
+    "metric.temperature": "Temperature",
+    "metric.humidity": "Humidity",
+    "metric.indoor_temperature_open": "Open indoor temperature",
+    "metric.outdoor_temperature_open": "Open outdoor temperature",
+    "metric.thermostat_open": "Open thermostat",
+    "metric.indoor_humidity_open": "Open indoor humidity",
+    "metric.outdoor_humidity_open": "Open outdoor humidity",
+    "metric.absolute_humidity_open": "Open indoor absolute humidity",
+    "co2.history": "Open CO₂ history",
+    "co2.grace": "Sensor briefly unavailable, using the last valid value",
+    "co2.unavailable": "CO₂ sensor unavailable · assessment temporarily continues without CO₂",
+    "co2.open": "Open CO₂ sensor",
+    "warning.open": "Open warning / source data",
+    "why": "Why this recommendation?",
+    "duration": "⏱️ Recommended ventilation time:",
+    "hint": "Tap a value for its history · tap the card for details",
+    "picker.room.name": "Ventilation Advisor – Room",
+    "picker.room.description": "Detailed ventilation recommendation for a single room.",
+    "overview.invalid_entities": "entities must be a list of entity IDs.",
+    "overview.no_rooms": "No rooms",
+    "overview.room": "room",
+    "overview.rooms": "rooms",
+    "overview.critical": "critical",
+    "overview.attention": "need attention",
+    "overview.all_good": "all looking good",
+    "overview.open": "open",
+    "overview.no_reason": "No explanation available",
+    "overview.empty_title": "No Ventilation Advisor rooms found.",
+    "overview.empty_description": "Rooms are discovered automatically or can be specified with entities:.",
+    "picker.overview.name": "Ventilation Advisor – Overview",
+    "picker.overview.description": "Compact overview of all or selected Ventilation Advisor rooms.",
+    "editor.room": "Room",
+    "editor.select_room": "Select a room …",
+    "editor.card_name": "Card name (optional)",
+    "editor.card_name_placeholder": "e.g. Living room",
+    "editor.room_hint": "Recommendation, color, explanation, and measurements are filled in automatically.",
+    "editor.title": "Title",
+    "editor.rooms": "Rooms",
+    "editor.rooms_hint": "When all are selected, newly added rooms are included automatically as well."
+  }
+};
+
+function lbLanguage(hass) {
+  const raw = (
+    hass?.language ||
+    document.documentElement?.lang ||
+    navigator.language ||
+    "en"
+  ).toLowerCase();
+  return raw.startsWith("de") ? "de" : "en";
+}
+
+function lbLocale(hass) {
+  return lbLanguage(hass) === "de" ? "de-DE" : "en-US";
+}
+
+function lbT(hass, key, values = {}) {
+  const lang = lbLanguage(hass);
+  let text = LB_I18N[lang]?.[key] ?? LB_I18N.en[key] ?? key;
+  for (const [name, value] of Object.entries(values)) {
+    text = text.replaceAll(`{${name}}`, String(value));
+  }
+  return text;
+}
+
+function lbLocalizedEntityText(hass, attributes, field, fallback = "") {
+  const lang = lbLanguage(hass);
+  return attributes?.localized_texts?.[lang]?.[field] || fallback;
+}
+
 class LueftungsberaterCard extends HTMLElement {
   constructor() {
     super();
@@ -30,67 +201,15 @@ class LueftungsberaterCard extends HTMLElement {
   }
 
   _localizeState(state) {
-    const de = {
-      open_now: "Jetzt lüften",
-      keep_open: "Weiter lüften",
-      can_close: "Lüften kann beendet werden",
-      short_observation: "Nur kurz unter Beobachtung",
-      better_close: "Besser schließen",
-      caution_keep_closed: "Vorsicht – lieber geschlossen lassen",
-      keep_closed: "Geschlossen lassen",
-      close_now: "Jetzt schließen",
-      wait: "Noch nicht nötig / besser warten",
-    };
-    const en = {
-      open_now: "Ventilate now",
-      keep_open: "Keep ventilating",
-      can_close: "Ventilation can be stopped",
-      short_observation: "Briefly, under observation",
-      better_close: "Better close",
-      caution_keep_closed: "Caution – better keep closed",
-      keep_closed: "Keep closed",
-      close_now: "Close now",
-      wait: "Not needed yet / better wait",
-    };
-    const lang = (this._hass?.language || "de").toLowerCase();
-    return (lang.startsWith("de") ? de : en)[state] || state;
+    return lbT(this._hass, `recommendation.${state}`);
   }
 
   _co2Label(status) {
-    const de = {
-      very_good: "sehr gut",
-      good: "gut",
-      elevated: "erhöht",
-      high: "hoch",
-      critical: "kritisch",
-      unknown: "unbekannt",
-    };
-    const en = {
-      very_good: "very good",
-      good: "good",
-      elevated: "elevated",
-      high: "high",
-      critical: "critical",
-      unknown: "unknown",
-    };
-    const lang = (this._hass?.language || "de").toLowerCase();
-    return (lang.startsWith("de") ? de : en)[status] || status;
+    return lbT(this._hass, `co2.${status}`);
   }
 
   _durationText(duration) {
-    if (!duration) return null;
-
-    if (
-      duration ===
-      "15–30 Minuten bzw. solange draußen günstiger bleibt"
-    ) {
-      return (
-        "15–30 Minuten. Länger lüften, solange die Außenluft " +
-        "weiterhin zum Abkühlen geeignet ist."
-      );
-    }
-
-    return duration;
+    return duration || null;
   }
 
   _statusMeta(status) {
@@ -109,7 +228,10 @@ class LueftungsberaterCard extends HTMLElement {
     }
     const n = Number(value);
     return Number.isFinite(n)
-      ? n.toFixed(digits).replace(".", ",")
+      ? new Intl.NumberFormat(lbLocale(this._hass), {
+          minimumFractionDigits: digits,
+          maximumFractionDigits: digits,
+        }).format(n)
       : null;
   }
 
@@ -126,15 +248,15 @@ class LueftungsberaterCard extends HTMLElement {
 
   _fallbackSuffix(sourceKind) {
     if (sourceKind !== "weather_fallback") return "";
-    const lang = (this._hass?.language || "de").toLowerCase();
-    return lang.startsWith("de") ? " · Wetterdienst" : " · weather service";
+    return ` · ${lbT(this._hass, "weather_service")}`;
   }
 
   _entityExists(entityId) {
     return Boolean(entityId && this._hass?.states?.[entityId]);
   }
 
-  _metric(text, entityId, title = "Verlauf öffnen") {
+  _metric(text, entityId, title = null) {
+    title = title || lbT(this._hass, "history_open");
     const escaped = this._escape(text);
     if (!this._entityExists(entityId)) {
       return `<span>${escaped}</span>`;
@@ -213,8 +335,8 @@ class LueftungsberaterCard extends HTMLElement {
         </style>
         <ha-card>
           <div class="setup">
-            <strong>Raum auswählen</strong>
-            <span>Wähle im visuellen Editor einen Lüftungsberater-Raum aus.</span>
+            <strong>${lbT(this._hass, "setup.title")}</strong>
+            <span>${lbT(this._hass, "setup.description")}</span>
           </div>
         </ha-card>`;
       return;
@@ -225,7 +347,7 @@ class LueftungsberaterCard extends HTMLElement {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="error">
-            Entity ${this._escape(this._config.entity)} nicht gefunden.
+            ${this._escape(lbT(this._hass, "entity_missing", { entity: this._config.entity }))}
           </div>
         </ha-card>`;
       return;
@@ -234,11 +356,13 @@ class LueftungsberaterCard extends HTMLElement {
     const a = st.attributes || {};
     const status = a.status || "yellow";
     const meta = this._statusMeta(status);
-    const recommendation =
-      a.recommendation || this._localizeState(st.state);
-    const reason = a.reason || "";
-    const duration = a.duration;
-    const durationText = this._durationText(duration);
+    const recommendation = lbLocalizedEntityText(
+      this._hass, a, "recommendation", a.recommendation || this._localizeState(st.state)
+    );
+    const reason = lbLocalizedEntityText(this._hass, a, "reason", a.reason || "");
+    const durationText = lbLocalizedEntityText(
+      this._hass, a, "duration", a.duration || ""
+    );
     const title =
       this._config.name ||
       st.attributes.friendly_name ||
@@ -276,29 +400,29 @@ class LueftungsberaterCard extends HTMLElement {
       if (windowOpen) {
         const label =
           openMinutes !== null
-            ? `Fenster / Tür gerade offen · seit ${openMinutes} Min.`
-            : "Fenster / Tür gerade offen";
+            ? lbT(this._hass, "window.open_since", { minutes: openMinutes })
+            : lbT(this._hass, "window.open");
         rows.push({
           icon: "mdi:window-open-variant",
           cls: "window-open",
-          html: this._metric(label, airingSource, "Lüftung öffnen"),
+          html: this._metric(label, airingSource, lbT(this._hass, "airing.open")),
         });
       } else if (hours !== null) {
         rows.push({
           icon: "mdi:history",
           html: this._metric(
-            `Letzte bestätigte Lüftung: vor ${hours} h`,
+            lbT(this._hass, "airing.last", { hours }),
             a.source_last_airing || airingSource,
-            "Lüftungsverlauf öffnen"
+            lbT(this._hass, "airing.history")
           ),
         });
       } else {
         rows.push({
           icon: "mdi:history",
           html: this._metric(
-            "Noch keine bestätigte Lüftung erfasst",
+            lbT(this._hass, "airing.none"),
             airingSource,
-            "Lüftung öffnen"
+            lbT(this._hass, "airing.open")
           ),
         });
       }
@@ -307,55 +431,55 @@ class LueftungsberaterCard extends HTMLElement {
     if (ti !== null && ta !== null) {
       const parts = [
         this._metric(
-          `${ti} ${tempUnit} innen`,
+          lbT(this._hass, "metric.inside", { value: `${ti} ${tempUnit}` }),
           a.source_temperature_inside,
-          "Innentemperatur öffnen"
+          lbT(this._hass, "metric.indoor_temperature_open")
         ),
         this._metric(
-          `${ta} ${tempUnit} außen${this._fallbackSuffix(a.outdoor_temperature_source)}`,
+          `${lbT(this._hass, "metric.outside", { value: `${ta} ${tempUnit}` })}${this._fallbackSuffix(a.outdoor_temperature_source)}`,
           a.source_temperature_outside,
-          "Außentemperatur öffnen"
+          lbT(this._hass, "metric.outdoor_temperature_open")
         ),
       ];
 
       if (target !== null) {
         parts.push(
           this._metric(
-            `${target} ${tempUnit} Soll`,
+            lbT(this._hass, "metric.target", { value: `${target} ${tempUnit}` }),
             a.source_target_temperature,
-            "Thermostat öffnen"
+            lbT(this._hass, "metric.thermostat_open")
           )
         );
       }
 
       rows.push({
         icon: "mdi:thermometer",
-        html: `Temperatur: ${parts.join(" · ")}`,
+        html: `${lbT(this._hass, "metric.temperature")}: ${parts.join(" · ")}`,
       });
     }
 
     if (hi !== null && ho !== null) {
       const rh = [
         this._metric(
-          `${hi} % innen`,
+          lbT(this._hass, "metric.inside", { value: `${hi} %` }),
           a.source_humidity_inside,
-          "Innenfeuchte öffnen"
+          lbT(this._hass, "metric.indoor_humidity_open")
         ),
         this._metric(
-          `${ho} % außen${this._fallbackSuffix(a.outdoor_humidity_source)}`,
+          `${lbT(this._hass, "metric.outside", { value: `${ho} %` })}${this._fallbackSuffix(a.outdoor_humidity_source)}`,
           a.source_humidity_outside,
-          "Außenfeuchte öffnen"
+          lbT(this._hass, "metric.outdoor_humidity_open")
         ),
       ];
 
-      let html = `Luftfeuchte: ${rh.join(" · ")}`;
+      let html = `${lbT(this._hass, "metric.humidity")}: ${rh.join(" · ")}`;
 
       if (ahi !== null && aho !== null) {
         html += ` · ${this._metric(
-          `${ahi} g/m³ innen`,
+          lbT(this._hass, "metric.inside", { value: `${ahi} g/m³` }),
           a.source_absolute_humidity_inside,
-          "Absolute Innenfeuchte öffnen"
-        )} · ${aho} g/m³ außen`;
+          lbT(this._hass, "metric.absolute_humidity_open")
+        )} · ${lbT(this._hass, "metric.outside", { value: `${aho} g/m³` })}`;
       }
 
       if (diff !== null) {
@@ -375,12 +499,11 @@ class LueftungsberaterCard extends HTMLElement {
         let co2Text = `CO₂: ${this._metric(
           `${co2ppm} ppm`,
           a.source_co2,
-          "CO₂-Verlauf öffnen"
+          lbT(this._hass, "co2.history")
         )} · ${this._escape(this._co2Label(a.co2_status))}`;
 
         if (co2DataStatus === "grace") {
-          co2Text +=
-            " · Sensor kurz nicht verfügbar, letzter gültiger Wert";
+          co2Text += ` · ${lbT(this._hass, "co2.grace")}`;
         }
 
         rows.push({
@@ -393,24 +516,21 @@ class LueftungsberaterCard extends HTMLElement {
           icon: "mdi:molecule-co2-off",
           cls: "data-warning",
           html: this._metric(
-            "CO₂-Sensor nicht verfügbar · Bewertung vorübergehend ohne CO₂",
+            lbT(this._hass, "co2.unavailable"),
             a.source_co2,
-            "CO₂-Sensor öffnen"
+            lbT(this._hass, "co2.open")
           ),
         });
       }
     }
 
-    const showDuration =
-      durationText &&
-      durationText !== "Jetzt nicht nötig" &&
-      durationText !== "Not needed now";
+    const showDuration = Boolean(durationText) && a.duration_key !== "not_needed";
 
     const reasonHtml = reason
       ? this._metric(
           reason,
           this._reasonSource(a),
-          "Warn-/Quelldaten öffnen"
+          lbT(this._hass, "warning.open")
         )
       : "";
 
@@ -620,7 +740,7 @@ class LueftungsberaterCard extends HTMLElement {
           ${
             reason
               ? `
-                <div class="why">Warum diese Empfehlung?</div>
+                <div class="why">${lbT(this._hass, "why")}</div>
                 <div class="reason">${reasonHtml}</div>
               `
               : ""
@@ -630,7 +750,7 @@ class LueftungsberaterCard extends HTMLElement {
             showDuration
               ? `
                 <div class="duration">
-                  <span class="duration-label">⏱️ Empfohlene Lüftungsdauer:</span>
+                  <span class="duration-label">${lbT(this._hass, "duration")}</span>
                   <span>${this._escape(durationText)}</span>
                 </div>`
               : ""
@@ -655,7 +775,7 @@ class LueftungsberaterCard extends HTMLElement {
           }
 
           <div class="hint">
-            Messwerte antippen für Verlauf · Karte antippen für Details
+            ${lbT(this._hass, "hint")}
           </div>
         </div>
       </ha-card>`;
@@ -696,9 +816,8 @@ window.customCards = window.customCards || [];
 if (!window.customCards.some((card) => card.type === "lueftungsberater-card")) {
   window.customCards.push({
     type: "lueftungsberater-card",
-    name: "Lüftungsberater – Raum",
-    description:
-      "Detaillierte Lüftungsempfehlung für einen einzelnen Raum.",
+    name: lbT(null, "picker.room.name"),
+    description: lbT(null, "picker.room.description"),
     preview: false,
     getEntitySuggestion: (hass, entityId) => {
       const stateObj = hass.states[entityId];
@@ -737,7 +856,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       this._config.entities !== undefined &&
       !Array.isArray(this._config.entities)
     ) {
-      throw new Error("entities muss eine Liste von Entity-IDs sein.");
+      throw new Error(lbT(this._hass, "overview.invalid_entities"));
     }
 
     this._render();
@@ -767,34 +886,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   _localizeRecommendation(state, fallback) {
-    if (fallback) return fallback;
-
-    const de = {
-      open_now: "Jetzt lüften",
-      keep_open: "Weiter lüften",
-      can_close: "Lüften kann beendet werden",
-      short_observation: "Nur kurz unter Beobachtung",
-      better_close: "Besser schließen",
-      caution_keep_closed: "Vorsicht – lieber geschlossen lassen",
-      keep_closed: "Geschlossen lassen",
-      close_now: "Jetzt schließen",
-      wait: "Noch nicht nötig / besser warten",
-    };
-
-    const en = {
-      open_now: "Ventilate now",
-      keep_open: "Keep ventilating",
-      can_close: "Ventilation can be stopped",
-      short_observation: "Briefly, under observation",
-      better_close: "Better close",
-      caution_keep_closed: "Caution – better keep closed",
-      keep_closed: "Keep closed",
-      close_now: "Close now",
-      wait: "Not needed yet / better wait",
-    };
-
-    const lang = (this._hass?.language || "de").toLowerCase();
-    return (lang.startsWith("de") ? de : en)[state] || state;
+    return fallback || lbT(this._hass, `recommendation.${state}`);
   }
 
   _statusMeta(status) {
@@ -878,11 +970,13 @@ class LueftungsberaterOverviewCard extends HTMLElement {
           entityId,
           index,
           name: this._roomName(stateObj),
-          recommendation: this._localizeRecommendation(
-            stateObj.state,
-            a.recommendation
+          recommendation: lbLocalizedEntityText(
+            this._hass,
+            a,
+            "recommendation",
+            this._localizeRecommendation(stateObj.state, a.recommendation)
           ),
-          reason: a.reason || "",
+          reason: lbLocalizedEntityText(this._hass, a, "reason", a.reason || ""),
           status: a.status,
           rank: meta.rank,
           cls: meta.cls,
@@ -923,17 +1017,19 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   _summary(rooms) {
-    if (!rooms.length) return "Keine Räume";
+    if (!rooms.length) return lbT(this._hass, "overview.no_rooms");
 
     const red = rooms.filter((room) => room.status === "red").length;
     const yellow = rooms.filter((room) => room.status === "yellow").length;
     const green = rooms.filter((room) => room.status === "green").length;
 
-    const parts = [`${rooms.length} ${rooms.length === 1 ? "Raum" : "Räume"}`];
+    const parts = [
+      `${rooms.length} ${lbT(this._hass, rooms.length === 1 ? "overview.room" : "overview.rooms")}`
+    ];
 
-    if (red) parts.push(`${red} kritisch`);
-    if (yellow) parts.push(`${yellow} beachten`);
-    if (green && !red && !yellow) parts.push("alles im grünen Bereich");
+    if (red) parts.push(`${red} ${lbT(this._hass, "overview.critical")}`);
+    if (yellow) parts.push(`${yellow} ${lbT(this._hass, "overview.attention")}`);
+    if (green && !red && !yellow) parts.push(lbT(this._hass, "overview.all_good"));
 
     return parts.join(" · ");
   }
@@ -961,13 +1057,13 @@ class LueftungsberaterOverviewCard extends HTMLElement {
           .map((room) => {
             const secondary = room.reason
               ? room.reason
-              : "Keine Begründung verfügbar";
+              : lbT(this._hass, "overview.no_reason");
 
             const windowBadge = room.windowOpen
               ? `
                 <span class="badge">
                   <ha-icon icon="mdi:window-open-variant"></ha-icon>
-                  offen
+                  ${lbT(this._hass, "overview.open")}
                 </span>
               `
               : "";
@@ -1009,11 +1105,8 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         <div class="empty">
           <ha-icon icon="mdi:home-search-outline"></ha-icon>
           <div>
-            <strong>Keine Lüftungsberater-Räume gefunden.</strong>
-            <span>
-              Räume werden automatisch erkannt oder können per
-              <code>entities:</code> angegeben werden.
-            </span>
+            <strong>${lbT(this._hass, "overview.empty_title")}</strong>
+            <span>${lbT(this._hass, "overview.empty_description")}</span>
           </div>
         </div>
       `;
@@ -1283,9 +1376,8 @@ if (
 ) {
   window.customCards.push({
     type: "lueftungsberater-overview-card",
-    name: "Lüftungsberater – Übersicht",
-    description:
-      "Kompakte Übersicht über alle oder ausgewählte Lüftungsberater-Räume.",
+    name: lbT(null, "picker.overview.name"),
+    description: lbT(null, "picker.overview.description"),
     preview: false,
   });
 }
@@ -1390,9 +1482,9 @@ class LueftungsberaterCardEditor extends HTMLElement {
 
       <div class="editor">
         <label>
-          Raum
+          ${lbT(this._hass, "editor.room")}
           <select id="entity">
-            <option value="">Raum auswählen …</option>
+            <option value="">${lbT(this._hass, "editor.select_room")}</option>
             ${entities.map((stateObj) => `
               <option
                 value="${this._escape(stateObj.entity_id)}"
@@ -1403,17 +1495,17 @@ class LueftungsberaterCardEditor extends HTMLElement {
         </label>
 
         <label>
-          Kartenname (optional)
+          ${lbT(this._hass, "editor.card_name")}
           <input
             id="name"
             type="text"
             value="${this._escape(this._config.name || "")}"
-            placeholder="z. B. Wohnzimmer"
+            placeholder="${this._escape(lbT(this._hass, "editor.card_name_placeholder"))}"
           />
         </label>
 
         <div class="hint">
-          Empfehlung, Farbe, Begründung und Messwerte werden automatisch übernommen.
+          ${lbT(this._hass, "editor.room_hint")}
         </div>
       </div>
     `;
@@ -1533,7 +1625,7 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
 
       <div class="editor">
         <label class="title">
-          Titel
+          ${lbT(this._hass, "editor.title")}
           <input
             id="title"
             type="text"
@@ -1542,8 +1634,8 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
         </label>
 
         <div>
-          <strong>Räume</strong>
-          <div class="hint">Sind alle angehakt, werden automatisch auch neue Räume aufgenommen.</div>
+          <strong>${lbT(this._hass, "editor.rooms")}</strong>
+          <div class="hint">${lbT(this._hass, "editor.rooms_hint")}</div>
         </div>
 
         <div class="rooms">

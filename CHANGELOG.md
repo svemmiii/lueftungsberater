@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.8
+- Vollständige natürliche Laufzeit-Lokalisierung für Deutsch und Englisch ergänzt. Empfehlungen und Begründungen werden nicht wortwörtlich maschinell übersetzt, sondern pro Sprache eigenständig formuliert.
+- Die Entscheidungsengine liefert jetzt sprachneutrale Bedeutungs-Keys und Messwerte; die Formulierung erfolgt erst in einer eigenen Lokalisierungsschicht.
+- Die Raum- und Übersichtskarten richten sich nach der Sprache des aktuell angemeldeten Home-Assistant-Benutzers. Backend-Attribute verwenden die Home-Assistant-Systemsprache.
+- Karten, visuelle Editoren, Status-, Messwert-, Fallback- und Hinweistexte vollständig auf Deutsch und Englisch lokalisiert.
+- Zahlen werden in der Karte passend zur Sprache formatiert.
+- Die Fallback-Solltemperatur im Einrichtungsdialog folgt jetzt dem Home-Assistant-Einheitensystem (°C/°F); intern wird weiterhin einheitlich in °C gerechnet.
+- Eigene, natürlich formulierte Warnbegründungen für Starkregen, Dauerregen, Gewitter, Hagel, Sturm/Wind sowie Luft-/Rauchwarnungen ergänzt.
+- Originaltexte externer Warnanbieter werden nicht automatisch übersetzt oder verfälscht; sie bleiben separat als `original_warning_text` erhalten.
+- Die Lüftungs-, Schwellen- und Farblogik wurde durch die Internationalisierung nicht verändert.
+
 ## 0.6.7
 - Warnlogik verfeinert: Regen bzw. der Weather-Zustand `pouring` ist nicht mehr automatisch Rot.
 - DWD-Wetterwarnungen werden anhand der Stufe der konkreten Einzelwarnung unterschieden: Stufe 1/2 und Vorabinformationen führen zu Gelb/Vorsicht, Stufe 3/4 zu Rot/Vermeiden.

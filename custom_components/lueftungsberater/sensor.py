@@ -24,19 +24,25 @@ from .const import (
 )
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
+from .localization import (
+    duration_text,
+    localized_bundle,
+    reason_text,
+    recommendation_text,
+)
 
 
-RECOMMENDATION_STATES = {
-    "Jetzt lüften": "open_now",
-    "Weiter lüften": "keep_open",
-    "Lüften kann beendet werden": "can_close",
-    "Nur kurz unter Beobachtung": "short_observation",
-    "Besser schließen": "better_close",
-    "Vorsicht – lieber geschlossen lassen": "caution_keep_closed",
-    "Geschlossen lassen": "keep_closed",
-    "Jetzt schließen": "close_now",
-    "Noch nicht nötig / besser warten": "wait",
-}
+RECOMMENDATION_STATES = [
+    "open_now",
+    "keep_open",
+    "can_close",
+    "short_observation",
+    "better_close",
+    "caution_keep_closed",
+    "keep_closed",
+    "close_now",
+    "wait",
+]
 
 
 async def async_setup_entry(
@@ -78,7 +84,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
     _attr_translation_key = "advisor"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = list(RECOMMENDATION_STATES.values())
+    _attr_options = RECOMMENDATION_STATES
 
     def __init__(self, entry, subentry, coordinator):
         super().__init__(entry, subentry, coordinator)
@@ -90,7 +96,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         result = self.snapshot.result if self.snapshot else None
         if result is None:
             return None
-        return RECOMMENDATION_STATES.get(result.recommendation, "wait")
+        return result.recommendation_key
 
     @property
     def icon(self) -> str:
@@ -132,13 +138,31 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             f"{self.subentry.subentry_id}_absolute_humidity",
         )
 
+        language = self.hass.config.language
+        temperature_unit = str(self.hass.config.units.temperature_unit)
+        texts = localized_bundle(
+            r.recommendation_key,
+            r.reason_key,
+            r.reason_args,
+            r.duration_key,
+            temperature_unit,
+        )
+
         return {
             "room_name": self.subentry.title,
             "status": r.color,
-            "recommendation": r.recommendation,
+            "recommendation": recommendation_text(r.recommendation_key, language),
+            "recommendation_key": r.recommendation_key,
             "mode": r.mode,
-            "reason": r.reason,
-            "duration": r.duration,
+            "reason": reason_text(
+                r.reason_key, r.reason_args, language, temperature_unit
+            ),
+            "reason_key": r.reason_key,
+            "reason_args": dict(r.reason_args),
+            "duration": duration_text(r.duration_key, language),
+            "duration_key": r.duration_key,
+            "localized_texts": texts,
+            "original_warning_text": r.original_reason,
             "co2_status": r.co2_status,
             "co2_data_status": values.get("co2_data_status", "not_configured"),
             "co2_ppm": (
@@ -150,9 +174,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "temperature_outside": values["temperature_outside"],
             "target_temperature": values["target_temperature"],
             "temperature_unit_internal": "°C",
-            "temperature_display_unit": str(
-                self.hass.config.units.temperature_unit
-            ),
+            "temperature_display_unit": temperature_unit,
             "humidity_inside": values["humidity_inside"],
             "humidity_outside": values["humidity_outside"],
             "absolute_humidity_inside": r.indoor_absolute_humidity,

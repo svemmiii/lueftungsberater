@@ -15,6 +15,7 @@ from .const import (
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
 from .runtime import warning_source_configured
+from .localization import reason_text
 
 
 async def async_setup_entry(
@@ -65,4 +66,15 @@ class RoomDangerBinarySensor(LueftungsberaterRoomEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self):
         result = self.snapshot.result if self.snapshot else None
-        return {"reason": result.reason} if result else {}
+        if not result:
+            return {}
+        return {
+            "reason": reason_text(
+                result.reason_key,
+                result.reason_args,
+                self.hass.config.language,
+                str(self.hass.config.units.temperature_unit),
+            ),
+            "reason_key": result.reason_key,
+            "original_warning_text": result.original_reason,
+        }

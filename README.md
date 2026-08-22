@@ -28,6 +28,9 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 - Detaillierte Raumkarte
 - Kompakte Mehrraumübersicht
 - Karten erscheinen im Home-Assistant-Kartenpicker
+- Natürliche Oberfläche und Empfehlungen auf Deutsch und Englisch
+- Dashboard-Karten folgen der Sprache des aktuell angemeldeten Home-Assistant-Benutzers
+- Unterstützung für Celsius- und Fahrenheit-Setups
 
 ## Voraussetzungen
 
@@ -91,6 +94,14 @@ Bei DWD Weather Warnings berücksichtigt Lüftungsberater die Warnstufe:
 - Stufe 3/4 (Unwetter / extremes Unwetter) → **Rot / geschlossen halten**
 
 Damit kann z. B. eine amtliche Starkregenwarnung der Stufe 2 vor dem Lüften warnen, ohne automatisch dieselbe Bewertung wie eine echte Unwetterwarnung zu erhalten.
+
+## Sprache und Einheiten
+
+Lüftungsberater unterstützt aktuell **Deutsch und Englisch**. Empfehlungen werden nicht als kurze technische Meldungen oder wortwörtliche Maschinenübersetzungen erzeugt, sondern für jede Sprache natürlich formuliert. Die Dashboard-Karten richten sich nach der Sprache des jeweils angemeldeten Home-Assistant-Benutzers; Backend-Attribute verwenden die Home-Assistant-Systemsprache. Nicht unterstützte Sprachen fallen aktuell auf Englisch zurück.
+
+Texte von externen Warnanbietern wie DWD oder NINA werden nicht automatisch übersetzt. Lüftungsberater erzeugt daraus eine eigene lokalisierte Begründung und bewahrt den Originaltext zusätzlich im Attribut `original_warning_text` auf.
+
+Temperaturwerte werden intern einheitlich in °C verarbeitet. Anzeige und Eingabe der Fallback-Solltemperatur folgen dem in Home Assistant eingestellten Einheitensystem, sodass auch Fahrenheit-Setups korrekt funktionieren.
 
 ## Dashboard
 

@@ -45,7 +45,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
-            "target_temperature": "Fallback target temperature (°C)"
+            "target_temperature": "Fallback target temperature"
           }
         },
         "reconfigure": {
@@ -57,7 +57,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
-            "target_temperature": "Fallback target temperature (°C)"
+            "target_temperature": "Fallback target temperature"
           }
         }
       },
@@ -70,15 +70,15 @@
     "sensor": {
       "advisor": {
         "state": {
-          "open_now": "Ventilate now",
-          "keep_open": "Keep ventilating",
-          "can_close": "Ventilation can end",
-          "short_observation": "Briefly, under observation",
-          "better_close": "Better close",
-          "caution_keep_closed": "Caution – better keep closed",
-          "keep_closed": "Keep closed",
-          "close_now": "Close now",
-          "wait": "Not needed yet / better wait"
+          "open_now": "Open the windows now",
+          "keep_open": "Keep the windows open a little longer",
+          "can_close": "You can close the windows now",
+          "short_observation": "Open the windows briefly and keep an eye on it",
+          "better_close": "Better close the windows",
+          "caution_keep_closed": "Better keep the windows closed for now",
+          "keep_closed": "Keep the windows closed",
+          "close_now": "Close the windows now",
+          "wait": "Better wait a little longer"
         }
       },
       "absolute_humidity": {
@@ -112,6 +112,13 @@
     "binary_sensor": {
       "critical_danger": {
         "name": "Critical danger"
+      }
+    }
+  },
+  "selector": {
+    "warning_source": {
+      "options": {
+        "none": "No warning service"
       }
     }
   }

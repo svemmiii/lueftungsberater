@@ -306,10 +306,14 @@ def build_room_snapshot(
 
     if warning_source_configured(entry):
         normalized_nina = warnings.nina_status
-        nina_reason = warnings.nina_reason
+        nina_reason_key = warnings.nina_reason_key
+        nina_reason_args = dict(warnings.nina_reason_args)
+        nina_original_reason = warnings.nina_original_reason
         provider_weather_caution = warnings.weather_caution
         provider_weather_danger = warnings.weather_danger
-        provider_weather_reason = warnings.weather_reason
+        provider_weather_reason_key = warnings.weather_reason_key
+        provider_weather_reason_args = dict(warnings.weather_reason_args)
+        provider_weather_original_reason = warnings.weather_original_reason
     else:
         nina_state = _text(hass, entry.data.get(CONF_NINA_STATUS)) or "none"
         normalized_nina = {
@@ -323,10 +327,14 @@ def build_room_snapshot(
             "none": "none",
             "off": "none",
         }.get(nina_state.lower(), "none")
-        nina_reason = None
+        nina_reason_key = None
+        nina_reason_args = {}
+        nina_original_reason = _text(hass, entry.data.get(CONF_NINA_STATUS))
         provider_weather_caution = False
         provider_weather_danger = False
-        provider_weather_reason = None
+        provider_weather_reason_key = None
+        provider_weather_reason_args = {}
+        provider_weather_original_reason = None
 
     legacy_weather_danger = _is_on(
         hass,
@@ -346,10 +354,19 @@ def build_room_snapshot(
         not weather_danger
         and (weather.weather_caution or provider_weather_caution)
     )
-    weather_reason = (
-        provider_weather_reason
+    weather_reason_key = (
+        provider_weather_reason_key
+        or weather.weather_reason_key
+    )
+    weather_reason_args = (
+        provider_weather_reason_args
+        if provider_weather_reason_key
+        else dict(weather.weather_reason_args)
+    )
+    weather_original_reason = (
+        provider_weather_original_reason
         or legacy_weather_reason
-        or weather.weather_reason
+        or weather.weather_original_reason
     )
 
     legacy_rain_now = _is_on(hass, entry.data.get(CONF_RAIN_NOW))
@@ -369,9 +386,13 @@ def build_room_snapshot(
             rain_soon=(weather.rain_soon or legacy_rain_soon),
             weather_caution=weather_caution,
             weather_danger=weather_danger,
-            weather_reason=weather_reason,
+            weather_reason_key=weather_reason_key,
+            weather_reason_args=weather_reason_args,
+            weather_original_reason=weather_original_reason,
             nina_status=normalized_nina,
-            nina_reason=nina_reason,
+            nina_reason_key=nina_reason_key,
+            nina_reason_args=nina_reason_args,
+            nina_original_reason=nina_original_reason,
         )
     )
 

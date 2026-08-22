@@ -1,11 +1,13 @@
 """Home-Assistant-independent ventilation decision engine.
 
-The thresholds intentionally mirror the current YAML Lüftungsberater as closely as
-possible. Home Assistant entity handling belongs outside this module so the same
-engine can be unit-tested and reused for every room.
+The engine deliberately returns semantic keys plus raw values instead of
+pre-rendered language. Home Assistant and the frontend can therefore render the
+same decision naturally in the user's language without changing the logic.
 """
 from __future__ import annotations
+
 import math
+
 from .models import RoomInput, VentilationResult
 
 
@@ -29,30 +31,36 @@ def co2_status(ppm: float | None) -> str:
     return "very_good"
 
 
-def _duration(mode: str, outdoor_temp: float) -> str:
+def _duration_key(mode: str, outdoor_temp: float) -> str:
     if mode == "weiter_lueften":
-        return "Bis die offenen Lüftungsziele erreicht sind"
+        return "until_targets"
     if mode == "lueftung_fertig":
-        return "Lüften kann beendet werden"
+        return "can_end"
     if mode == "co2_kritisch_vorsicht":
-        return "3–5 Minuten unter Beobachtung"
+        return "brief_observation"
     if mode == "co2_kritisch":
-        return "10–15 Minuten, danach CO₂ erneut prüfen"
+        return "co2_recheck"
     if mode == "co2_lueften":
-        return "5–10 Minuten, bis CO₂ unter etwa 1000 ppm fällt"
+        return "co2_until_good"
     if mode == "kuehlen":
-        return "15–30 Minuten bzw. solange draußen günstiger bleibt"
+        return "cooling"
     if mode == "erwaermen":
-        return "5–10 Minuten"
+        return "warming"
     if mode in {"feuchte_lueften", "routine_lueften"}:
-        if outdoor_temp < -5: return "2–4 Minuten"
-        if outdoor_temp < 0: return "3–5 Minuten"
-        if outdoor_temp < 5: return "4–6 Minuten"
-        if outdoor_temp < 10: return "5–8 Minuten"
-        if outdoor_temp < 18: return "8–12 Minuten"
-        if outdoor_temp <= 25: return "10–15 Minuten"
-        return "5–10 Minuten"
-    return "Jetzt nicht nötig"
+        if outdoor_temp < -5:
+            return "2_4"
+        if outdoor_temp < 0:
+            return "3_5"
+        if outdoor_temp < 5:
+            return "4_6"
+        if outdoor_temp < 10:
+            return "5_8"
+        if outdoor_temp < 18:
+            return "8_12"
+        if outdoor_temp <= 25:
+            return "10_15"
+        return "5_10"
+    return "not_needed"
 
 
 def _color(mode: str) -> str:
@@ -67,6 +75,18 @@ def _color(mode: str) -> str:
     }:
         return "red"
     return "yellow"
+
+
+def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
+    if color == "green":
+        return "keep_open" if window_open else "open_now"
+    if color == "red":
+        return "close_now" if window_open else "keep_closed"
+    if mode in {"nina_vorsicht", "wetter_vorsicht"}:
+        return "better_close" if window_open else "caution_keep_closed"
+    if window_open:
+        return "short_observation" if mode == "co2_kritisch_vorsicht" else "can_close"
+    return "wait"
 
 
 def evaluate_room(data: RoomInput) -> VentilationResult:
@@ -150,73 +170,87 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mode = "normal"
 
     color = _color(mode)
-    if color == "green":
-        recommendation = "Weiter lüften" if data.window_open else "Jetzt lüften"
-    elif color == "red":
-        recommendation = "Jetzt schließen" if data.window_open else "Geschlossen lassen"
-    elif mode in {"nina_vorsicht", "wetter_vorsicht"}:
-        recommendation = "Besser schließen" if data.window_open else "Vorsicht – lieber geschlossen lassen"
-    elif data.window_open:
-        recommendation = "Nur kurz unter Beobachtung" if mode == "co2_kritisch_vorsicht" else "Lüften kann beendet werden"
-    else:
-        recommendation = "Noch nicht nötig / besser warten"
+    recommendation_key = _recommendation_key(color, mode, data.window_open)
+    original_reason: str | None = None
 
-    # Concrete, user-facing reason. Provider adapters can inject exact warning text.
     if mode == "nina_aussenluftgefahr":
-        reason = data.nina_reason or "NINA meldet eine relevante Gefahr für die Außenluft."
+        reason_key = data.nina_reason_key or "nina_air_danger"
+        reason_args = dict(data.nina_reason_args)
+        original_reason = data.nina_original_reason
     elif mode == "nina_vorsicht":
-        reason = data.nina_reason or "NINA empfiehlt vorsorglich, Fenster und Türen geschlossen zu halten."
+        reason_key = data.nina_reason_key or "nina_air_caution"
+        reason_args = dict(data.nina_reason_args)
+        original_reason = data.nina_original_reason
     elif mode == "wettergefahr":
-        reason = data.weather_reason or "Es besteht aktuell eine für offene Fenster relevante Wettergefahr."
+        reason_key = data.weather_reason_key or "weather_danger"
+        reason_args = dict(data.weather_reason_args)
+        original_reason = data.weather_original_reason
     elif mode == "wetter_vorsicht":
-        reason = data.weather_reason or "Es besteht eine Wetterwarnung; Lüften ist momentan nur eingeschränkt sinnvoll."
+        reason_key = data.weather_reason_key or "weather_caution"
+        reason_args = dict(data.weather_reason_args)
+        original_reason = data.weather_original_reason
     elif mode == "weiter_lueften":
-        reasons: list[str] = []
-        if continue_co2: reasons.append(f"CO₂ liegt noch bei {co2:.0f} ppm")
-        if continue_moisture: reasons.append(f"außen ist die Luft etwa {diff:.1f} g/m³ trockener")
-        if continue_cooling: reasons.append(f"Abkühlung von {ti:.1f} °C Richtung {target:.1f} °C ist weiter sinnvoll")
-        if continue_warming: reasons.append(f"Erwärmung von {ti:.1f} °C Richtung {target:.1f} °C ist weiter sinnvoll")
-        reason = "Weiter lüften: " + "; ".join(reasons) + "."
+        reason_key = "continue_airing"
+        reason_args = {
+            "continue_co2": continue_co2,
+            "continue_moisture": continue_moisture,
+            "continue_cooling": continue_cooling,
+            "continue_warming": continue_warming,
+            "co2": co2,
+            "diff": diff,
+            "ti": ti,
+            "target": target,
+        }
     elif mode == "lueftung_fertig":
-        reason = "Der Luftaustausch ist ausreichend; aktuell besteht kein ausreichender Grund, weiter zu lüften."
+        reason_key, reason_args = "airing_finished", {}
     elif mode == "co2_kritisch_vorsicht":
-        reason = f"CO₂ liegt bei {co2:.0f} ppm und ist sehr hoch; wegen Regen nur kurz und unter Beobachtung lüften."
+        reason_key, reason_args = "co2_critical_rain", {"co2": co2}
     elif mode == "co2_kritisch":
-        reason = f"CO₂ liegt bei {co2:.0f} ppm. Der Luftaustausch hat hohe Priorität."
+        reason_key, reason_args = "co2_critical", {"co2": co2}
     elif mode == "co2_lueften":
-        reason = f"CO₂ liegt bei {co2:.0f} ppm und ist erhöht; die Außenbedingungen sind ausreichend geeignet."
+        reason_key, reason_args = "co2_ventilate", {"co2": co2}
     elif mode == "co2_warten":
-        reason = f"CO₂ liegt bei {co2:.0f} ppm, die Außenbedingungen sind momentan aber ungünstig."
+        reason_key, reason_args = "co2_wait", {"co2": co2}
     elif mode == "feuchte_lueften":
-        reason = f"Innen liegen {hi:.0f} % relative Feuchte an; außen enthält die Luft etwa {diff:.1f} g/m³ weniger Wasser."
+        reason_key, reason_args = "humidity_ventilate", {"humidity": hi, "diff": diff}
     elif mode == "feuchte_warten":
-        reason = "Die Innenfeuchte ist erhöht, draußen besteht momentan aber kaum Trocknungsvorteil."
+        reason_key, reason_args = "humidity_wait", {}
     elif mode == "kuehlen":
-        reason = f"Innen sind {ti:.1f} °C bei {target:.1f} °C Soll; draußen sind {ta:.1f} °C und Lüften hilft beim Abkühlen."
+        reason_key, reason_args = "cooling", {"ti": ti, "target": target, "ta": ta}
     elif mode == "erwaermen":
-        reason = f"Innen sind {ti:.1f} °C bei {target:.1f} °C Soll; die Außenluft ist wärmer und geeignet."
+        reason_key, reason_args = "warming", {"ti": ti, "target": target, "ta": ta}
     elif mode == "routine_lueften":
-        reason = f"Seit rund {hours:.1f} Stunden wurde nicht bestätigt gelüftet und die Außenbedingungen sind günstig."
+        reason_key, reason_args = "routine_ventilate", {"hours": hours}
     elif mode == "routine_warten":
-        reason = f"Seit rund {hours:.1f} Stunden wurde nicht bestätigt gelüftet, aber die Bedingungen sind gerade nicht gut genug."
+        reason_key, reason_args = "routine_wait", {"hours": hours}
     elif mode == "aussen_zu_warm":
-        reason = f"Draußen sind {ta:.1f} °C und damit deutlich mehr als innen; die Wärme sollte draußen bleiben."
+        reason_key, reason_args = "outside_too_hot", {"ti": ti, "ta": ta}
     elif mode == "aussen_zu_kalt":
-        reason = f"Draußen sind {ta:.1f} °C und damit deutlich weniger als innen; unnötiges Auskühlen vermeiden."
+        reason_key, reason_args = "outside_too_cold", {"ti": ti, "ta": ta}
     elif mode == "aussen_deutlich_feuchter":
-        reason = f"Die Außenluft enthält etwa {abs(diff):.1f} g/m³ mehr Wasser als die Innenluft."
+        reason_key, reason_args = "outside_more_humid", {"amount": abs(diff)}
     elif mode == "innen_zu_trocken":
-        reason = "Die Innenluft ist bereits trocken; Lüften würde sie momentan weiter austrocknen."
+        reason_key, reason_args = "inside_too_dry", {}
     elif mode == "regen":
-        reason = data.weather_reason or "Aktuell wird Niederschlag erkannt."
+        reason_key = data.weather_reason_key or "rain_now"
+        reason_args = dict(data.weather_reason_args)
+        original_reason = data.weather_original_reason
     elif mode == "regen_bald":
-        reason = "Kurzfristig wird Niederschlag erwartet."
+        reason_key, reason_args = "rain_soon", {}
     else:
-        reason = "CO₂, Feuchtigkeit und Temperatur geben aktuell keinen ausreichenden Lüftungsgrund."
+        reason_key, reason_args = "normal", {}
 
     return VentilationResult(
-        color=color, mode=mode, recommendation=recommendation, reason=reason,
-        duration=_duration(mode, ta), indoor_absolute_humidity=round(ahi, 2),
-        outdoor_absolute_humidity=round(aha, 2), absolute_humidity_difference=round(diff, 2),
+        color=color,
+        mode=mode,
+        recommendation_key=recommendation_key,
+        reason_key=reason_key,
+        reason_args=reason_args,
+        duration_key=_duration_key(mode, ta),
+        duration_args={},
+        original_reason=original_reason,
+        indoor_absolute_humidity=round(ahi, 2),
+        outdoor_absolute_humidity=round(aha, 2),
+        absolute_humidity_difference=round(diff, 2),
         co2_status=co2_status(co2),
     )

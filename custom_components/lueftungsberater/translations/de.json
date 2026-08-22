@@ -45,7 +45,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
-            "target_temperature": "Fallback-Solltemperatur (°C)"
+            "target_temperature": "Fallback-Solltemperatur"
           }
         },
         "reconfigure": {
@@ -57,7 +57,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
-            "target_temperature": "Fallback-Solltemperatur (°C)"
+            "target_temperature": "Fallback-Solltemperatur"
           }
         }
       },
@@ -73,12 +73,12 @@
           "open_now": "Jetzt lüften",
           "keep_open": "Weiter lüften",
           "can_close": "Lüften kann beendet werden",
-          "short_observation": "Nur kurz unter Beobachtung",
+          "short_observation": "Nur kurz lüften und im Blick behalten",
           "better_close": "Besser schließen",
           "caution_keep_closed": "Vorsicht – lieber geschlossen lassen",
           "keep_closed": "Geschlossen lassen",
           "close_now": "Jetzt schließen",
-          "wait": "Noch nicht nötig / besser warten"
+          "wait": "Besser noch etwas warten"
         }
       },
       "absolute_humidity": {
@@ -112,6 +112,13 @@
     "binary_sensor": {
       "critical_danger": {
         "name": "Kritische Gefahr"
+      }
+    }
+  },
+  "selector": {
+    "warning_source": {
+      "options": {
+        "none": "Kein Warndienst"
       }
     }
   }
