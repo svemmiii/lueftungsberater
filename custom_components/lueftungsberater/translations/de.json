@@ -1,0 +1,115 @@
+{
+  "title": "Lüftungsberater",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Datenquellen auswählen",
+        "description": "Wähle deinen Wetterdienst und optional eine Warn-App. Der Lüftungsberater nutzt verfügbare Temperatur-, Feuchte-, Wind-, Niederschlags- und Warninformationen automatisch. Bei bekannten Anbietern wie DWD und NINA werden zusätzliche Daten hinter den Kulissen erkannt.",
+        "data": {
+          "weather_entity": "Wetterdienst",
+          "warning_source": "Warn-App / Warndienst (optional)",
+          "manual_outdoor": "Erweiterte Außensensoren (optional)",
+          "outdoor_temperature": "Außentemperatur überschreiben",
+          "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben"
+        }
+      },
+      "reconfigure": {
+        "title": "Datenquellen ändern",
+        "data": {
+          "weather_entity": "Wetterdienst",
+          "warning_source": "Warn-App / Warndienst (optional)",
+          "manual_outdoor": "Erweiterte Außensensoren (optional)",
+          "outdoor_temperature": "Außentemperatur überschreiben",
+          "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Es wird nur ein globaler Lüftungsberater-Eintrag unterstützt. Räume werden darunter hinzugefügt."
+    }
+  },
+  "config_subentries": {
+    "room": {
+      "title": "Raum",
+      "step": {
+        "user": {
+          "title": "Raum hinzufügen",
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂ ist optional. Wenn Fenster-/Türkontakte gewählt werden, erkennt der Lüftungsberater Lüftungen ab 5 Minuten automatisch und führt den Lüftungsverlauf selbst.",
+          "data": {
+            "room_name": "Raumname",
+            "indoor_temperature": "Innentemperatur",
+            "indoor_humidity": "Innenluftfeuchtigkeit",
+            "co2_entity": "CO₂ (optional)",
+            "window_entities": "Fenster / Türen (optional)",
+            "climate_entity": "Climate-Entity für Solltemperatur (optional)",
+            "target_temperature": "Fallback-Solltemperatur"
+          }
+        },
+        "reconfigure": {
+          "title": "Raum ändern",
+          "data": {
+            "room_name": "Raumname",
+            "indoor_temperature": "Innentemperatur",
+            "indoor_humidity": "Innenluftfeuchtigkeit",
+            "co2_entity": "CO₂ (optional)",
+            "window_entities": "Fenster / Türen (optional)",
+            "climate_entity": "Climate-Entity für Solltemperatur (optional)",
+            "target_temperature": "Fallback-Solltemperatur"
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "Ein Raum mit diesem Namen existiert bereits."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "advisor": {
+        "state": {
+          "open_now": "Jetzt lüften",
+          "keep_open": "Weiter lüften",
+          "can_close": "Lüften kann beendet werden",
+          "short_observation": "Nur kurz unter Beobachtung",
+          "better_close": "Besser schließen",
+          "caution_keep_closed": "Vorsicht – lieber geschlossen lassen",
+          "keep_closed": "Geschlossen lassen",
+          "close_now": "Jetzt schließen",
+          "wait": "Noch nicht nötig / besser warten"
+        }
+      },
+      "absolute_humidity": {
+        "name": "Absolute Feuchte"
+      },
+      "co2_status": {
+        "name": "CO₂-Status",
+        "state": {
+          "very_good": "Sehr gut",
+          "good": "Gut",
+          "elevated": "Erhöht",
+          "high": "Hoch",
+          "critical": "Kritisch",
+          "unknown": "Unbekannt"
+        }
+      },
+      "airing_status": {
+        "name": "Lüftung",
+        "state": {
+          "airing": "Wird gerade gelüftet",
+          "closed": "Geschlossen"
+        }
+      },
+      "last_airing": {
+        "name": "Letzte Lüftung"
+      },
+      "hours_since_airing": {
+        "name": "Stunden seit letzter Lüftung"
+      }
+    },
+    "binary_sensor": {
+      "critical_danger": {
+        "name": "Kritische Gefahr"
+      }
+    }
+  }
+}

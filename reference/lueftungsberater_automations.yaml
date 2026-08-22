@@ -1,0 +1,152 @@
+            \   'step'\n  ) | float(1)\n%} {{ min + step }}\n"
+  - delay: 00:05:00
+  - condition: template
+    value_template: "{{\n  is_state(\n    'sensor.s25_do_not_disturb_sensor',\n    'priority_only'\n
+      \ )\n  or\n  not is_state(\n    'alarm_control_panel.alarmo',\n    'disarmed'\n
+      \ )\n  or\n  not is_state(\n    'device_tracker.s25_von_sven_5',\n    'home'\n
+      \ )\n}}\n"
+  - action: switch.turn_off
+    target:
+      entity_id: switch.tab_a9_von_kevin_bildschirm
+  mode: restart
+
+# ============================================================================
+# LÜFTUNGSBERATER V4 - KRITISCHE FENSTERWARNUNG
+# ============================================================================
+
+- id: lueftungsberater_v4_kritische_fensterwarnung
+  alias: "Lüftungsberater V4 - Kritische Fensterwarnung"
+  mode: single
+
+  triggers:
+
+    # Gefahr beginnt, während bereits gelüftet wird
+    - trigger: state
+      entity_id:
+        - binary_sensor.nina_aussenluftgefahr
+        - binary_sensor.lueftung_wetter_gefaehrlich
+      from: "off"
+      to: "on"
+      id: gefahr_beginnt
+
+    # Fenster/Tür wird während bestehender Gefahr geöffnet
+    - trigger: state
+      entity_id:
+        - binary_sensor.wohnzimmer_wohnzimmer_schiebetur_tur
+        - binary_sensor.kuche_fenster_kuche_tur
+      from: "off"
+      to: "on"
+      id: fenster_geoeffnet
+
+  conditions:
+
+    - condition: state
+      entity_id: binary_sensor.lueftung_geoeffnet
+      state: "on"
+
+    - condition: or
+      conditions:
+
+        - condition: state
+          entity_id: binary_sensor.nina_aussenluftgefahr
+          state: "on"
+
+        - condition: state
+          entity_id: binary_sensor.lueftung_wetter_gefaehrlich
+          state: "on"
+
+  actions:
+
+    - action: notify.mobile_app_s25
+      data:
+        title: "⚠️ Fenster schließen"
+        message: >
+          {% if is_state('binary_sensor.nina_aussenluftgefahr', 'on') %}
+            NINA warnt vor einer Gefahr für die Außenluft:
+            {{ state_attr('binary_sensor.nina_aussenluftgefahr', 'warnung') }}.
+            Bitte offene Fenster und Türen schließen.
+          {% else %}
+            Aktuell hat eine relevante Wettergefahr begonnen.
+            Bitte offene Fenster und Türen schließen.
+          {% endif %}
+        data:
+          channel: "Hauswarnungen"
+          importance: high
+          priority: high
+          ttl: 0
+          vibrationPattern: "100, 800, 150, 800, 150, 1200"
+          tag: "lueftung_kritische_fensterwarnung"
+
+# ============================================================================
+# LÜFTUNGSBERATER - KRITISCHE FENSTERWARNUNG
+# ============================================================================
+
+- id: lueftungsberater_kritische_fensterwarnung
+  alias: "Lüftungsberater - Kritische Fensterwarnung"
+  mode: single
+
+  triggers:
+
+    # Eine echte Gefahr beginnt, während Fenster/Tür offen ist.
+    - trigger: state
+      entity_id:
+        - binary_sensor.nina_aussenluftgefahr
+        - binary_sensor.lueftung_wetter_gefaehrlich
+      from: "off"
+      to: "on"
+      id: gefahr_beginnt
+
+    # Ein Fenster/eine Tür wird während bestehender Gefahr geöffnet.
+    - trigger: state
+      entity_id:
+        - binary_sensor.wohnzimmer_wohnzimmer_schiebetur_tur
+        - binary_sensor.kuche_fenster_kuche_tur
+      from: "off"
+      to: "on"
+      id: fenster_geoeffnet
+
+  conditions:
+
+    # Mindestens ein relevantes Fenster ist tatsächlich offen.
+    - condition: state
+      entity_id: binary_sensor.lueftung_geoeffnet
+      state: "on"
+
+    # Und es besteht wirklich eine harte Gefahr.
+    - condition: or
+      conditions:
+
+        - condition: state
+          entity_id: binary_sensor.nina_aussenluftgefahr
+          state: "on"
+
+        - condition: state
+          entity_id: binary_sensor.lueftung_wetter_gefaehrlich
+          state: "on"
+
+  actions:
+
+    - action: notify.mobile_app_s25
+      data:
+        title: "⚠️ Fenster schließen"
+        message: >
+          {% if is_state('binary_sensor.nina_aussenluftgefahr', 'on') %}
+            NINA meldet eine Gefahr für die Außenluft:
+            {{ state_attr('binary_sensor.nina_aussenluftgefahr', 'warnung') }}.
+            Bitte offene Fenster und Türen schließen.
+          {% else %}
+            Eine relevante Wettergefahr ist jetzt aktiv.
+            Bitte offene Fenster und Türen schließen.
+          {% endif %}
+        data:
+          ttl: 0
+          priority: high
+          channel: "Fensterwarnungen"
+          importance: high
+          vibrationPattern: "100, 700, 150, 700, 150, 1000"
+          tag: "kritische_fensterwarnung"
+
+# ============================================================================
+# LÜFTUNGSBERATER V4 - KRITISCHE FENSTERWARNUNG
+# ============================================================================
+

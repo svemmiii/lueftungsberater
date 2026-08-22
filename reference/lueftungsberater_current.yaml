@@ -1,0 +1,2901 @@
+  # LÜFTUNGSBERATER
+  ###########################################################################
+
+  # -------------------------------------------------------------------------
+  # Aktuelle absolute Luftfeuchtigkeit innen / außen
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "Absolute Luftfeuchtigkeit Innen"
+        unique_id: absolute_luftfeuchtigkeit_innen
+        default_entity_id: sensor.absolute_luftfeuchtigkeit_innen
+        unit_of_measurement: "g/m³"
+        icon: mdi:water-percent
+        availability: >
+          {{ states('sensor.durchschnitt_temperatur') | is_number
+             and states('sensor.luftfeuchtigkeit_durchschnitt') | is_number }}
+        state: >
+          {% set t = states('sensor.durchschnitt_temperatur') | float %}
+          {% set rh = states('sensor.luftfeuchtigkeit_durchschnitt') | float %}
+          {{
+            (
+              216.7
+              *
+              (
+                (rh / 100)
+                * 6.112
+                * (
+                    2.718281828
+                    **
+                    ((17.62 * t) / (243.12 + t))
+                  )
+              )
+              /
+              (273.15 + t)
+            )
+            | round(2)
+          }}
+
+
+      - name: "Absolute Luftfeuchtigkeit Außen"
+        unique_id: absolute_luftfeuchtigkeit_aussen
+        default_entity_id: sensor.absolute_luftfeuchtigkeit_aussen
+        unit_of_measurement: "g/m³"
+        icon: mdi:water-percent
+        availability: >
+          {{ states('sensor.draussen_temp_temperatur') | is_number
+             and states('sensor.draussen_temp_luftfeuchtigkeit') | is_number }}
+        state: >
+          {% set t = states('sensor.draussen_temp_temperatur') | float %}
+          {% set rh = states('sensor.draussen_temp_luftfeuchtigkeit') | float %}
+          {{
+            (
+              216.7
+              *
+              (
+                (rh / 100)
+                * 6.112
+                * (
+                    2.718281828
+                    **
+                    ((17.62 * t) / (243.12 + t))
+                  )
+              )
+              /
+              (273.15 + t)
+            )
+            | round(2)
+          }}
+
+
+      - name: "Stunden seit letzter Lüftung"
+        unique_id: stunden_seit_letzter_lueftung
+        default_entity_id: sensor.stunden_seit_letzter_lueftung
+        unit_of_measurement: "h"
+        icon: mdi:timer-sand
+        state: >
+          {% if is_state('binary_sensor.lueftung_geoeffnet', 'on') %}
+            0
+          {% else %}
+
+            {% set last =
+              states('sensor.letzte_bestaetigte_lueftung')
+            %}
+
+            {% if last not in [
+              'unknown',
+              'unavailable',
+              'none',
+              ''
+            ] %}
+
+              {{
+                (
+                  (
+                    as_timestamp(now())
+                    -
+                    as_timestamp(last)
+                  )
+                  / 3600
+                )
+                | round(1)
+              }}
+
+            {% else %}
+              {{ none }}
+            {% endif %}
+
+          {% endif %}
+
+
+  # -------------------------------------------------------------------------
+  # Fenster / Schiebetür
+  # -------------------------------------------------------------------------
+
+  - binary_sensor:
+
+      - name: "Lüftung geöffnet"
+        unique_id: lueftung_geoeffnet
+        default_entity_id: binary_sensor.lueftung_geoeffnet
+        icon: >
+          {{
+            'mdi:window-open'
+            if
+              is_state(
+                'binary_sensor.wohnzimmer_wohnzimmer_schiebetur_tur',
+                'on'
+              )
+              or
+              is_state(
+                'binary_sensor.kuche_fenster_kuche_tur',
+                'on'
+              )
+            else
+              'mdi:window-closed'
+          }}
+        state: >
+          {{
+            is_state(
+              'binary_sensor.wohnzimmer_wohnzimmer_schiebetur_tur',
+              'on'
+            )
+            or
+            is_state(
+              'binary_sensor.kuche_fenster_kuche_tur',
+              'on'
+            )
+          }}
+
+
+  # -------------------------------------------------------------------------
+  # Eine echte Lüftung zählt ab 5 Minuten offen
+  # -------------------------------------------------------------------------
+
+  - triggers:
+
+      - trigger: state
+        entity_id: binary_sensor.lueftung_geoeffnet
+        from: "on"
+        to: "off"
+
+    conditions:
+
+      - condition: template
+        value_template: >
+          {{
+            trigger.from_state is not none
+            and
+            (
+              as_timestamp(trigger.to_state.last_changed)
+              -
+              as_timestamp(trigger.from_state.last_changed)
+            ) >= 300
+          }}
+
+    sensor:
+
+      - name: "Letzte bestätigte Lüftung"
+        unique_id: letzte_bestaetigte_lueftung
+        default_entity_id: sensor.letzte_bestaetigte_lueftung
+        device_class: timestamp
+        icon: mdi:window-open-variant
+        state: "{{ now().isoformat() }}"
+
+  # -------------------------------------------------------------------------
+  # Wetterprognose
+  #
+  # Wir speichern absichtlich nur die nächsten 24 Stunden.
+  # -------------------------------------------------------------------------
+
+  - triggers:
+
+      - trigger: homeassistant
+        event: start
+
+      - trigger: time_pattern
+        minutes: "/30"
+
+    actions:
+
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.bornheim
+        data:
+          type: hourly
+        response_variable: wetter_stuendlich
+
+    sensor:
+
+      - name: "Lüftungs Wetterprognose"
+        unique_id: lueftungs_wetterprognose
+        default_entity_id: sensor.lueftungs_wetterprognose
+        icon: mdi:weather-partly-cloudy
+        state: "{{ now().isoformat() }}"
+        attributes:
+
+          forecast_24h: >
+            {{
+              wetter_stuendlich
+              .get('weather.bornheim', {})
+              .get('forecast', [])[:24]
+            }}
+
+
+  # -------------------------------------------------------------------------
+  # DWD-Warnungen
+  #
+  # Nicht jede DWD-Warnung ist fürs Lüften relevant.
+  # Hitze/Frost usw. werden nicht pauschal als "Fenstergefahr" gewertet.
+  #
+  # Relevant:
+  # - Gewitter
+  # - Sturm / Orkan / Wind
+  # - Hagel
+  # - Starkregen / Dauerregen
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "Lüftung DWD Status"
+        unique_id: lueftung_dwd_status
+        default_entity_id: sensor.lueftung_dwd_status
+        icon: mdi:weather-lightning
+
+        state: >
+
+          {% set cur =
+            'sensor.stadt_bornheim_aktuelle_warnstufe'
+          %}
+
+          {% set adv =
+            'sensor.stadt_bornheim_vorwarnstufe'
+          %}
+
+          {% set cur_level =
+            states(cur) | int(0)
+          %}
+
+          {% set cur_count =
+            state_attr(cur, 'warning_count') | int(0)
+          %}
+
+          {% set adv_count =
+            state_attr(adv, 'warning_count') | int(0)
+          %}
+
+          {% set ns =
+            namespace(
+              cur_hit=false,
+              adv_soon=false
+            )
+          %}
+
+
+          {% for i in range(1, cur_count + 1) %}
+
+            {% set text =
+              (
+                (
+                  state_attr(
+                    cur,
+                    'warning_' ~ i ~ '_name'
+                  )
+                  | default('', true)
+                )
+                ~ ' '
+                ~
+                (
+                  state_attr(
+                    cur,
+                    'warning_' ~ i ~ '_headline'
+                  )
+                  | default('', true)
+                )
+              )
+              | lower
+            %}
+
+            {% if
+              'gewitter' in text
+              or 'sturm' in text
+              or 'orkan' in text
+              or 'wind' in text
+              or 'hagel' in text
+              or 'starkregen' in text
+              or 'dauerregen' in text
+            %}
+
+              {% set ns.cur_hit = true %}
+
+            {% endif %}
+
+          {% endfor %}
+
+
+          {% for i in range(1, adv_count + 1) %}
+
+            {% set text =
+              (
+                (
+                  state_attr(
+                    adv,
+                    'warning_' ~ i ~ '_name'
+                  )
+                  | default('', true)
+                )
+                ~ ' '
+                ~
+                (
+                  state_attr(
+                    adv,
+                    'warning_' ~ i ~ '_headline'
+                  )
+                  | default('', true)
+                )
+              )
+              | lower
+            %}
+
+            {% set start =
+              state_attr(
+                adv,
+                'warning_' ~ i ~ '_start'
+              )
+            %}
+
+            {% if
+              (
+                'gewitter' in text
+                or 'sturm' in text
+                or 'orkan' in text
+                or 'wind' in text
+                or 'hagel' in text
+                or 'starkregen' in text
+                or 'dauerregen' in text
+              )
+              and start is not none
+              and
+              as_timestamp(start)
+              <=
+              as_timestamp(
+                now() + timedelta(hours=3)
+              )
+            %}
+
+              {% set ns.adv_soon = true %}
+
+            {% endif %}
+
+          {% endfor %}
+
+
+          {% if ns.cur_hit and cur_level >= 2 %}
+            gefahr
+          {% elif ns.cur_hit or ns.adv_soon %}
+            achtung
+          {% else %}
+            keine
+          {% endif %}
+
+
+        attributes:
+
+          aktuelle_warnung: >
+
+            {% set e =
+              'sensor.stadt_bornheim_aktuelle_warnstufe'
+            %}
+
+            {% set count =
+              state_attr(e, 'warning_count') | int(0)
+            %}
+
+            {% set ns =
+              namespace(text='')
+            %}
+
+            {% for i in range(1, count + 1) %}
+
+              {% if ns.text == '' %}
+
+                {% set t =
+                  (
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_name'
+                      )
+                      | default('', true)
+                    )
+                    ~ ' '
+                    ~
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_headline'
+                      )
+                      | default('', true)
+                    )
+                  )
+                %}
+
+                {% set low = t | lower %}
+
+                {% if
+                  'gewitter' in low
+                  or 'sturm' in low
+                  or 'orkan' in low
+                  or 'wind' in low
+                  or 'hagel' in low
+                  or 'starkregen' in low
+                  or 'dauerregen' in low
+                %}
+
+                  {% set ns.text =
+                    state_attr(
+                      e,
+                      'warning_' ~ i ~ '_headline'
+                    )
+                    | default(
+                        state_attr(
+                          e,
+                          'warning_' ~ i ~ '_name'
+                        ),
+                        true
+                      )
+                  %}
+
+                {% endif %}
+
+              {% endif %}
+
+            {% endfor %}
+
+            {{ ns.text }}
+
+
+          vorwarnung: >
+
+            {% set e =
+              'sensor.stadt_bornheim_vorwarnstufe'
+            %}
+
+            {% set count =
+              state_attr(e, 'warning_count') | int(0)
+            %}
+
+            {% set ns =
+              namespace(text='')
+            %}
+
+            {% for i in range(1, count + 1) %}
+
+              {% if ns.text == '' %}
+
+                {% set t =
+                  (
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_name'
+                      )
+                      | default('', true)
+                    )
+                    ~ ' '
+                    ~
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_headline'
+                      )
+                      | default('', true)
+                    )
+                  )
+                %}
+
+                {% set low = t | lower %}
+
+                {% if
+                  'gewitter' in low
+                  or 'sturm' in low
+                  or 'orkan' in low
+                  or 'wind' in low
+                  or 'hagel' in low
+                  or 'starkregen' in low
+                  or 'dauerregen' in low
+                %}
+
+                  {% set ns.text =
+                    state_attr(
+                      e,
+                      'warning_' ~ i ~ '_headline'
+                    )
+                    | default(
+                        state_attr(
+                          e,
+                          'warning_' ~ i ~ '_name'
+                        ),
+                        true
+                      )
+                  %}
+
+                {% endif %}
+
+              {% endif %}
+
+            {% endfor %}
+
+            {{ ns.text }}
+
+
+          aktuelle_warnung_ende: >
+
+            {% set e =
+              'sensor.stadt_bornheim_aktuelle_warnstufe'
+            %}
+
+            {% set count =
+              state_attr(e, 'warning_count') | int(0)
+            %}
+
+            {% set ns =
+              namespace(value=none)
+            %}
+
+            {% for i in range(1, count + 1) %}
+
+              {% if ns.value is none %}
+
+                {% set t =
+                  (
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_name'
+                      )
+                      | default('', true)
+                    )
+                    ~ ' '
+                    ~
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_headline'
+                      )
+                      | default('', true)
+                    )
+                  )
+                  | lower
+                %}
+
+                {% if
+                  'gewitter' in t
+                  or 'sturm' in t
+                  or 'orkan' in t
+                  or 'wind' in t
+                  or 'hagel' in t
+                  or 'starkregen' in t
+                  or 'dauerregen' in t
+                %}
+
+                  {% set ns.value =
+                    state_attr(
+                      e,
+                      'warning_' ~ i ~ '_end'
+                    )
+                  %}
+
+                {% endif %}
+
+              {% endif %}
+
+            {% endfor %}
+
+            {{ ns.value }}
+
+
+          vorwarnung_start: >
+
+            {% set e =
+              'sensor.stadt_bornheim_vorwarnstufe'
+            %}
+
+            {% set count =
+              state_attr(e, 'warning_count') | int(0)
+            %}
+
+            {% set ns =
+              namespace(value=none)
+            %}
+
+            {% for i in range(1, count + 1) %}
+
+              {% if ns.value is none %}
+
+                {% set t =
+                  (
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_name'
+                      )
+                      | default('', true)
+                    )
+                    ~ ' '
+                    ~
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_headline'
+                      )
+                      | default('', true)
+                    )
+                  )
+                  | lower
+                %}
+
+                {% if
+                  'gewitter' in t
+                  or 'sturm' in t
+                  or 'orkan' in t
+                  or 'wind' in t
+                  or 'hagel' in t
+                  or 'starkregen' in t
+                  or 'dauerregen' in t
+                %}
+
+                  {% set ns.value =
+                    state_attr(
+                      e,
+                      'warning_' ~ i ~ '_start'
+                    )
+                  %}
+
+                {% endif %}
+
+              {% endif %}
+
+            {% endfor %}
+
+            {{ ns.value }}
+
+
+          vorwarnung_ende: >
+
+            {% set e =
+              'sensor.stadt_bornheim_vorwarnstufe'
+            %}
+
+            {% set count =
+              state_attr(e, 'warning_count') | int(0)
+            %}
+
+            {% set ns =
+              namespace(value=none)
+            %}
+
+            {% for i in range(1, count + 1) %}
+
+              {% if ns.value is none %}
+
+                {% set t =
+                  (
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_name'
+                      )
+                      | default('', true)
+                    )
+                    ~ ' '
+                    ~
+                    (
+                      state_attr(
+                        e,
+                        'warning_' ~ i ~ '_headline'
+                      )
+                      | default('', true)
+                    )
+                  )
+                  | lower
+                %}
+
+                {% if
+                  'gewitter' in t
+                  or 'sturm' in t
+                  or 'orkan' in t
+                  or 'wind' in t
+                  or 'hagel' in t
+                  or 'starkregen' in t
+                  or 'dauerregen' in t
+                %}
+
+                  {% set ns.value =
+                    state_attr(
+                      e,
+                      'warning_' ~ i ~ '_end'
+                    )
+                  %}
+
+                {% endif %}
+
+              {% endif %}
+
+            {% endfor %}
+
+            {{ ns.value }}
+
+
+  # -------------------------------------------------------------------------
+  # Akute Wettergefahr + Regen in Kürze
+  # -------------------------------------------------------------------------
+
+  - binary_sensor:
+
+      - name: "Lüftung Wetter gefährlich"
+        unique_id: lueftung_wetter_gefaehrlich
+        default_entity_id: binary_sensor.lueftung_wetter_gefaehrlich
+        icon: mdi:weather-lightning
+
+        state: >
+
+          {% set fc =
+            state_attr(
+              'sensor.lueftungs_wetterprognose',
+              'forecast_24h'
+            )
+            | default([], true)
+          %}
+
+          {% set unit =
+            state_attr(
+              'weather.bornheim',
+              'wind_speed_unit'
+            )
+            | default('km/h', true)
+          %}
+
+          {% set ns =
+            namespace(hit=false)
+          %}
+
+
+          {% for f in fc[:2] %}
+
+            {% set cond =
+              f.get('condition', '')
+            %}
+
+            {% set wind =
+              f.get('wind_speed', 0) | float(0)
+            %}
+
+            {% set gust =
+              f.get('wind_gust_speed', 0) | float(0)
+            %}
+
+
+            {% if unit in ['m/s', 'mps'] %}
+
+              {% set wind = wind * 3.6 %}
+              {% set gust = gust * 3.6 %}
+
+            {% elif unit == 'mph' %}
+
+              {% set wind = wind * 1.60934 %}
+              {% set gust = gust * 1.60934 %}
+
+            {% endif %}
+
+
+            {% if
+              cond in [
+                'lightning',
+                'lightning-rainy',
+                'hail',
+                'exceptional',
+                'pouring'
+              ]
+              or wind >= 50
+              or gust >= 65
+            %}
+
+              {% set ns.hit = true %}
+
+            {% endif %}
+
+          {% endfor %}
+
+
+          {{
+            ns.hit
+            or
+            states('weather.bornheim') in [
+              'lightning',
+              'lightning-rainy',
+              'hail',
+              'exceptional',
+              'pouring'
+            ]
+            or
+            is_state(
+              'sensor.lueftung_dwd_status',
+              'gefahr'
+            )
+          }}
+
+
+      - name: "Lüftung Regen bald"
+        unique_id: lueftung_regen_bald
+        default_entity_id: binary_sensor.lueftung_regen_bald
+        icon: mdi:weather-rainy
+
+        state: >
+
+          {% set fc =
+            state_attr(
+              'sensor.lueftungs_wetterprognose',
+              'forecast_24h'
+            )
+            | default([], true)
+          %}
+
+          {% set ns =
+            namespace(hit=false)
+          %}
+
+
+          {% for f in fc[:2] %}
+
+            {% if
+              f.get('condition', '') in [
+                'rainy',
+                'pouring',
+                'lightning-rainy',
+                'snowy-rainy'
+              ]
+              or
+              f.get(
+                'precipitation_probability',
+                0
+              ) | float(0) >= 70
+              or
+              f.get(
+                'precipitation',
+                0
+              ) | float(0) >= 0.5
+            %}
+
+              {% set ns.hit = true %}
+
+            {% endif %}
+
+          {% endfor %}
+
+
+          {{
+            ns.hit
+            or
+            states('weather.bornheim') in [
+              'rainy',
+              'pouring',
+              'lightning-rainy',
+              'snowy-rainy'
+            ]
+          }}
+
+
+  # -------------------------------------------------------------------------
+  # LÜFTUNGSBERATER V4
+  # CO2 + Solltemperatur + NINA + Radar + DWD + 24h-Prognose
+  # -------------------------------------------------------------------------
+
+  # -------------------------------------------------------------------------
+  # NINA: Außenluftwarnungen intelligent bewerten
+  #
+  # Entwarnungen werden für die Gefahrenentscheidung ignoriert.
+  # Andere gleichzeitig aktive Warnslots werden weiterhin bewertet.
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "NINA Lüftungsstatus"
+        unique_id: nina_lueftungsstatus
+        default_entity_id: sensor.nina_lueftungsstatus
+        icon: mdi:shield-airplane-outline
+
+        state: >
+          {% set ns =
+            namespace(
+              danger=false,
+              caution=false
+            )
+          %}
+
+          {% set air_words = [
+            'brandrauch',
+            'rauchentwicklung',
+            'rauchgas',
+            'rauchwolke',
+            'rauchbelastung',
+            'ausbreitung von rauch',
+            'ausbreitung von brandrauch',
+            'gefahrstoff',
+            'schadstoff',
+            'luftverunreinigung',
+            'gasaustritt',
+            'gaswolke',
+            'chemieunfall',
+            'chemikal',
+            'giftige dämpfe',
+            'giftige daempfe',
+            'toxisch',
+            'reizgas'
+          ] %}
+
+          {% set no_danger_words = [
+            'keine gesundheitsgefahr',
+            'keine gesundheitliche gefahr',
+            'keine gefahr für die gesundheit',
+            'keine gefahr fuer die gesundheit',
+            'es besteht keine gefahr',
+            'keine gefährdung',
+            'keine gefaehrdung'
+          ] %}
+
+          {% for i in range(1, 6) %}
+
+            {% set e =
+              'binary_sensor.bornheim_stadt_rhein_sieg_kreis_nordrhein_westfalen_warnung_' ~ i
+            %}
+
+            {% if is_state(e, 'on') %}
+
+              {% set headline =
+                state_attr(e, 'headline')
+                | default('', true)
+                | lower
+              %}
+
+              {% set description =
+                state_attr(e, 'description')
+                | default('', true)
+                | lower
+              %}
+
+              {% set actions =
+                state_attr(e, 'recommended_actions')
+                | default(
+                    state_attr(e, 'instruction'),
+                    true
+                  )
+                | default('', true)
+                | lower
+              %}
+
+              {% set severity =
+                state_attr(e, 'severity')
+                | default('Unknown', true)
+              %}
+
+              {% set alltext =
+                headline ~ ' ' ~
+                description ~ ' ' ~
+                actions
+              %}
+
+              {% set is_clear =
+                'entwarnung' in headline
+                or 'entwarnung' in description
+                or 'warnung ist aufgehoben' in description
+                or 'warnung wurde aufgehoben' in description
+                or 'die warnung ist aufgehoben' in description
+              %}
+
+              {% if not is_clear %}
+
+                {% set flags =
+                  namespace(
+                    air=false,
+                    no_danger=false,
+                    precaution=false,
+                    hard_close=false
+                  )
+                %}
+
+                {% for word in air_words %}
+                  {% if word in alltext %}
+                    {% set flags.air = true %}
+                  {% endif %}
+                {% endfor %}
+
+                {% for word in no_danger_words %}
+                  {% if word in alltext %}
+                    {% set flags.no_danger = true %}
+                  {% endif %}
+                {% endfor %}
+
+                {% if
+                  'vorsorglich fenster' in actions
+                  or 'vorsorglich die fenster' in actions
+                  or 'vorsorglich türen' in actions
+                  or 'vorsorglich tueren' in actions
+                %}
+                  {% set flags.precaution = true %}
+                {% endif %}
+
+                {% if
+                  'fenster und türen geschlossen halten' in actions
+                  or 'fenster und tueren geschlossen halten' in actions
+                  or 'halten sie fenster und türen geschlossen' in actions
+                  or 'halten sie fenster und tueren geschlossen' in actions
+                  or 'fenster geschlossen halten' in actions
+                %}
+                  {% set flags.hard_close = true %}
+                {% endif %}
+
+                {% if flags.no_danger %}
+
+                  {% if flags.precaution or flags.air %}
+                    {% set ns.caution = true %}
+                  {% endif %}
+
+                {% elif
+                  (
+                    flags.air
+                    and severity in [
+                      'Moderate',
+                      'Severe',
+                      'Extreme'
+                    ]
+                  )
+                  or
+                  (
+                    flags.air
+                    and flags.hard_close
+                    and not flags.precaution
+                  )
+                  or
+                  (
+                    flags.air
+                    and
+                    (
+                      'gesundheitsgefahr' in alltext
+                      or 'gesundheitliche gefahr' in alltext
+                      or 'giftig' in alltext
+                      or 'toxisch' in alltext
+                    )
+                  )
+                %}
+
+                  {% set ns.danger = true %}
+
+                {% elif flags.air or flags.precaution %}
+
+                  {% set ns.caution = true %}
+
+                {% endif %}
+
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+
+          {% if ns.danger %}
+            gefahr
+          {% elif ns.caution %}
+            vorsicht
+          {% else %}
+            keine
+          {% endif %}
+
+        attributes:
+
+          warnung: >
+            {% set ns =
+              namespace(
+                danger='',
+                caution=''
+              )
+            %}
+
+            {% for i in range(1, 6) %}
+
+              {% set e =
+                'binary_sensor.bornheim_stadt_rhein_sieg_kreis_nordrhein_westfalen_warnung_' ~ i
+              %}
+
+              {% if is_state(e, 'on') %}
+
+                {% set headline =
+                  state_attr(e, 'headline')
+                  | default('', true)
+                %}
+
+                {% set description =
+                  state_attr(e, 'description')
+                  | default('', true)
+                %}
+
+                {% set lowertext =
+                  (headline ~ ' ' ~ description)
+                  | lower
+                %}
+
+                {% set is_clear =
+                  'entwarnung' in lowertext
+                  or 'warnung ist aufgehoben' in lowertext
+                  or 'warnung wurde aufgehoben' in lowertext
+                %}
+
+                {% if not is_clear %}
+
+                  {% if
+                    state_attr(e, 'severity')
+                    in ['Moderate','Severe','Extreme']
+                    and ns.danger == ''
+                  %}
+                    {% set ns.danger = headline %}
+                  {% elif ns.caution == '' %}
+                    {% set ns.caution = headline %}
+                  {% endif %}
+
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+
+            {{
+              ns.danger
+              if ns.danger != ''
+              else ns.caution
+            }}
+
+          entwarnung: >
+            {% set ns = namespace(v='') %}
+
+            {% for i in range(1, 6) %}
+
+              {% set e =
+                'binary_sensor.bornheim_stadt_rhein_sieg_kreis_nordrhein_westfalen_warnung_' ~ i
+              %}
+
+              {% if is_state(e, 'on') %}
+
+                {% set headline =
+                  state_attr(e, 'headline')
+                  | default('', true)
+                %}
+
+                {% set description =
+                  state_attr(e, 'description')
+                  | default('', true)
+                %}
+
+                {% set lowertext =
+                  (headline ~ ' ' ~ description)
+                  | lower
+                %}
+
+                {% if
+                  ns.v == ''
+                  and
+                  (
+                    'entwarnung' in lowertext
+                    or 'warnung ist aufgehoben' in lowertext
+                    or 'warnung wurde aufgehoben' in lowertext
+                  )
+                %}
+                  {% set clean =
+                    headline
+                    | replace('Entwarnung:', '')
+                    | replace('Entwarnung -', '')
+                    | trim
+                  %}
+                  {% set ns.v = clean %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+
+            {{ ns.v }}
+
+          beschreibung: >
+            {% set wanted =
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'warnung'
+              )
+            %}
+
+            {% set ns = namespace(v='') %}
+
+            {% for i in range(1, 6) %}
+              {% set e =
+                'binary_sensor.bornheim_stadt_rhein_sieg_kreis_nordrhein_westfalen_warnung_' ~ i
+              %}
+
+              {% if
+                is_state(e, 'on')
+                and
+                state_attr(e, 'headline') == wanted
+                and ns.v == ''
+              %}
+                {% set ns.v =
+                  state_attr(e, 'description')
+                  | default('', true)
+                %}
+              {% endif %}
+            {% endfor %}
+
+            {{ ns.v }}
+
+          handlungsempfehlung: >
+            {% set wanted =
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'warnung'
+              )
+            %}
+
+            {% set ns = namespace(v='') %}
+
+            {% for i in range(1, 6) %}
+              {% set e =
+                'binary_sensor.bornheim_stadt_rhein_sieg_kreis_nordrhein_westfalen_warnung_' ~ i
+              %}
+
+              {% if
+                is_state(e, 'on')
+                and
+                state_attr(e, 'headline') == wanted
+                and ns.v == ''
+              %}
+                {% set ns.v =
+                  state_attr(e, 'recommended_actions')
+                  | default(
+                      state_attr(e, 'instruction'),
+                      true
+                    )
+                  | default('', true)
+                %}
+              {% endif %}
+            {% endfor %}
+
+            {{ ns.v }}
+
+          schweregrad: >
+            {% set wanted =
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'warnung'
+              )
+            %}
+
+            {% set ns = namespace(v='') %}
+
+            {% for i in range(1, 6) %}
+              {% set e =
+                'binary_sensor.bornheim_stadt_rhein_sieg_kreis_nordrhein_westfalen_warnung_' ~ i
+              %}
+
+              {% if
+                is_state(e, 'on')
+                and
+                state_attr(e, 'headline') == wanted
+                and ns.v == ''
+              %}
+                {% set ns.v =
+                  state_attr(e, 'severity')
+                  | default('Unknown', true)
+                %}
+              {% endif %}
+            {% endfor %}
+
+            {{ ns.v }}
+
+
+  - binary_sensor:
+
+      - name: "NINA Außenluftgefahr"
+        unique_id: nina_aussenluftgefahr
+        default_entity_id: binary_sensor.nina_aussenluftgefahr
+        device_class: safety
+        icon: mdi:smoke
+
+        state: >
+          {{
+            is_state(
+              'sensor.nina_lueftungsstatus',
+              'gefahr'
+            )
+          }}
+
+        attributes:
+
+          warnung: >
+            {{
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'warnung'
+              )
+            }}
+
+          entwarnung: >
+            {{
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'entwarnung'
+              )
+            }}
+
+          beschreibung: >
+            {{
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'beschreibung'
+              )
+            }}
+
+          handlungsempfehlung: >
+            {{
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'handlungsempfehlung'
+              )
+            }}
+
+          schweregrad: >
+            {{
+              state_attr(
+                'sensor.nina_lueftungsstatus',
+                'schweregrad'
+              )
+            }}
+
+
+  # -------------------------------------------------------------------------
+  # Radar: aktueller Niederschlag / Niederschlag in Kürze
+  # -------------------------------------------------------------------------
+
+  - binary_sensor:
+
+      - name: "Lüftung Radar Regen aktuell"
+        unique_id: lueftung_radar_regen_aktuell
+        default_entity_id: binary_sensor.lueftung_radar_regen_aktuell
+        device_class: moisture
+        icon: mdi:weather-pouring
+
+        state: >
+          {{
+            states('sensor.bornheim_radar_niederschlag_aktuell')
+            | float(0) > 0.05
+          }}
+
+      - name: "Lüftung Radar Regen in Kürze"
+        unique_id: lueftung_radar_regen_in_kuerze
+        default_entity_id: binary_sensor.lueftung_radar_regen_in_kuerze
+        icon: mdi:weather-rainy
+
+        state: >
+          {% set r =
+            states('sensor.bornheim_radar_nachster_niederschlag')
+          %}
+
+          {% if r in ['unknown','unavailable','none',''] %}
+            false
+          {% else %}
+            {% set dt = as_datetime(r, none) %}
+            {{
+              dt is not none
+              and as_timestamp(dt) >= as_timestamp(now())
+              and as_timestamp(dt) <= as_timestamp(now() + timedelta(hours=2))
+            }}
+          {% endif %}
+
+        attributes:
+
+          beginn: >
+            {% set r =
+              states('sensor.bornheim_radar_nachster_niederschlag')
+            %}
+            {{
+              r
+              if r not in ['unknown','unavailable','none','']
+              else none
+            }}
+
+  # -------------------------------------------------------------------------
+  # CO2-Bewertung
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "Lüftung CO2 Status"
+        unique_id: lueftung_co2_status
+        default_entity_id: sensor.lueftung_co2_status
+        icon: mdi:molecule-co2
+
+        availability: >
+          {{
+            states('sensor.zuhause_co2_sensor_co2') | is_number
+          }}
+
+        state: >
+          {% set c =
+            states('sensor.zuhause_co2_sensor_co2') | float
+          %}
+
+          {% if c > 2000 %}
+            kritisch
+          {% elif c >= 1400 %}
+            hoch
+          {% elif c >= 1000 %}
+            erhoeht
+          {% elif c >= 800 %}
+            gut
+          {% else %}
+            sehr_gut
+          {% endif %}
+
+        attributes:
+
+          ppm: >
+            {{ states('sensor.zuhause_co2_sensor_co2') | float(0) }}
+
+  # -------------------------------------------------------------------------
+  # Nächstes gutes Lüftungsfenster
+  #
+  # Forecast bleibt stündlich. Wir interpolieren Temperatur und absolute
+  # Feuchte im Nahbereich auf 10-Minuten-Schritte. Die Anzeige ist deshalb
+  # bewusst "ca." und keine Messwert-Garantie.
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "Nächstes gutes Lüftungsfenster"
+        unique_id: naechstes_gutes_lueftungsfenster
+        default_entity_id: sensor.naechstes_gutes_lueftungsfenster
+        device_class: timestamp
+        icon: mdi:clock-outline
+
+        availability: >
+          {{
+            state_attr(
+              'sensor.lueftungs_wetterprognose',
+              'forecast_24h'
+            )
+            | default([], true)
+            | count >= 2
+          }}
+
+        state: >
+          {% set fc =
+            state_attr(
+              'sensor.lueftungs_wetterprognose',
+              'forecast_24h'
+            )
+            | default([], true)
+          %}
+
+          {% set ti =
+            states('sensor.durchschnitt_temperatur') | float(21)
+          %}
+          {% set hi =
+            states('sensor.luftfeuchtigkeit_durchschnitt') | float(50)
+          %}
+          {% set ahi =
+            states('sensor.absolute_luftfeuchtigkeit_innen') | float(10)
+          %}
+          {% set co2 =
+            states('sensor.zuhause_co2_sensor_co2') | float(0)
+          %}
+          {% set soll =
+            state_attr('climate.master_temperatur', 'temperature')
+            | float(21)
+          %}
+          {% set hours =
+            states('sensor.stunden_seit_letzter_lueftung') | float(0)
+          %}
+
+          {% set need_co2 = co2 >= 1000 %}
+          {% set need_moisture = hi >= 60 %}
+          {% set need_cooling = ti >= soll + 1 %}
+          {% set need_warming = ti <= soll - 1 %}
+          {% set need_routine =
+            hours >= 24
+            and co2 < 1000
+          %}
+
+          {% set need_any =
+            need_co2
+            or need_moisture
+            or need_cooling
+            or need_warming
+            or need_routine
+          %}
+
+          {% set unit =
+            state_attr(
+              'weather.bornheim',
+              'wind_speed_unit'
+            )
+            | default('km/h', true)
+          %}
+
+          {% set ns =
+            namespace(
+              first_any=none,
+              first_good=none,
+              first_optimal=none
+            )
+          %}
+
+          {% if need_any %}
+
+            {% for f in fc[:24] %}
+
+              {% set fdt =
+                as_datetime(
+                  f.get('datetime'),
+                  none
+                )
+              %}
+
+              {% if
+                fdt is not none
+                and
+                as_timestamp(fdt)
+                >
+                as_timestamp(now())
+                and
+                as_timestamp(fdt)
+                <=
+                as_timestamp(
+                  now() + timedelta(hours=24)
+                )
+              %}
+
+                {% set t = f.get('temperature') %}
+                {% set ah = f.get('humidity_absolute') %}
+                {% set rh = f.get('humidity') %}
+
+                {% if
+                  ah is none
+                  and t is not none
+                  and rh is not none
+                %}
+                  {% set tt0 = t | float %}
+                  {% set rr = rh | float %}
+
+                  {% set ah =
+                    216.7
+                    *
+                    (
+                      (rr / 100)
+                      * 6.112
+                      * e ** (
+                        (17.62 * tt0)
+                        /
+                        (243.12 + tt0)
+                      )
+                    )
+                    /
+                    (273.15 + tt0)
+                  %}
+                {% endif %}
+
+                {% if
+                  t is not none
+                  and ah is not none
+                %}
+
+                  {% set tt = t | float %}
+                  {% set aa = ah | float %}
+                  {% set diff = ahi - aa %}
+
+                  {% set cond =
+                    f.get('condition', '')
+                  %}
+                  {% set pop =
+                    f.get(
+                      'precipitation_probability',
+                      0
+                    )
+                    | float(0)
+                  %}
+                  {% set rain =
+                    f.get(
+                      'precipitation',
+                      0
+                    )
+                    | float(0)
+                  %}
+                  {% set wind =
+                    f.get(
+                      'wind_speed',
+                      0
+                    )
+                    | float(0)
+                  %}
+                  {% set gust =
+                    f.get(
+                      'wind_gust_speed',
+                      0
+                    )
+                    | float(0)
+                  %}
+
+                  {% if unit in ['m/s','mps'] %}
+                    {% set wind = wind * 3.6 %}
+                    {% set gust = gust * 3.6 %}
+                  {% elif unit == 'mph' %}
+                    {% set wind = wind * 1.60934 %}
+                    {% set gust = gust * 1.60934 %}
+                  {% endif %}
+
+                  {# Harte Wettergrenzen: kein Kandidat. #}
+                  {% set unsafe =
+                    cond in [
+                      'lightning',
+                      'lightning-rainy',
+                      'hail',
+                      'exceptional',
+                      'pouring'
+                    ]
+                    or rain >= 2.5
+                    or wind >= 50
+                    or gust >= 65
+                  %}
+
+                  {# Ist Lüften für mindestens einen
+                     vorhandenen Bedarf überhaupt sinnvoll? #}
+                  {% set useful =
+                    (
+                      need_co2
+                      and tt <= ti + 6
+                      and diff >= -2.0
+                    )
+                    or
+                    (
+                      need_moisture
+                      and diff >= 0.5
+                      and tt <= ti + 5
+                    )
+                    or
+                    (
+                      need_cooling
+                      and tt <= ti - 0.7
+                      and diff >= -1.0
+                    )
+                    or
+                    (
+                      need_warming
+                      and tt >= ti + 0.7
+                      and tt <= soll + 4
+                      and diff >= -1.0
+                    )
+                    or
+                    (
+                      need_routine
+                      and tt <= ti + 3
+                      and diff >= -1.0
+                    )
+                  %}
+
+                  {% if not unsafe and useful %}
+
+                    {% set score = 0 %}
+
+                    {# Feuchtequalität #}
+                    {% if diff >= 2 %}
+                      {% set score = score + 3 %}
+                    {% elif diff >= 0.5 %}
+                      {% set score = score + 2 %}
+                    {% elif diff >= -0.5 %}
+                      {% set score = score + 1 %}
+                    {% elif diff < -1.5 %}
+                      {% set score = score - 3 %}
+                    {% endif %}
+
+                    {# Temperatur relativ zum eigentlichen Ziel #}
+                    {% if need_cooling %}
+
+                      {% if tt <= soll + 0.5 %}
+                        {% set score = score + 3 %}
+                      {% elif tt <= ti - 2 %}
+                        {% set score = score + 2 %}
+                      {% elif tt <= ti - 0.7 %}
+                        {% set score = score + 1 %}
+                      {% else %}
+                        {% set score = score - 2 %}
+                      {% endif %}
+
+                    {% elif need_warming %}
+
+                      {% if
+                        tt >= soll - 0.5
+                        and tt <= soll + 2
+                      %}
+                        {% set score = score + 3 %}
+                      {% elif tt >= ti + 2 %}
+                        {% set score = score + 2 %}
+                      {% elif tt >= ti + 0.7 %}
+                        {% set score = score + 1 %}
+                      {% else %}
+                        {% set score = score - 2 %}
+                      {% endif %}
+
+                    {% else %}
+
+                      {% if
+                        (tt - soll) | abs <= 2
+                      %}
+                        {% set score = score + 2 %}
+                      {% elif
+                        (tt - soll) | abs <= 4
+                      %}
+                        {% set score = score + 1 %}
+                      {% endif %}
+
+                    {% endif %}
+
+                    {# Regen / Niederschlagswahrscheinlichkeit #}
+                    {% if
+                      rain == 0
+                      and pop < 30
+                    %}
+                      {% set score = score + 2 %}
+                    {% elif
+                      rain < 0.3
+                      and pop < 50
+                    %}
+                      {% set score = score + 1 %}
+                    {% elif
+                      rain >= 1
+                      or pop >= 70
+                    %}
+                      {% set score = score - 2 %}
+                    {% endif %}
+
+                    {# Windqualität #}
+                    {% if gust < 30 %}
+                      {% set score = score + 1 %}
+                    {% elif gust >= 45 %}
+                      {% set score = score - 1 %}
+                    {% endif %}
+
+                    {# Grundqualität nach Score #}
+                    {% if score >= 6 %}
+                      {% set quality = 'optimal' %}
+                    {% elif score >= 3 %}
+                      {% set quality = 'gut' %}
+                    {% elif score >= 0 %}
+                      {% set quality = 'vertretbar' %}
+                    {% else %}
+                      {% set quality = 'ungeeignet' %}
+                    {% endif %}
+
+                    {# Regen darf einen ansonsten perfekten
+                       Zeitpunkt herabstufen. #}
+                    {% if
+                      quality != 'ungeeignet'
+                      and
+                      (
+                        rain >= 0.5
+                        or pop >= 60
+                        or wind >= 35
+                        or gust >= 45
+                      )
+                    %}
+                      {% set quality = 'vertretbar' %}
+
+                    {% elif
+                      quality == 'optimal'
+                      and
+                      (
+                        rain > 0
+                        or pop >= 35
+                        or wind >= 25
+                        or gust >= 35
+                      )
+                    %}
+                      {% set quality = 'gut' %}
+                    {% endif %}
+
+                    {% if
+                      quality != 'ungeeignet'
+                      and ns.first_any is none
+                    %}
+                      {% set ns.first_any =
+                        f.get('datetime')
+                      %}
+                    {% endif %}
+
+                    {% if
+                      quality in ['gut','optimal']
+                      and ns.first_good is none
+                    %}
+                      {% set ns.first_good =
+                        f.get('datetime')
+                      %}
+                    {% endif %}
+
+                    {% if
+                      quality == 'optimal'
+                      and ns.first_optimal is none
+                    %}
+                      {% set ns.first_optimal =
+                        f.get('datetime')
+                      %}
+                    {% endif %}
+
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+
+          {# ------------------------------------------------------------
+             Auswahl abhängig von der Dringlichkeit
+
+             Viel CO2:
+             lieber früher vertretbar als stundenlang auf Perfektion warten.
+
+             Nur Routine:
+             lieber auf ein wirklich gutes Fenster warten.
+             ------------------------------------------------------------ #}
+
+          {% if co2 >= 1400 %}
+            {{
+              ns.first_any
+              if ns.first_any is not none
+              else none
+            }}
+
+          {% elif co2 >= 1000 %}
+            {{
+              ns.first_good
+              if ns.first_good is not none
+              else ns.first_any
+            }}
+
+          {% elif hi >= 65 %}
+            {{
+              ns.first_good
+              if ns.first_good is not none
+              else ns.first_any
+            }}
+
+          {% elif need_cooling or need_warming %}
+            {{
+              ns.first_good
+              if ns.first_good is not none
+              else ns.first_any
+            }}
+
+          {% elif need_routine %}
+            {{
+              ns.first_optimal
+              if ns.first_optimal is not none
+              else
+              (
+                ns.first_good
+                if ns.first_good is not none
+                else ns.first_any
+              )
+            }}
+
+          {% else %}
+            {{
+              ns.first_good
+              if ns.first_good is not none
+              else ns.first_any
+            }}
+          {% endif %}
+
+        attributes:
+
+          horizont_stunden: 24
+
+          genauigkeit: >
+            {% set n =
+              states(
+                'sensor.naechstes_gutes_lueftungsfenster'
+              )
+            %}
+
+            {% if n in [
+              'unknown','unavailable','none',''
+            ] %}
+              kein_fenster
+            {% else %}
+              {% set dt = as_datetime(n, none) %}
+
+              {% if
+                dt is not none
+                and
+                as_timestamp(dt)
+                <=
+                as_timestamp(
+                  now() + timedelta(hours=2)
+                )
+              %}
+                nahbereich
+              {% else %}
+                grob
+              {% endif %}
+            {% endif %}
+
+          qualitaet: >
+            {% set chosen =
+              states(
+                'sensor.naechstes_gutes_lueftungsfenster'
+              )
+            %}
+
+            {% if chosen in [
+              'unknown','unavailable','none',''
+            ] %}
+              kein_fenster
+
+            {% else %}
+              {% set fc =
+                state_attr(
+                  'sensor.lueftungs_wetterprognose',
+                  'forecast_24h'
+                )
+                | default([], true)
+              %}
+
+              {% set ns =
+                namespace(
+                  rain=0,
+                  pop=0,
+                  wind=0,
+                  gust=0,
+                  found=false
+                )
+              %}
+
+              {% for f in fc %}
+                {% set dt =
+                  as_datetime(
+                    f.get('datetime'),
+                    none
+                  )
+                %}
+
+                {% if
+                  dt is not none
+                  and
+                  as_timestamp(dt)
+                  ==
+                  as_timestamp(
+                    as_datetime(chosen)
+                  )
+                %}
+                  {% set ns.rain =
+                    f.get('precipitation',0)
+                    | float(0)
+                  %}
+                  {% set ns.pop =
+                    f.get(
+                      'precipitation_probability',
+                      0
+                    )
+                    | float(0)
+                  %}
+                  {% set ns.wind =
+                    f.get('wind_speed',0)
+                    | float(0)
+                  %}
+                  {% set ns.gust =
+                    f.get('wind_gust_speed',0)
+                    | float(0)
+                  %}
+                  {% set ns.found = true %}
+                {% endif %}
+              {% endfor %}
+
+              {% if
+                ns.rain >= 0.5
+                or ns.pop >= 60
+                or ns.wind >= 35
+                or ns.gust >= 45
+              %}
+                vertretbar
+              {% elif
+                ns.rain > 0
+                or ns.pop >= 35
+                or ns.wind >= 25
+                or ns.gust >= 35
+              %}
+                gut
+              {% else %}
+                optimal
+              {% endif %}
+            {% endif %}
+
+          regen_mm: >
+            {% set chosen =
+              states(
+                'sensor.naechstes_gutes_lueftungsfenster'
+              )
+            %}
+            {% set fc =
+              state_attr(
+                'sensor.lueftungs_wetterprognose',
+                'forecast_24h'
+              )
+              | default([], true)
+            %}
+            {% set ns = namespace(v=none) %}
+
+            {% if chosen not in [
+              'unknown','unavailable','none',''
+            ] %}
+              {% for f in fc %}
+                {% set dt =
+                  as_datetime(
+                    f.get('datetime'),
+                    none
+                  )
+                %}
+                {% if
+                  dt is not none
+                  and
+                  as_timestamp(dt)
+                  ==
+                  as_timestamp(as_datetime(chosen))
+                %}
+                  {% set ns.v =
+                    f.get('precipitation')
+                  %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+
+            {{ ns.v }}
+
+          regenwahrscheinlichkeit: >
+            {% set chosen =
+              states(
+                'sensor.naechstes_gutes_lueftungsfenster'
+              )
+            %}
+            {% set fc =
+              state_attr(
+                'sensor.lueftungs_wetterprognose',
+                'forecast_24h'
+              )
+              | default([], true)
+            %}
+            {% set ns = namespace(v=none) %}
+
+            {% if chosen not in [
+              'unknown','unavailable','none',''
+            ] %}
+              {% for f in fc %}
+                {% set dt =
+                  as_datetime(
+                    f.get('datetime'),
+                    none
+                  )
+                %}
+                {% if
+                  dt is not none
+                  and
+                  as_timestamp(dt)
+                  ==
+                  as_timestamp(as_datetime(chosen))
+                %}
+                  {% set ns.v =
+                    f.get(
+                      'precipitation_probability'
+                    )
+                  %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+
+            {{ ns.v }}
+
+  # -------------------------------------------------------------------------
+  # Lesbarer Text zum nächsten Lüftungsfenster
+  # -------------------------------------------------------------------------
+
+      - name: "Nächstes Lüftungsfenster Text"
+        unique_id: naechstes_lueftungsfenster_text
+        default_entity_id: sensor.naechstes_lueftungsfenster_text
+        icon: mdi:clock-check-outline
+
+        state: >
+          {% set n =
+            states(
+              'sensor.naechstes_gutes_lueftungsfenster'
+            )
+          %}
+
+          {% set q =
+            state_attr(
+              'sensor.naechstes_gutes_lueftungsfenster',
+              'qualitaet'
+            )
+            | default('unbekannt', true)
+          %}
+
+          {% if
+            is_state(
+              'binary_sensor.nina_aussenluftgefahr',
+              'on'
+            )
+          %}
+            Nach Ende der NINA-Außenluftwarnung neu bewerten
+
+          {% elif
+            is_state(
+              'sensor.nina_lueftungsstatus',
+              'vorsicht'
+            )
+          %}
+            Nach Ende der NINA-Vorsicht neu bewerten
+
+          {% elif n in [
+            'unknown','unavailable','none',''
+          ] %}
+            Kein brauchbares Fenster in 24 h
+
+          {% else %}
+            {% set dt =
+              as_local(
+                as_datetime(n)
+              )
+            %}
+            {% set mins =
+              (
+                as_timestamp(dt)
+                - as_timestamp(now())
+              ) / 60
+            %}
+
+            {% if mins <= 15 %}
+              Gleich · {{ q }}
+
+            {% elif mins <= 45 %}
+              In etwa {{
+                (mins / 10)
+                | round(0)
+                | int
+                * 10
+              }} Minuten · {{ q }}
+
+            {% elif dt.date() == now().date() %}
+              Heute gegen {{
+                dt.strftime('%H:%M')
+              }} Uhr · {{ q }}
+
+            {% elif
+              dt.date()
+              ==
+              (
+                now()
+                + timedelta(days=1)
+              ).date()
+            %}
+              Morgen gegen {{
+                dt.strftime('%H:%M')
+              }} Uhr · {{ q }}
+
+            {% else %}
+              {{
+                dt.strftime(
+                  '%d.%m. gegen %H:%M'
+                )
+              }} Uhr · {{ q }}
+            {% endif %}
+          {% endif %}
+
+        attributes:
+
+          zeitpunkt: >
+            {{
+              states(
+                'sensor.naechstes_gutes_lueftungsfenster'
+              )
+            }}
+
+          qualitaet: >
+            {{
+              state_attr(
+                'sensor.naechstes_gutes_lueftungsfenster',
+                'qualitaet'
+              )
+            }}
+
+          regen_mm: >
+            {{
+              state_attr(
+                'sensor.naechstes_gutes_lueftungsfenster',
+                'regen_mm'
+              )
+            }}
+
+          regenwahrscheinlichkeit: >
+            {{
+              state_attr(
+                'sensor.naechstes_gutes_lueftungsfenster',
+                'regenwahrscheinlichkeit'
+              )
+            }}
+
+          minuten_bis_dahin: >
+            {% set n =
+              states(
+                'sensor.naechstes_gutes_lueftungsfenster'
+              )
+            %}
+
+            {% if n in [
+              'unknown','unavailable','none',''
+            ] %}
+              {{ none }}
+            {% else %}
+              {{
+                (
+                  (
+                    as_timestamp(
+                      as_datetime(n)
+                    )
+                    -
+                    as_timestamp(now())
+                  )
+                  / 60
+                )
+                | round(0)
+                | int
+              }}
+            {% endif %}
+
+          hinweis: >
+            {% if
+              is_state(
+                'binary_sensor.nina_aussenluftgefahr',
+                'on'
+              )
+              or
+              is_state(
+                'sensor.nina_lueftungsstatus',
+                'vorsicht'
+              )
+            %}
+              {{ none }}
+
+            {% elif
+              is_state(
+                'sensor.lueftung_dwd_status',
+                'gefahr'
+              )
+            %}
+              Nur nutzen, wenn die aktuelle DWD-Warnung bis dahin aufgehoben wurde.
+
+            {% elif
+              state_attr(
+                'sensor.naechstes_gutes_lueftungsfenster',
+                'qualitaet'
+              )
+              == 'vertretbar'
+            %}
+              Bedingungen sind nicht ideal. Kurz bzw. unter Beobachtung lüften.
+
+            {% else %}
+              {{ none }}
+            {% endif %}
+
+
+      - name: "Lüftungsmodus"
+        unique_id: lueftungsmodus
+        default_entity_id: sensor.lueftungsmodus
+        icon: mdi:brain
+
+        availability: >
+          {{
+            states('sensor.absolute_luftfeuchtigkeit_innen') | is_number
+            and
+            states('sensor.absolute_luftfeuchtigkeit_aussen') | is_number
+            and
+            states('sensor.durchschnitt_temperatur') | is_number
+            and
+            states('sensor.draussen_temp_temperatur') | is_number
+            and
+            states('sensor.luftfeuchtigkeit_durchschnitt') | is_number
+            and
+            states('sensor.zuhause_co2_sensor_co2') | is_number
+          }}
+
+        state: >
+          {% set ti =
+            states('sensor.durchschnitt_temperatur') | float
+          %}
+          {% set ta =
+            states('sensor.draussen_temp_temperatur') | float
+          %}
+          {% set hi =
+            states('sensor.luftfeuchtigkeit_durchschnitt') | float
+          %}
+          {% set ahi =
+            states('sensor.absolute_luftfeuchtigkeit_innen') | float
+          %}
+          {% set aha =
+            states('sensor.absolute_luftfeuchtigkeit_aussen') | float
+          %}
+          {% set diff = ahi - aha %}
+          {% set co2 =
+            states('sensor.zuhause_co2_sensor_co2') | float
+          %}
+          {% set soll =
+            state_attr('climate.master_temperatur', 'temperature')
+            | float(21)
+          %}
+          {% set hours =
+            states('sensor.stunden_seit_letzter_lueftung') | float(0)
+          %}
+
+          {% set nina =
+            is_state('binary_sensor.nina_aussenluftgefahr', 'on')
+          %}
+
+          {% set nina_caution =
+            is_state(
+              'sensor.nina_lueftungsstatus',
+              'vorsicht'
+            )
+          %}
+
+          {% set weather_danger =
+            is_state(
+              'binary_sensor.lueftung_wetter_gefaehrlich',
+              'on'
+            )
+          %}
+          {% set rain_now =
+            is_state(
+              'binary_sensor.lueftung_radar_regen_aktuell',
+              'on'
+            )
+          %}
+          {% set rain_soon =
+            is_state(
+              'binary_sensor.lueftung_radar_regen_in_kuerze',
+              'on'
+            )
+            or
+            is_state(
+              'binary_sensor.lueftung_regen_bald',
+              'on'
+            )
+          %}
+
+          {% set co2_critical = co2 > 2000 %}
+          {% set co2_high = co2 >= 1400 %}
+          {% set co2_elevated = co2 >= 1000 %}
+
+          {% set moisture_urgent =
+            hi >= 65 and diff >= 0.3
+          %}
+          {% set moisture_good =
+            hi >= 60 and diff >= 1.0
+          %}
+
+          {% set too_hot =
+            ti >= soll + 1
+          %}
+          {% set too_cold =
+            ti <= soll - 1
+          %}
+
+          {% set cooling_good =
+            too_hot
+            and ta <= ti - 1
+            and diff >= -0.5
+          %}
+
+          {% set warming_good =
+            too_cold
+            and ta >= ti + 1
+            and ta <= soll + 4
+            and diff >= -0.5
+          %}
+
+          {% set climate_ok =
+            ta <= ti + 3
+            and diff >= -1.0
+          %}
+
+          {% set routine =
+            hours >= 24
+            and co2 < 1000
+            and climate_ok
+          %}
+
+          {# ------------------------------------------------------------ #}
+          {# Intelligente Bewertung bei bereits geöffnetem Fenster       #}
+          {# ------------------------------------------------------------ #}
+
+          {% set open_now =
+            is_state('binary_sensor.lueftung_geoeffnet', 'on')
+          %}
+
+          {# CO2-Hysterese:
+             Start ab 1000 ppm, beim laufenden Lüften erst unter
+             900 ppm sicher als erledigt betrachten. #}
+          {% set continue_co2 =
+            open_now and co2 >= 1000
+          %}
+
+          {% set continue_moisture =
+            open_now
+            and hi >= 60
+            and diff >= 0.5
+          %}
+
+          {% set continue_cooling =
+            open_now
+            and ti > soll + 0.5
+            and ta <= ti - 0.7
+            and diff >= -0.5
+          %}
+
+          {% set continue_warming =
+            open_now
+            and ti < soll - 0.5
+            and ta >= ti + 0.7
+            and ta <= soll + 4
+            and diff >= -0.5
+          %}
+
+          {% set continue_airing =
+            continue_co2
+            or continue_moisture
+            or continue_cooling
+            or continue_warming
+          %}
+
+          {% if nina %}
+            nina_aussenluftgefahr
+
+          {% elif weather_danger %}
+            wettergefahr
+
+          {% elif nina_caution %}
+            nina_vorsicht
+
+          {% elif
+            open_now
+            and continue_airing
+            and not rain_now
+          %}
+            weiter_lueften
+
+          {% elif
+            open_now
+            and not continue_airing
+          %}
+            lueftung_fertig
+
+          {% elif co2_critical and (rain_now or rain_soon) %}
+            co2_kritisch_vorsicht
+
+          {% elif co2_critical %}
+            co2_kritisch
+
+          {% elif
+            co2_high
+            and climate_ok
+            and not rain_now
+          %}
+            co2_lueften
+
+          {% elif co2_high %}
+            co2_warten
+
+          {% elif
+            co2_elevated
+            and climate_ok
+            and not rain_now
+            and not rain_soon
+          %}
+            co2_lueften
+
+          {% elif co2_elevated %}
+            co2_warten
+
+          {% elif
+            moisture_urgent
+            and not rain_now
+            and not rain_soon
+          %}
+            feuchte_lueften
+
+          {% elif
+            moisture_good
+            and not rain_now
+            and not rain_soon
+          %}
+            feuchte_lueften
+
+          {% elif cooling_good and not rain_now %}
+            kuehlen
+
+          {% elif warming_good and not rain_now %}
+            erwaermen
+
+          {% elif routine and not rain_now and not rain_soon %}
+            routine_lueften
+
+          {% elif hi >= 65 and diff < 0.3 %}
+            feuchte_warten
+
+          {% elif too_hot and ta >= ti + 1 %}
+            aussen_zu_warm
+
+          {% elif too_cold and ta <= ti - 1 %}
+            aussen_zu_kalt
+
+          {% elif diff <= -1.0 %}
+            aussen_deutlich_feuchter
+
+          {% elif hi < 40 and diff >= 0.5 %}
+            innen_zu_trocken
+
+          {% elif rain_now %}
+            regen
+
+          {% elif rain_soon %}
+            regen_bald
+
+          {% elif hours >= 24 %}
+            routine_warten
+
+          {% else %}
+            normal
+          {% endif %}
+
+        attributes:
+
+          co2_ppm: >
+            {{ states('sensor.zuhause_co2_sensor_co2') }}
+
+          solltemperatur: >
+            {{
+              state_attr(
+                'climate.master_temperatur',
+                'temperature'
+              )
+            }}
+
+          nina_aussenluftgefahr: >
+            {{
+              is_state(
+                'binary_sensor.nina_aussenluftgefahr',
+                'on'
+              )
+            }}
+
+  # -------------------------------------------------------------------------
+  # Ampel
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "Lüftungsampel"
+        unique_id: lueftungsampel
+        default_entity_id: sensor.lueftungsampel
+        icon: mdi:traffic-light
+
+        state: >
+          {% set m = states('sensor.lueftungsmodus') %}
+
+          {% if m in [
+            'co2_kritisch',
+            'co2_lueften',
+            'weiter_lueften',
+            'feuchte_lueften',
+            'kuehlen',
+            'erwaermen',
+            'routine_lueften'
+          ] %}
+            gruen
+
+          {% elif m in [
+            'nina_aussenluftgefahr',
+            'wettergefahr',
+            'regen',
+            'aussen_zu_warm',
+            'aussen_zu_kalt',
+            'aussen_deutlich_feuchter',
+            'innen_zu_trocken'
+          ] %}
+            rot
+
+          {% else %}
+            gelb
+          {% endif %}
+
+  # -------------------------------------------------------------------------
+  # Empfohlene Lüftungsdauer
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "Empfohlene Lüftungsdauer"
+        unique_id: empfohlene_lueftungsdauer
+        default_entity_id: sensor.empfohlene_lueftungsdauer
+        icon: mdi:timer-outline
+
+        state: >
+          {% set m = states('sensor.lueftungsmodus') %}
+          {% set ta =
+            states('sensor.draussen_temp_temperatur') | float(0)
+          %}
+
+          {% if m == 'weiter_lueften' %}
+            Bis die offenen Lüftungsziele erreicht sind
+
+          {% elif m == 'lueftung_fertig' %}
+            Lüften kann beendet werden
+
+          {% elif m == 'co2_kritisch_vorsicht' %}
+            3–5 Minuten unter Beobachtung
+
+          {% elif m == 'co2_kritisch' %}
+            10–15 Minuten, danach CO₂ erneut prüfen
+
+          {% elif m == 'co2_lueften' %}
+            5–10 Minuten, bis CO₂ unter etwa 1000 ppm fällt
+
+          {% elif m == 'kuehlen' %}
+            15–30 Minuten bzw. solange draußen günstiger bleibt
+
+          {% elif m == 'erwaermen' %}
+            5–10 Minuten
+
+          {% elif m in [
+            'feuchte_lueften',
+            'routine_lueften'
+          ] %}
+            {% if ta < -5 %}
+              2–4 Minuten
+            {% elif ta < 0 %}
+              3–5 Minuten
+            {% elif ta < 5 %}
+              4–6 Minuten
+            {% elif ta < 10 %}
+              5–8 Minuten
+            {% elif ta < 18 %}
+              8–12 Minuten
+            {% elif ta <= 25 %}
+              10–15 Minuten
+            {% else %}
+              5–10 Minuten
+            {% endif %}
+
+          {% else %}
+            Jetzt nicht nötig
+          {% endif %}
+
+  # -------------------------------------------------------------------------
+  # Text fürs Dashboard
+  # -------------------------------------------------------------------------
+
+  - sensor:
+
+      - name: "Lüftungsempfehlung"
+        unique_id: lueftungsempfehlung
+        default_entity_id: sensor.lueftungsempfehlung
+        icon: mdi:window-open-variant
+
+        state: >
+          {% set a = states('sensor.lueftungsampel') %}
+          {% set offen =
+            is_state('binary_sensor.lueftung_geoeffnet', 'on')
+          %}
+
+          {% if a == 'gruen' %}
+            {{ 'Weiter lüften' if offen else 'Jetzt lüften' }}
+
+          {% elif a == 'rot' %}
+            {{ 'Jetzt schließen' if offen else 'Geschlossen lassen' }}
+
+          {% else %}
+            {% if
+              states('sensor.lueftungsmodus')
+              == 'nina_vorsicht'
+            %}
+              {{
+                'Besser schließen'
+                if offen
+                else
+                'Vorsicht – lieber geschlossen lassen'
+              }}
+
+            {% elif offen %}
+              {% if
+                states('sensor.lueftungsmodus')
+                == 'co2_kritisch_vorsicht'
+              %}
+                Nur kurz unter Beobachtung
+              {% else %}
+                Lüften kann beendet werden
+              {% endif %}
+
+            {% else %}
+              Noch nicht nötig / besser warten
+            {% endif %}
+          {% endif %}
+
+        attributes:
+
+          grund: >
+            {% set m = states('sensor.lueftungsmodus') %}
+            {% set ti =
+              states('sensor.durchschnitt_temperatur') | float(0)
+            %}
+            {% set ta =
+              states('sensor.draussen_temp_temperatur') | float(0)
+            %}
+            {% set hi =
+              states('sensor.luftfeuchtigkeit_durchschnitt') | float(0)
+            %}
+            {% set ahi =
+              states('sensor.absolute_luftfeuchtigkeit_innen') | float(0)
+            %}
+            {% set aha =
+              states('sensor.absolute_luftfeuchtigkeit_aussen') | float(0)
+            %}
+            {% set diff = ahi - aha %}
+            {% set co2 =
+              states('sensor.zuhause_co2_sensor_co2') | float(0)
+            %}
+            {% set soll =
+              state_attr('climate.master_temperatur', 'temperature')
+              | float(21)
+            %}
+
+            {% if m == 'weiter_lueften' %}
+
+              {% set ns = namespace(reasons=[]) %}
+
+              {% if co2 >= 1000 %}
+                {% set ns.reasons = ns.reasons + [
+                  'CO₂ liegt noch bei ' ~ (co2 | round(0) | int) ~
+                  ' ppm und sollte weiter sinken'
+                ] %}
+              {% endif %}
+
+              {% if hi >= 60 and diff >= 0.5 %}
+                {% set ns.reasons = ns.reasons + [
+                  'die Raumluft hat noch ' ~ (hi | round(0) | int) ~
+                  ' % Feuchtigkeit und draußen ist sie um ' ~
+                  (diff | round(1)) ~ ' g/m³ trockener'
+                ] %}
+              {% endif %}
+
+              {% if
+                ti > soll + 0.5
+                and ta <= ti - 0.7
+                and diff >= -0.5
+              %}
+                {% set ns.reasons = ns.reasons + [
+                  'innen sind noch ' ~ (ti | round(1)) ~
+                  ' °C bei ' ~ (soll | round(1)) ~
+                  ' °C Soll und draußen ist es mit ' ~
+                  (ta | round(1)) ~ ' °C günstiger'
+                ] %}
+              {% endif %}
+
+              {% if
+                ti < soll - 0.5
+                and ta >= ti + 0.7
+                and ta <= soll + 4
+                and diff >= -0.5
+              %}
+                {% set ns.reasons = ns.reasons + [
+                  'innen sind nur ' ~ (ti | round(1)) ~
+                  ' °C bei ' ~ (soll | round(1)) ~
+                  ' °C Soll und draußen ist es mit ' ~
+                  (ta | round(1)) ~ ' °C wärmer'
+                ] %}
+              {% endif %}
+
+              Weiter lüften: {{ ns.reasons | join('; ') }}.
+
+            {% elif m == 'lueftung_fertig' %}
+              Der Luftaustausch ist ausreichend.
+              CO₂ liegt bei {{ co2 | round(0) }} ppm,
+              die Raumfeuchtigkeit bei {{ hi | round(0) }} %
+              und die Raumtemperatur bei {{ ti | round(1) }} °C
+              gegenüber {{ soll | round(1) }} °C Soll.
+              Es besteht aktuell kein ausreichender Grund,
+              das Fenster weiter offen zu lassen.
+
+            {% elif m == 'nina_aussenluftgefahr' %}
+              NINA meldet eine Gefahr für die Außenluft:
+              {{ state_attr('binary_sensor.nina_aussenluftgefahr','warnung') }}.
+              Fenster und Türen geschlossen halten. Diese Sicherheitswarnung hat Vorrang vor CO₂, Temperatur und Feuchtigkeit.
+
+            {% elif m == 'nina_vorsicht' %}
+              NINA meldet:
+              {{
+                state_attr(
+                  'sensor.nina_lueftungsstatus',
+                  'warnung'
+                )
+              }}.
+              {{
+                state_attr(
+                  'sensor.nina_lueftungsstatus',
+                  'beschreibung'
+                )
+              }}
+              Handlungsempfehlung:
+              {{
+                state_attr(
+                  'sensor.nina_lueftungsstatus',
+                  'handlungsempfehlung'
+                )
+              }}
+              Da ausdrücklich keine akute Gefahr bzw. Gesundheitsgefahr gemeldet wird, ist dies nur eine Vorsichtsstufe und keine harte Lüftungssperre.
+
+            {% elif m == 'wettergefahr' %}
+
+              {% set dwd_warnung =
+                state_attr(
+                  'sensor.lueftung_dwd_status',
+                  'aktuelle_warnung'
+                )
+                | default('', true)
+              %}
+
+              {% set wetter =
+                states('weather.bornheim')
+              %}
+
+              {% set wind =
+                state_attr(
+                  'weather.bornheim',
+                  'wind_speed'
+                )
+                | float(0)
+              %}
+
+              {% set boeen =
+                state_attr(
+                  'weather.bornheim',
+                  'wind_gust_speed'
+                )
+                | float(0)
+              %}
+
+              {% if dwd_warnung != '' %}
+
+                DWD meldet aktuell:
+                **{{ dwd_warnung }}**.
+                Fenster und Türen geschlossen halten.
+
+              {% elif wetter == 'lightning-rainy' %}
+
+                Aktuell besteht eine Wettergefahr durch
+                **Gewitter mit Regen**.
+                Fenster und Türen geschlossen halten.
+
+              {% elif wetter == 'lightning' %}
+
+                Aktuell besteht eine Wettergefahr durch
+                **Gewitter**.
+                Fenster und Türen geschlossen halten.
+
+              {% elif wetter == 'hail' %}
+
+                Aktuell besteht eine Wettergefahr durch
+                **Hagel**.
+                Fenster und Türen geschlossen halten.
+

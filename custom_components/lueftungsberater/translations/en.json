@@ -1,0 +1,115 @@
+{
+  "title": "Ventilation Advisor",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select data sources",
+        "description": "Select a weather provider and optionally a warning service. Available temperature, humidity, wind, precipitation and warning data is used automatically. Known providers such as DWD and NINA receive enhanced support.",
+        "data": {
+          "weather_entity": "Weather provider",
+          "warning_source": "Warning service (optional)",
+          "manual_outdoor": "Advanced outdoor sensors (optional)",
+          "outdoor_temperature": "Override outdoor temperature",
+          "outdoor_humidity": "Override outdoor humidity"
+        }
+      },
+      "reconfigure": {
+        "title": "Change data sources",
+        "data": {
+          "weather_entity": "Weather provider",
+          "warning_source": "Warning service (optional)",
+          "manual_outdoor": "Advanced outdoor sensors (optional)",
+          "outdoor_temperature": "Override outdoor temperature",
+          "outdoor_humidity": "Override outdoor humidity"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one global Ventilation Advisor entry is supported. Add rooms as subentries instead."
+    }
+  },
+  "config_subentries": {
+    "room": {
+      "title": "Room",
+      "step": {
+        "user": {
+          "title": "Add room",
+          "description": "Indoor temperature and humidity are required. CO₂ is optional. When window/door contacts are selected, the advisor automatically recognizes airing sessions of at least 5 minutes and tracks airing history itself.",
+          "data": {
+            "room_name": "Room name",
+            "indoor_temperature": "Indoor temperature",
+            "indoor_humidity": "Indoor humidity",
+            "co2_entity": "CO₂ (optional)",
+            "window_entities": "Windows / doors (optional)",
+            "climate_entity": "Climate entity for target temperature (optional)",
+            "target_temperature": "Fallback target temperature"
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure room",
+          "data": {
+            "room_name": "Room name",
+            "indoor_temperature": "Indoor temperature",
+            "indoor_humidity": "Indoor humidity",
+            "co2_entity": "CO₂ (optional)",
+            "window_entities": "Windows / doors (optional)",
+            "climate_entity": "Climate entity for target temperature (optional)",
+            "target_temperature": "Fallback target temperature"
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "A room with this name already exists."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "advisor": {
+        "state": {
+          "open_now": "Ventilate now",
+          "keep_open": "Keep ventilating",
+          "can_close": "Ventilation can end",
+          "short_observation": "Briefly, under observation",
+          "better_close": "Better close",
+          "caution_keep_closed": "Caution – better keep closed",
+          "keep_closed": "Keep closed",
+          "close_now": "Close now",
+          "wait": "Not needed yet / better wait"
+        }
+      },
+      "absolute_humidity": {
+        "name": "Absolute humidity"
+      },
+      "co2_status": {
+        "name": "CO₂ status",
+        "state": {
+          "very_good": "Very good",
+          "good": "Good",
+          "elevated": "Elevated",
+          "high": "High",
+          "critical": "Critical",
+          "unknown": "Unknown"
+        }
+      },
+      "airing_status": {
+        "name": "Ventilation",
+        "state": {
+          "airing": "Ventilating now",
+          "closed": "Closed"
+        }
+      },
+      "last_airing": {
+        "name": "Last airing"
+      },
+      "hours_since_airing": {
+        "name": "Hours since last airing"
+      }
+    },
+    "binary_sensor": {
+      "critical_danger": {
+        "name": "Critical danger"
+      }
+    }
+  }
+}
