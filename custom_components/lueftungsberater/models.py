@@ -1,6 +1,8 @@
 """Pure data models for the ventilation engine."""
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 
 @dataclass(slots=True)
 class RoomInput:
@@ -14,10 +16,12 @@ class RoomInput:
     hours_since_airing: float | None = None
     rain_now: bool = False
     rain_soon: bool = False
+    weather_caution: bool = False
     weather_danger: bool = False
     weather_reason: str | None = None
     nina_status: str = "none"  # none | caution | danger
     nina_reason: str | None = None
+
 
 @dataclass(slots=True)
 class VentilationResult:

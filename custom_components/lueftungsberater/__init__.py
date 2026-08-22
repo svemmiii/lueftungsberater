@@ -11,13 +11,17 @@ from homeassistant.core import HomeAssistant
 
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
+from .coordinator import (
+    async_get_or_create_room_coordinator,
+    async_stop_entry_coordinators,
+)
 from .const import PLATFORMS, SUBENTRY_TYPE_ROOM
 
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.6"
+FRONTEND_VERSION = "0.6.7"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -83,6 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
             await async_get_or_create_tracker(hass, entry, subentry)
             await async_get_or_create_co2_tracker(hass, entry, subentry)
+            await async_get_or_create_room_coordinator(hass, entry, subentry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
@@ -98,6 +103,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload platforms and trackers."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        await async_stop_entry_coordinators(hass, entry)
         await async_stop_entry_trackers(hass, entry)
         await async_stop_entry_co2_trackers(hass, entry)
     return unloaded

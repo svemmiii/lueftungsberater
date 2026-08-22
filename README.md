@@ -14,6 +14,9 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 
 - Eigene Lüftungsempfehlung pro Raum
 - Grün/Gelb/Rot-Status mit konkreter Begründung
+  - **Grün:** Lüften ist aktuell sinnvoll
+  - **Gelb:** nur eingeschränkt sinnvoll / besser abwarten oder beobachten
+  - **Rot:** Lüften ist aktuell klar nicht sinnvoll; Fenster besser geschlossen halten
 - Absolute Feuchtigkeit innen/außen
 - Optionaler CO₂-Sensor pro Raum
 - Automatischer Lüftungsverlauf mit Fenster-/Türkontakt
@@ -63,7 +66,7 @@ Beim ersten Einrichten wählst du:
 - **Wetterdienst**
 - optional **Warn-App / Warndienst**
 
-Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden. Werden konfigurierte Außensensoren vorübergehend `unavailable` oder `unknown`, fällt Lüftungsberater für Temperatur und Luftfeuchtigkeit unabhängig voneinander automatisch auf die aktuelle `weather.*`-Entity zurück, sofern der jeweilige Wert dort verfügbar ist.
+Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden. Werden konfigurierte Außensensoren vorübergehend `unavailable` oder `unknown`, fällt Lüftungsberater für Temperatur und Luftfeuchtigkeit unabhängig voneinander automatisch auf die aktuelle `weather.*`-Entity zurück, sofern der jeweilige Wert dort verfügbar ist. Die Raumkarte kennzeichnet einen solchen aktiven Fallback direkt am betroffenen Außenwert mit **Wetterdienst**.
 
 ### 2. Räume hinzufügen
 
@@ -77,6 +80,17 @@ Für jeden Raum können konfiguriert werden:
 - Solltemperatur
 
 Ohne Fensterkontakt arbeitet der Raum rein beobachtend. Mit Fensterkontakt erkennt Lüftungsberater automatisch, wann tatsächlich gelüftet wurde.
+
+### Wetterwarnungen und Regen
+
+Regen allein ist kein roter Zustand. Normaler Regen und auch der Home-Assistant-Wetterzustand `pouring` werden als Niederschlag behandelt und führen grundsätzlich zu Gelb, sofern kein stärkerer Grund greift.
+
+Bei DWD Weather Warnings berücksichtigt Lüftungsberater die Warnstufe:
+
+- Stufe 1/2 bzw. Vorabinformation → **Gelb / Vorsicht**
+- Stufe 3/4 (Unwetter / extremes Unwetter) → **Rot / geschlossen halten**
+
+Damit kann z. B. eine amtliche Starkregenwarnung der Stufe 2 vor dem Lüften warnen, ohne automatisch dieselbe Bewertung wie eine echte Unwetterwarnung zu erhalten.
 
 ## Dashboard
 

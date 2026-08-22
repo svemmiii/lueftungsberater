@@ -140,3 +140,125 @@ def test_unavailable_weather_is_not_used_as_fallback():
     assert result.humidity is None
     assert result.temperature_source_kind == "unavailable"
     assert result.humidity_source_kind == "unavailable"
+
+
+def test_pouring_is_rain_but_not_automatically_weather_danger():
+    result = assess(
+        {
+            WEATHER: FakeState("pouring", {"temperature": 16.0, "humidity": 95}),
+        },
+        temp=None,
+        humidity=None,
+    )
+    assert result.rain_now is True
+    assert result.weather_danger is False
+    assert result.weather_caution is False
+
+
+def test_dwd_level_2_warning_is_caution_not_red_danger():
+    from custom_components.lueftungsberater.providers import _evaluate_dwd_warning_entities
+
+    entity = "sensor.dwd_weather_warnings_current_warning_level"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "2",
+                {
+                    "warning_count": 1,
+                    "warning_1_name": "STARKREGEN",
+                    "warning_1_level": 2,
+                    "warning_1_headline": "Amtliche Warnung vor Starkregen",
+                },
+            )
+        }
+    )
+    result = _evaluate_dwd_warning_entities(hass, [entity])
+    assert result.weather_caution is True
+    assert result.weather_danger is False
+
+
+def test_dwd_level_3_warning_is_red_danger():
+    from custom_components.lueftungsberater.providers import _evaluate_dwd_warning_entities
+
+    entity = "sensor.dwd_weather_warnings_current_warning_level"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "3",
+                {
+                    "warning_count": 1,
+                    "warning_1_name": "HEFTIGER STARKREGEN",
+                    "warning_1_level": 3,
+                    "warning_1_headline": "Amtliche Unwetterwarnung vor heftigem Starkregen",
+                },
+            )
+        }
+    )
+    result = _evaluate_dwd_warning_entities(hass, [entity])
+    assert result.weather_danger is True
+    assert result.weather_caution is False
+
+
+
+def test_dwd_uses_level_of_relevant_warning_not_sensor_maximum():
+    from custom_components.lueftungsberater.providers import _evaluate_dwd_warning_entities
+
+    entity = "sensor.dwd_weather_warnings_current_warning_level"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "3",
+                {
+                    "warning_count": 2,
+                    "warning_1_name": "HITZE",
+                    "warning_1_level": 3,
+                    "warning_1_headline": "Amtliche Unwetterwarnung vor Hitze",
+                    "warning_2_name": "STARKREGEN",
+                    "warning_2_level": 2,
+                    "warning_2_headline": "Amtliche Warnung vor Starkregen",
+                },
+            )
+        }
+    )
+    result = _evaluate_dwd_warning_entities(hass, [entity])
+    assert result.weather_caution is True
+    assert result.weather_danger is False
+
+def test_generic_moderate_weather_warning_is_caution():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    entity = "binary_sensor.warning"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "on",
+                {
+                    "headline": "Warnung vor Starkregen",
+                    "severity": "Moderate",
+                },
+            )
+        }
+    )
+    result = _evaluate_nina_like_entities(hass, [entity])
+    assert result.weather_caution is True
+    assert result.weather_danger is False
+
+
+def test_generic_severe_weather_warning_is_danger():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    entity = "binary_sensor.warning"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "on",
+                {
+                    "headline": "Unwetterwarnung vor heftigem Starkregen",
+                    "severity": "Severe",
+                },
+            )
+        }
+    )
+    result = _evaluate_nina_like_entities(hass, [entity])
+    assert result.weather_danger is True
+    assert result.weather_caution is False

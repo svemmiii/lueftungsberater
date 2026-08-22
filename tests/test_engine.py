@@ -22,8 +22,19 @@ def test_nina_caution_is_yellow():
     assert r.color == "yellow" and r.mode == "nina_vorsicht"
 
 def test_weather_danger_wins_and_keeps_specific_reason():
-    r = evaluate_room(base(co2=1500, weather_danger=True, weather_reason="DWD warnt vor Starkregen"))
+    r = evaluate_room(base(co2=1500, weather_danger=True, weather_reason="DWD Unwetterwarnung vor heftigem Starkregen"))
     assert r.color == "red" and "Starkregen" in r.reason
+
+def test_weather_caution_is_yellow_and_keeps_specific_reason():
+    r = evaluate_room(base(weather_caution=True, weather_reason="DWD warnt vor Starkregen"))
+    assert r.color == "yellow"
+    assert r.mode == "wetter_vorsicht"
+    assert "Starkregen" in r.reason
+
+def test_hotter_outside_can_be_red_without_being_a_danger_alert():
+    r = evaluate_room(base(indoor_temp=23, outdoor_temp=38, target_temp=22))
+    assert r.color == "red"
+    assert r.mode == "aussen_zu_warm"
 
 def test_window_open_keeps_airing_for_co2():
     r = evaluate_room(base(co2=1200, window_open=True))

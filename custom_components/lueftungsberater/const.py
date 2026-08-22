@@ -37,4 +37,5 @@ CO2_GRACE_PERIOD = timedelta(seconds=60)
 
 DATA_TRACKERS = "airing_trackers"
 DATA_CO2_TRACKERS = "co2_trackers"
+DATA_COORDINATORS = "room_coordinators"
 STORAGE_VERSION = 1

@@ -1,15 +1,35 @@
 """Runtime helpers for mapping Home Assistant entities to the pure engine."""
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
-from homeassistant.core import HomeAssistant
+
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
-from .const import *
+from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant, State
+from homeassistant.util.unit_conversion import TemperatureConverter
+
 from .airing import get_tracker
 from .co2 import get_co2_tracker
+from .const import *
 from .engine import evaluate_room
-from .providers import weather_assessment, warning_assessment
 from .models import RoomInput, VentilationResult
+from .providers import (
+    WeatherAssessment,
+    WarningAssessment,
+    weather_assessment,
+    warning_assessment,
+)
+
+
+@dataclass(slots=True)
+class RoomSnapshot:
+    """One consistent calculation snapshot shared by all entities of a room."""
+
+    result: VentilationResult | None
+    values: dict[str, Any]
+    weather: WeatherAssessment
+    warnings: WarningAssessment
 
 
 def _number(hass: HomeAssistant, entity_id: str | None) -> float | None:
@@ -24,8 +44,75 @@ def _number(hass: HomeAssistant, entity_id: str | None) -> float | None:
         return None
 
 
+def _to_celsius(value: Any, unit: str | None) -> float | None:
+    """Convert a temperature value to Celsius for the decision engine."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if not unit or unit == UnitOfTemperature.CELSIUS:
+        return number
+
+    try:
+        return TemperatureConverter.convert(
+            number,
+            unit,
+            UnitOfTemperature.CELSIUS,
+        )
+    except (TypeError, ValueError):
+        return number
+
+
+def _temperature_state_celsius(
+    hass: HomeAssistant,
+    entity_id: str | None,
+) -> float | None:
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if state is None or state.state in {"unknown", "unavailable", "none", ""}:
+        return None
+    return _to_celsius(
+        state.state,
+        state.attributes.get("unit_of_measurement"),
+    )
+
+
+def weather_temperature_celsius(
+    hass: HomeAssistant,
+    weather: WeatherAssessment,
+) -> float | None:
+    """Normalize the selected/fallback weather temperature to Celsius."""
+    if weather.temperature is None:
+        return None
+
+    source = weather.source_temperature
+    state = hass.states.get(source) if source else None
+
+    if state is None:
+        return weather.temperature
+
+    if source and source.startswith("weather."):
+        unit = state.attributes.get("temperature_unit")
+    else:
+        unit = state.attributes.get("unit_of_measurement")
+
+    return _to_celsius(weather.temperature, unit)
+
+
 def _is_on(hass: HomeAssistant, entity_id: str | None) -> bool:
     return bool(entity_id and hass.states.is_state(entity_id, "on"))
+
+
+def warning_source_configured(entry: ConfigEntry) -> bool:
+    """Return whether the new warning-provider selector contains a real source."""
+    source = entry.data.get(CONF_WARNING_SOURCE)
+    return (
+        isinstance(source, str)
+        and bool(source)
+        and source != WARNING_SOURCE_NONE
+    )
 
 
 def room_co2_value(
@@ -66,7 +153,6 @@ def _text(hass: HomeAssistant, entity_id: str | None) -> str | None:
     state = hass.states.get(entity_id)
     if state is None or state.state in {"unknown", "unavailable", "none", ""}:
         return None
-    # Prefer useful warning attributes when present.
     for attr in ("aktuelle_warnung", "warning", "warnung", "headline", "description"):
         val = state.attributes.get(attr)
         if isinstance(val, str) and val.strip():
@@ -78,35 +164,32 @@ def target_temperature(
     hass: HomeAssistant,
     subentry: ConfigSubentry,
 ) -> float:
-    """Return configured/Climate target temperature without changing engine logic."""
+    """Return the configured/climate target normalized to Celsius."""
     target = subentry.data.get(CONF_TARGET_TEMP)
     climate_id = subentry.data.get(CONF_CLIMATE)
 
     if climate_id:
         climate_state = hass.states.get(climate_id)
-        climate_target = (
-            climate_state.attributes.get("temperature")
-            if climate_state
-            else None
-        )
-        try:
-            if climate_target is not None:
-                target = float(climate_target)
-        except (TypeError, ValueError):
-            pass
+        if climate_state:
+            climate_target = climate_state.attributes.get("temperature")
+            climate_unit = climate_state.attributes.get("temperature_unit")
+            converted = _to_celsius(climate_target, climate_unit)
+            if converted is not None:
+                return converted
 
     try:
+        # The fallback selector is deliberately defined in °C (5..35).
         return float(target) if target is not None else DEFAULT_TARGET_TEMP
     except (TypeError, ValueError):
         return DEFAULT_TARGET_TEMP
 
 
-def room_display_values(
+def _room_values(
     hass: HomeAssistant,
     entry: ConfigEntry,
     subentry: ConfigSubentry,
+    weather: WeatherAssessment,
 ) -> dict[str, Any]:
-    """Return raw input values for UI/attributes only."""
     tracker = get_tracker(hass, entry, subentry)
     windows = subentry.data.get(CONF_WINDOWS, []) or []
     has_windows = bool(windows)
@@ -116,11 +199,14 @@ def room_display_values(
         else any(hass.states.is_state(entity_id, "on") for entity_id in windows)
     )
 
-    weather = weather_assessment(hass, entry)
-
     return {
-        "temperature_inside": _number(hass, subentry.data.get(CONF_INDOOR_TEMP)),
-        "temperature_outside": weather.temperature,
+        # All temperatures exposed by this snapshot are Celsius. The frontend
+        # converts them to the user's display unit when necessary.
+        "temperature_inside": _temperature_state_celsius(
+            hass,
+            subentry.data.get(CONF_INDOOR_TEMP),
+        ),
+        "temperature_outside": weather_temperature_celsius(hass, weather),
         "target_temperature": target_temperature(hass, subentry),
         "humidity_inside": _number(hass, subentry.data.get(CONF_INDOOR_HUMIDITY)),
         "humidity_outside": weather.humidity,
@@ -145,6 +231,16 @@ def room_display_values(
             else None
         ),
     }
+
+
+def room_display_values(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> dict[str, Any]:
+    """Return normalized room input values for UI/attributes."""
+    weather = weather_assessment(hass, entry)
+    return _room_values(hass, entry, subentry, weather)
 
 
 def room_source_entities(
@@ -190,39 +286,30 @@ def room_source_entities(
     return entities
 
 
-def build_result(hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubentry) -> VentilationResult | None:
-    ti = _number(hass, subentry.data.get(CONF_INDOOR_TEMP))
-    hi = _number(hass, subentry.data.get(CONF_INDOOR_HUMIDITY))
-
+def build_room_snapshot(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> RoomSnapshot:
+    """Build all room data once so every room entity sees the same snapshot."""
     weather = weather_assessment(hass, entry)
-    warning = warning_assessment(hass, entry)
+    warnings = warning_assessment(hass, entry)
+    values = _room_values(hass, entry, subentry, weather)
 
-    ta = weather.temperature
-    ha = weather.humidity
+    ti = values["temperature_inside"]
+    hi = values["humidity_inside"]
+    ta = values["temperature_outside"]
+    ha = values["humidity_outside"]
 
     if None in (ti, hi, ta, ha):
-        return None
+        return RoomSnapshot(None, values, weather, warnings)
 
-    target = target_temperature(hass, subentry)
-
-    windows = subentry.data.get(CONF_WINDOWS, []) or []
-    tracker = get_tracker(hass, entry, subentry)
-    window_open = (
-        tracker.is_open
-        if tracker is not None
-        else any(hass.states.is_state(e, "on") for e in windows)
-    )
-    hours_since_airing = (
-        tracker.hours_since_last_airing
-        if tracker is not None
-        else None
-    )
-
-    if entry.data.get(CONF_WARNING_SOURCE):
-        normalized_nina = warning.nina_status
-        nina_reason = warning.nina_reason
-        provider_weather_danger = warning.weather_danger
-        provider_weather_reason = warning.weather_reason
+    if warning_source_configured(entry):
+        normalized_nina = warnings.nina_status
+        nina_reason = warnings.nina_reason
+        provider_weather_caution = warnings.weather_caution
+        provider_weather_danger = warnings.weather_danger
+        provider_weather_reason = warnings.weather_reason
     else:
         nina_state = _text(hass, entry.data.get(CONF_NINA_STATUS)) or "none"
         normalized_nina = {
@@ -237,6 +324,7 @@ def build_result(hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubent
             "off": "none",
         }.get(nina_state.lower(), "none")
         nina_reason = None
+        provider_weather_caution = False
         provider_weather_danger = False
         provider_weather_reason = None
 
@@ -254,7 +342,10 @@ def build_result(hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubent
         or provider_weather_danger
         or legacy_weather_danger
     )
-
+    weather_caution = (
+        not weather_danger
+        and (weather.weather_caution or provider_weather_caution)
+    )
     weather_reason = (
         provider_weather_reason
         or legacy_weather_reason
@@ -264,19 +355,33 @@ def build_result(hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubent
     legacy_rain_now = _is_on(hass, entry.data.get(CONF_RAIN_NOW))
     legacy_rain_soon = _is_on(hass, entry.data.get(CONF_RAIN_SOON))
 
-    return evaluate_room(RoomInput(
-        indoor_temp=ti,
-        indoor_humidity=hi,
-        outdoor_temp=ta,
-        outdoor_humidity=ha,
-        target_temp=target,
-        co2=room_co2_value(hass, entry, subentry),
-        window_open=window_open,
-        hours_since_airing=hours_since_airing,
-        rain_now=(weather.rain_now or legacy_rain_now),
-        rain_soon=(weather.rain_soon or legacy_rain_soon),
-        weather_danger=weather_danger,
-        weather_reason=weather_reason,
-        nina_status=normalized_nina,
-        nina_reason=nina_reason,
-    ))
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=ti,
+            indoor_humidity=hi,
+            outdoor_temp=ta,
+            outdoor_humidity=ha,
+            target_temp=values["target_temperature"],
+            co2=values["co2_ppm"],
+            window_open=bool(values["window_open"]),
+            hours_since_airing=values["hours_since_last_airing"],
+            rain_now=(weather.rain_now or legacy_rain_now),
+            rain_soon=(weather.rain_soon or legacy_rain_soon),
+            weather_caution=weather_caution,
+            weather_danger=weather_danger,
+            weather_reason=weather_reason,
+            nina_status=normalized_nina,
+            nina_reason=nina_reason,
+        )
+    )
+
+    return RoomSnapshot(result, values, weather, warnings)
+
+
+def build_result(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> VentilationResult | None:
+    """Compatibility helper returning only the current room result."""
+    return build_room_snapshot(hass, entry, subentry).result

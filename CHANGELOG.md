@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.7
+- Warnlogik verfeinert: Regen bzw. der Weather-Zustand `pouring` ist nicht mehr automatisch Rot.
+- DWD-Wetterwarnungen werden anhand der Stufe der konkreten Einzelwarnung unterschieden: Stufe 1/2 und Vorabinformationen führen zu Gelb/Vorsicht, Stufe 3/4 zu Rot/Vermeiden.
+- Generische CAP-/NINA-artige Wetterwarnungen werden bei `Moderate` als Vorsicht und bei `Severe`/`Extreme` als Gefahr bewertet.
+- Neuer Engine-Modus `wetter_vorsicht` für relevante, aber nicht rote Wetterwarnungen.
+- Fehler behoben, durch den der neue `warning_source`-Selektor die Binary-Entity „Kritische Gefahr“ nicht zuverlässig aktivierte.
+- `warning_source: none` wird jetzt korrekt als „kein Warndienst“ behandelt und nicht als konfigurierter Provider.
+- Temperaturen aus Sensor-, Weather- und Climate-Entities werden vor der Entscheidungslogik auf °C normalisiert; dadurch funktionieren auch Fahrenheit-Setups korrekt.
+- Die Dashboard-Karte zeigt Temperaturen anschließend wieder in der Home-Assistant-Anzeigeeinheit an.
+- Bei aktivem Außensensor-Fallback kennzeichnet die Raumkarte den betroffenen Außenwert dezent mit „Wetterdienst“.
+- Pro Raum gibt es jetzt einen gemeinsamen eventgesteuerten `DataUpdateCoordinator`; Wetter-, Warn- und Engine-Auswertung werden pro Quelländerung nur einmal berechnet und von allen Raum-Entities gemeinsam verwendet.
+- GitHub Actions führt zusätzlich zu HACS und Hassfest jetzt automatisch die Python-Unit-Tests mit `pytest-homeassistant-custom-component` aus.
+- Zusätzliche Regressionstests für Wetterwarnstufen, Starkregen/`pouring`, Warn-Vorsicht und Temperaturkonvertierung ergänzt.
+
 ## 0.6.6
 - Robuster Fallback für eigene Außensensoren ergänzt.
 - Außentemperatur und Außenluftfeuchtigkeit fallen unabhängig voneinander auf die aktuelle `weather.*`-Entity zurück, wenn der jeweils konfigurierte lokale Sensor `unknown`, `unavailable` oder anderweitig ungültig ist.

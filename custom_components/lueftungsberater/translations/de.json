@@ -45,7 +45,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
-            "target_temperature": "Fallback-Solltemperatur"
+            "target_temperature": "Fallback-Solltemperatur (°C)"
           }
         },
         "reconfigure": {
@@ -57,7 +57,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
-            "target_temperature": "Fallback-Solltemperatur"
+            "target_temperature": "Fallback-Solltemperatur (°C)"
           }
         }
       },

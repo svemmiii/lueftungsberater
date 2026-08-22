@@ -24,7 +24,6 @@ WEATHER_DANGER_CONDITIONS = {
     "lightning-rainy",
     "hail",
     "exceptional",
-    "pouring",
 }
 
 RAIN_CONDITIONS = {
@@ -125,6 +124,7 @@ class WeatherAssessment:
     humidity: float | None = None
     rain_now: bool = False
     rain_soon: bool = False
+    weather_caution: bool = False
     weather_danger: bool = False
     weather_reason: str | None = None
     source_entities: set[str] = field(default_factory=set)
@@ -141,6 +141,7 @@ class WeatherAssessment:
 class WarningAssessment:
     """Normalized data from the selected warning provider."""
 
+    weather_caution: bool = False
     weather_danger: bool = False
     weather_reason: str | None = None
     nina_status: str = "none"
@@ -388,6 +389,8 @@ def weather_assessment(
 
     condition = state.state
     result.rain_now = condition in RAIN_CONDITIONS
+    if condition == "pouring":
+        result.weather_reason = "Starker Regen"
 
     wind_unit = state.attributes.get("wind_speed_unit")
     wind = _wind_to_kmh(state.attributes.get("wind_speed"), wind_unit)
@@ -406,8 +409,6 @@ def weather_assessment(
             result.weather_reason = "Gewitter mit Regen"
         elif condition == "hail":
             result.weather_reason = "Hagel"
-        elif condition == "pouring":
-            result.weather_reason = "Starker Regen"
         elif condition == "exceptional":
             result.weather_reason = "Außergewöhnliche Wetterlage"
         elif gust >= 65:
@@ -534,10 +535,20 @@ def _evaluate_nina_like_entities(
             continue
 
         if _contains_any(alltext, WEATHER_WARNING_WORDS):
-            if severity.lower() in SEVERITY_DANGER:
+            severity_low = severity.lower()
+            reason = headline or description
+            if severity_low in {"severe", "extreme"}:
                 result.weather_danger = True
+                result.weather_caution = False
                 if result.weather_reason is None:
-                    result.weather_reason = headline or description
+                    result.weather_reason = reason
+            elif not result.weather_danger:
+                # Moderate, minor or providers without a usable CAP severity are
+                # treated as caution. This prevents ordinary/markant rain
+                # warnings from turning the whole advisor red.
+                result.weather_caution = True
+                if result.weather_reason is None:
+                    result.weather_reason = reason
 
         air_state = _evaluate_air_warning(
             headline,
@@ -575,7 +586,7 @@ def _evaluate_dwd_warning_entities(
             or "vorwarn" in low_id
             or "prewarning" in low_id
         )
-        level = _state_float(state) or 0.0
+        sensor_level = _state_float(state) or 0.0
 
         for index in range(1, count + 1):
             name = str(
@@ -591,10 +602,27 @@ def _evaluate_dwd_warning_entities(
             if not _contains_any(text, WEATHER_WARNING_WORDS):
                 continue
 
-            if not is_advance and level >= 2:
+            # DWD exposes a level for every individual warning. Prefer that
+            # over the sensor state (which is only the highest active level),
+            # otherwise an unrelated level-3 warning could incorrectly turn a
+            # level-2 Starkregen warning red.
+            warning_level = _float(
+                state.attributes.get(f"warning_{index}_level")
+            )
+            level = warning_level if warning_level is not None else sensor_level
+
+            reason = headline or name
+            if not is_advance and level >= 3:
                 result.weather_danger = True
+                result.weather_caution = False
                 if result.weather_reason is None:
-                    result.weather_reason = headline or name
+                    result.weather_reason = reason
+            elif not result.weather_danger:
+                # DWD level 1/2 and advance information are advisory for
+                # ventilation. Level 3/4 are actual severe-weather warnings.
+                result.weather_caution = True
+                if result.weather_reason is None:
+                    result.weather_reason = reason
 
     return result
 
@@ -632,11 +660,19 @@ def warning_assessment(
 
         if dwd_like.weather_danger:
             assessed.weather_danger = True
+            assessed.weather_caution = False
+            assessed.weather_reason = (
+                assessed.weather_reason
+                or dwd_like.weather_reason
+            )
+        elif dwd_like.weather_caution and not assessed.weather_danger:
+            assessed.weather_caution = True
             assessed.weather_reason = (
                 assessed.weather_reason
                 or dwd_like.weather_reason
             )
 
+    result.weather_caution = assessed.weather_caution and not assessed.weather_danger
     result.weather_danger = assessed.weather_danger
     result.weather_reason = assessed.weather_reason
     result.nina_status = assessed.nina_status

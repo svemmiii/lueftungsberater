@@ -102,6 +102,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mode = "wettergefahr"
     elif data.nina_status == "caution":
         mode = "nina_vorsicht"
+    elif data.weather_caution:
+        mode = "wetter_vorsicht"
     elif data.window_open and continue_airing and not data.rain_now:
         mode = "weiter_lueften"
     elif data.window_open and not continue_airing:
@@ -152,7 +154,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         recommendation = "Weiter lüften" if data.window_open else "Jetzt lüften"
     elif color == "red":
         recommendation = "Jetzt schließen" if data.window_open else "Geschlossen lassen"
-    elif mode == "nina_vorsicht":
+    elif mode in {"nina_vorsicht", "wetter_vorsicht"}:
         recommendation = "Besser schließen" if data.window_open else "Vorsicht – lieber geschlossen lassen"
     elif data.window_open:
         recommendation = "Nur kurz unter Beobachtung" if mode == "co2_kritisch_vorsicht" else "Lüften kann beendet werden"
@@ -166,6 +168,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason = data.nina_reason or "NINA empfiehlt vorsorglich, Fenster und Türen geschlossen zu halten."
     elif mode == "wettergefahr":
         reason = data.weather_reason or "Es besteht aktuell eine für offene Fenster relevante Wettergefahr."
+    elif mode == "wetter_vorsicht":
+        reason = data.weather_reason or "Es besteht eine Wetterwarnung; Lüften ist momentan nur eingeschränkt sinnvoll."
     elif mode == "weiter_lueften":
         reasons: list[str] = []
         if continue_co2: reasons.append(f"CO₂ liegt noch bei {co2:.0f} ppm")
@@ -204,7 +208,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "innen_zu_trocken":
         reason = "Die Innenluft ist bereits trocken; Lüften würde sie momentan weiter austrocknen."
     elif mode == "regen":
-        reason = "Aktuell wird Niederschlag erkannt."
+        reason = data.weather_reason or "Aktuell wird Niederschlag erkannt."
     elif mode == "regen_bald":
         reason = "Kurzfristig wird Niederschlag erwartet."
     else:

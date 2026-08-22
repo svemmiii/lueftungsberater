@@ -45,7 +45,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
-            "target_temperature": "Fallback target temperature"
+            "target_temperature": "Fallback target temperature (°C)"
           }
         },
         "reconfigure": {
@@ -57,7 +57,7 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
-            "target_temperature": "Fallback target temperature"
+            "target_temperature": "Fallback target temperature (°C)"
           }
         }
       },

@@ -113,6 +113,23 @@ class LueftungsberaterCard extends HTMLElement {
       : null;
   }
 
+  _temperatureUnit() {
+    return this._hass?.config?.unit_system?.temperature || "°C";
+  }
+
+  _displayTemperature(value, unit = this._temperatureUnit()) {
+    if (value === null || value === undefined || value === "") return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return unit === "°F" ? (n * 9) / 5 + 32 : n;
+  }
+
+  _fallbackSuffix(sourceKind) {
+    if (sourceKind !== "weather_fallback") return "";
+    const lang = (this._hass?.language || "de").toLowerCase();
+    return lang.startsWith("de") ? " · Wetterdienst" : " · weather service";
+  }
+
   _entityExists(entityId) {
     return Boolean(entityId && this._hass?.states?.[entityId]);
   }
@@ -227,9 +244,10 @@ class LueftungsberaterCard extends HTMLElement {
       st.attributes.friendly_name ||
       "Lüftungsberater";
 
-    const ti = this._fmt(a.temperature_inside);
-    const ta = this._fmt(a.temperature_outside);
-    const target = this._fmt(a.target_temperature);
+    const tempUnit = a.temperature_display_unit || this._temperatureUnit();
+    const ti = this._fmt(this._displayTemperature(a.temperature_inside, tempUnit));
+    const ta = this._fmt(this._displayTemperature(a.temperature_outside, tempUnit));
+    const target = this._fmt(this._displayTemperature(a.target_temperature, tempUnit));
     const hi = this._fmt(a.humidity_inside);
     const ho = this._fmt(a.humidity_outside);
     const ahi = this._fmt(a.absolute_humidity_inside);
@@ -289,12 +307,12 @@ class LueftungsberaterCard extends HTMLElement {
     if (ti !== null && ta !== null) {
       const parts = [
         this._metric(
-          `${ti} °C innen`,
+          `${ti} ${tempUnit} innen`,
           a.source_temperature_inside,
           "Innentemperatur öffnen"
         ),
         this._metric(
-          `${ta} °C außen`,
+          `${ta} ${tempUnit} außen${this._fallbackSuffix(a.outdoor_temperature_source)}`,
           a.source_temperature_outside,
           "Außentemperatur öffnen"
         ),
@@ -303,7 +321,7 @@ class LueftungsberaterCard extends HTMLElement {
       if (target !== null) {
         parts.push(
           this._metric(
-            `${target} °C Soll`,
+            `${target} ${tempUnit} Soll`,
             a.source_target_temperature,
             "Thermostat öffnen"
           )
@@ -324,7 +342,7 @@ class LueftungsberaterCard extends HTMLElement {
           "Innenfeuchte öffnen"
         ),
         this._metric(
-          `${ho} % außen`,
+          `${ho} % außen${this._fallbackSuffix(a.outdoor_humidity_source)}`,
           a.source_humidity_outside,
           "Außenfeuchte öffnen"
         ),

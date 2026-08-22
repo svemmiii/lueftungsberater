@@ -7,8 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 
-from .airing import async_get_or_create_tracker, get_tracker
-from .co2 import async_get_or_create_co2_tracker
+from .airing import get_tracker
 from .const import (
     CONF_CLIMATE,
     CONF_CO2,
@@ -23,14 +22,8 @@ from .const import (
     DOMAIN,
     SUBENTRY_TYPE_ROOM,
 )
+from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
-from .providers import weather_assessment, warning_assessment
-from .runtime import (
-    build_result,
-    room_co2_data_status,
-    room_co2_value,
-    room_display_values,
-)
 
 
 RECOMMENDATION_STATES = {
@@ -56,25 +49,24 @@ async def async_setup_entry(
         if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
             continue
 
-        if subentry.data.get(CONF_WINDOWS):
-            await async_get_or_create_tracker(hass, entry, subentry)
-        if subentry.data.get(CONF_CO2):
-            await async_get_or_create_co2_tracker(hass, entry, subentry)
+        coordinator = await async_get_or_create_room_coordinator(
+            hass, entry, subentry
+        )
 
         entities: list[SensorEntity] = [
-            RoomAdvisorSensor(entry, subentry),
-            RoomAbsoluteHumiditySensor(entry, subentry),
+            RoomAdvisorSensor(entry, subentry, coordinator),
+            RoomAbsoluteHumiditySensor(entry, subentry, coordinator),
         ]
 
         if subentry.data.get(CONF_CO2):
-            entities.append(RoomCo2StatusSensor(entry, subentry))
+            entities.append(RoomCo2StatusSensor(entry, subentry, coordinator))
 
         if subentry.data.get(CONF_WINDOWS):
             entities.extend(
                 [
-                    RoomAiringStatusSensor(entry, subentry),
-                    RoomLastAiringSensor(entry, subentry),
-                    RoomHoursSinceAiringSensor(entry, subentry),
+                    RoomAiringStatusSensor(entry, subentry, coordinator),
+                    RoomLastAiringSensor(entry, subentry, coordinator),
+                    RoomHoursSinceAiringSensor(entry, subentry, coordinator),
                 ]
             )
 
@@ -88,21 +80,21 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(RECOMMENDATION_STATES.values())
 
-    def __init__(self, entry, subentry):
-        super().__init__(entry, subentry)
+    def __init__(self, entry, subentry, coordinator):
+        super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_advisor"
         self._attr_name = None
 
     @property
     def native_value(self):
-        result = build_result(self.hass, self.entry, self.subentry)
+        result = self.snapshot.result if self.snapshot else None
         if result is None:
             return None
         return RECOMMENDATION_STATES.get(result.recommendation, "wait")
 
     @property
     def icon(self) -> str:
-        result = build_result(self.hass, self.entry, self.subentry)
+        result = self.snapshot.result if self.snapshot else None
         if result is None:
             return "mdi:window-closed-variant"
         if result.color == "green":
@@ -113,13 +105,14 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        r = build_result(self.hass, self.entry, self.subentry)
+        snapshot = self.snapshot
+        r = snapshot.result if snapshot else None
         if not r:
             return {}
 
-        values = room_display_values(self.hass, self.entry, self.subentry)
-        weather = weather_assessment(self.hass, self.entry)
-        warnings = warning_assessment(self.hass, self.entry)
+        values = snapshot.values
+        weather = snapshot.weather
+        warnings = snapshot.warnings
         last_airing = values["last_confirmed_airing"]
 
         registry = er.async_get(self.hass)
@@ -156,6 +149,10 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "temperature_inside": values["temperature_inside"],
             "temperature_outside": values["temperature_outside"],
             "target_temperature": values["target_temperature"],
+            "temperature_unit_internal": "°C",
+            "temperature_display_unit": str(
+                self.hass.config.units.temperature_unit
+            ),
             "humidity_inside": values["humidity_inside"],
             "humidity_outside": values["humidity_outside"],
             "absolute_humidity_inside": r.indoor_absolute_humidity,
@@ -223,18 +220,18 @@ class RoomAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity):
     _attr_suggested_display_precision = 1
     _attr_translation_key = "absolute_humidity"
 
-    def __init__(self, entry, subentry):
-        super().__init__(entry, subentry)
+    def __init__(self, entry, subentry, coordinator):
+        super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_absolute_humidity"
 
     @property
     def native_value(self):
-        result = build_result(self.hass, self.entry, self.subentry)
+        result = self.snapshot.result if self.snapshot else None
         return result.indoor_absolute_humidity if result else None
 
     @property
     def extra_state_attributes(self):
-        result = build_result(self.hass, self.entry, self.subentry)
+        result = self.snapshot.result if self.snapshot else None
         if not result:
             return {}
         return {
@@ -249,25 +246,22 @@ class RoomCo2StatusSensor(LueftungsberaterRoomEntity, SensorEntity):
     _attr_icon = "mdi:molecule-co2"
     _attr_translation_key = "co2_status"
 
-    def __init__(self, entry, subentry):
-        super().__init__(entry, subentry)
+    def __init__(self, entry, subentry, coordinator):
+        super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_co2_status"
 
     @property
     def native_value(self):
-        result = build_result(self.hass, self.entry, self.subentry)
+        result = self.snapshot.result if self.snapshot else None
         return result.co2_status if result else None
 
     @property
     def extra_state_attributes(self):
-        ppm = room_co2_value(self.hass, self.entry, self.subentry)
+        values = self.snapshot.values if self.snapshot else {}
+        ppm = values.get("co2_ppm")
         return {
             "ppm": round(ppm) if ppm is not None else None,
-            "data_status": room_co2_data_status(
-                self.hass,
-                self.entry,
-                self.subentry,
-            ),
+            "data_status": values.get("co2_data_status", "unavailable"),
         }
 
 
@@ -276,8 +270,8 @@ class RoomAiringStatusSensor(LueftungsberaterRoomEntity, SensorEntity):
 
     _attr_translation_key = "airing_status"
 
-    def __init__(self, entry, subentry):
-        super().__init__(entry, subentry)
+    def __init__(self, entry, subentry, coordinator):
+        super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_airing_status"
 
     @property
@@ -338,8 +332,8 @@ class RoomLastAiringSensor(LueftungsberaterRoomEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_icon = "mdi:history"
 
-    def __init__(self, entry, subentry):
-        super().__init__(entry, subentry)
+    def __init__(self, entry, subentry, coordinator):
+        super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_last_airing"
 
     @property
@@ -356,8 +350,8 @@ class RoomHoursSinceAiringSensor(LueftungsberaterRoomEntity, SensorEntity):
     _attr_suggested_display_precision = 1
     _attr_icon = "mdi:timer-sand"
 
-    def __init__(self, entry, subentry):
-        super().__init__(entry, subentry)
+    def __init__(self, entry, subentry, coordinator):
+        super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_hours_since_airing"
 
     @property

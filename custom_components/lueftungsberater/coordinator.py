@@ -1,0 +1,151 @@
+"""Shared event-driven room coordinator for Lüftungsberater."""
+from __future__ import annotations
+
+from collections.abc import Callable
+import logging
+
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+from .airing import tracker_signal
+from .co2 import co2_tracker_signal
+from .const import CONF_CO2, CONF_WINDOWS, DATA_COORDINATORS, DOMAIN
+from .runtime import RoomSnapshot, build_room_snapshot, room_source_entities
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
+    """Compute one shared room snapshot whenever one of its inputs changes."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        subentry: ConfigSubentry,
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=f"{DOMAIN}_{subentry.subentry_id}",
+            update_interval=None,
+            always_update=False,
+        )
+        self.entry = entry
+        self.subentry = subentry
+        self._unsubs: list[Callable[[], None]] = []
+        self._started = False
+
+    async def _async_update_data(self) -> RoomSnapshot:
+        return build_room_snapshot(self.hass, self.entry, self.subentry)
+
+    async def async_start(self) -> None:
+        """Start shared listeners and build the initial room snapshot."""
+        if self._started:
+            return
+        self._started = True
+
+        await self.async_config_entry_first_refresh()
+
+        entities = room_source_entities(self.hass, self.entry, self.subentry)
+        if entities:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass,
+                    entities,
+                    self._handle_source_change,
+                )
+            )
+
+        if self.subentry.data.get(CONF_WINDOWS):
+            self._unsubs.append(
+                async_dispatcher_connect(
+                    self.hass,
+                    tracker_signal(
+                        self.entry.entry_id,
+                        self.subentry.subentry_id,
+                    ),
+                    self._handle_tracker_change,
+                )
+            )
+
+        if self.subentry.data.get(CONF_CO2):
+            self._unsubs.append(
+                async_dispatcher_connect(
+                    self.hass,
+                    co2_tracker_signal(
+                        self.entry.entry_id,
+                        self.subentry.subentry_id,
+                    ),
+                    self._handle_tracker_change,
+                )
+            )
+
+    @callback
+    def _handle_source_change(self, event: Event) -> None:
+        self.async_set_updated_data(
+            build_room_snapshot(self.hass, self.entry, self.subentry)
+        )
+
+    @callback
+    def _handle_tracker_change(self) -> None:
+        # Tracker callbacks already run in HA's event loop, so we can refresh
+        # synchronously and immediately notify every entity of the room.
+        self.async_set_updated_data(
+            build_room_snapshot(self.hass, self.entry, self.subentry)
+        )
+
+    async def async_shutdown(self) -> None:
+        """Remove shared listeners and shut down the HA coordinator."""
+        while self._unsubs:
+            self._unsubs.pop()()
+        self._started = False
+        await super().async_shutdown()
+
+
+def _coordinator_key(entry: ConfigEntry, subentry: ConfigSubentry) -> str:
+    return f"{entry.entry_id}:{subentry.subentry_id}"
+
+
+async def async_get_or_create_room_coordinator(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> LueftungsberaterRoomCoordinator:
+    store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_COORDINATORS, {})
+    key = _coordinator_key(entry, subentry)
+    coordinator = store.get(key)
+    if coordinator is None:
+        coordinator = LueftungsberaterRoomCoordinator(hass, entry, subentry)
+        store[key] = coordinator
+        await coordinator.async_start()
+    return coordinator
+
+
+def get_room_coordinator(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> LueftungsberaterRoomCoordinator | None:
+    return (
+        hass.data.get(DOMAIN, {})
+        .get(DATA_COORDINATORS, {})
+        .get(_coordinator_key(entry, subentry))
+    )
+
+
+async def async_stop_entry_coordinators(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    store = hass.data.get(DOMAIN, {}).get(DATA_COORDINATORS, {})
+    prefix = f"{entry.entry_id}:"
+    for key in [item for item in store if item.startswith(prefix)]:
+        # DataUpdateCoordinator registered async_shutdown on the config entry.
+        # Remove our lookup reference here; HA calls the coordinator shutdown
+        # callback as part of the same config-entry unload.
+        store.pop(key)
