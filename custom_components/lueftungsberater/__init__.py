@@ -17,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.4"
+FRONTEND_VERSION = "0.6.5"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:

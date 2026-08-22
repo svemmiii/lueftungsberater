@@ -28,7 +28,7 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 
 ## Voraussetzungen
 
-- Home Assistant **2026.7.0 oder neuer**
+- Home Assistant **2026.6.0 oder neuer**
 - HACS für die empfohlene Installation
 - Mindestens pro Raum:
   - Innentemperatur

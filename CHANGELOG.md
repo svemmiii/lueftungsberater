@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.5
+- HACS-Mindestversion von Home Assistant auf 2026.6.0 gesenkt.
+- Damit ist die Alpha auf Home Assistant 2026.6.x installierbar.
+- Keine Änderung an Entscheidungslogik, Sensoren oder Dashboard-Karten.
+- Ältere Versionen bis mindestens 2026.3 sind technisch vielversprechend,
+  werden aber noch nicht offiziell als unterstützt markiert.
+
+
 ## 0.6.4
 - Manifest-Typ von `helper` auf `hub` geändert.
 - Dadurch erscheint Lüftungsberater als normale Integration unter
