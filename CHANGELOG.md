@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.4
+- Manifest-Typ von `helper` auf `hub` geändert.
+- Dadurch erscheint Lüftungsberater als normale Integration unter
+  Einstellungen → Geräte & Dienste → Integrationen und nicht mehr im Helfer-Bereich.
+- Keine Änderung an der Entscheidungslogik gegenüber v0.6.3.
+- Für HACS-Alpha-Tester sollte dieses Release als normales GitHub-Release
+  veröffentlicht werden (nicht als GitHub Pre-release), damit HACS keine
+  Commit-ID als vermeintlich neuere Version anzeigt.
+
+
 ## 0.6.3
 - Hassfest: `config_subentries.room.initiate_flow` für Hinzufügen und Konfigurieren ergänzt.
 - Keine weitere Änderung an der Lüftungslogik gegenüber v0.6.2.

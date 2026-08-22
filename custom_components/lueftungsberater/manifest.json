@@ -10,10 +10,10 @@
     "lovelace"
   ],
   "documentation": "https://github.com/svemmiii/lueftungsberater",
-  "integration_type": "helper",
+  "integration_type": "hub",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/svemmiii/lueftungsberater/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.6.3"
+  "version": "0.6.4"
 }

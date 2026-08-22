@@ -125,3 +125,15 @@ https://github.com/svemmiii/lueftungsberater/issues
 ## Lizenz
 
 MIT License
+
+## HACS-Alpha und Releases
+
+Die Software ist weiterhin als Alpha gekennzeichnet, die GitHub-Releases für
+HACS-Tester werden aber als normale Releases veröffentlicht. Dadurch nutzt HACS
+die Versionsnummer des Releases statt den Commit-Hash des Default-Branches.
+
+## Branding in HACS
+
+Home Assistant verwendet das mitgelieferte lokale Brand-Icon nach der Installation.
+Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
+einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
