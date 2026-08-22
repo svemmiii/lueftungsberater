@@ -1,5 +1,4 @@
 {
-  "title": "Ventilation Advisor",
   "config": {
     "step": {
       "user": {
@@ -30,7 +29,7 @@
   },
   "config_subentries": {
     "room": {
-      "title": "Room",
+      "entry_type": "Room",
       "step": {
         "user": {
           "title": "Add room",

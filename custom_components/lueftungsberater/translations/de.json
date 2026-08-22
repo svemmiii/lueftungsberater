@@ -1,5 +1,4 @@
 {
-  "title": "Lüftungsberater",
   "config": {
     "step": {
       "user": {
@@ -30,7 +29,7 @@
   },
   "config_subentries": {
     "room": {
-      "title": "Raum",
+      "entry_type": "Raum",
       "step": {
         "user": {
           "title": "Raum hinzufügen",

@@ -62,7 +62,7 @@ def _color(mode: str) -> str:
     }:
         return "green"
     if mode in {
-        "nina_aussenluftgefahr", "wettergefahr", "regen", "aussen_zu_warm",
+        "nina_aussenluftgefahr", "wettergefahr", "aussen_zu_warm",
         "aussen_zu_kalt", "aussen_deutlich_feuchter", "innen_zu_trocken",
     }:
         return "red"

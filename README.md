@@ -121,3 +121,7 @@ Lüftungsberater selbst sendet keine eigenen Daten an einen externen Dienst. Die
 Issues:
 
 https://github.com/svemmiii/lueftungsberater/issues
+
+## Lizenz
+
+MIT License

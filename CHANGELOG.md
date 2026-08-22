@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.2
+- HACS/Hassfest-Korrekturen für die erste Alpha.
+- `manifest.json` in Hassfest-Reihenfolge gebracht (`domain`, `name`, danach alphabetisch).
+- Config-Subentry-Übersetzungen auf `entry_type` aktualisiert.
+- Überflüssige Integrationstitel aus den Custom-Translations entfernt.
+- MIT-Lizenz ergänzt.
+- Normaler Regen (`regen`) ist jetzt Gelb statt Rot.
+- Unwetter-/Gefahrenmodi bleiben unverändert Rot.
+
+
 ## 0.6.1 – erste HACS-Alpha
 - Repository für HACS-Custom-Repository vorbereitet.
 - Branding unter `custom_components/lueftungsberater/brand/` ergänzt.

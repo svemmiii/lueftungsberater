@@ -1,4 +1,6 @@
 {
+  "domain": "lueftungsberater",
+  "name": "Lüftungsberater",
   "codeowners": [
     "@svemmiii"
   ],
@@ -8,12 +10,10 @@
     "lovelace"
   ],
   "documentation": "https://github.com/svemmiii/lueftungsberater",
-  "domain": "lueftungsberater",
   "integration_type": "helper",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/svemmiii/lueftungsberater/issues",
-  "name": "Lüftungsberater",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.6.1"
+  "version": "0.6.2"
 }
