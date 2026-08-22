@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.6
+- Robuster Fallback für eigene Außensensoren ergänzt.
+- Außentemperatur und Außenluftfeuchtigkeit fallen unabhängig voneinander auf die aktuelle `weather.*`-Entity zurück, wenn der jeweils konfigurierte lokale Sensor `unknown`, `unavailable` oder anderweitig ungültig ist.
+- Sobald ein lokaler Außensensor wieder einen gültigen Wert liefert, wird automatisch wieder auf ihn zurückgeschaltet.
+- Neue Diagnoseattribute an der Raum-Hauptentity: `outdoor_temperature_source` und `outdoor_humidity_source` (`local_sensor`, `weather_fallback`, `weather_service` oder `unavailable`).
+- Die eigentliche Entscheidungslogik in `engine.py` bleibt unverändert.
+
 ## 0.6.5
 - HACS-Mindestversion von Home Assistant auf 2026.6.0 gesenkt.
 - Damit ist die Alpha auf Home Assistant 2026.6.x installierbar.

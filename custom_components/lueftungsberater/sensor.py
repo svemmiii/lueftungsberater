@@ -187,6 +187,8 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "source_target_temperature": self.subentry.data.get(CONF_CLIMATE),
             "source_humidity_inside": self.subentry.data.get(CONF_INDOOR_HUMIDITY),
             "source_humidity_outside": weather.source_humidity,
+            "outdoor_temperature_source": weather.temperature_source_kind,
+            "outdoor_humidity_source": weather.humidity_source_kind,
             "source_absolute_humidity_inside": absolute_humidity_entity,
             "source_co2": self.subentry.data.get(CONF_CO2),
             "source_airing": airing_entity,

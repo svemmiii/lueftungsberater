@@ -1,0 +1,26 @@
+Lüftungsberater Patch v0.6.5 -> v0.6.6
+======================================
+
+Dieses Paket enthält nur die Dateien, die sich zwischen v0.6.5 und v0.6.6 geändert haben.
+
+Geänderte / neue Dateien:
+- CHANGELOG.md
+- README.md
+- custom_components/lueftungsberater/__init__.py
+- custom_components/lueftungsberater/entity.py
+- custom_components/lueftungsberater/manifest.json
+- custom_components/lueftungsberater/providers.py
+- custom_components/lueftungsberater/sensor.py
+- tests/test_providers.py (neu)
+
+Für GitHub:
+Die enthaltenen Dateien in derselben Ordnerstruktur in dein Repository hochladen bzw. vorhandene Dateien ersetzen.
+
+Inhalt des Patches:
+- Fallback für Außentemperatur auf weather.* bei unavailable/unknown lokalem Sensor
+- Fallback für Außenluftfeuchte unabhängig davon
+- automatische Rückkehr zum lokalen Sensor
+- Quellenattribute für Temperatur und Feuchte
+- Versionsanhebung auf v0.6.6
+- README / CHANGELOG aktualisiert
+- Provider-Tests ergänzt

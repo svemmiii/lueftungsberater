@@ -29,7 +29,7 @@ class LueftungsberaterRoomEntity(Entity):
             name=f"Lüftungsberater {self.subentry.title}",
             manufacturer="Lüftungsberater",
             model="Raum-Lüftungsberater",
-            sw_version="0.6.5",
+            sw_version="0.6.6",
         )
 
     async def async_added_to_hass(self) -> None:

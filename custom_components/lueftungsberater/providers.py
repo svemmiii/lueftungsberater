@@ -130,6 +130,8 @@ class WeatherAssessment:
     source_entities: set[str] = field(default_factory=set)
     source_temperature: str | None = None
     source_humidity: str | None = None
+    temperature_source_kind: str | None = None
+    humidity_source_kind: str | None = None
     provider_domain: str | None = None
     radar_current_entity: str | None = None
     radar_next_entity: str | None = None
@@ -291,18 +293,23 @@ def weather_assessment(
     if not isinstance(weather_entity_id, str) or not weather_entity_id:
         temp_override = _manual_override(entry, CONF_OUTDOOR_TEMP)
         humidity_override = _manual_override(entry, CONF_OUTDOOR_HUMIDITY)
-        result.temperature = _state_float(
-            hass.states.get(temp_override) if temp_override else None
-        )
-        result.humidity = _state_float(
-            hass.states.get(humidity_override) if humidity_override else None
-        )
+
         if temp_override:
             result.source_entities.add(temp_override)
             result.source_temperature = temp_override
+            result.temperature = _state_float(hass.states.get(temp_override))
+            result.temperature_source_kind = (
+                "local_sensor" if result.temperature is not None else "unavailable"
+            )
+
         if humidity_override:
             result.source_entities.add(humidity_override)
             result.source_humidity = humidity_override
+            result.humidity = _state_float(hass.states.get(humidity_override))
+            result.humidity_source_kind = (
+                "local_sensor" if result.humidity is not None else "unavailable"
+            )
+
         return result
 
     state = hass.states.get(weather_entity_id)
@@ -315,23 +322,68 @@ def weather_assessment(
     temp_override = _manual_override(entry, CONF_OUTDOOR_TEMP)
     humidity_override = _manual_override(entry, CONF_OUTDOOR_HUMIDITY)
 
+    # Always subscribe to configured local sensors as well as the weather
+    # entity. This lets the advisor fall back immediately when a local
+    # sensor disappears and switch back automatically when it recovers.
     if temp_override:
-        result.temperature = _state_float(hass.states.get(temp_override))
-        result.source_temperature = temp_override
         result.source_entities.add(temp_override)
-    elif state is not None:
-        result.temperature = _float(state.attributes.get("temperature"))
-        result.source_temperature = weather_entity_id
-
     if humidity_override:
-        result.humidity = _state_float(hass.states.get(humidity_override))
-        result.source_humidity = humidity_override
         result.source_entities.add(humidity_override)
-    elif state is not None:
-        result.humidity = _float(state.attributes.get("humidity"))
-        result.source_humidity = weather_entity_id
 
-    if state is None:
+    weather_available = (
+        state is not None
+        and state.state not in {"unknown", "unavailable", "none", ""}
+    )
+    weather_temperature = (
+        _float(state.attributes.get("temperature"))
+        if weather_available
+        else None
+    )
+    weather_humidity = (
+        _float(state.attributes.get("humidity"))
+        if weather_available
+        else None
+    )
+
+    local_temperature = (
+        _state_float(hass.states.get(temp_override))
+        if temp_override
+        else None
+    )
+    if local_temperature is not None:
+        result.temperature = local_temperature
+        result.source_temperature = temp_override
+        result.temperature_source_kind = "local_sensor"
+    elif weather_temperature is not None:
+        result.temperature = weather_temperature
+        result.source_temperature = weather_entity_id
+        result.temperature_source_kind = (
+            "weather_fallback" if temp_override else "weather_service"
+        )
+    else:
+        result.source_temperature = temp_override or weather_entity_id
+        result.temperature_source_kind = "unavailable"
+
+    local_humidity = (
+        _state_float(hass.states.get(humidity_override))
+        if humidity_override
+        else None
+    )
+    if local_humidity is not None:
+        result.humidity = local_humidity
+        result.source_humidity = humidity_override
+        result.humidity_source_kind = "local_sensor"
+    elif weather_humidity is not None:
+        result.humidity = weather_humidity
+        result.source_humidity = weather_entity_id
+        result.humidity_source_kind = (
+            "weather_fallback" if humidity_override else "weather_service"
+        )
+    else:
+        result.source_humidity = humidity_override or weather_entity_id
+        result.humidity_source_kind = "unavailable"
+
+    if not weather_available:
         return result
 
     condition = state.state

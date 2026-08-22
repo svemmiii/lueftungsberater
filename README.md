@@ -63,7 +63,7 @@ Beim ersten Einrichten wählst du:
 - **Wetterdienst**
 - optional **Warn-App / Warndienst**
 
-Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden.
+Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden. Werden konfigurierte Außensensoren vorübergehend `unavailable` oder `unknown`, fällt Lüftungsberater für Temperatur und Luftfeuchtigkeit unabhängig voneinander automatisch auf die aktuelle `weather.*`-Entity zurück, sofern der jeweilige Wert dort verfügbar ist.
 
 ### 2. Räume hinzufügen
 
