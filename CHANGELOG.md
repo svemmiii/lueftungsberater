@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.11
+- Remote-Einrichtung und Remote-Rekonfiguration besitzen jetzt einen eigenen Verbindungstest mit sichtbarer Erfolgsbestätigung, bevor die Zugangsdaten gespeichert werden. Die Bestätigung zeigt zusätzlich, wie viele Lüftungsberater-Instanzen und Räume gefunden wurden.
+- Der visuelle Editor der Übersicht zeigt jetzt lokale und Tailscale-Remote-Installationen gemeinsam an. Ganze Installationen sowie einzelne Räume können ein- oder ausgeblendet werden.
+- Installationen und Räume lassen sich direkt im Editor mit Pfeiltasten in die gewünschte Reihenfolge bringen; neue Räume werden weiterhin automatisch aufgenommen, solange sie nicht gezielt ausgeblendet wurden.
+- Der Editor rendert strukturelle Remote-Änderungen nicht mehr mitten während einer Texteingabe neu und schützt damit den Eingabefokus zusätzlich vor späten Remote-Updates.
+- Der Raumdialog der Übersicht wurde grundlegend überarbeitet: Er wird erst beim Öffnen erzeugt und beim Schließen oder Verlassen der Dashboard-Ansicht vollständig zerstört. Dadurch können keine unsichtbaren modalen Dialoge im Hintergrund hängen bleiben.
+- Raumdialoge sind rein browserlokal. Das Schließen auf Handy, Tablet oder PC verändert keinen gemeinsamen Home-Assistant-Zustand und kann damit kein anderes Gerät gezielt schließen.
+- Während der bestehenden 3-Minuten-Remote-Karenz bleibt ein bereits geöffneter Remote-Raum erhalten. Erst wenn die Remote-Instanz vom Backend wirklich als nicht erreichbar markiert wird, wird die Detailansicht beendet.
+- Fehlende Pflicht-Sensordaten führen jetzt zu einem klaren gelben Zustand **„Aktuell keine zuverlässige Empfehlung möglich“** statt des sichtbaren internen Schlüssels `recommendation.unknown`. Eine natürliche Erklärung wird auf Deutsch, Englisch und Türkisch angezeigt.
+- Der Hauptsensor behält bei unvollständigen Sensordaten seine Raum-/Instanz-Metadaten. Dadurch bleibt der Raum in lokalen und entfernten Übersichten eindeutig erkennbar, auch wenn gerade keine vollständige Berechnung möglich ist.
+- Remote-Snapshots enthalten zusätzlich eine stabile Raumkennung und den Raumnamen als Metadaten; es werden weiterhin keine fremden Entity-IDs oder Recorder-Historien übertragen.
+- Keine Änderung an Lüftungs-Schwellenwerten oder der Grün/Gelb/Rot-Entscheidungslogik.
+
 ## 0.6.10
 - Mehrere lokale Lüftungsberater-Instanzen werden jetzt unterstützt und in der gemeinsamen Übersicht automatisch nach Instanz gruppiert. Bei nur einer Instanz wird die Gruppenebene übersprungen.
 - Die Gesamtansicht wurde bewusst verkürzt: Pro Raum erscheinen nur Fenster-Symbol, Raumname, aktuelle Empfehlung, Statusfarbe und bei geöffnetem Fenster/Tür das kleine `offen`-Badge.

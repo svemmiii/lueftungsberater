@@ -17,6 +17,7 @@ RECOMMENDATIONS = {
         "keep_closed": "Geschlossen lassen",
         "close_now": "Jetzt schließen",
         "wait": "Besser noch etwas warten",
+        "unknown": "Aktuell keine zuverlässige Empfehlung möglich",
     },
     "en": {
         "open_now": "Open the windows now",
@@ -28,6 +29,7 @@ RECOMMENDATIONS = {
         "keep_closed": "Keep the windows closed",
         "close_now": "Close the windows now",
         "wait": "Better wait a little longer",
+        "unknown": "No reliable recommendation is available right now",
     },
     "tr": {
         "open_now": "Şimdi pencereleri aç",
@@ -39,6 +41,7 @@ RECOMMENDATIONS = {
         "keep_closed": "Pencereleri kapalı tut",
         "close_now": "Pencereleri şimdi kapat",
         "wait": "Biraz daha beklemek daha iyi",
+        "unknown": "Şu anda güvenilir bir öneri verilemiyor",
     },
 }
 
@@ -59,6 +62,7 @@ DURATIONS = {
         "10_15": "10–15 Minuten",
         "5_10": "5–10 Minuten",
         "not_needed": "Aktuell keine Lüftungsdauer nötig",
+        "incomplete_data": "Eine Lüftungsdauer lässt sich mit den aktuellen Sensordaten noch nicht zuverlässig bestimmen.",
     },
     "en": {
         "until_targets": "Until the remaining ventilation targets are reached",
@@ -76,6 +80,7 @@ DURATIONS = {
         "10_15": "10–15 minutes",
         "5_10": "5–10 minutes",
         "not_needed": "No window-opening time is needed right now",
+        "incomplete_data": "A reliable window-opening time cannot be determined from the current sensor data yet.",
     },
     "tr": {
         "until_targets": "Kalan havalandırma hedeflerine ulaşılana kadar",
@@ -93,6 +98,7 @@ DURATIONS = {
         "10_15": "10–15 dakika",
         "5_10": "5–10 dakika",
         "not_needed": "Şu anda pencereleri açmaya gerek yok",
+        "incomplete_data": "Mevcut sensör verileriyle güvenilir bir havalandırma süresi henüz belirlenemiyor.",
     },
 }
 
@@ -266,6 +272,7 @@ def reason_text(
             "rain_now": "Draußen fällt gerade Niederschlag. Wenn es nicht dringend nötig ist, warte mit dem Lüften besser kurz.",
             "rain_soon": "In Kürze wird Niederschlag erwartet. Wenn es nicht dringend nötig ist, ist ein etwas späterer Zeitpunkt zum Lüften wahrscheinlich besser.",
             "normal": "CO₂, Luftfeuchte und Temperatur geben gerade keinen ausreichenden Grund zum Lüften. Du kannst die Fenster erstmal geschlossen lassen.",
+            "incomplete_data": "Mindestens ein benötigter Temperatur- oder Feuchtewert ist gerade nicht verfügbar. Sobald die Sensordaten wieder vollständig sind, wird die Empfehlung automatisch aktualisiert.",
         }
     elif lang == "tr":
         texts = {
@@ -309,6 +316,7 @@ def reason_text(
             "rain_now": "Dışarıda şu anda yağış var. Acil değilse pencereleri açmadan önce biraz beklemek daha iyi.",
             "rain_soon": "Kısa süre içinde yağış bekleniyor. Acil değilse pencereleri biraz daha sonra açmak muhtemelen daha iyi olur.",
             "normal": "CO₂, nem ve sıcaklık şu anda pencereleri açmak için yeterli bir neden göstermiyor. Şimdilik kapalı tutabilirsin.",
+            "incomplete_data": "Gerekli sıcaklık veya nem değerlerinden en az biri şu anda kullanılamıyor. Sensör verileri tekrar tamamlandığında öneri otomatik olarak güncellenecek.",
         }
     else:
         texts = {
@@ -352,6 +360,7 @@ def reason_text(
             "rain_now": "Precipitation is falling outside right now. Unless opening the windows is urgent, it is better to wait a little.",
             "rain_soon": "Precipitation is expected shortly. Unless opening the windows is urgent, a slightly later time will probably be better.",
             "normal": "CO₂, humidity, and temperature do not give you a strong enough reason to open the windows right now. You can keep them closed for the moment.",
+            "incomplete_data": "At least one required temperature or humidity value is unavailable right now. The recommendation will update automatically as soon as the sensor data is complete again.",
         }
 
     return texts.get(key, key)

@@ -24,6 +24,7 @@ from .const import (
 )
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
+from .engine import co2_status
 from .localization import (
     duration_text,
     localized_bundle,
@@ -115,10 +116,10 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         snapshot = self.snapshot
-        r = snapshot.result if snapshot else None
-        if not r:
+        if not snapshot:
             return {}
 
+        r = snapshot.result
         values = snapshot.values
         weather = snapshot.weather
         warnings = snapshot.warnings
@@ -148,11 +149,37 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
         language = self.hass.config.language
         temperature_unit = str(self.hass.config.units.temperature_unit)
+
+        if r is None:
+            recommendation_key = "unknown"
+            reason_key = "incomplete_data"
+            reason_args: dict = {}
+            duration_key = "incomplete_data"
+            status = "yellow"
+            mode = "incomplete_data"
+            original_reason = None
+            indoor_absolute_humidity = None
+            outdoor_absolute_humidity = None
+            absolute_humidity_difference = None
+            current_co2_status = co2_status(values.get("co2_ppm"))
+        else:
+            recommendation_key = r.recommendation_key
+            reason_key = r.reason_key
+            reason_args = dict(r.reason_args)
+            duration_key = r.duration_key
+            status = r.color
+            mode = r.mode
+            original_reason = r.original_reason
+            indoor_absolute_humidity = r.indoor_absolute_humidity
+            outdoor_absolute_humidity = r.outdoor_absolute_humidity
+            absolute_humidity_difference = r.absolute_humidity_difference
+            current_co2_status = r.co2_status
+
         texts = localized_bundle(
-            r.recommendation_key,
-            r.reason_key,
-            r.reason_args,
-            r.duration_key,
+            recommendation_key,
+            reason_key,
+            reason_args,
+            duration_key,
             temperature_unit,
         )
 
@@ -160,20 +187,20 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "instance_id": self.entry.entry_id,
             "instance_name": self.entry.title,
             "room_name": self.subentry.title,
-            "status": r.color,
-            "recommendation": recommendation_text(r.recommendation_key, language),
-            "recommendation_key": r.recommendation_key,
-            "mode": r.mode,
+            "status": status,
+            "recommendation": recommendation_text(recommendation_key, language),
+            "recommendation_key": recommendation_key,
+            "mode": mode,
             "reason": reason_text(
-                r.reason_key, r.reason_args, language, temperature_unit
+                reason_key, reason_args, language, temperature_unit
             ),
-            "reason_key": r.reason_key,
-            "reason_args": dict(r.reason_args),
-            "duration": duration_text(r.duration_key, language),
-            "duration_key": r.duration_key,
+            "reason_key": reason_key,
+            "reason_args": reason_args,
+            "duration": duration_text(duration_key, language),
+            "duration_key": duration_key,
             "localized_texts": texts,
-            "original_warning_text": r.original_reason,
-            "co2_status": r.co2_status,
+            "original_warning_text": original_reason,
+            "co2_status": current_co2_status,
             "co2_data_status": values.get("co2_data_status", "not_configured"),
             "co2_ppm": (
                 round(values["co2_ppm"])
@@ -187,9 +214,9 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "temperature_display_unit": temperature_unit,
             "humidity_inside": values["humidity_inside"],
             "humidity_outside": values["humidity_outside"],
-            "absolute_humidity_inside": r.indoor_absolute_humidity,
-            "absolute_humidity_outside": r.outdoor_absolute_humidity,
-            "absolute_humidity_difference": r.absolute_humidity_difference,
+            "absolute_humidity_inside": indoor_absolute_humidity,
+            "absolute_humidity_outside": outdoor_absolute_humidity,
+            "absolute_humidity_difference": absolute_humidity_difference,
             "has_co2": values["has_co2"],
             "has_window_contacts": values["has_window_contacts"],
             "window_open": values["window_open"],

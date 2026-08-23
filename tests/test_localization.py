@@ -39,3 +39,22 @@ def test_turkish_reasons_are_natural_and_unit_aware() -> None:
     assert "hedefin ise" in text
     assert "pencereleri açmak" in text
     assert "24,3\u202f°C" in text
+
+
+def test_incomplete_sensor_data_has_natural_text_in_all_languages() -> None:
+    from custom_components.lueftungsberater.localization import (
+        duration_text,
+        recommendation_text,
+    )
+
+    expected = {
+        "de": "Aktuell keine zuverlässige Empfehlung möglich",
+        "en": "No reliable recommendation is available right now",
+        "tr": "Şu anda güvenilir bir öneri verilemiyor",
+    }
+    for language, recommendation in expected.items():
+        assert recommendation_text("unknown", language) == recommendation
+        assert "incomplete_data" not in reason_text(
+            "incomplete_data", {}, language, "°C"
+        )
+        assert "incomplete_data" not in duration_text("incomplete_data", language)

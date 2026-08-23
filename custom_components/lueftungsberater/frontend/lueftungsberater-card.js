@@ -11,6 +11,9 @@ const LB_I18N = {
     "recommendation.keep_closed": "Geschlossen lassen",
     "recommendation.close_now": "Jetzt schließen",
     "recommendation.wait": "Besser noch etwas warten",
+    "recommendation.unknown": "Aktuell keine zuverlässige Empfehlung möglich",
+    "reason.incomplete_data": "Mindestens ein benötigter Temperatur- oder Feuchtewert ist gerade nicht verfügbar. Sobald die Sensordaten wieder vollständig sind, wird die Empfehlung automatisch aktualisiert.",
+    "duration.incomplete_data": "Eine Lüftungsdauer lässt sich mit den aktuellen Sensordaten noch nicht zuverlässig bestimmen.",
     "co2.very_good": "sehr gut",
     "co2.good": "gut",
     "co2.elevated": "erhöht",
@@ -74,7 +77,13 @@ const LB_I18N = {
     "editor.room_hint": "Empfehlung, Farbe, Begründung und Messwerte werden automatisch übernommen.",
     "editor.title": "Titel (optional)",
     "editor.rooms": "Lokale Räume",
-    "editor.rooms_hint": "Sind alle angehakt, werden neue lokale Räume automatisch aufgenommen. Entfernte Tailscale-Instanzen erscheinen immer automatisch."
+    "editor.installations": "Installationen und Räume",
+    "editor.local": "Lokal",
+    "editor.remote": "Tailscale-Remote",
+    "editor.unavailable": "nicht erreichbar",
+    "editor.move_up": "Nach oben",
+    "editor.move_down": "Nach unten",
+    "editor.rooms_hint": "Installationen und Räume können einzeln ein- oder ausgeblendet und mit den Pfeilen sortiert werden. Neue Räume werden standardmäßig automatisch aufgenommen."
   },
   en: {
     "recommendation.open_now": "Open the windows now",
@@ -86,6 +95,9 @@ const LB_I18N = {
     "recommendation.keep_closed": "Keep the windows closed",
     "recommendation.close_now": "Close the windows now",
     "recommendation.wait": "Better wait a little longer",
+    "recommendation.unknown": "No reliable recommendation is available right now",
+    "reason.incomplete_data": "At least one required temperature or humidity value is unavailable right now. The recommendation will update automatically as soon as the sensor data is complete again.",
+    "duration.incomplete_data": "A reliable window-opening time cannot be determined from the current sensor data yet.",
     "co2.very_good": "very good",
     "co2.good": "good",
     "co2.elevated": "elevated",
@@ -149,7 +161,13 @@ const LB_I18N = {
     "editor.room_hint": "Recommendation, color, explanation, and measurements are filled in automatically.",
     "editor.title": "Title (optional)",
     "editor.rooms": "Local rooms",
-    "editor.rooms_hint": "When all are selected, new local rooms are included automatically. Remote Tailscale instances always appear automatically."
+    "editor.installations": "Installations and rooms",
+    "editor.local": "Local",
+    "editor.remote": "Tailscale remote",
+    "editor.unavailable": "not reachable",
+    "editor.move_up": "Move up",
+    "editor.move_down": "Move down",
+    "editor.rooms_hint": "Installations and rooms can be shown or hidden individually and reordered with the arrow buttons. New rooms are included automatically by default."
   },
   tr: {
     "recommendation.open_now": "Şimdi pencereleri aç",
@@ -161,6 +179,9 @@ const LB_I18N = {
     "recommendation.keep_closed": "Pencereleri kapalı tut",
     "recommendation.close_now": "Pencereleri şimdi kapat",
     "recommendation.wait": "Biraz daha beklemek daha iyi",
+    "recommendation.unknown": "Şu anda güvenilir bir öneri verilemiyor",
+    "reason.incomplete_data": "Gerekli sıcaklık veya nem değerlerinden en az biri şu anda kullanılamıyor. Sensör verileri tekrar tamamlandığında öneri otomatik olarak güncellenecek.",
+    "duration.incomplete_data": "Mevcut sensör verileriyle güvenilir bir havalandırma süresi henüz belirlenemiyor.",
     "co2.very_good": "çok iyi",
     "co2.good": "iyi",
     "co2.elevated": "yüksek",
@@ -224,7 +245,13 @@ const LB_I18N = {
     "editor.room_hint": "Öneri, renk, açıklama ve ölçüm değerleri otomatik olarak alınır.",
     "editor.title": "Başlık (isteğe bağlı)",
     "editor.rooms": "Yerel odalar",
-    "editor.rooms_hint": "Hepsi seçiliyse yeni yerel odalar otomatik olarak eklenir. Uzak Tailscale kurulumları her zaman otomatik görünür."
+    "editor.installations": "Kurulumlar ve odalar",
+    "editor.local": "Yerel",
+    "editor.remote": "Tailscale uzak",
+    "editor.unavailable": "ulaşılamıyor",
+    "editor.move_up": "Yukarı taşı",
+    "editor.move_down": "Aşağı taşı",
+    "editor.rooms_hint": "Kurulumlar ve odalar ayrı ayrı gösterilip gizlenebilir ve ok düğmeleriyle sıralanabilir. Yeni odalar varsayılan olarak otomatik eklenir."
   }
 };
 
@@ -451,14 +478,25 @@ class LueftungsberaterCard extends HTMLElement {
     const a = st.attributes || {};
     const status = a.status || "yellow";
     const meta = this._statusMeta(status);
+    const incompleteData = ["unknown", "unavailable", "none", ""].includes(String(st.state ?? "").toLowerCase());
     const recommendation = lbLocalizedEntityText(
       this._hass,
       a,
       "recommendation",
-      a.recommendation || this._localizeState(st.state)
+      a.recommendation || (incompleteData ? lbT(this._hass, "recommendation.unknown") : this._localizeState(st.state))
     );
-    const reason = lbLocalizedEntityText(this._hass, a, "reason", a.reason || "");
-    const durationText = lbLocalizedEntityText(this._hass, a, "duration", a.duration || "");
+    const reason = lbLocalizedEntityText(
+      this._hass,
+      a,
+      "reason",
+      a.reason || (incompleteData ? lbT(this._hass, "reason.incomplete_data") : "")
+    );
+    const durationText = lbLocalizedEntityText(
+      this._hass,
+      a,
+      "duration",
+      a.duration || (incompleteData ? lbT(this._hass, "duration.incomplete_data") : "")
+    );
     const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsberater";
 
     const tempUnit = a.temperature_display_unit || this._temperatureUnit();
@@ -676,20 +714,27 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     this._remoteGroups = [];
     this._remoteFetchBusy = false;
     this._remoteTimer = null;
+    this._dialog = null;
     this._dialogMode = null;
     this._dialogGroupId = null;
     this._openRoomRef = null;
     this._popupCard = null;
+    this._dialogLocation = null;
+    this._handleNavigation = () => this._destroyDialog();
   }
 
   connectedCallback() {
     this._ensureRemoteTimer();
+    window.addEventListener("location-changed", this._handleNavigation);
+    window.addEventListener("popstate", this._handleNavigation);
   }
 
   disconnectedCallback() {
     if (this._remoteTimer) clearInterval(this._remoteTimer);
     this._remoteTimer = null;
-    this._destroyPopupCard();
+    window.removeEventListener("location-changed", this._handleNavigation);
+    window.removeEventListener("popstate", this._handleNavigation);
+    this._destroyDialog();
   }
 
   setConfig(config) {
@@ -702,16 +747,23 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   set hass(hass) {
+    if (this._dialog && this._dialogLocation && window.location.pathname !== this._dialogLocation) {
+      this._destroyDialog();
+    }
     const first = !this._hass;
     const previousLanguage = this._hass ? lbLanguage(this._hass) : null;
     this._hass = hass;
     this._ensureShell();
     this._renderOverview();
-    if (this._popupCard && !this._openRoomRef?.remote) this._popupCard.hass = hass;
+
+    if (this._popupCard && !this._openRoomRef?.remote) {
+      this._popupCard.hass = hass;
+    }
     if (this._dialogMode === "instance") {
       const group = this._findGroup(this._dialogGroupId);
-      if (group && !group.remote) this._showInstanceRooms(group.id);
+      if (group && !group.remote) this._renderInstanceDialog(group);
     }
+
     if (first || previousLanguage !== lbLanguage(hass)) this._fetchRemote();
     this._ensureRemoteTimer();
   }
@@ -719,7 +771,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   getCardSize() {
     const groups = this._groups();
     if (groups.length > 1) return Math.max(2, groups.length + 1);
-    return Math.max(1, (groups[0]?.rooms?.length || 1));
+    return Math.max(1, groups[0]?.rooms?.length || 1);
   }
 
   static getConfigElement() {
@@ -753,8 +805,8 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       this._renderOverview();
       this._refreshRemoteDialog();
     } catch (_err) {
-      // The frontend talks only to the local HA websocket. A temporary frontend
-      // error must not replace the backend coordinator's 3-minute grace logic.
+      // The backend coordinator owns the 3-minute grace period. A temporary
+      // frontend websocket hiccup must not invalidate a cached remote snapshot.
     } finally {
       this._remoteFetchBusy = false;
     }
@@ -792,20 +844,48 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     return { rank: 1, cls: "green", icon: "mdi:window-open-variant" };
   }
 
+  _hiddenGroups() {
+    return new Set(Array.isArray(this._config?.hidden_groups) ? this._config.hidden_groups : []);
+  }
+
+  _hiddenRooms(groupId) {
+    const value = this._config?.hidden_rooms?.[groupId];
+    return new Set(Array.isArray(value) ? value : []);
+  }
+
+  _ordered(items, order, getId) {
+    const ids = Array.isArray(order) ? order : [];
+    const position = new Map(ids.map((id, index) => [String(id), index]));
+    return [...items].sort((a, b) => {
+      const aId = String(getId(a));
+      const bId = String(getId(b));
+      const ai = position.has(aId) ? position.get(aId) : Number.MAX_SAFE_INTEGER;
+      const bi = position.has(bId) ? position.get(bId) : Number.MAX_SAFE_INTEGER;
+      if (ai !== bi) return ai - bi;
+      return String(a.name || aId).localeCompare(String(b.name || bId), lbLocale(this._hass));
+    });
+  }
+
   _roomFromLocal(stateObj, index) {
     const a = stateObj.attributes || {};
     const meta = this._statusMeta(a.status || "yellow");
+    const state = String(stateObj.state || "unknown");
     return {
       key: stateObj.entity_id,
       entityId: stateObj.entity_id,
-      state: stateObj.state,
+      state,
       attributes: a,
       name: this._roomName(stateObj),
       status: a.status || "yellow",
       cls: meta.cls,
       icon: meta.icon,
       rank: meta.rank,
-      recommendation: lbLocalizedEntityText(this._hass, a, "recommendation", a.recommendation || lbT(this._hass, `recommendation.${stateObj.state}`)),
+      recommendation: lbLocalizedEntityText(
+        this._hass,
+        a,
+        "recommendation",
+        a.recommendation || lbT(this._hass, `recommendation.${state}`)
+      ),
       windowOpen: a.window_open === true,
       remote: false,
       index,
@@ -814,9 +894,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
 
   _localGroups() {
     if (!this._hass) return [];
-    const explicit = Array.isArray(this._config?.entities)
-      ? new Set(this._config.entities)
-      : null;
+    const explicit = Array.isArray(this._config?.entities) ? new Set(this._config.entities) : null;
     const groups = new Map();
     let index = 0;
     for (const stateObj of Object.values(this._hass.states)) {
@@ -825,25 +903,45 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       const a = stateObj.attributes || {};
       const instanceId = String(a.instance_id || "legacy-local");
       const instanceName = String(a.instance_name || "Lüftungsberater");
+      const groupId = `local:${instanceId}`;
+      if (this._hiddenRooms(groupId).has(stateObj.entity_id)) continue;
       if (!groups.has(instanceId)) {
-        groups.set(instanceId, { id: `local:${instanceId}`, sourceId: instanceId, name: instanceName, available: true, remote: false, rooms: [] });
+        groups.set(instanceId, {
+          id: groupId,
+          sourceId: instanceId,
+          name: instanceName,
+          available: true,
+          remote: false,
+          rooms: [],
+        });
       }
       groups.get(instanceId).rooms.push(this._roomFromLocal(stateObj, index++));
     }
     for (const group of groups.values()) {
-      group.rooms.sort((a, b) => a.name.localeCompare(b.name, lbLocale(this._hass)));
+      group.rooms = this._ordered(
+        group.rooms,
+        this._config?.room_order?.[group.id],
+        (room) => room.key
+      );
     }
-    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, lbLocale(this._hass)));
+    return [...groups.values()];
+  }
+
+  _remoteRoomKey(group, room, index) {
+    // Prefer the room name so selection/order survives a rolling upgrade from
+    // v0.6.10 peers which did not export a dedicated room id yet.
+    const stable = room?.name ?? room?.attributes?.room_name ?? room?.id ?? index;
+    return `${group.id}:room:${String(stable)}`;
   }
 
   _remoteRoom(group, room, index) {
     const attrs = room?.attributes && typeof room.attributes === "object" ? room.attributes : {};
-    const state = String(room?.state || "wait");
+    const state = String(room?.state || "unknown");
     const status = String(attrs.status || "yellow");
     const meta = this._statusMeta(status);
-    const name = String(attrs.room_name || attrs.friendly_name || `${lbT(this._hass, "overview.room")} ${index + 1}`);
+    const name = String(room?.name || attrs.room_name || attrs.friendly_name || `${lbT(this._hass, "overview.room")} ${index + 1}`);
     return {
-      key: `${group.id}:${attrs.room_name || index}`,
+      key: this._remoteRoomKey(group, room, index),
       state,
       attributes: attrs,
       name,
@@ -851,7 +949,12 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       cls: meta.cls,
       icon: meta.icon,
       rank: meta.rank,
-      recommendation: lbLocalizedEntityText(this._hass, attrs, "recommendation", attrs.recommendation || lbT(this._hass, `recommendation.${state}`)),
+      recommendation: lbLocalizedEntityText(
+        this._hass,
+        attrs,
+        "recommendation",
+        attrs.recommendation || lbT(this._hass, `recommendation.${state}`)
+      ),
       windowOpen: attrs.window_open === true,
       remote: true,
       index,
@@ -859,17 +962,34 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   _normalizedRemoteGroups() {
-    return (this._remoteGroups || []).map((group) => ({
-      id: String(group.id),
-      name: String(group.name || "Lüftungsberater"),
-      available: group.available !== false,
-      remote: true,
-      rooms: Array.isArray(group.rooms) ? group.rooms.map((room, index) => this._remoteRoom(group, room, index)) : [],
-    }));
+    return (this._remoteGroups || []).map((rawGroup) => {
+      const group = {
+        id: String(rawGroup.id),
+        name: String(rawGroup.name || "Lüftungsberater"),
+        available: rawGroup.available !== false,
+        remote: true,
+        rooms: [],
+      };
+      const hidden = this._hiddenRooms(group.id);
+      const rawRooms = Array.isArray(rawGroup.rooms) ? rawGroup.rooms : [];
+      group.rooms = rawRooms
+        .map((room, index) => this._remoteRoom(group, room, index))
+        .filter((room) => !hidden.has(room.key));
+      group.rooms = this._ordered(
+        group.rooms,
+        this._config?.room_order?.[group.id],
+        (room) => room.key
+      );
+      return group;
+    });
   }
 
   _groups() {
-    return [...this._localGroups(), ...this._normalizedRemoteGroups()];
+    const hidden = this._hiddenGroups();
+    const groups = [...this._localGroups(), ...this._normalizedRemoteGroups()]
+      .filter((group) => !hidden.has(group.id))
+      .filter((group) => !group.available || group.rooms.length > 0);
+    return this._ordered(groups, this._config?.group_order, (group) => group.id);
   }
 
   _groupClass(group) {
@@ -948,25 +1068,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         .detail-wrap { padding: 12px; }
         @media (max-width: 520px) { dialog { width: calc(100vw - 16px); max-height: calc(100vh - 32px); } .dialog-shell { max-height: calc(100vh - 32px); } .room-row { grid-template-columns: 25px minmax(0,1fr) auto 20px; gap: 6px; } }
       </style>
-      <ha-card><div id="overview"></div></ha-card>
-      <dialog id="lb-dialog">
-        <div class="dialog-shell">
-          <div class="dialog-header">
-            <button type="button" id="dialog-back" class="dialog-action hidden" aria-label="${lbT(this._hass, "overview.back")}"><ha-icon icon="mdi:arrow-left"></ha-icon></button>
-            <div id="dialog-title" class="dialog-title"></div>
-            <button type="button" id="dialog-close" class="dialog-action" aria-label="${lbT(this._hass, "overview.close")}"><ha-icon icon="mdi:close"></ha-icon></button>
-          </div>
-          <div id="dialog-body" class="dialog-body"></div>
-        </div>
-      </dialog>`;
-
-    const dialog = this.shadowRoot.querySelector("#lb-dialog");
-    this.shadowRoot.querySelector("#dialog-close")?.addEventListener("click", () => this._closeDialog());
-    this.shadowRoot.querySelector("#dialog-back")?.addEventListener("click", () => this._showInstanceRooms(this._dialogGroupId));
-    dialog?.addEventListener("close", () => this._resetDialog());
-    dialog?.addEventListener("click", (event) => {
-      if (event.target === dialog) this._closeDialog();
-    });
+      <ha-card><div id="overview"></div></ha-card>`;
   }
 
   _renderOverview() {
@@ -999,32 +1101,69 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     return this._groups().find((group) => group.id === groupId) || null;
   }
 
+  _ensureDialog() {
+    if (this._dialog?.isConnected) return this._dialog;
+    const dialog = document.createElement("dialog");
+    dialog.id = "lb-dialog";
+    dialog.innerHTML = `
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <button type="button" id="dialog-back" class="dialog-action hidden" aria-label="${lbT(this._hass, "overview.back")}"><ha-icon icon="mdi:arrow-left"></ha-icon></button>
+          <div id="dialog-title" class="dialog-title"></div>
+          <button type="button" id="dialog-close" class="dialog-action" aria-label="${lbT(this._hass, "overview.close")}"><ha-icon icon="mdi:close"></ha-icon></button>
+        </div>
+        <div id="dialog-body" class="dialog-body"></div>
+      </div>`;
+    this.shadowRoot.appendChild(dialog);
+    this._dialog = dialog;
+
+    dialog.querySelector("#dialog-close")?.addEventListener("click", () => this._closeDialog());
+    dialog.querySelector("#dialog-back")?.addEventListener("click", () => this._showInstanceRooms(this._dialogGroupId));
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) this._closeDialog();
+    });
+    dialog.addEventListener("close", () => {
+      if (this._dialog !== dialog) return;
+      this._dialog = null;
+      this._resetDialogState();
+      dialog.remove();
+    });
+    return dialog;
+  }
+
   _openDialog() {
-    const dialog = this.shadowRoot?.querySelector("#lb-dialog");
-    if (!dialog) return;
+    const dialog = this._ensureDialog();
     if (!dialog.open) {
+      this._dialogLocation = window.location.pathname;
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
     }
   }
 
   _closeDialog() {
-    const dialog = this.shadowRoot?.querySelector("#lb-dialog");
-    if (!dialog) return;
-    if (typeof dialog.close === "function" && dialog.open) dialog.close();
-    else {
-      dialog.removeAttribute("open");
-      this._resetDialog();
-    }
+    this._destroyDialog();
   }
 
-  _resetDialog() {
+  _destroyDialog() {
+    const dialog = this._dialog;
+    this._dialog = null;
+    this._resetDialogState();
+    if (!dialog) return;
+    try {
+      if (dialog.open && typeof dialog.close === "function") dialog.close();
+    } catch (_err) {
+      // Removing the freshly-created dialog below is sufficient as fallback.
+    }
+    dialog.removeAttribute("open");
+    dialog.remove();
+  }
+
+  _resetDialogState() {
     this._destroyPopupCard();
     this._dialogMode = null;
     this._dialogGroupId = null;
     this._openRoomRef = null;
-    const body = this.shadowRoot?.querySelector("#dialog-body");
-    if (body) body.innerHTML = "";
+    this._dialogLocation = null;
   }
 
   _destroyPopupCard() {
@@ -1033,15 +1172,26 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   _setDialogHeader(title, canBack) {
-    const titleNode = this.shadowRoot?.querySelector("#dialog-title");
-    const back = this.shadowRoot?.querySelector("#dialog-back");
+    const dialog = this._ensureDialog();
+    const titleNode = dialog.querySelector("#dialog-title");
+    const back = dialog.querySelector("#dialog-back");
     if (titleNode) titleNode.textContent = title || "";
     if (back) {
       back.classList.toggle("hidden", !canBack);
       back.setAttribute("aria-label", lbT(this._hass, "overview.back"));
     }
-    const close = this.shadowRoot?.querySelector("#dialog-close");
+    const close = dialog.querySelector("#dialog-close");
     if (close) close.setAttribute("aria-label", lbT(this._hass, "overview.close"));
+  }
+
+  _renderInstanceDialog(group) {
+    const dialog = this._ensureDialog();
+    const body = dialog.querySelector("#dialog-body");
+    if (!body) return;
+    body.innerHTML = group.rooms.map((room) => this._roomRow(room, group.id)).join("");
+    body.querySelectorAll("[data-room-key]").forEach((element) => {
+      element.addEventListener("click", () => this._showRoom(element.dataset.groupId, element.dataset.roomKey, true));
+    });
   }
 
   _showInstanceRooms(groupId) {
@@ -1052,11 +1202,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     this._dialogGroupId = group.id;
     this._openRoomRef = null;
     this._setDialogHeader(group.name, false);
-    const body = this.shadowRoot.querySelector("#dialog-body");
-    body.innerHTML = group.rooms.map((room) => this._roomRow(room, group.id)).join("");
-    body.querySelectorAll("[data-room-key]").forEach((element) => {
-      element.addEventListener("click", () => this._showRoom(element.dataset.groupId, element.dataset.roomKey, true));
-    });
+    this._renderInstanceDialog(group);
     this._openDialog();
   }
 
@@ -1069,7 +1215,9 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     this._dialogGroupId = group.id;
     this._openRoomRef = { groupId: group.id, roomKey: room.key, remote: room.remote, canBack };
     this._setDialogHeader(room.name, canBack);
-    const body = this.shadowRoot.querySelector("#dialog-body");
+    const dialog = this._ensureDialog();
+    const body = dialog.querySelector("#dialog-body");
+    if (!body) return;
     body.innerHTML = '<div class="detail-wrap" id="detail-wrap"></div>';
     const wrap = body.querySelector("#detail-wrap");
     const card = document.createElement("lueftungsberater-card");
@@ -1092,7 +1240,8 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         this._closeDialog();
         return;
       }
-      this._showInstanceRooms(group.id);
+      this._setDialogHeader(group.name, false);
+      this._renderInstanceDialog(group);
       return;
     }
 
@@ -1210,43 +1359,102 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._hassSignature = null;
+    this._remoteSignature = "";
+    this._remoteGroups = [];
+    this._remoteFetchBusy = false;
+    this._remoteTimer = null;
+    this._pendingRender = false;
+  }
+
+  connectedCallback() {
+    this._ensureRemoteTimer();
+  }
+
+  disconnectedCallback() {
+    if (this._remoteTimer) clearInterval(this._remoteTimer);
+    this._remoteTimer = null;
   }
 
   setConfig(config) {
     this._config = { ...config };
-    this._render();
+    this._requestRender();
   }
 
   set hass(hass) {
-    const signature = this._signature(hass);
+    const first = !this._hass;
+    const previousLanguage = this._hass ? lbLanguage(this._hass) : null;
+    const signature = this._localSignature(hass);
     this._hass = hass;
     if (signature !== this._hassSignature) {
       this._hassSignature = signature;
-      this._render();
+      this._requestRender();
+    }
+    if (first || previousLanguage !== lbLanguage(hass)) this._fetchRemote();
+    this._ensureRemoteTimer();
+  }
+
+  _ensureRemoteTimer() {
+    if (this._remoteTimer || !this.isConnected) return;
+    this._remoteTimer = setInterval(() => this._fetchRemote(), 10000);
+    if (this._hass) this._fetchRemote();
+  }
+
+  async _fetchRemote() {
+    if (!this._hass || this._remoteFetchBusy) return;
+    this._remoteFetchBusy = true;
+    try {
+      const message = { type: "lueftungsberater/remote_overview" };
+      let result;
+      if (typeof this._hass.callWS === "function") {
+        result = await this._hass.callWS(message);
+      } else if (this._hass.connection?.sendMessagePromise) {
+        result = await this._hass.connection.sendMessagePromise(message);
+      } else {
+        return;
+      }
+      const incoming = Array.isArray(result) ? result : [];
+      const previous = new Map((this._remoteGroups || []).map((group) => [String(group.id), group]));
+      this._remoteGroups = incoming.map((group) => {
+        const old = previous.get(String(group.id));
+        if (group?.available === false && (!Array.isArray(group.rooms) || !group.rooms.length) && Array.isArray(old?.rooms)) {
+          return { ...group, rooms: old.rooms };
+        }
+        return group;
+      });
+      const signature = this._remoteStructureSignature();
+      if (signature !== this._remoteSignature) {
+        this._remoteSignature = signature;
+        this._requestRender();
+      }
+    } catch (_err) {
+      // Keep the last structural editor snapshot during a short frontend hiccup.
+    } finally {
+      this._remoteFetchBusy = false;
     }
   }
 
-  _advisorEntities(hass = this._hass) {
-    if (!hass) return [];
-    return Object.values(hass.states)
-      .filter((stateObj) => {
-        const a = stateObj.attributes || {};
-        return stateObj.entity_id.startsWith("sensor.") && typeof a.status === "string" && typeof a.mode === "string" && typeof a.recommendation === "string" && typeof a.reason === "string" && (a.room_name !== undefined || a.absolute_humidity_inside !== undefined);
-      })
-      .sort((a, b) => {
-        const an = `${a.attributes.instance_name || ""}:${a.attributes.room_name || a.attributes.friendly_name || a.entity_id}`;
-        const bn = `${b.attributes.instance_name || ""}:${b.attributes.room_name || b.attributes.friendly_name || b.entity_id}`;
-        return an.localeCompare(bn, lbLocale(hass));
-      });
-  }
-
-  _signature(hass) {
-    if (!hass) return "none";
-    const entities = this._advisorEntities(hass).map((stateObj) => {
-      const a = stateObj.attributes || {};
-      return `${stateObj.entity_id}:${a.instance_name || ""}:${a.room_name || a.friendly_name || ""}`;
-    });
-    return `${lbLanguage(hass)}|${entities.join("|")}`;
+  _requestRender() {
+    if (!this.shadowRoot || !this._config) return;
+    const active = this.shadowRoot.activeElement;
+    if (active && (active.matches?.('input[type="text"]') || active.matches?.("textarea"))) {
+      this._pendingRender = true;
+      if (!active.dataset.lbRenderAfterBlur) {
+        active.dataset.lbRenderAfterBlur = "1";
+        active.addEventListener("blur", () => {
+          // Let the input's native `change` event finish first, otherwise a
+          // deferred structural refresh could destroy the field before its
+          // edited value is emitted to Home Assistant.
+          setTimeout(() => {
+            if (!this._pendingRender) return;
+            this._pendingRender = false;
+            this._render();
+          }, 0);
+        }, { once: true });
+      }
+      return;
+    }
+    this._pendingRender = false;
+    this._render();
   }
 
   _escape(value) {
@@ -1255,38 +1463,254 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
     return div.innerHTML;
   }
 
-  _emit(next) {
+  _isAdvisorEntity(stateObj) {
+    if (!stateObj?.attributes) return false;
+    const a = stateObj.attributes;
+    return Boolean(
+      stateObj.entity_id?.startsWith("sensor.") &&
+      typeof a.status === "string" &&
+      typeof a.mode === "string" &&
+      typeof a.recommendation === "string" &&
+      typeof a.reason === "string" &&
+      (a.room_name !== undefined || a.absolute_humidity_inside !== undefined)
+    );
+  }
+
+  _localGroups(hass = this._hass) {
+    if (!hass) return [];
+    const groups = new Map();
+    for (const stateObj of Object.values(hass.states)) {
+      if (!this._isAdvisorEntity(stateObj)) continue;
+      const a = stateObj.attributes || {};
+      const instanceId = String(a.instance_id || "legacy-local");
+      const groupId = `local:${instanceId}`;
+      if (!groups.has(groupId)) {
+        groups.set(groupId, {
+          id: groupId,
+          name: String(a.instance_name || "Lüftungsberater"),
+          remote: false,
+          available: true,
+          rooms: [],
+        });
+      }
+      groups.get(groupId).rooms.push({
+        key: stateObj.entity_id,
+        entityId: stateObj.entity_id,
+        name: String(a.room_name || a.friendly_name || stateObj.entity_id),
+        remote: false,
+      });
+    }
+    return [...groups.values()];
+  }
+
+  _remoteRoomKey(group, room, index) {
+    // Prefer the room name so selection/order survives a rolling upgrade from
+    // v0.6.10 peers which did not export a dedicated room id yet.
+    const stable = room?.name ?? room?.attributes?.room_name ?? room?.id ?? index;
+    return `${group.id}:room:${String(stable)}`;
+  }
+
+  _remoteEditorGroups() {
+    return (this._remoteGroups || []).map((rawGroup) => {
+      const group = {
+        id: String(rawGroup.id),
+        name: String(rawGroup.name || "Lüftungsberater"),
+        remote: true,
+        available: rawGroup.available !== false,
+        rooms: [],
+      };
+      const rooms = Array.isArray(rawGroup.rooms) ? rawGroup.rooms : [];
+      group.rooms = rooms.map((room, index) => ({
+        key: this._remoteRoomKey(group, room, index),
+        name: String(room?.name || room?.attributes?.room_name || room?.attributes?.friendly_name || `${lbT(this._hass, "overview.room")} ${index + 1}`),
+        remote: true,
+      }));
+      return group;
+    });
+  }
+
+  _ordered(items, order, getId) {
+    const ids = Array.isArray(order) ? order : [];
+    const position = new Map(ids.map((id, index) => [String(id), index]));
+    return [...items].sort((a, b) => {
+      const aId = String(getId(a));
+      const bId = String(getId(b));
+      const ai = position.has(aId) ? position.get(aId) : Number.MAX_SAFE_INTEGER;
+      const bi = position.has(bId) ? position.get(bId) : Number.MAX_SAFE_INTEGER;
+      if (ai !== bi) return ai - bi;
+      return String(a.name || aId).localeCompare(String(b.name || bId), lbLocale(this._hass));
+    });
+  }
+
+  _allGroups() {
+    const groups = [...this._localGroups(), ...this._remoteEditorGroups()];
+    for (const group of groups) {
+      group.rooms = this._ordered(
+        group.rooms,
+        this._config?.room_order?.[group.id],
+        (room) => room.key
+      );
+    }
+    return this._ordered(groups, this._config?.group_order, (group) => group.id);
+  }
+
+  _localSignature(hass) {
+    if (!hass) return "none";
+    const groups = this._localGroups(hass)
+      .flatMap((group) => group.rooms.map((room) => `${group.id}:${group.name}:${room.key}:${room.name}`));
+    return `${lbLanguage(hass)}|${groups.join("|")}`;
+  }
+
+  _remoteStructureSignature() {
+    return this._remoteEditorGroups()
+      .flatMap((group) => [
+        `${group.id}:${group.name}:${group.available}`,
+        ...group.rooms.map((room) => `${room.key}:${room.name}`),
+      ])
+      .join("|");
+  }
+
+  _emit(next, rerender = true) {
     this._config = next;
     const event = new Event("config-changed", { bubbles: true, composed: true });
     event.detail = { config: next };
     this.dispatchEvent(event);
+    if (rerender) this._requestRender();
+  }
+
+  _setHiddenGroup(groupId, hidden) {
+    const set = new Set(Array.isArray(this._config.hidden_groups) ? this._config.hidden_groups : []);
+    if (hidden) set.add(groupId); else set.delete(groupId);
+    const next = { ...this._config };
+    if (set.size) next.hidden_groups = [...set]; else delete next.hidden_groups;
+    this._emit(next);
+  }
+
+  _setRemoteRoomHidden(groupId, roomKey, hidden) {
+    const all = this._config.hidden_rooms && typeof this._config.hidden_rooms === "object"
+      ? { ...this._config.hidden_rooms }
+      : {};
+    const set = new Set(Array.isArray(all[groupId]) ? all[groupId] : []);
+    if (hidden) set.add(roomKey); else set.delete(roomKey);
+    if (set.size) all[groupId] = [...set]; else delete all[groupId];
+    const next = { ...this._config };
+    if (Object.keys(all).length) next.hidden_rooms = all; else delete next.hidden_rooms;
+    this._emit(next);
+  }
+
+  _setLocalRoomSelected(entityId, selected) {
+    // Migrate the old `entities:` allow-list to the same exclusion model used
+    // by remote rooms. That way newly-created local rooms are visible by
+    // default even after the user has hidden a different room before.
+    const localGroups = this._localGroups();
+    const explicit = Array.isArray(this._config.entities) ? new Set(this._config.entities) : null;
+    const hiddenRooms = this._config.hidden_rooms && typeof this._config.hidden_rooms === "object"
+      ? { ...this._config.hidden_rooms }
+      : {};
+
+    for (const group of localGroups) {
+      const currentHidden = new Set(Array.isArray(hiddenRooms[group.id]) ? hiddenRooms[group.id] : []);
+      for (const room of group.rooms) {
+        const currentlySelected = (!explicit || explicit.has(room.entityId)) && !currentHidden.has(room.entityId);
+        const shouldSelect = room.entityId === entityId ? selected : currentlySelected;
+        if (shouldSelect) currentHidden.delete(room.entityId);
+        else currentHidden.add(room.entityId);
+      }
+      if (currentHidden.size) hiddenRooms[group.id] = [...currentHidden];
+      else delete hiddenRooms[group.id];
+    }
+
+    const next = { ...this._config };
+    delete next.entities;
+    if (Object.keys(hiddenRooms).length) next.hidden_rooms = hiddenRooms;
+    else delete next.hidden_rooms;
+    this._emit(next);
+  }
+
+  _moveGroup(groupId, delta) {
+    const ids = this._allGroups().map((group) => group.id);
+    const index = ids.indexOf(groupId);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    this._emit({ ...this._config, group_order: ids });
+  }
+
+  _moveRoom(groupId, roomKey, delta) {
+    const group = this._allGroups().find((item) => item.id === groupId);
+    if (!group) return;
+    const ids = group.rooms.map((room) => room.key);
+    const index = ids.indexOf(roomKey);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    const roomOrder = this._config.room_order && typeof this._config.room_order === "object"
+      ? { ...this._config.room_order }
+      : {};
+    roomOrder[groupId] = ids;
+    this._emit({ ...this._config, room_order: roomOrder });
   }
 
   _render() {
     if (!this.shadowRoot || !this._config) return;
-    const entities = this._advisorEntities();
-    const explicit = Array.isArray(this._config.entities) ? this._config.entities : null;
+    const groups = this._allGroups();
+    const hiddenGroups = new Set(Array.isArray(this._config.hidden_groups) ? this._config.hidden_groups : []);
+    const explicitLocal = Array.isArray(this._config.entities) ? new Set(this._config.entities) : null;
+    const hiddenRooms = this._config.hidden_rooms && typeof this._config.hidden_rooms === "object" ? this._config.hidden_rooms : {};
 
     this.shadowRoot.innerHTML = `
       <style>
         .editor { display: grid; gap: 14px; padding: 8px 0 16px; }
         .title { display: grid; gap: 6px; color: var(--primary-text-color); font-size: 14px; font-weight: 600; }
         input[type="text"] { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--ha-color-form-background, var(--card-background-color)); color: var(--primary-text-color); font: inherit; }
-        .rooms { display: grid; gap: 6px; }
-        .room { display: flex; align-items: center; gap: 9px; min-height: 34px; color: var(--primary-text-color); font-size: 13px; }
-        .room-copy { display: grid; gap: 1px; min-width: 0; }
-        .room-copy small { color: var(--secondary-text-color); }
+        .groups { display: grid; gap: 10px; }
+        .group { border: 1px solid var(--divider-color); border-radius: 10px; overflow: hidden; background: color-mix(in srgb, var(--card-background-color) 96%, var(--primary-text-color) 4%); }
+        .group-head { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 9px; align-items: center; min-height: 44px; padding: 7px 8px; }
+        .group-copy, .room-copy { display: grid; gap: 1px; min-width: 0; }
+        .group-copy strong, .room-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .group-copy small, .room-copy small { color: var(--secondary-text-color); font-size: 11px; }
+        .room-list { border-top: 1px solid var(--divider-color); }
+        .room { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 9px; align-items: center; min-height: 39px; padding: 5px 8px 5px 28px; border-top: 1px solid color-mix(in srgb, var(--divider-color) 65%, transparent); color: var(--primary-text-color); font-size: 13px; }
+        .room:first-child { border-top: 0; }
+        .order { display: inline-flex; gap: 2px; }
+        .order button { appearance: none; border: 0; border-radius: 6px; width: 31px; height: 31px; display: grid; place-items: center; background: transparent; color: var(--secondary-text-color); cursor: pointer; }
+        .order button:not(:disabled):hover, .order button:not(:disabled):focus-visible { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); color: var(--primary-text-color); outline: none; }
+        .order button:disabled { opacity: .25; cursor: default; }
+        .order ha-icon { --mdc-icon-size: 19px; }
         .hint { color: var(--secondary-text-color); font-size: 12px; line-height: 1.4; }
       </style>
       <div class="editor">
         <label class="title">${lbT(this._hass, "editor.title")}<input id="title" type="text" value="${this._escape(this._config.title || "")}" /></label>
-        <div class="rooms">
-          <strong>${lbT(this._hass, "editor.rooms")}</strong>
-          ${entities.map((stateObj) => {
-            const a = stateObj.attributes || {};
-            const checked = explicit ? explicit.includes(stateObj.entity_id) : true;
-            const room = a.room_name || a.friendly_name || stateObj.entity_id;
-            return `<label class="room"><input type="checkbox" data-entity="${this._escape(stateObj.entity_id)}" ${checked ? "checked" : ""}/><span class="room-copy"><span>${this._escape(room)}</span>${a.instance_name ? `<small>${this._escape(a.instance_name)}</small>` : ""}</span></label>`;
+        <div class="groups">
+          <strong>${lbT(this._hass, "editor.installations")}</strong>
+          ${groups.map((group, groupIndex) => {
+            const groupChecked = !hiddenGroups.has(group.id);
+            const groupType = group.remote ? lbT(this._hass, "editor.remote") : lbT(this._hass, "editor.local");
+            const reachability = group.remote && !group.available ? ` · ${lbT(this._hass, "editor.unavailable")}` : "";
+            return `<div class="group">
+              <div class="group-head">
+                <input type="checkbox" data-group-toggle="${this._escape(group.id)}" ${groupChecked ? "checked" : ""}/>
+                <span class="group-copy"><strong>${this._escape(group.name)}</strong><small>${this._escape(groupType + reachability)}</small></span>
+                <span class="order">
+                  <button type="button" data-group-move="${this._escape(group.id)}" data-delta="-1" title="${this._escape(lbT(this._hass, "editor.move_up"))}" ${groupIndex === 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+                  <button type="button" data-group-move="${this._escape(group.id)}" data-delta="1" title="${this._escape(lbT(this._hass, "editor.move_down"))}" ${groupIndex === groups.length - 1 ? "disabled" : ""}><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+                </span>
+              </div>
+              ${group.rooms.length ? `<div class="room-list">${group.rooms.map((room, roomIndex) => {
+                const roomHidden = Array.isArray(hiddenRooms[group.id]) && hiddenRooms[group.id].includes(room.key);
+                const checked = room.remote
+                  ? !roomHidden
+                  : (explicitLocal ? explicitLocal.has(room.entityId) : true) && !roomHidden;
+                return `<label class="room">
+                  <input type="checkbox" ${room.remote ? `data-remote-room="${this._escape(room.key)}" data-room-group="${this._escape(group.id)}"` : `data-local-entity="${this._escape(room.entityId)}"`} ${checked ? "checked" : ""}/>
+                  <span class="room-copy"><span>${this._escape(room.name)}</span></span>
+                  <span class="order">
+                    <button type="button" data-room-move="${this._escape(room.key)}" data-room-group="${this._escape(group.id)}" data-delta="-1" title="${this._escape(lbT(this._hass, "editor.move_up"))}" ${roomIndex === 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+                    <button type="button" data-room-move="${this._escape(room.key)}" data-room-group="${this._escape(group.id)}" data-delta="1" title="${this._escape(lbT(this._hass, "editor.move_down"))}" ${roomIndex === group.rooms.length - 1 ? "disabled" : ""}><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+                  </span>
+                </label>`;
+              }).join("")}</div>` : ""}
+            </div>`;
           }).join("") || `<span class="hint">${lbT(this._hass, "overview.empty_title")}</span>`}
         </div>
         <div class="hint">${lbT(this._hass, "editor.rooms_hint")}</div>
@@ -1296,18 +1720,23 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
       const next = { ...this._config };
       const value = event.target.value.trim();
       if (value) next.title = value; else delete next.title;
-      this._emit(next);
+      this._emit(next, false);
     });
 
-    this.shadowRoot.querySelectorAll("[data-entity]").forEach((checkbox) => {
-      checkbox.addEventListener("change", () => {
-        const all = [...this.shadowRoot.querySelectorAll("[data-entity]")];
-        const selected = all.filter((item) => item.checked).map((item) => item.dataset.entity);
-        const next = { ...this._config };
-        if (selected.length === all.length) delete next.entities;
-        else next.entities = selected;
-        this._emit(next);
-      });
+    this.shadowRoot.querySelectorAll("[data-group-toggle]").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => this._setHiddenGroup(checkbox.dataset.groupToggle, !checkbox.checked));
+    });
+    this.shadowRoot.querySelectorAll("[data-local-entity]").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => this._setLocalRoomSelected(checkbox.dataset.localEntity, checkbox.checked));
+    });
+    this.shadowRoot.querySelectorAll("[data-remote-room]").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => this._setRemoteRoomHidden(checkbox.dataset.roomGroup, checkbox.dataset.remoteRoom, !checkbox.checked));
+    });
+    this.shadowRoot.querySelectorAll("[data-group-move]").forEach((button) => {
+      button.addEventListener("click", () => this._moveGroup(button.dataset.groupMove, Number(button.dataset.delta)));
+    });
+    this.shadowRoot.querySelectorAll("[data-room-move]").forEach((button) => {
+      button.addEventListener("click", () => this._moveRoom(button.dataset.roomGroup, button.dataset.roomMove, Number(button.dataset.delta)));
     });
   }
 }

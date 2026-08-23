@@ -26,7 +26,7 @@
       },
       "remote": {
         "title": "Uzaktaki Havalandırma Danışmanına bağlan",
-        "description": "Uzak bağlantılar özellikle Tailscale adresleriyle sınırlandırılmıştır. Yalnızca güncel Havalandırma Danışmanı anlık görüntüleri aktarılır; uzaktaki sensörler ve geçmişleri bu Home Assistant'ta oluşturulmaz.",
+        "description": "Uzak bağlantılar özellikle Tailscale adresleriyle sınırlandırılmıştır. Yalnızca güncel Havalandırma Danışmanı anlık görüntüleri aktarılır; uzaktaki sensörler ve geçmişleri bu Home Assistant'ta oluşturulmaz. Devam ettiğinde önce yalnızca bağlantı test edilir; bağlantı sonraki başarı onayından sonra kaydedilir.",
         "data": {
           "instance_name": "Görünen ad",
           "remote_host": "Tailscale IP veya MagicDNS adı",
@@ -49,6 +49,14 @@
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "HTTPS kullan"
         }
+      },
+      "remote_confirm": {
+        "title": "Bağlantı başarılı",
+        "description": "Tailscale bağlantısı başarıyla test edildi. **{instances} kurulum** ve toplam **{rooms} oda** bulundu. Uzak bağlantıyı kaydetmek için bir kez daha gönder."
+      },
+      "reconfigure_confirm": {
+        "title": "Bağlantı başarılı",
+        "description": "Güncellenen bağlantı bilgileri başarıyla test edildi. **{instances} kurulum** ve toplam **{rooms} oda** bulundu. Değişiklikleri kaydetmek için bir kez daha gönder."
       }
     },
     "error": {

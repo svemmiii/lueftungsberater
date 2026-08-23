@@ -167,6 +167,8 @@ def _local_instances(
                 continue
             rooms.append(
                 {
+                    "id": subentry.subentry_id,
+                    "name": subentry.title,
                     "entity_id": None if remote_export else entity_id,
                     "state": state.state,
                     "attributes": _export_attributes(

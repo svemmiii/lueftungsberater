@@ -46,5 +46,5 @@ class LueftungsberaterRoomEntity(
                     else "Room ventilation advisor"
                 )
             ),
-            sw_version="0.6.10",
+            sw_version="0.6.11",
         )

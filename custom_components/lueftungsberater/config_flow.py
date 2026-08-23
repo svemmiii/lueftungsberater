@@ -218,18 +218,44 @@ def _remote_data(user_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return name, data
 
 
-async def _validate_remote(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
+async def _test_remote(
+    hass: HomeAssistant,
+    data: dict[str, Any],
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Validate a remote and return its current snapshot when successful."""
     host = str(data[CONF_REMOTE_HOST])
     port = int(data[CONF_REMOTE_PORT])
     if not await async_host_is_tailscale(hass, host, port):
-        return "not_tailscale"
+        return "not_tailscale", None
     try:
-        await async_fetch_remote_snapshot(hass, data)
+        payload = await async_fetch_remote_snapshot(hass, data)
     except RemoteAuthError:
-        return "invalid_auth"
+        return "invalid_auth", None
     except RemoteConnectionError:
-        return "cannot_connect"
-    return None
+        return "cannot_connect", None
+    return None, payload
+
+
+async def _validate_remote(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
+    """Compatibility wrapper used by tests and reconfiguration helpers."""
+    error, _payload = await _test_remote(hass, data)
+    return error
+
+
+def _remote_summary(payload: dict[str, Any] | None) -> dict[str, str]:
+    """Return translated description placeholders for a successful test."""
+    instances = payload.get("instances", []) if isinstance(payload, dict) else []
+    if not isinstance(instances, list):
+        instances = []
+    room_count = 0
+    for instance in instances:
+        rooms = instance.get("rooms", []) if isinstance(instance, dict) else []
+        if isinstance(rooms, list):
+            room_count += len(rooms)
+    return {
+        "instances": str(len(instances)),
+        "rooms": str(room_count),
+    }
 
 
 class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -266,15 +292,40 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if duplicate:
                 return self.async_abort(reason="already_configured")
 
-            error = await _validate_remote(self.hass, data)
+            error, payload = await _test_remote(self.hass, data)
             if error is None:
-                return self.async_create_entry(title=title, data=data)
+                self._pending_remote_title = title
+                self._pending_remote_data = data
+                self._pending_remote_summary = _remote_summary(payload)
+                return await self.async_step_remote_confirm()
             errors["base"] = error
 
         return self.async_show_form(
             step_id="remote",
             data_schema=_remote_schema(),
             errors=errors,
+            last_step=False,
+        )
+
+    async def async_step_remote_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Show the successful connection test before storing credentials."""
+        data = getattr(self, "_pending_remote_data", None)
+        title = getattr(self, "_pending_remote_title", None)
+        if not isinstance(data, dict) or not isinstance(title, str):
+            return await self.async_step_remote()
+        if user_input is not None:
+            return self.async_create_entry(title=title, data=data)
+        return self.async_show_form(
+            step_id="remote_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders=getattr(
+                self,
+                "_pending_remote_summary",
+                {"instances": "0", "rooms": "0"},
+            ),
+            last_step=True,
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
@@ -327,10 +378,12 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             title, data = _remote_data(user_input)
-            error = await _validate_remote(self.hass, data)
+            error, payload = await _test_remote(self.hass, data)
             if error is None:
-                self.hass.config_entries.async_update_entry(entry, title=title, data=data)
-                return self.async_abort(reason="reconfigure_successful")
+                self._pending_remote_title = title
+                self._pending_remote_data = data
+                self._pending_remote_summary = _remote_summary(payload)
+                return await self.async_step_reconfigure_confirm()
             errors["base"] = error
 
         defaults = {
@@ -344,6 +397,30 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(_remote_schema(), defaults),
             errors=errors,
+            last_step=False,
+        )
+
+    async def async_step_reconfigure_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Confirm a tested remote reconfiguration."""
+        entry = self._get_reconfigure_entry()
+        data = getattr(self, "_pending_remote_data", None)
+        title = getattr(self, "_pending_remote_title", None)
+        if not isinstance(data, dict) or not isinstance(title, str):
+            return await self._async_reconfigure_remote(entry, None)
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(entry, title=title, data=data)
+            return self.async_abort(reason="reconfigure_successful")
+        return self.async_show_form(
+            step_id="reconfigure_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders=getattr(
+                self,
+                "_pending_remote_summary",
+                {"instances": "0", "rooms": "0"},
+            ),
+            last_step=True,
         )
 
     @classmethod

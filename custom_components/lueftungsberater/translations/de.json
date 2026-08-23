@@ -26,7 +26,7 @@
       },
       "remote": {
         "title": "Entfernten Lüftungsberater verbinden",
-        "description": "Die Verbindung ist absichtlich auf Tailscale-Adressen beschränkt. Es werden nur aktuelle Lüftungsberater-Snapshots übertragen; entfernte Sensoren und deren Verlauf werden nicht in diesem Home Assistant angelegt.",
+        "description": "Die Verbindung ist absichtlich auf Tailscale-Adressen beschränkt. Es werden nur aktuelle Lüftungsberater-Snapshots übertragen; entfernte Sensoren und deren Verlauf werden nicht in diesem Home Assistant angelegt. Mit „Weiter“ wird die Verbindung zunächst nur getestet. Gespeichert wird sie erst nach der anschließenden Erfolgsbestätigung.",
         "data": {
           "instance_name": "Anzeigename",
           "remote_host": "Tailscale-IP oder MagicDNS-Name",
@@ -49,6 +49,14 @@
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "HTTPS verwenden"
         }
+      },
+      "remote_confirm": {
+        "title": "Verbindung erfolgreich",
+        "description": "Die Verbindung über Tailscale wurde erfolgreich getestet. Gefunden: **{instances} Installation(en)** mit **{rooms} Raum/Räumen**. Mit „Absenden“ wird die Remote-Verbindung jetzt gespeichert."
+      },
+      "reconfigure_confirm": {
+        "title": "Verbindung erfolgreich",
+        "description": "Die geänderten Zugangsdaten wurden erfolgreich getestet. Gefunden: **{instances} Installation(en)** mit **{rooms} Raum/Räumen**. Mit „Absenden“ werden die Änderungen übernommen."
       }
     },
     "error": {

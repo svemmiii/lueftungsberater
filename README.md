@@ -113,9 +113,9 @@ Detaillierte Ansicht für einen Raum mit Empfehlung, Grund und Messwerten.
 
 ### Lüftungsberater – Übersicht
 
-Die Übersicht ist bewusst sehr kompakt: Pro Raum werden nur Name, aktuelle Empfehlung, Statusfarbe und – falls zutreffend – ein kleines **offen**-Badge gezeigt. Ein Tipp auf einen Raum erzeugt erst in diesem Moment eine vollständige Raumkarte in einem Dialog; eine separat eingerichtete Raumkarte ist dafür nicht erforderlich und es laufen keine unsichtbaren Raumkarten im Hintergrund.
+Die Übersicht ist bewusst sehr kompakt: Pro Raum werden nur Name, aktuelle Empfehlung, Statusfarbe und – falls zutreffend – ein kleines **offen**-Badge gezeigt. Ein Tipp auf einen Raum erzeugt erst in diesem Moment eine vollständige Raumkarte in einem Dialog; eine separat eingerichtete Raumkarte ist dafür nicht erforderlich und es laufen keine unsichtbaren Raumkarten im Hintergrund. Der Dialog wird beim Schließen oder beim Verlassen der Dashboard-Ansicht vollständig entfernt, sodass Handy, Tablet und PC jeweils einen rein lokalen Dialogzustand besitzen.
 
-Sind mehrere lokale Lüftungsberater-Instanzen vorhanden, gruppiert dieselbe Übersicht die Räume automatisch nach Instanz. Bei nur einer Instanz wird diese Zwischenebene übersprungen.
+Sind mehrere Lüftungsberater-Instanzen vorhanden, gruppiert dieselbe Übersicht die Räume automatisch nach Instanz. Bei nur einer sichtbaren Instanz wird diese Zwischenebene übersprungen. Im visuellen Karteneditor lassen sich lokale und Tailscale-Remote-Installationen sowie einzelne Räume ein-/ausblenden und per Pfeiltasten sortieren.
 
 Die Dashboard-Ressource wird bei normalen Home-Assistant-Dashboards automatisch registriert.
 
@@ -124,11 +124,11 @@ Die Dashboard-Ressource wird bei normalen Home-Assistant-Dashboards automatisch 
 
 Ab v0.6.10 können mehrere lokale Lüftungsberater-Instanzen parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Die gemeinsame Übersicht gruppiert sie automatisch und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
 
-Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant ebenfalls Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token.
+Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token. Ab v0.6.11 wird die Verbindung vor dem Speichern getestet und anschließend auf einer Bestätigungsseite mit der Anzahl gefundener Installationen und Räume angezeigt.
 
 Remote-Verbindungen sind absichtlich auf Tailscale beschränkt. Beim laufenden Abruf wird erneut geprüft, dass das Ziel ausschließlich auf Tailscale-Adressen auflöst. Zusätzlich akzeptiert der Snapshot-Endpunkt selbst nur Anfragen, deren Quell-IP aus einem Tailscale-Adressbereich stammt. Ein gültiger Home-Assistant-Token allein reicht außerhalb des Tailnets daher nicht aus. Übertragen werden nur die aktuellen Lüftungsberater-Hauptzustände und deren aktuelle Detailwerte – keine Recorder-Historie und keine fremden Sensor-Entities werden im empfangenden Home Assistant angelegt.
 
-Die entfernten Snapshots werden nur im Arbeitsspeicher gehalten und bei neuen Daten ersetzt. Die Remote-Verbindung prüft alle 30 Sekunden. Kurze LTE-/Tailscale-Aussetzer werden toleriert; erst nach ungefähr 3 Minuten ohne erfolgreichen Abruf wird die Instanz als **Nicht erreichbar** angezeigt. Sobald die Verbindung wieder steht, wird wieder ein aktueller Snapshot geladen.
+Die entfernten Snapshots werden nur im Arbeitsspeicher gehalten und bei neuen Daten ersetzt. Die Remote-Verbindung prüft alle 30 Sekunden. Kurze LTE-/Tailscale-Aussetzer werden toleriert; erst nach ungefähr 3 Minuten ohne erfolgreichen Abruf wird die Instanz als **Nicht erreichbar** angezeigt. Während dieser Karenz bleibt auch eine bereits geöffnete Remote-Raumansicht bestehen. Sobald die Verbindung wieder steht, wird wieder ein aktueller Snapshot geladen. Fehlen dagegen nur notwendige Temperatur-/Feuchtewerte auf der erreichbaren Remote-Instanz, bleibt der Raum sichtbar und zeigt gelb **„Aktuell keine zuverlässige Empfehlung möglich“** statt als offline zu gelten.
 
 In der Remote-Detailansicht sind Messwerte reine Anzeige und nicht anklickbar. Lokale Raumkarten bleiben unverändert: Dort funktionieren More-Info und Recorder-Verlauf weiterhin.
 
