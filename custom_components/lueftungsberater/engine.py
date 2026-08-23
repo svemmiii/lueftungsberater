@@ -17,6 +17,26 @@ def absolute_humidity(temp_c: float, rh: float) -> float:
     return 216.7 * vapor_pressure / (273.15 + temp_c)
 
 
+def surface_relative_humidity(indoor_temp_c: float, indoor_rh: float, surface_temp_c: float | None) -> float | None:
+    """Estimate RH directly at a measured cold surface.
+
+    The indoor vapour pressure is compared with the saturation vapour pressure
+    at the surface temperature. Values are capped at 100 %, where condensation
+    would begin.
+    """
+    if surface_temp_c is None:
+        return None
+    actual_vapor_pressure = (indoor_rh / 100.0) * 6.112 * math.exp(
+        (17.62 * indoor_temp_c) / (243.12 + indoor_temp_c)
+    )
+    saturation_surface = 6.112 * math.exp(
+        (17.62 * surface_temp_c) / (243.12 + surface_temp_c)
+    )
+    if saturation_surface <= 0:
+        return None
+    return max(0.0, min(100.0, actual_vapor_pressure / saturation_surface * 100.0))
+
+
 def co2_status(ppm: float | None) -> str:
     if ppm is None:
         return "unknown"
@@ -46,7 +66,7 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
         return "cooling"
     if mode == "erwaermen":
         return "warming"
-    if mode in {"feuchte_lueften", "routine_lueften"}:
+    if mode in {"feuchte_lueften", "schimmel_lueften", "routine_lueften"}:
         if outdoor_temp < -5:
             return "2_4"
         if outdoor_temp < 0:
@@ -66,7 +86,7 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
 def _color(mode: str) -> str:
     if mode in {
         "co2_kritisch", "co2_lueften", "weiter_lueften", "feuchte_lueften",
-        "kuehlen", "erwaermen", "routine_lueften",
+        "schimmel_lueften", "kuehlen", "erwaermen", "routine_lueften",
     }:
         return "green"
     if mode in {
@@ -97,21 +117,82 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     diff = ahi - aha
     co2 = data.co2
     hours = data.hours_since_airing or 0.0
+    previous_mode = data.previous_mode or ""
 
+    # Small hysteresis bands keep recommendations from bouncing when a sensor
+    # sits directly on a threshold. Critical CO₂ remains immediate.
     co2_critical = co2 is not None and co2 > 2000
     co2_high = co2 is not None and co2 >= 1400
-    co2_elevated = co2 is not None and co2 >= 1000
+    co2_elevated = co2 is not None and (
+        co2 >= 1000
+        or (previous_mode in {"co2_lueften", "co2_warten"} and co2 >= 950)
+    )
     moisture_urgent = hi >= 65 and diff >= 0.3
-    moisture_good = hi >= 60 and diff >= 1.0
+    moisture_good = (
+        hi >= 60 and diff >= 1.0
+    ) or (
+        previous_mode == "feuchte_lueften" and hi >= 58 and diff >= 0.5
+    )
     too_hot = ti >= target + 1
     too_cold = ti <= target - 1
-    cooling_good = too_hot and ta <= ti - 1 and diff >= -0.5
-    warming_good = too_cold and ta >= ti + 1 and ta <= target + 4 and diff >= -0.5
+    cooling_good = (
+        too_hot and ta <= ti - 1 and diff >= -0.5
+    ) or (
+        previous_mode == "kuehlen"
+        and ti >= target + 0.5
+        and ta <= ti - 0.7
+        and diff >= -0.5
+    )
+    warming_good = (
+        too_cold and ta >= ti + 1 and ta <= target + 4 and diff >= -0.5
+    ) or (
+        previous_mode == "erwaermen"
+        and ti <= target - 0.5
+        and ta >= ti + 0.7
+        and ta <= target + 4
+        and diff >= -0.5
+    )
+
+    surface_rh = surface_relative_humidity(ti, hi, data.surface_temp)
+    mold_risk = surface_rh is not None and (
+        surface_rh >= 80.0
+        or (
+            previous_mode in {"schimmel_lueften", "schimmel_warten", "weiter_lueften"}
+            and surface_rh >= 78.0
+        )
+    )
+    mold_can_improve = mold_risk and diff >= 0.5
+    outside_too_hot_bad = (
+        too_hot and ta >= ti + 1
+    ) or (
+        previous_mode == "aussen_zu_warm"
+        and ti >= target + 0.5
+        and ta >= ti + 0.5
+    )
+    outside_too_cold_bad = (
+        too_cold and ta <= ti - 1
+    ) or (
+        previous_mode == "aussen_zu_kalt"
+        and ti <= target - 0.5
+        and ta <= ti - 0.5
+    )
+    outside_much_wetter = diff <= -1.0 or (
+        previous_mode == "aussen_deutlich_feuchter" and diff <= -0.5
+    )
+    inside_too_dry = (hi < 40 and diff >= 0.5) or (
+        previous_mode == "innen_zu_trocken" and hi < 42 and diff >= 0.3
+    )
     climate_ok = ta <= ti + 3 and diff >= -1.0
     routine = hours >= 24 and (co2 is None or co2 < 1000) and climate_ok
 
-    continue_co2 = data.window_open and co2 is not None and co2 >= 1000
-    continue_moisture = data.window_open and hi >= 60 and diff >= 0.5
+    continue_co2 = data.window_open and co2 is not None and (
+        co2 >= 1000 or (previous_mode == "weiter_lueften" and co2 >= 950)
+    )
+    continue_moisture = data.window_open and (
+        (hi >= 60 and diff >= 0.5)
+        or (previous_mode == "weiter_lueften" and hi >= 58 and diff >= 0.5)
+        or mold_can_improve
+    )
     continue_cooling = data.window_open and ti > target + 0.5 and ta <= ti - 0.7 and diff >= -0.5
     continue_warming = data.window_open and ti < target - 0.5 and ta >= ti + 0.7 and ta <= target + 4 and diff >= -0.5
     continue_airing = continue_co2 or continue_moisture or continue_cooling or continue_warming
@@ -140,10 +221,14 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mode = "co2_lueften"
     elif co2_elevated:
         mode = "co2_warten"
+    elif mold_can_improve and not data.rain_now and not data.rain_soon:
+        mode = "schimmel_lueften"
     elif moisture_urgent and not data.rain_now and not data.rain_soon:
         mode = "feuchte_lueften"
     elif moisture_good and not data.rain_now and not data.rain_soon:
         mode = "feuchte_lueften"
+    elif mold_risk:
+        mode = "schimmel_warten"
     elif cooling_good and not data.rain_now:
         mode = "kuehlen"
     elif warming_good and not data.rain_now:
@@ -152,13 +237,13 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mode = "routine_lueften"
     elif hi >= 65 and diff < 0.3:
         mode = "feuchte_warten"
-    elif too_hot and ta >= ti + 1:
+    elif outside_too_hot_bad:
         mode = "aussen_zu_warm"
-    elif too_cold and ta <= ti - 1:
+    elif outside_too_cold_bad:
         mode = "aussen_zu_kalt"
-    elif diff <= -1.0:
+    elif outside_much_wetter:
         mode = "aussen_deutlich_feuchter"
-    elif hi < 40 and diff >= 0.5:
+    elif inside_too_dry:
         mode = "innen_zu_trocken"
     elif data.rain_now:
         mode = "regen"
@@ -211,6 +296,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key, reason_args = "co2_ventilate", {"co2": co2}
     elif mode == "co2_warten":
         reason_key, reason_args = "co2_wait", {"co2": co2}
+    elif mode == "schimmel_lueften":
+        reason_key, reason_args = "mold_prevention", {"surface_humidity": surface_rh, "diff": diff}
+    elif mode == "schimmel_warten":
+        reason_key, reason_args = "mold_wait", {"surface_humidity": surface_rh}
     elif mode == "feuchte_lueften":
         reason_key, reason_args = "humidity_ventilate", {"humidity": hi, "diff": diff}
     elif mode == "feuchte_warten":
@@ -253,4 +342,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         outdoor_absolute_humidity=round(aha, 2),
         absolute_humidity_difference=round(diff, 2),
         co2_status=co2_status(co2),
+        surface_relative_humidity=(round(surface_rh, 1) if surface_rh is not None else None),
+        mold_risk=mold_risk,
     )

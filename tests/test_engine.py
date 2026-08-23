@@ -1,4 +1,8 @@
-from custom_components.lueftungsberater.engine import absolute_humidity, evaluate_room
+from custom_components.lueftungsberater.engine import (
+    absolute_humidity,
+    evaluate_room,
+    surface_relative_humidity,
+)
 from custom_components.lueftungsberater.localization import reason_text
 from custom_components.lueftungsberater.models import RoomInput
 
@@ -109,3 +113,113 @@ def test_german_and_english_reasons_are_natural_and_unit_aware():
     assert "Beim Lüften würdest du" in de
     assert "Opening the windows now would" in en
     assert "38" in de and "100" in en
+
+
+def test_surface_relative_humidity_detects_cold_surface_risk():
+    value = surface_relative_humidity(20.0, 50.0, 12.0)
+    assert value is not None
+    assert value >= 80.0
+
+
+def test_mold_risk_uses_drier_outdoor_air_for_quiet_prevention():
+    r = evaluate_room(
+        base(
+            indoor_temp=20.0,
+            indoor_humidity=50.0,
+            outdoor_temp=10.0,
+            outdoor_humidity=50.0,
+            target_temp=20.0,
+            surface_temp=12.0,
+        )
+    )
+    assert r.mold_risk is True
+    assert r.mode == "schimmel_lueften"
+    assert r.color == "green"
+    assert r.surface_relative_humidity is not None and r.surface_relative_humidity >= 80.0
+
+
+def test_mold_risk_waits_when_outdoor_air_would_not_help():
+    r = evaluate_room(
+        base(
+            indoor_temp=20.0,
+            indoor_humidity=50.0,
+            outdoor_temp=19.0,
+            outdoor_humidity=95.0,
+            target_temp=20.0,
+            surface_temp=12.0,
+        )
+    )
+    assert r.mold_risk is True
+    assert r.mode == "schimmel_warten"
+    assert r.color == "yellow"
+
+
+def test_open_window_keeps_airing_for_surface_mold_risk():
+    r = evaluate_room(
+        base(
+            indoor_temp=20.0,
+            indoor_humidity=50.0,
+            outdoor_temp=10.0,
+            outdoor_humidity=50.0,
+            target_temp=20.0,
+            surface_temp=12.0,
+            window_open=True,
+        )
+    )
+    assert r.mode == "weiter_lueften"
+
+
+def test_co2_hysteresis_keeps_advice_stable_near_threshold():
+    kept = evaluate_room(base(co2=980, previous_mode="co2_lueften"))
+    released = evaluate_room(base(co2=940, previous_mode="co2_lueften"))
+    assert kept.mode == "co2_lueften"
+    assert released.mode != "co2_lueften"
+
+
+def test_humidity_hysteresis_keeps_drying_advice_stable_near_threshold():
+    kept = evaluate_room(
+        base(
+            indoor_humidity=59.0,
+            outdoor_temp=15.0,
+            outdoor_humidity=70.0,
+            previous_mode="feuchte_lueften",
+        )
+    )
+    fresh = evaluate_room(
+        base(
+            indoor_humidity=59.0,
+            outdoor_temp=15.0,
+            outdoor_humidity=70.0,
+        )
+    )
+    assert kept.mode == "feuchte_lueften"
+    assert fresh.mode != "feuchte_lueften"
+
+
+def test_temperature_hysteresis_keeps_hot_outdoor_block_stable():
+    kept = evaluate_room(
+        base(
+            indoor_temp=23.0,
+            outdoor_temp=23.6,
+            outdoor_humidity=40.0,
+            target_temp=22.0,
+            previous_mode="aussen_zu_warm",
+        )
+    )
+    fresh = evaluate_room(
+        base(
+            indoor_temp=23.0,
+            outdoor_temp=23.6,
+            outdoor_humidity=40.0,
+            target_temp=22.0,
+        )
+    )
+    assert kept.mode == "aussen_zu_warm"
+    assert fresh.mode != "aussen_zu_warm"
+
+
+def test_open_window_co2_hysteresis_avoids_flapping_at_1000_ppm():
+    kept = evaluate_room(base(co2=980, window_open=True, previous_mode="weiter_lueften"))
+    released = evaluate_room(base(co2=940, window_open=True, previous_mode="weiter_lueften"))
+    assert kept.mode == "weiter_lueften"
+    assert released.mode != "weiter_lueften"

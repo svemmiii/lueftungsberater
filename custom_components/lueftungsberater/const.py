@@ -24,6 +24,17 @@ CONF_WARNING_SOURCE = "warning_source"
 CONF_MANUAL_OUTDOOR = "manual_outdoor"
 WARNING_SOURCE_NONE = "none"
 
+CONF_NOTIFY_TARGET = "notify_target"
+CONF_NOTIFY_TRIGGERS = "notify_triggers"
+NOTIFY_TRIGGER_AIR_DANGER = "air_danger"
+NOTIFY_TRIGGER_AIR_CAUTION = "air_caution"
+NOTIFY_TRIGGER_WEATHER_DANGER = "weather_danger"
+NOTIFY_TRIGGER_WEATHER_CAUTION = "weather_caution"
+DEFAULT_NOTIFY_TRIGGERS = [
+    NOTIFY_TRIGGER_AIR_DANGER,
+    NOTIFY_TRIGGER_WEATHER_DANGER,
+]
+
 CONF_REMOTE_HOST = "remote_host"
 CONF_REMOTE_PORT = "remote_port"
 CONF_REMOTE_TOKEN = "remote_access_token"
@@ -40,6 +51,7 @@ CONF_CO2 = "co2_entity"
 CONF_WINDOWS = "window_entities"
 CONF_CLIMATE = "climate_entity"
 CONF_TARGET_TEMP = "target_temperature"
+CONF_SURFACE_TEMP = "surface_temperature"
 
 # Kept only so old v0.1/v0.2 config subentries remain readable.
 # v0.3 no longer asks for or uses this external helper.
@@ -54,6 +66,7 @@ DATA_CO2_TRACKERS = "co2_trackers"
 DATA_COORDINATORS = "room_coordinators"
 DATA_REMOTE_COORDINATORS = "remote_coordinators"
 DATA_API_REGISTERED = "api_registered"
+DATA_NOTIFICATION_STATE = "notification_state"
 STORAGE_VERSION = 1
 
 

@@ -31,6 +31,9 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 - Natürliche Oberfläche und Empfehlungen auf Deutsch, Englisch und Türkisch
 - Dashboard-Karten folgen der Sprache des aktuell angemeldeten Home-Assistant-Benutzers
 - Unterstützung für Celsius- und Fahrenheit-Setups
+- Ruhigere Empfehlungen durch Hysterese an normalen CO₂-/Feuchte-/Temperaturgrenzen
+- Optionaler Schimmelschutz über einen kalten/kritischen Oberflächentemperatursensor
+- Optionale Gefahrenbenachrichtigung bei offenem Fenster/Tür und passenden NINA-/Wetterwarnungen
 
 ## Voraussetzungen
 
@@ -45,7 +48,9 @@ Optional:
 - CO₂-Sensor
 - Fenster-/Türkontakte
 - Climate-/Thermostat-Entity
+- Temperatur-Sensor an einer kalten/kritischen Oberfläche für zusätzlichen Schimmelschutz
 - Warnintegration wie NINA oder DWD Weather Warnings
+- `notify`-Entity für gezielte Warnungen bei offenem Fenster/Tür
 
 ## Installation über HACS – Custom Repository
 
@@ -68,6 +73,9 @@ Beim ersten Einrichten wählst du:
 
 - **Wetterdienst**
 - optional **Warn-App / Warndienst**
+- optional ein **Benachrichtigungsziel** und die Warnkategorien, bei denen ein offenes Fenster/eine offene Tür gemeldet werden soll
+
+Standardmäßig lösen nur **ernste Außenluftgefahren** (z. B. Brandrauch/Gefahrstoffe) und **schwere Wettergefahren** eine solche Benachrichtigung aus. Vorsorgliche Luft- oder Wetterhinweise können zusätzlich aktiviert werden. Eine rote Empfehlung allein ist ausdrücklich kein Benachrichtigungsauslöser.
 
 Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden. Werden konfigurierte Außensensoren vorübergehend `unavailable` oder `unknown`, fällt Lüftungsberater für Temperatur und Luftfeuchtigkeit unabhängig voneinander automatisch auf die aktuelle `weather.*`-Entity zurück, sofern der jeweilige Wert dort verfügbar ist. Die Raumkarte kennzeichnet einen solchen aktiven Fallback direkt am betroffenen Außenwert mit **Wetterdienst**.
 
@@ -80,9 +88,18 @@ Für jeden Raum können konfiguriert werden:
 - optional CO₂
 - optional Fenster-/Türkontakte
 - optional Thermostat / Climate
+- optional Temperatur einer kalten/kritischen Oberfläche
 - Solltemperatur
 
 Ohne Fensterkontakt arbeitet der Raum rein beobachtend. Mit Fensterkontakt erkennt Lüftungsberater automatisch, wann tatsächlich gelüftet wurde.
+
+Die Sensor-Auswahl wird nach Home-Assistant-Geräteklassen gefiltert: Temperatur, Luftfeuchtigkeit und CO₂ werden nur in den jeweils passenden Sensorfeldern angeboten; bei Fenster-/Türkontakten erscheinen passende Öffnungs-, Fenster-, Tür- und Garagentor-Binary-Sensoren.
+
+### Optionaler Schimmelschutz
+
+Die normale Feuchtebewertung funktioniert weiterhin ohne zusätzliche Hardware. Optional kann pro Raum die Temperatur einer besonders kalten bzw. kritischen Oberfläche angegeben werden, zum Beispiel an einer bekannten Wärmebrücke. Lüftungsberater berechnet aus Raumtemperatur, Raumfeuchte und dieser Oberflächentemperatur die relative Feuchte direkt an der Oberfläche. Ab **80 % relativer Oberflächenfeuchte** wird das Risiko in der Empfehlung berücksichtigt. Der Wert wird bewusst nicht als zusätzliche große Kartenzeile in den Vordergrund gestellt, sondern dient der Entscheidung im Hintergrund.
+
+Der Grenzwert ist bewusst konservativ gewählt: Das Umweltbundesamt beschreibt bei etwa 70–80 % relativer Feuchte an Materialoberflächen bereits mögliche Wachstumsbedingungen; bei rund 80 % sind die Bedingungen für viele innenraumrelevante Schimmelpilze erreicht.
 
 ### Wetterwarnungen und Regen
 
@@ -94,6 +111,12 @@ Bei DWD Weather Warnings berücksichtigt Lüftungsberater die Warnstufe:
 - Stufe 3/4 (Unwetter / extremes Unwetter) → **Rot / geschlossen halten**
 
 Damit kann z. B. eine amtliche Starkregenwarnung der Stufe 2 vor dem Lüften warnen, ohne automatisch dieselbe Bewertung wie eine echte Unwetterwarnung zu erhalten.
+
+## Wie die Empfehlung stabil bleibt
+
+Lüftungsberater bewertet weiterhin den tatsächlichen Nutzen des Lüftens statt nur einzelne Grenzwerte. Für normale Grenzbereiche verwendet v0.6.17 zusätzlich kleine Hysteresen: Eine bereits aktive CO₂-Empfehlung wird beispielsweise nicht sofort bei 999 ppm wieder verworfen, und auch Feuchte-/Temperaturentscheidungen erhalten einen kleinen Rücklaufbereich. Dadurch flattert die Karte bei Messrauschen deutlich weniger. Kritisches CO₂ sowie echte Außenluft- und Unwettergefahren umgehen diese Beruhigung und wirken sofort.
+
+Der Hauptsensor bleibt bewusst die zentrale Automation-Schnittstelle. Eine zusätzliche Binary-Entity „Lüften empfohlen“ wird nicht erzeugt, weil die Zustände des Hauptsensors (`open_now`, `keep_open`, `close_now`, `wait` usw.) bereits gezieltere Automationen erlauben.
 
 ## Sprache und Einheiten
 
@@ -117,14 +140,14 @@ Die Übersicht ist bewusst sehr kompakt: Pro Raum werden nur Name, aktuelle Empf
 
 Sind mehrere Lüftungsberater-Instanzen vorhanden, gruppiert dieselbe Übersicht die Räume automatisch nach Instanz. Bei nur einer sichtbaren Instanz wird diese Zwischenebene übersprungen. Im visuellen Karteneditor lassen sich lokale und Tailscale-Remote-Installationen sowie einzelne Räume ein-/ausblenden und per Pfeiltasten sortieren.
 
-Lokale Raumkarten verlinken die Messwerte weiterhin auf Home Assistants More-Info-/Verlaufsansicht. Ab v0.6.12 gilt das auch für die **CO₂-Bewertung** sowie die **absolute Feuchtedifferenz Δ g/m³**, die dafür einen eigenen Sensor erhält.
+Lokale Raumkarten verlinken echte Mess- und Statuswerte weiterhin auf Home Assistants More-Info-/Verlaufsansicht. Ab v0.6.12 gilt das auch für die **CO₂-Bewertung** sowie die **absolute Feuchtedifferenz Δ g/m³**, die dafür einen eigenen Sensor erhält. Ab v0.6.17 öffnet ausschließlich der **farbige Kopf-/Statusbereich** die Lüftungsberater-Hauptentity; Erklärungstexte und die empfohlene Lüftungsdauer sind reine Texte und lösen keine Navigation aus.
 
 Die Dashboard-Ressource wird bei normalen Home-Assistant-Dashboards automatisch registriert.
 
 
 ## Mehrere Instanzen und Tailscale-Remote
 
-Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden. Jede Installation verwendet Home Assistants eigene Config-Entry-ID; eine künstliche `unique_id` wird bewusst nicht vergeben, weil lokale Berater manuell wiederholbare Konfigurationen und keine einzelne physische Hardware sind. Die gemeinsame Übersicht gruppiert die Installationen unabhängig voneinander und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
+Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Jede Installation verwendet Home Assistants eigene Config-Entry-ID; eine künstliche `unique_id` wird bewusst nicht vergeben, weil lokale Berater manuell wiederholbare Konfigurationen und keine einzelne physische Hardware sind. Die gemeinsame Übersicht gruppiert die Installationen unabhängig voneinander und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
 
 Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token. Ab v0.6.12 zeigt Home Assistant während der Prüfung einen Fortschrittsdialog und anschließend eine Zusammenfassung der gefundenen Lüftungsberater und Räume, bevor die Verbindung gespeichert wird.
 
@@ -184,6 +207,10 @@ Home Assistant verwendet das mitgelieferte lokale Brand-Icon nach der Installati
 Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
 
+
+### Hinweis zu v0.6.17
+
+v0.6.17 vereinheitlicht die Klicklogik der Raumkarte, filtert die Sensorauswahl nach passenden Geräteklassen, beruhigt Grenzbereiche mit Hysterese und ergänzt optionalen Schimmelschutz sowie gezielte Warn-Benachrichtigungen bei tatsächlich offenem Fenster/Tür. Die bestehenden Wetter-/Radarwege bleiben bewusst unverändert.
 
 ### Hinweis zu v0.6.16
 

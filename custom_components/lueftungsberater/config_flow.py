@@ -10,6 +10,8 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry, ConfigSubentryFlow
 from homeassistant.const import UnitOfTemperature
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import SectionConfig, section
 from homeassistant.helpers import entity_registry as er
@@ -38,6 +40,8 @@ from .const import (
     CONF_INDOOR_TEMP,
     CONF_INSTANCE_NAME,
     CONF_MANUAL_OUTDOOR,
+    CONF_NOTIFY_TARGET,
+    CONF_NOTIFY_TRIGGERS,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
     CONF_REMOTE_HOST,
@@ -46,16 +50,22 @@ from .const import (
     CONF_REMOTE_USE_SSL,
     CONF_ROOM_NAME,
     CONF_TARGET_TEMP,
+    CONF_SURFACE_TEMP,
     CONF_WARNING_SOURCE,
     CONF_WEATHER,
     CONF_WINDOWS,
     DEFAULT_REMOTE_PORT,
+    DEFAULT_NOTIFY_TRIGGERS,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     SUBENTRY_TYPE_ROOM,
     WARNING_SOURCE_NONE,
+    NOTIFY_TRIGGER_AIR_DANGER,
+    NOTIFY_TRIGGER_AIR_CAUTION,
+    NOTIFY_TRIGGER_WEATHER_DANGER,
+    NOTIFY_TRIGGER_WEATHER_CAUTION,
     entry_kind,
 )
 _LOGGER = logging.getLogger(__name__)
@@ -69,8 +79,15 @@ from .remote import (
 )
 
 
-def _entity(domain: str | list[str], multiple: bool = False) -> EntitySelector:
-    return EntitySelector(EntitySelectorConfig(domain=domain, multiple=multiple))
+def _entity(
+    domain: str | list[str],
+    multiple: bool = False,
+    device_class: str | list[str] | None = None,
+) -> EntitySelector:
+    config: dict[str, Any] = {"domain": domain, "multiple": multiple}
+    if device_class is not None:
+        config["device_class"] = device_class
+    return EntitySelector(EntitySelectorConfig(**config))
 
 
 def _warning_source_options(hass: HomeAssistant) -> list[SelectOptionDict]:
@@ -149,11 +166,31 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
             vol.Optional(CONF_MANUAL_OUTDOOR): section(
                 vol.Schema(
                     {
-                        vol.Optional(CONF_OUTDOOR_TEMP): _entity("sensor"),
-                        vol.Optional(CONF_OUTDOOR_HUMIDITY): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_TEMP): _entity(
+                            "sensor", device_class=SensorDeviceClass.TEMPERATURE
+                        ),
+                        vol.Optional(CONF_OUTDOOR_HUMIDITY): _entity(
+                            "sensor", device_class=SensorDeviceClass.HUMIDITY
+                        ),
                     }
                 ),
                 SectionConfig(collapsed=True),
+            ),
+            vol.Optional(CONF_NOTIFY_TARGET): _entity("notify"),
+            vol.Optional(
+                CONF_NOTIFY_TRIGGERS, default=DEFAULT_NOTIFY_TRIGGERS
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        NOTIFY_TRIGGER_AIR_DANGER,
+                        NOTIFY_TRIGGER_AIR_CAUTION,
+                        NOTIFY_TRIGGER_WEATHER_DANGER,
+                        NOTIFY_TRIGGER_WEATHER_CAUTION,
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="notify_triggers",
+                )
             ),
         }
     )
@@ -224,10 +261,28 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_ROOM_NAME): TextSelector(TextSelectorConfig()),
-            vol.Required(CONF_INDOOR_TEMP): _entity("sensor"),
-            vol.Required(CONF_INDOOR_HUMIDITY): _entity("sensor"),
-            vol.Optional(CONF_CO2): _entity("sensor"),
-            vol.Optional(CONF_WINDOWS): _entity("binary_sensor", multiple=True),
+            vol.Required(CONF_INDOOR_TEMP): _entity(
+                "sensor", device_class=SensorDeviceClass.TEMPERATURE
+            ),
+            vol.Required(CONF_INDOOR_HUMIDITY): _entity(
+                "sensor", device_class=SensorDeviceClass.HUMIDITY
+            ),
+            vol.Optional(CONF_CO2): _entity(
+                "sensor", device_class=SensorDeviceClass.CO2
+            ),
+            vol.Optional(CONF_WINDOWS): _entity(
+                "binary_sensor",
+                multiple=True,
+                device_class=[
+                    BinarySensorDeviceClass.WINDOW,
+                    BinarySensorDeviceClass.DOOR,
+                    BinarySensorDeviceClass.OPENING,
+                    BinarySensorDeviceClass.GARAGE_DOOR,
+                ],
+            ),
+            vol.Optional(CONF_SURFACE_TEMP): _entity(
+                "sensor", device_class=SensorDeviceClass.TEMPERATURE
+            ),
             vol.Optional(CONF_CLIMATE): _entity("climate"),
             vol.Optional(CONF_TARGET_TEMP, default=default_value): NumberSelector(
                 NumberSelectorConfig(
@@ -493,6 +548,10 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_INSTANCE_NAME: entry.title,
             CONF_WEATHER: entry.data.get(CONF_WEATHER),
             CONF_WARNING_SOURCE: entry.data.get(CONF_WARNING_SOURCE, WARNING_SOURCE_NONE),
+            CONF_NOTIFY_TARGET: entry.data.get(CONF_NOTIFY_TARGET),
+            CONF_NOTIFY_TRIGGERS: entry.data.get(
+                CONF_NOTIFY_TRIGGERS, DEFAULT_NOTIFY_TRIGGERS
+            ),
         }
         if manual:
             defaults[CONF_MANUAL_OUTDOOR] = manual

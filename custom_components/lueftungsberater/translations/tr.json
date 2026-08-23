@@ -21,7 +21,9 @@
           "warning_source": "Uyarı hizmeti (isteğe bağlı)",
           "manual_outdoor": "Gelişmiş dış ortam sensörleri (isteğe bağlı)",
           "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
-          "outdoor_humidity": "Dış nemi geçersiz kıl"
+          "outdoor_humidity": "Dış nemi geçersiz kıl",
+          "notify_target": "Açık pencere tehlikeleri için bildirim hedefi (isteğe bağlı)",
+          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
         }
       },
       "remote": {
@@ -47,7 +49,9 @@
           "remote_host": "Tailscale IP veya MagicDNS adı",
           "remote_port": "Home Assistant portu",
           "remote_access_token": "Long-Lived Access Token",
-          "remote_use_ssl": "HTTPS kullan"
+          "remote_use_ssl": "HTTPS kullan",
+          "notify_target": "Açık pencere tehlikeleri için bildirim hedefi (isteğe bağlı)",
+          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
         }
       },
       "remote_confirm": {
@@ -86,7 +90,7 @@
       "step": {
         "user": {
           "title": "Oda ekle",
-          "description": "İç sıcaklık ve nem zorunludur. CO₂ isteğe bağlıdır. Pencere/kapı kontakları seçilirse Havalandırma Danışmanı en az 5 dakikalık havalandırmaları otomatik olarak algılar ve geçmişi kendi takip eder.",
+          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve kritik bir yüzey sıcaklığı isteğe bağlıdır. Yüzey sıcaklığı sensörü varsa danışman soğuk noktalardaki nem riskini de hesaba katabilir. Pencere/kapı kontakları seçildiğinde 5 dakikadan uzun havalandırmaları otomatik olarak algılar ve geçmişini takip eder.",
           "data": {
             "room_name": "Oda adı",
             "indoor_temperature": "İç sıcaklık",
@@ -94,7 +98,8 @@
             "co2_entity": "CO₂ (isteğe bağlı)",
             "window_entities": "Pencereler / kapılar (isteğe bağlı)",
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
-            "target_temperature": "Yedek hedef sıcaklık"
+            "target_temperature": "Yedek hedef sıcaklık",
+            "surface_temperature": "Küf önleme için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
           }
         },
         "reconfigure": {
@@ -106,8 +111,10 @@
             "co2_entity": "CO₂ (isteğe bağlı)",
             "window_entities": "Pencereler / kapılar (isteğe bağlı)",
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
-            "target_temperature": "Yedek hedef sıcaklık"
-          }
+            "target_temperature": "Yedek hedef sıcaklık",
+            "surface_temperature": "Küf önleme için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
+          },
+          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve kritik bir yüzey sıcaklığı isteğe bağlıdır. Yüzey sıcaklığı sensörü varsa danışman soğuk noktalardaki nem riskini de hesaba katabilir. Pencere/kapı kontakları seçildiğinde 5 dakikadan uzun havalandırmaları otomatik olarak algılar ve geçmişini takip eder."
         }
       },
       "abort": {
@@ -174,6 +181,14 @@
     "warning_source": {
       "options": {
         "none": "Uyarı hizmeti yok"
+      }
+    },
+    "notify_triggers": {
+      "options": {
+        "air_danger": "Ciddi dış hava uyarıları (örn. yangın dumanı / tehlikeli maddeler)",
+        "air_caution": "Önleyici dış hava uyarıları",
+        "weather_danger": "Şiddetli hava durumu uyarıları",
+        "weather_caution": "Hava durumu uyarıları / dikkat bildirimleri"
       }
     }
   }

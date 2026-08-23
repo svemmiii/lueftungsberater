@@ -26,6 +26,8 @@ class RoomInput:
     nina_reason_key: str | None = None
     nina_reason_args: dict[str, Any] = field(default_factory=dict)
     nina_original_reason: str | None = None
+    surface_temp: float | None = None
+    previous_mode: str | None = None
 
 
 @dataclass(slots=True)
@@ -42,3 +44,5 @@ class VentilationResult:
     outdoor_absolute_humidity: float
     absolute_humidity_difference: float
     co2_status: str
+    surface_relative_humidity: float | None = None
+    mold_risk: bool = False

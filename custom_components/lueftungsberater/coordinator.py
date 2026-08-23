@@ -14,6 +14,10 @@ from .airing import tracker_signal
 from .co2 import co2_tracker_signal
 from .const import CONF_CO2, CONF_WINDOWS, DATA_COORDINATORS, DOMAIN
 from .runtime import RoomSnapshot, build_room_snapshot, room_source_entities
+from .notifications import (
+    async_handle_room_notification,
+    clear_room_notification_state,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,8 +44,20 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._unsubs: list[Callable[[], None]] = []
         self._started = False
 
+    def _build_snapshot(self) -> RoomSnapshot:
+        previous_mode = (
+            self.data.result.mode
+            if self.data is not None and self.data.result is not None
+            else None
+        )
+        return build_room_snapshot(
+            self.hass, self.entry, self.subentry, previous_mode=previous_mode
+        )
+
     async def _async_update_data(self) -> RoomSnapshot:
-        return build_room_snapshot(self.hass, self.entry, self.subentry)
+        snapshot = self._build_snapshot()
+        await async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot)
+        return snapshot
 
     async def async_start(self) -> None:
         """Start shared listeners and build the initial room snapshot."""
@@ -87,22 +103,31 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
 
     @callback
     def _handle_source_change(self, event: Event) -> None:
-        self.async_set_updated_data(
-            build_room_snapshot(self.hass, self.entry, self.subentry)
+        snapshot = self._build_snapshot()
+        self.async_set_updated_data(snapshot)
+        self.hass.async_create_task(
+            async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),
+            f"Lüftungsberater notification check {self.subentry.subentry_id}",
         )
 
     @callback
     def _handle_tracker_change(self) -> None:
         # Tracker callbacks already run in HA's event loop, so we can refresh
         # synchronously and immediately notify every entity of the room.
-        self.async_set_updated_data(
-            build_room_snapshot(self.hass, self.entry, self.subentry)
+        snapshot = self._build_snapshot()
+        self.async_set_updated_data(snapshot)
+        self.hass.async_create_task(
+            async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),
+            f"Lüftungsberater notification check {self.subentry.subentry_id}",
         )
 
     async def async_shutdown(self) -> None:
         """Remove shared listeners and shut down the HA coordinator."""
         while self._unsubs:
             self._unsubs.pop()()
+        clear_room_notification_state(
+            self.hass, self.entry.entry_id, self.subentry.subentry_id
+        )
         self._started = False
         await super().async_shutdown()
 

@@ -13,6 +13,7 @@ from .const import (
     CONF_CO2,
     CONF_INDOOR_HUMIDITY,
     CONF_INDOOR_TEMP,
+    CONF_SURFACE_TEMP,
     CONF_NINA_STATUS,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
@@ -228,6 +229,11 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "absolute_humidity_inside": indoor_absolute_humidity,
             "absolute_humidity_outside": outdoor_absolute_humidity,
             "absolute_humidity_difference": absolute_humidity_difference,
+            "surface_temperature": values.get("surface_temperature"),
+            "surface_relative_humidity": (
+                r.surface_relative_humidity if r is not None else None
+            ),
+            "mold_risk": bool(r.mold_risk) if r is not None else False,
             "has_co2": values["has_co2"],
             "has_window_contacts": values["has_window_contacts"],
             "window_open": values["window_open"],
@@ -260,6 +266,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "source_absolute_humidity_outside": outdoor_absolute_humidity_entity,
             "source_absolute_humidity_difference": absolute_humidity_difference_entity,
             "source_co2": self.subentry.data.get(CONF_CO2),
+            "source_surface_temperature": self.subentry.data.get(CONF_SURFACE_TEMP),
             "source_co2_status": co2_status_entity,
             "source_airing": airing_entity,
             "source_last_airing": last_airing_entity,

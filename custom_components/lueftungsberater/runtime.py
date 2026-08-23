@@ -211,6 +211,9 @@ def _room_values(
         "humidity_inside": _number(hass, subentry.data.get(CONF_INDOOR_HUMIDITY)),
         "humidity_outside": weather.humidity,
         "co2_ppm": room_co2_value(hass, entry, subentry),
+        "surface_temperature": _temperature_state_celsius(
+            hass, subentry.data.get(CONF_SURFACE_TEMP)
+        ),
         "co2_data_status": room_co2_data_status(hass, entry, subentry),
         "has_co2": bool(subentry.data.get(CONF_CO2)),
         "has_window_contacts": has_windows,
@@ -274,6 +277,7 @@ def room_source_entities(
         CONF_INDOOR_HUMIDITY,
         CONF_CO2,
         CONF_CLIMATE,
+        CONF_SURFACE_TEMP,
     ):
         val = subentry.data.get(key)
         if isinstance(val, str) and val:
@@ -290,6 +294,7 @@ def build_room_snapshot(
     hass: HomeAssistant,
     entry: ConfigEntry,
     subentry: ConfigSubentry,
+    previous_mode: str | None = None,
 ) -> RoomSnapshot:
     """Build all room data once so every room entity sees the same snapshot."""
     weather = weather_assessment(hass, entry)
@@ -393,6 +398,8 @@ def build_room_snapshot(
             nina_reason_key=nina_reason_key,
             nina_reason_args=nina_reason_args,
             nina_original_reason=nina_original_reason,
+            surface_temp=values.get("surface_temperature"),
+            previous_mode=previous_mode,
         )
     )
 

@@ -57,7 +57,7 @@ const LB_I18N = {
     "warning.open": "Warn-/Quelldaten öffnen",
     "why": "Warum diese Empfehlung?",
     "duration": "⏱️ Empfohlene Lüftungsdauer:",
-    "hint": "Messwerte antippen für Verlauf · Karte antippen für Details",
+    "hint": "Messwerte antippen für Verlauf · farbigen Statusbereich antippen für Details",
     "picker.room.name": "Lüftungsberater – Raum",
     "picker.room.description": "Detaillierte Lüftungsempfehlung für einen einzelnen Raum.",
     "overview.invalid_entities": "entities muss eine Liste von Entity-IDs sein.",
@@ -143,7 +143,7 @@ const LB_I18N = {
     "warning.open": "Open warning / source data",
     "why": "Why this recommendation?",
     "duration": "⏱️ Recommended window-opening time:",
-    "hint": "Tap a value for its history · tap the card for details",
+    "hint": "Tap a value for its history · tap the colored status area for details",
     "picker.room.name": "Ventilation Advisor – Room",
     "picker.room.description": "Detailed ventilation recommendation for a single room.",
     "overview.invalid_entities": "entities must be a list of entity IDs.",
@@ -229,7 +229,7 @@ const LB_I18N = {
     "warning.open": "Uyarı / kaynak verisini aç",
     "why": "Bu önerinin nedeni ne?",
     "duration": "⏱️ Önerilen pencere açık kalma süresi:",
-    "hint": "Geçmiş için bir değere dokun · ayrıntılar için karta dokun",
+    "hint": "Geçmiş için bir değere dokun · ayrıntılar için renkli durum alanına dokun",
     "picker.room.name": "Havalandırma Danışmanı – Oda",
     "picker.room.description": "Tek bir oda için ayrıntılı havalandırma önerisi.",
     "overview.invalid_entities": "entities bir entity ID listesi olmalıdır.",
@@ -627,9 +627,10 @@ class LueftungsberaterCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host { --lb-green: var(--success-color, #43a047); --lb-yellow: var(--warning-color, #f9a825); --lb-red: var(--error-color, #db4437); display: block; }
-        ha-card { overflow: hidden; padding: 0; ${remote ? "" : "cursor: pointer;"} user-select: none; -webkit-tap-highlight-color: transparent; }
-        ha-card:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+        ha-card { overflow: hidden; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
         .header { display: flex; align-items: center; gap: 14px; padding: 16px; color: var(--primary-text-color); border-left: 6px solid var(--lb-accent); background: color-mix(in srgb, var(--lb-accent) 14%, var(--ha-card-background, var(--card-background-color))); }
+        .header.main-tap { cursor: pointer; }
+        .header.main-tap:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
         .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.red { --lb-accent: var(--lb-red); }
         .icon-wrap { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--lb-accent) 20%, transparent); color: var(--lb-accent); }
         .main-icon { --mdc-icon-size: 31px; color: var(--lb-accent); }
@@ -653,8 +654,8 @@ class LueftungsberaterCard extends HTMLElement {
         .hint { margin-top: 12px; color: var(--secondary-text-color); font-size: 11px; opacity: 0.8; }
         .error { padding: 16px; color: var(--error-color); }
       </style>
-      <ha-card ${remote ? "" : 'tabindex="0" role="button"'} aria-label="${this._escape(title)}">
-        <div class="header ${meta.cls}">
+      <ha-card aria-label="${this._escape(title)}">
+        <div class="header ${meta.cls}${remote ? "" : " main-tap"}" ${remote ? "" : 'tabindex="0" role="button"'}>
           <div class="icon-wrap"><ha-icon class="main-icon" icon="${meta.icon}"></ha-icon></div>
           <div class="head-text"><div class="title">${this._escape(title)}</div><div class="recommendation">${this._escape(recommendation)}</div></div>
         </div>
@@ -667,9 +668,9 @@ class LueftungsberaterCard extends HTMLElement {
       </ha-card>`;
 
     if (!remote) {
-      const card = this.shadowRoot.querySelector("ha-card");
-      card?.addEventListener("click", () => this._handleMainTap());
-      card?.addEventListener("keydown", (event) => {
+      const mainTap = this.shadowRoot.querySelector(".header.main-tap");
+      mainTap?.addEventListener("click", () => this._handleMainTap());
+      mainTap?.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           this._handleMainTap();
@@ -680,9 +681,6 @@ class LueftungsberaterCard extends HTMLElement {
           event.stopPropagation();
           this._dispatchMoreInfo(element.dataset.entity);
         });
-      });
-      this.shadowRoot.querySelectorAll(".why, .reason").forEach((element) => {
-        element.addEventListener("click", (event) => event.stopPropagation());
       });
     }
   }

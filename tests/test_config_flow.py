@@ -180,8 +180,11 @@ async def test_warning_source_options_include_none_nina_and_dwd(
         _warning_source_options,
     )
     from custom_components.lueftungsberater.const import (
+        CONF_NOTIFY_TRIGGERS,
         CONF_WARNING_SOURCE,
         CONF_WEATHER,
+        NOTIFY_TRIGGER_AIR_DANGER,
+        NOTIFY_TRIGGER_WEATHER_DANGER,
         WARNING_SOURCE_NONE,
     )
 
@@ -206,3 +209,30 @@ async def test_warning_source_options_include_none_nina_and_dwd(
     # The warning provider remains optional: omitting the field must select none.
     validated = _global_schema(hass)({CONF_WEATHER: "weather.home"})
     assert validated[CONF_WARNING_SOURCE] == WARNING_SOURCE_NONE
+    assert validated[CONF_NOTIFY_TRIGGERS] == [
+        NOTIFY_TRIGGER_AIR_DANGER,
+        NOTIFY_TRIGGER_WEATHER_DANGER,
+    ]
+
+
+def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
+    hass, enable_custom_integrations
+) -> None:
+    """The room form must remain usable with strict sensor-class selectors."""
+    from custom_components.lueftungsberater.config_flow import _room_schema
+    from custom_components.lueftungsberater.const import (
+        CONF_INDOOR_HUMIDITY,
+        CONF_INDOOR_TEMP,
+        CONF_ROOM_NAME,
+    )
+
+    validated = _room_schema(hass)(
+        {
+            CONF_ROOM_NAME: "Küche",
+            CONF_INDOOR_TEMP: "sensor.kueche_temperatur",
+            CONF_INDOOR_HUMIDITY: "sensor.kueche_luftfeuchtigkeit",
+        }
+    )
+    assert validated[CONF_ROOM_NAME] == "Küche"
+    assert validated[CONF_INDOOR_TEMP] == "sensor.kueche_temperatur"
+    assert validated[CONF_INDOOR_HUMIDITY] == "sensor.kueche_luftfeuchtigkeit"

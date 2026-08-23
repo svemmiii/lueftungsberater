@@ -1,3 +1,18 @@
+# Changelog
+
+## 0.6.17 - Alpha
+
+### Letzter Funktions-/Polish-Schritt vor der öffentlichen HACS-Einreichung
+
+- Raumkarte vereinheitlicht: Nur der farbige Status-/Kopfbereich öffnet bei lokalen Räumen die Hauptentity. Begründung und empfohlene Lüftungsdauer sind reine Texte; echte Mess- und Statuswerte bleiben gezielt anklickbar. Remote-Raumkarten bleiben read-only.
+- Sensor-Auswahl im Config Flow eingeschränkt: Temperaturfelder zeigen nur Temperatursensoren, Feuchtefelder nur Luftfeuchtesensoren, CO₂ nur CO₂-Sensoren und Fenster-/Türfelder nur passende binäre Öffnungs-/Tür-/Fensterklassen.
+- Hysterese für normale Grenzbereiche ergänzt, damit Empfehlungen bei Sensorwerten direkt an Schwellen nicht unnötig zwischen Zuständen springen. Kritisches CO₂ und echte Warnlagen bleiben sofort wirksam.
+- Optionaler Schimmelschutz ergänzt: Wird eine Temperatur-Entity für eine kalte/kritische Oberfläche angegeben, berechnet Lüftungsberater daraus zusammen mit Raumtemperatur und Raumfeuchte die relative Feuchte an dieser Oberfläche. Ab 80 % Oberflächenfeuchte wird das Risiko still in der Empfehlung berücksichtigt; ein eigener Schimmel-Helfer ist nicht nötig. Ohne Oberflächensensor bleibt die bisherige Feuchtelogik unverändert aktiv.
+- Optionale Warn-Benachrichtigungen ergänzt. Ein `notify`-Ziel kann direkt beim lokalen Lüftungsberater gewählt werden. Standardmäßig wird nur bei ernster Außenluftgefahr oder schwerer Wettergefahr benachrichtigt, wenn tatsächlich ein konfiguriertes Fenster/eine Tür offen ist. Vorsichtshinweise können optional zusätzlich aktiviert werden.
+- Benachrichtigungen sind ereignisbezogen statt farbbezogen: Ein roter Zustand wegen ungünstiger Temperatur löst ausdrücklich keine Gefahrenmeldung aus. Pro Warnereignis/Fenster-Öffnungszyklus wird höchstens einmal benachrichtigt.
+- Keine zusätzliche redundante „Lüften empfohlen“-Binary-Entity: Der vorhandene Hauptsensor bleibt die zentrale Automation-Schnittstelle.
+- Generische `weather.get_forecasts`-Niederschlagsprognosen werden in diesem Release bewusst noch nicht zusätzlich abgefragt; vorhandenes Wetter-/Radar-Verhalten bleibt unverändert.
+
 ## 0.6.16 - Alpha
 
 - Begründungstexte unter **„Warum diese Empfehlung?“** sind jetzt reine Texte und nicht mehr anklickbar oder unterstrichen.
@@ -24,8 +39,6 @@
 - GitHub-Pytest-Workflow korrigiert: Home-Assistant-Version wird über `importlib.metadata` ausgelesen, der fehlerhafte `homeassistant.__version__`-Zugriff wurde entfernt.
 - Pytest läuft ausführlich mit `-v`; unnötiges pip-Cache-Setup ohne Requirements-Datei wurde entfernt.
 - Keine Änderung an Lüftungslogik, Schwellenwerten, Tailscale-Remote-Protokoll oder vorhandenen Entities.
-
-# Changelog
 
 ## 0.6.13 - Alpha
 

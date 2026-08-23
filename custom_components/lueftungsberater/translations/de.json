@@ -21,7 +21,9 @@
           "warning_source": "Warn-App / Warndienst (optional)",
           "manual_outdoor": "Erweiterte Außensensoren (optional)",
           "outdoor_temperature": "Außentemperatur überschreiben",
-          "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben"
+          "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben",
+          "notify_target": "Benachrichtigungsziel bei offenem Fenster (optional)",
+          "notify_triggers": "Benachrichtigen bei (optional)"
         }
       },
       "remote": {
@@ -47,7 +49,9 @@
           "remote_host": "Tailscale-IP oder MagicDNS-Name",
           "remote_port": "Home-Assistant-Port",
           "remote_access_token": "Long-Lived Access Token",
-          "remote_use_ssl": "HTTPS verwenden"
+          "remote_use_ssl": "HTTPS verwenden",
+          "notify_target": "Benachrichtigungsziel bei offenem Fenster (optional)",
+          "notify_triggers": "Benachrichtigen bei (optional)"
         }
       },
       "remote_confirm": {
@@ -86,7 +90,7 @@
       "step": {
         "user": {
           "title": "Raum hinzufügen",
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂ ist optional. Wenn Fenster-/Türkontakte gewählt werden, erkennt der Lüftungsberater Lüftungen ab 5 Minuten automatisch und führt den Lüftungsverlauf selbst.",
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und eine kritische Oberflächentemperatur sind optional. Mit einer Oberflächentemperatur kann der Lüftungsberater Feuchterisiken an kalten Stellen zusätzlich berücksichtigen. Wenn Fenster-/Türkontakte gewählt werden, erkennt er Lüftungen ab 5 Minuten automatisch und führt den Lüftungsverlauf selbst.",
           "data": {
             "room_name": "Raumname",
             "indoor_temperature": "Innentemperatur",
@@ -94,7 +98,8 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
-            "target_temperature": "Fallback-Solltemperatur"
+            "target_temperature": "Fallback-Solltemperatur",
+            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Schimmelschutz (optional)"
           }
         },
         "reconfigure": {
@@ -106,8 +111,10 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
-            "target_temperature": "Fallback-Solltemperatur"
-          }
+            "target_temperature": "Fallback-Solltemperatur",
+            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Schimmelschutz (optional)"
+          },
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und eine kritische Oberflächentemperatur sind optional. Mit einer Oberflächentemperatur kann der Lüftungsberater Feuchterisiken an kalten Stellen zusätzlich berücksichtigen. Wenn Fenster-/Türkontakte gewählt werden, erkennt er Lüftungen ab 5 Minuten automatisch und führt den Lüftungsverlauf selbst."
         }
       },
       "abort": {
@@ -174,6 +181,14 @@
     "warning_source": {
       "options": {
         "none": "Kein Warndienst"
+      }
+    },
+    "notify_triggers": {
+      "options": {
+        "air_danger": "Ernste Luftwarnungen (z. B. Brandrauch / Gefahrstoffe)",
+        "air_caution": "Vorsorgliche Luftwarnungen",
+        "weather_danger": "Unwetter / schwere Wetterwarnungen",
+        "weather_caution": "Wetterwarnungen / Vorsichtshinweise"
       }
     }
   }
