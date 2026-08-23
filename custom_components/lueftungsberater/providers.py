@@ -558,12 +558,47 @@ def _evaluate_air_warning(
     return "caution"
 
 
+
+def _nina_slot_sensor_values(
+    hass: HomeAssistant,
+    entity_ids: list[str],
+) -> dict[str, dict[str, str]]:
+    """Collect NINA's newer per-slot detail sensor values.
+
+    NINA is moving warning details away from binary-sensor attributes. Home
+    Assistant currently exposes headline and severity as dedicated sensors whose
+    unique IDs extend the warning binary sensor's unique ID. Keeping this small
+    lookup means the advisor keeps classifying warnings after those legacy
+    attributes disappear.
+    """
+    registry = er.async_get(hass)
+    details: dict[str, dict[str, str]] = {}
+    for entity_id in entity_ids:
+        if not entity_id.startswith("sensor."):
+            continue
+        registry_entry = registry.async_get(entity_id)
+        unique_id = registry_entry.unique_id if registry_entry else None
+        if not isinstance(unique_id, str):
+            continue
+        state = hass.states.get(entity_id)
+        if state is None or state.state in {"unknown", "unavailable", "none", ""}:
+            continue
+        for field in ("headline", "severity"):
+            suffix = f"-{field}"
+            if unique_id.endswith(suffix):
+                slot_id = unique_id[: -len(suffix)]
+                details.setdefault(slot_id, {})[field] = str(state.state)
+                break
+    return details
+
 def _evaluate_nina_like_entities(
     hass: HomeAssistant,
     entity_ids: list[str],
 ) -> WarningAssessment:
     result = WarningAssessment()
     air_rank = {"none": 0, "caution": 1, "danger": 2}
+    slot_details = _nina_slot_sensor_values(hass, entity_ids)
+    registry = er.async_get(hass)
 
     for entity_id in entity_ids:
         state = hass.states.get(entity_id)
@@ -573,13 +608,17 @@ def _evaluate_nina_like_entities(
         if not entity_id.startswith("binary_sensor.") or state.state != "on":
             continue
 
-        headline = _text(state, "headline")
+        registry_entry = registry.async_get(entity_id)
+        slot_id = registry_entry.unique_id if registry_entry else None
+        detail = slot_details.get(slot_id, {}) if isinstance(slot_id, str) else {}
+
+        headline = _text(state, "headline") or detail.get("headline", "")
         description = _text(state, "description")
         actions = (
             _text(state, "recommended_actions")
             or _text(state, "instruction")
         )
-        severity = _text(state, "severity") or "Unknown"
+        severity = _text(state, "severity") or detail.get("severity", "") or "Unknown"
         alltext = " ".join((headline, description, actions))
 
         if _is_clear_warning(alltext):

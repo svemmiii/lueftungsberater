@@ -52,11 +52,15 @@
       },
       "remote_confirm": {
         "title": "Verbindung erfolgreich",
-        "description": "Die Verbindung über Tailscale wurde erfolgreich getestet. Gefunden: **{instances} Installation(en)** mit **{rooms} Raum/Räumen**. Mit „Absenden“ wird die Remote-Verbindung jetzt gespeichert."
+        "description": "**✓ Verbindung erfolgreich**\n\n**{remote_name}** ist über Tailscale erreichbar.\n\n**Gefunden**\n- Lüftungsberater: **{instances}**\n- Räume: **{rooms}**\n\n**Verfügbare Räume**\n{details}\n\nMit „Absenden“ wird die Verbindung gespeichert."
       },
       "reconfigure_confirm": {
         "title": "Verbindung erfolgreich",
-        "description": "Die geänderten Zugangsdaten wurden erfolgreich getestet. Gefunden: **{instances} Installation(en)** mit **{rooms} Raum/Räumen**. Mit „Absenden“ werden die Änderungen übernommen."
+        "description": "**✓ Verbindung erfolgreich**\n\nDie geänderten Zugangsdaten funktionieren.\n\n- Lüftungsberater: **{instances}**\n- Räume: **{rooms}**\n\n{details}\n\nMit „Absenden“ werden die Änderungen übernommen."
+      },
+      "remote_progress": {
+        "title": "Verbindung wird geprüft",
+        "description": "Der entfernte Home Assistant wird über Tailscale abgefragt. Das kann je nach Verbindung einen Moment dauern."
       }
     },
     "error": {
@@ -67,6 +71,9 @@
     "abort": {
       "already_configured": "Dieser entfernte Home Assistant ist bereits verbunden.",
       "reconfigure_successful": "Die Einstellungen wurden gespeichert."
+    },
+    "progress": {
+      "testing_remote": "Tailscale-Verbindung wird geprüft und der aktuelle Lüftungsberater-Stand wird eingelesen …"
     }
   },
   "config_subentries": {
@@ -152,6 +159,9 @@
       },
       "hours_since_airing": {
         "name": "Stunden seit letzter Lüftung"
+      },
+      "absolute_humidity_difference": {
+        "name": "Absolute Feuchtedifferenz"
       }
     },
     "binary_sensor": {

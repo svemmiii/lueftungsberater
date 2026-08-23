@@ -117,14 +117,18 @@ Die Übersicht ist bewusst sehr kompakt: Pro Raum werden nur Name, aktuelle Empf
 
 Sind mehrere Lüftungsberater-Instanzen vorhanden, gruppiert dieselbe Übersicht die Räume automatisch nach Instanz. Bei nur einer sichtbaren Instanz wird diese Zwischenebene übersprungen. Im visuellen Karteneditor lassen sich lokale und Tailscale-Remote-Installationen sowie einzelne Räume ein-/ausblenden und per Pfeiltasten sortieren.
 
+Lokale Raumkarten verlinken die Messwerte weiterhin auf Home Assistants More-Info-/Verlaufsansicht. Ab v0.6.12 gilt das auch für die **CO₂-Bewertung** sowie die **absolute Feuchtedifferenz Δ g/m³**, die dafür einen eigenen Sensor erhält.
+
 Die Dashboard-Ressource wird bei normalen Home-Assistant-Dashboards automatisch registriert.
 
 
 ## Mehrere Instanzen und Tailscale-Remote
 
-Ab v0.6.10 können mehrere lokale Lüftungsberater-Instanzen parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Die gemeinsame Übersicht gruppiert sie automatisch und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
+Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Ab v0.6.12 erhält jede neu angelegte lokale Installation eine eigene stabile Config-Entry-Kennung; die gemeinsame Übersicht gruppiert die Installationen unabhängig voneinander und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
 
-Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token. Ab v0.6.11 wird die Verbindung vor dem Speichern getestet und anschließend auf einer Bestätigungsseite mit der Anzahl gefundener Installationen und Räume angezeigt.
+Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token. Ab v0.6.12 zeigt Home Assistant während der Prüfung einen Fortschrittsdialog und anschließend eine Zusammenfassung der gefundenen Lüftungsberater und Räume, bevor die Verbindung gespeichert wird.
+
+Für die Übersicht unter **Einstellungen → Geräte & Dienste** spiegelt v0.6.12 die erreichbare Remote-Struktur zusätzlich nur als Geräte-Metadaten: **Remote Home Assistant → Lüftungsberater → Räume**. Dafür werden ausdrücklich keine Remote-Sensor-Entities erzeugt; die entfernten Messwerte bleiben reine flüchtige Snapshots ohne lokalen Recorder-Verlauf.
 
 Remote-Verbindungen sind absichtlich auf Tailscale beschränkt. Beim laufenden Abruf wird erneut geprüft, dass das Ziel ausschließlich auf Tailscale-Adressen auflöst. Zusätzlich akzeptiert der Snapshot-Endpunkt selbst nur Anfragen, deren Quell-IP aus einem Tailscale-Adressbereich stammt. Ein gültiger Home-Assistant-Token allein reicht außerhalb des Tailnets daher nicht aus. Übertragen werden nur die aktuellen Lüftungsberater-Hauptzustände und deren aktuelle Detailwerte – keine Recorder-Historie und keine fremden Sensor-Entities werden im empfangenden Home Assistant angelegt.
 

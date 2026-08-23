@@ -1,7 +1,9 @@
 """Config flow for Lüftungsberater."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+from uuid import uuid4
 
 import voluptuous as vol
 
@@ -242,19 +244,40 @@ async def _validate_remote(hass: HomeAssistant, data: dict[str, Any]) -> str | N
     return error
 
 
-def _remote_summary(payload: dict[str, Any] | None) -> dict[str, str]:
-    """Return translated description placeholders for a successful test."""
+def _remote_summary(
+    payload: dict[str, Any] | None,
+    fallback_name: str = "Home Assistant",
+) -> dict[str, str]:
+    """Return a compact, human-friendly summary of the remote snapshot."""
     instances = payload.get("instances", []) if isinstance(payload, dict) else []
     if not isinstance(instances, list):
         instances = []
+
     room_count = 0
-    for instance in instances:
-        rooms = instance.get("rooms", []) if isinstance(instance, dict) else []
-        if isinstance(rooms, list):
-            room_count += len(rooms)
+    blocks: list[str] = []
+    for index, instance in enumerate(instances, start=1):
+        if not isinstance(instance, dict):
+            continue
+        instance_name = str(instance.get("name") or f"Lüftungsberater {index}")
+        rooms = instance.get("rooms", [])
+        if not isinstance(rooms, list):
+            rooms = []
+        room_names = [
+            str(room.get("name") or f"Raum {room_index}")
+            for room_index, room in enumerate(rooms, start=1)
+            if isinstance(room, dict)
+        ]
+        room_count += len(room_names)
+        room_lines = "\n".join(f"• {name}" for name in room_names) or "• —"
+        blocks.append(f"{instance_name}\n{room_lines}")
+
     return {
         "instances": str(len(instances)),
         "rooms": str(room_count),
+        "details": "\n\n".join(blocks) or "—",
+        "remote_name": str(payload.get("home_assistant_name") or fallback_name)
+        if isinstance(payload, dict)
+        else fallback_name,
     }
 
 
@@ -275,6 +298,10 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data = dict(user_input)
             title = str(data.pop(CONF_INSTANCE_NAME)).strip() or "Lüftungsberater"
             data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
+            # A local installation is intentionally repeatable. Give every new
+            # top-level advisor its own unique ID instead of relying on a blank
+            # unique_id, which also makes multiple local entries explicit to HA.
+            await self.async_set_unique_id(f"local:{uuid4().hex}")
             return self.async_create_entry(title=title, data=data)
         return self.async_show_form(step_id="local", data_schema=_local_schema(self.hass))
 
@@ -292,13 +319,15 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if duplicate:
                 return self.async_abort(reason="already_configured")
 
-            error, payload = await _test_remote(self.hass, data)
-            if error is None:
-                self._pending_remote_title = title
-                self._pending_remote_data = data
-                self._pending_remote_summary = _remote_summary(payload)
-                return await self.async_step_remote_confirm()
-            errors["base"] = error
+            self._pending_remote_title = title
+            self._pending_remote_data = data
+            self._pending_remote_input = dict(user_input)
+            self._pending_remote_error = None
+            self._remote_test_task = self.hass.async_create_task(
+                _test_remote(self.hass, data),
+                f"Test Lüftungsberater remote {title}",
+            )
+            return await self.async_step_remote_progress()
 
         return self.async_show_form(
             step_id="remote",
@@ -306,6 +335,30 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             last_step=False,
         )
+
+    async def async_step_remote_progress(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Show HA's native progress UI while Tailscale and the remote API are tested."""
+        task: asyncio.Task | None = getattr(self, "_remote_test_task", None)
+        if task is None:
+            return await self.async_step_remote()
+        if not task.done():
+            return self.async_show_progress(
+                step_id="remote_progress",
+                progress_action="testing_remote",
+                progress_task=task,
+            )
+
+        try:
+            error, payload = await task
+        finally:
+            self._remote_test_task = None
+
+        self._pending_remote_error = error
+        if error is None:
+            self._pending_remote_summary = _remote_summary(payload, title)
+        return self.async_show_progress_done(next_step_id="remote_confirm")
 
     async def async_step_remote_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -315,6 +368,20 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         title = getattr(self, "_pending_remote_title", None)
         if not isinstance(data, dict) or not isinstance(title, str):
             return await self.async_step_remote()
+
+        error = getattr(self, "_pending_remote_error", None)
+        if isinstance(error, str) and error:
+            previous = getattr(self, "_pending_remote_input", {})
+            self._pending_remote_error = None
+            return self.async_show_form(
+                step_id="remote",
+                data_schema=self.add_suggested_values_to_schema(
+                    _remote_schema(), previous if isinstance(previous, dict) else {}
+                ),
+                errors={"base": error},
+                last_step=False,
+            )
+
         if user_input is not None:
             return self.async_create_entry(title=title, data=data)
         return self.async_show_form(
@@ -382,7 +449,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if error is None:
                 self._pending_remote_title = title
                 self._pending_remote_data = data
-                self._pending_remote_summary = _remote_summary(payload)
+                self._pending_remote_summary = _remote_summary(payload, title)
                 return await self.async_step_reconfigure_confirm()
             errors["base"] = error
 

@@ -48,7 +48,9 @@ const LB_I18N = {
     "metric.outdoor_humidity_open": "Außenfeuchte öffnen",
     "metric.absolute_humidity_open": "Absolute Innenfeuchte öffnen",
     "metric.absolute_humidity_outdoor_open": "Absolute Außenfeuchte öffnen",
+    "metric.absolute_humidity_difference_open": "Verlauf der Feuchtedifferenz öffnen",
     "co2.history": "CO₂-Verlauf öffnen",
+    "co2.status_history": "Verlauf der CO₂-Bewertung öffnen",
     "co2.grace": "Sensor kurz nicht verfügbar, letzter gültiger Wert",
     "co2.unavailable": "CO₂-Sensor nicht verfügbar · Bewertung vorübergehend ohne CO₂",
     "co2.open": "CO₂-Sensor öffnen",
@@ -132,7 +134,9 @@ const LB_I18N = {
     "metric.outdoor_humidity_open": "Open outdoor humidity",
     "metric.absolute_humidity_open": "Open indoor absolute humidity",
     "metric.absolute_humidity_outdoor_open": "Open outdoor absolute humidity",
+    "metric.absolute_humidity_difference_open": "Open absolute humidity difference history",
     "co2.history": "Open CO₂ history",
+    "co2.status_history": "Open CO₂ assessment history",
     "co2.grace": "Sensor briefly unavailable, using the last valid value",
     "co2.unavailable": "CO₂ sensor unavailable · assessment temporarily continues without CO₂",
     "co2.open": "Open CO₂ sensor",
@@ -216,7 +220,9 @@ const LB_I18N = {
     "metric.outdoor_humidity_open": "Dış nemi aç",
     "metric.absolute_humidity_open": "İç mutlak nemi aç",
     "metric.absolute_humidity_outdoor_open": "Dış mutlak nemi aç",
+    "metric.absolute_humidity_difference_open": "Mutlak nem farkı geçmişini aç",
     "co2.history": "CO₂ geçmişini aç",
+    "co2.status_history": "CO₂ değerlendirme geçmişini aç",
     "co2.grace": "Sensör kısa süreliğine kullanılamıyor; son geçerli değer kullanılıyor",
     "co2.unavailable": "CO₂ sensörü kullanılamıyor · değerlendirme geçici olarak CO₂ olmadan devam ediyor",
     "co2.open": "CO₂ sensörünü aç",
@@ -597,14 +603,18 @@ class LueftungsberaterCard extends HTMLElement {
           lbT(this._hass, "metric.absolute_humidity_outdoor_open")
         )}`;
       }
-      if (diff !== null) html += ` · Δ ${this._valueUnit(diff, "g/m³")}`;
+      if (diff !== null) html += ` · ${this._metric(
+        `Δ ${this._valueUnit(diff, "g/m³")}`,
+        a.source_absolute_humidity_difference,
+        lbT(this._hass, "metric.absolute_humidity_difference_open")
+      )}`;
       rows.push({ icon: "mdi:water-percent", html });
     }
 
     const co2DataStatus = a.co2_data_status || "current";
     if (a.has_co2 === true) {
       if (co2ppm !== null) {
-        let co2Text = `CO₂: ${this._metric(this._valueUnit(co2ppm, "ppm"), a.source_co2, lbT(this._hass, "co2.history"))} · ${this._escape(this._co2Label(a.co2_status))}`;
+        let co2Text = `CO₂: ${this._metric(this._valueUnit(co2ppm, "ppm"), a.source_co2, lbT(this._hass, "co2.history"))} · ${this._metric(this._co2Label(a.co2_status), a.source_co2_status, lbT(this._hass, "co2.status_history"))}`;
         if (co2DataStatus === "grace") co2Text += ` · ${lbT(this._hass, "co2.grace")}`;
         rows.push({ icon: "mdi:molecule-co2", cls: co2DataStatus === "grace" ? "data-warning" : "", html: co2Text });
       } else {

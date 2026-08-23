@@ -52,11 +52,15 @@
       },
       "remote_confirm": {
         "title": "Connection successful",
-        "description": "The Tailscale connection was tested successfully. Found **{instances} installation(s)** with **{rooms} room(s)**. Submit once more to save the remote connection."
+        "description": "**✓ Connection successful**\n\n**{remote_name}** is reachable through Tailscale.\n\n**Found**\n- Lüftungsberater instances: **{instances}**\n- Rooms: **{rooms}**\n\n**Available rooms**\n{details}\n\nSelect “Submit” to save this connection."
       },
       "reconfigure_confirm": {
         "title": "Connection successful",
-        "description": "The updated connection details were tested successfully. Found **{instances} installation(s)** with **{rooms} room(s)**. Submit once more to save the changes."
+        "description": "**✓ Connection successful**\n\nThe updated connection details work.\n\n- Lüftungsberater instances: **{instances}**\n- Rooms: **{rooms}**\n\n{details}\n\nSelect “Submit” to save the changes."
+      },
+      "remote_progress": {
+        "title": "Checking connection",
+        "description": "The remote Home Assistant is being queried through Tailscale. Depending on the connection, this may take a moment."
       }
     },
     "error": {
@@ -67,6 +71,9 @@
     "abort": {
       "already_configured": "This remote Home Assistant is already connected.",
       "reconfigure_successful": "The settings have been saved."
+    },
+    "progress": {
+      "testing_remote": "Checking the Tailscale connection and reading the current Ventilation Advisor state …"
     }
   },
   "config_subentries": {
@@ -152,6 +159,9 @@
       },
       "hours_since_airing": {
         "name": "Hours since last airing"
+      },
+      "absolute_humidity_difference": {
+        "name": "Absolute humidity difference"
       }
     },
     "binary_sensor": {

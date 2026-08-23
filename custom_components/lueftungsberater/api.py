@@ -87,6 +87,7 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
         return self.json(
             {
                 "protocol": REMOTE_PROTOCOL_VERSION,
+                "home_assistant_name": hass.config.location_name,
                 "instances": _local_instances(hass, requested_unit, remote_export=True),
             }
         )
@@ -160,19 +161,42 @@ def _local_instances(
             if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
                 continue
             entity_id = _advisor_entity_id(hass, subentry.subentry_id)
-            if not entity_id:
+            state = hass.states.get(entity_id) if entity_id else None
+            if state is None and not remote_export:
                 continue
-            state = hass.states.get(entity_id)
+
             if state is None:
-                continue
+                # The room configuration is still useful metadata even when its
+                # entities are not loaded or its sensor hardware is absent. Remote
+                # overviews therefore keep the user-defined room name instead of
+                # falling back to generic "Room 1" labels.
+                attributes: dict[str, Any] = {
+                    "instance_id": entry.entry_id,
+                    "instance_name": entry.title,
+                    "room_name": subentry.title,
+                    "status": "yellow",
+                    "recommendation_key": "unknown",
+                    "mode": "incomplete_data",
+                    "reason_key": "incomplete_data",
+                    "reason_args": {},
+                    "duration_key": "incomplete_data",
+                    "window_open": False,
+                    "has_window_contacts": bool(subentry.data.get("window_entities")),
+                    "has_co2": bool(subentry.data.get("co2_entity")),
+                }
+                room_state = "unknown"
+            else:
+                attributes = dict(state.attributes)
+                room_state = state.state
+
             rooms.append(
                 {
                     "id": subentry.subentry_id,
                     "name": subentry.title,
                     "entity_id": None if remote_export else entity_id,
-                    "state": state.state,
+                    "state": room_state,
                     "attributes": _export_attributes(
-                        state.attributes,
+                        attributes,
                         temperature_unit,
                         remote_export=remote_export,
                     ),

@@ -27,12 +27,13 @@ from .remote import (
     async_get_or_create_remote_coordinator,
     async_stop_remote_coordinator,
 )
+from .remote_devices import async_sync_remote_devices
 
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.11"
+FRONTEND_VERSION = "0.6.12"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -96,9 +97,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     kind = entry_kind(entry)
     if kind == ENTRY_KIND_REMOTE:
         coordinator = await async_get_or_create_remote_coordinator(hass, entry)
-        # A coordinator without entities has no natural listener. Keep one lightweight
-        # listener attached so the 30-second poll remains active in the background.
-        entry.async_on_unload(coordinator.async_add_listener(lambda: None))
+        async_sync_remote_devices(hass, entry, coordinator.data)
+
+        # A coordinator without entities has no natural listener. The listener both
+        # keeps polling active and updates the device-registry topology when rooms
+        # are added/removed on the remote Home Assistant.
+        entry.async_on_unload(
+            coordinator.async_add_listener(
+                lambda: async_sync_remote_devices(hass, entry, coordinator.data)
+            )
+        )
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.12 - Alpha
+
+- Mehrere lokale Lüftungsberater-Installationen explizit unterstützt und neue lokale Config Entries mit eigener Unique-ID versehen.
+- Remote-Einrichtung nutzt jetzt Home Assistants nativen Fortschrittsdialog und zeigt anschließend Berater und gefundene Räume übersichtlicher an.
+- Remote-Topologie erscheint ohne Remote-Entities im Geräte-Register als Remote Home Assistant → Lüftungsberater → Räume.
+- Remote-Raumnamen bleiben auch bei fehlender oder noch nicht geladener Sensorik erhalten.
+- CO₂-Bewertung in der Raumkarte ist anklickbar und öffnet den Verlauf des CO₂-Statussensors.
+- Neuer Sensor für die absolute Feuchtedifferenz (Δ g/m³); der Delta-Wert ist dadurch ebenfalls anklickbar und historisierbar.
+- NINA-Auswertung liest Headline und Severity zusätzlich aus den neuen separaten NINA-Sensoren und bleibt damit auf die angekündigte Entfernung der alten Warning-Attribute vorbereitet.
+- Keine Änderung an Lüftungsschwellen, Farblogik, Tailscale-Sicherheitsmodell oder Remote-Historienprinzip.
+
 ## 0.6.11
 - Remote-Einrichtung und Remote-Rekonfiguration besitzen jetzt einen eigenen Verbindungstest mit sichtbarer Erfolgsbestätigung, bevor die Zugangsdaten gespeichert werden. Die Bestätigung zeigt zusätzlich, wie viele Lüftungsberater-Instanzen und Räume gefunden wurden.
 - Der visuelle Editor der Übersicht zeigt jetzt lokale und Tailscale-Remote-Installationen gemeinsam an. Ganze Installationen sowie einzelne Räume können ein- oder ausgeblendet werden.

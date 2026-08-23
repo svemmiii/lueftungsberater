@@ -268,3 +268,61 @@ def test_generic_severe_weather_warning_is_danger():
     assert result.weather_danger is True
     assert result.weather_caution is False
     assert result.weather_reason_key == "weather_heavy_rain_danger"
+
+
+def test_nina_new_detail_sensors_are_used_when_legacy_attributes_are_missing():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    warning = "binary_sensor.nina_warning_1"
+    headline = "sensor.nina_warning_1_headline"
+    severity = "sensor.nina_warning_1_severity"
+    hass = FakeHass(
+        {
+            warning: FakeState("on", {}),
+            headline: FakeState("Amtliche Warnung vor Starkregen"),
+            severity: FakeState("moderate"),
+        }
+    )
+
+    registry_entries = {
+        warning: SimpleNamespace(unique_id="09123-1"),
+        headline: SimpleNamespace(unique_id="09123-1-headline"),
+        severity: SimpleNamespace(unique_id="09123-1-severity"),
+    }
+    registry = SimpleNamespace(async_get=lambda entity_id: registry_entries.get(entity_id))
+
+    with patch("custom_components.lueftungsberater.providers.er.async_get", return_value=registry):
+        result = _evaluate_nina_like_entities(hass, [warning, headline, severity])
+
+    assert result.weather_caution is True
+    assert result.weather_danger is False
+    assert result.weather_reason_key == "weather_heavy_rain_caution"
+
+
+def test_nina_new_severity_sensor_can_mark_warning_as_danger():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    warning = "binary_sensor.nina_warning_1"
+    headline = "sensor.nina_warning_1_headline"
+    severity = "sensor.nina_warning_1_severity"
+    hass = FakeHass(
+        {
+            warning: FakeState("on", {}),
+            headline: FakeState("Amtliche Unwetterwarnung vor heftigem Starkregen"),
+            severity: FakeState("severe"),
+        }
+    )
+
+    registry_entries = {
+        warning: SimpleNamespace(unique_id="09123-1"),
+        headline: SimpleNamespace(unique_id="09123-1-headline"),
+        severity: SimpleNamespace(unique_id="09123-1-severity"),
+    }
+    registry = SimpleNamespace(async_get=lambda entity_id: registry_entries.get(entity_id))
+
+    with patch("custom_components.lueftungsberater.providers.er.async_get", return_value=registry):
+        result = _evaluate_nina_like_entities(hass, [warning, headline, severity])
+
+    assert result.weather_danger is True
+    assert result.weather_caution is False
+    assert result.weather_reason_key == "weather_heavy_rain_danger"

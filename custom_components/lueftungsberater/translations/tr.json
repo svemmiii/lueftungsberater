@@ -52,11 +52,15 @@
       },
       "remote_confirm": {
         "title": "Bağlantı başarılı",
-        "description": "Tailscale bağlantısı başarıyla test edildi. **{instances} kurulum** ve toplam **{rooms} oda** bulundu. Uzak bağlantıyı kaydetmek için bir kez daha gönder."
+        "description": "**✓ Bağlantı başarılı**\n\n**{remote_name}** Tailscale üzerinden erişilebilir.\n\n**Bulunanlar**\n- Lüftungsberater kurulumu: **{instances}**\n- Oda: **{rooms}**\n\n**Erişilebilir odalar**\n{details}\n\nBağlantıyı kaydetmek için “Gönder” seçeneğine dokunun."
       },
       "reconfigure_confirm": {
         "title": "Bağlantı başarılı",
-        "description": "Güncellenen bağlantı bilgileri başarıyla test edildi. **{instances} kurulum** ve toplam **{rooms} oda** bulundu. Değişiklikleri kaydetmek için bir kez daha gönder."
+        "description": "**✓ Bağlantı başarılı**\n\nGüncellenen bağlantı bilgileri çalışıyor.\n\n- Lüftungsberater kurulumu: **{instances}**\n- Oda: **{rooms}**\n\n{details}\n\nDeğişiklikleri kaydetmek için “Gönder” seçeneğine dokunun."
+      },
+      "remote_progress": {
+        "title": "Bağlantı kontrol ediliyor",
+        "description": "Uzaktaki Home Assistant Tailscale üzerinden sorgulanıyor. Bağlantıya göre bu işlem kısa bir süre alabilir."
       }
     },
     "error": {
@@ -67,6 +71,9 @@
     "abort": {
       "already_configured": "Bu uzak Home Assistant zaten bağlı.",
       "reconfigure_successful": "Ayarlar kaydedildi."
+    },
+    "progress": {
+      "testing_remote": "Tailscale bağlantısı kontrol ediliyor ve güncel Havalandırma Danışmanı durumu okunuyor …"
     }
   },
   "config_subentries": {
@@ -152,6 +159,9 @@
       },
       "hours_since_airing": {
         "name": "Son havalandırmadan beri geçen saat"
+      },
+      "absolute_humidity_difference": {
+        "name": "Mutlak nem farkı"
       }
     },
     "binary_sensor": {
