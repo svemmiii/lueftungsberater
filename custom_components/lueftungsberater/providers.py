@@ -559,6 +559,19 @@ def _evaluate_air_warning(
 
 
 
+def _optional_entity_registry(hass: HomeAssistant):
+    """Return the entity registry when available.
+
+    Warning evaluation can still work from legacy warning attributes when the
+    registry is unavailable (for example in lightweight unit-test stubs or
+    during very early startup).
+    """
+    try:
+        return er.async_get(hass)
+    except (AttributeError, KeyError):
+        return None
+
+
 def _nina_slot_sensor_values(
     hass: HomeAssistant,
     entity_ids: list[str],
@@ -571,11 +584,16 @@ def _nina_slot_sensor_values(
     lookup means the advisor keeps classifying warnings after those legacy
     attributes disappear.
     """
-    registry = er.async_get(hass)
+    sensor_ids = [entity_id for entity_id in entity_ids if entity_id.startswith("sensor.")]
+    if not sensor_ids:
+        return {}
+
+    registry = _optional_entity_registry(hass)
+    if registry is None:
+        return {}
+
     details: dict[str, dict[str, str]] = {}
-    for entity_id in entity_ids:
-        if not entity_id.startswith("sensor."):
-            continue
+    for entity_id in sensor_ids:
         registry_entry = registry.async_get(entity_id)
         unique_id = registry_entry.unique_id if registry_entry else None
         if not isinstance(unique_id, str):
@@ -598,7 +616,7 @@ def _evaluate_nina_like_entities(
     result = WarningAssessment()
     air_rank = {"none": 0, "caution": 1, "danger": 2}
     slot_details = _nina_slot_sensor_values(hass, entity_ids)
-    registry = er.async_get(hass)
+    registry = _optional_entity_registry(hass) if slot_details else None
 
     for entity_id in entity_ids:
         state = hass.states.get(entity_id)
@@ -608,7 +626,7 @@ def _evaluate_nina_like_entities(
         if not entity_id.startswith("binary_sensor.") or state.state != "on":
             continue
 
-        registry_entry = registry.async_get(entity_id)
+        registry_entry = registry.async_get(entity_id) if registry is not None else None
         slot_id = registry_entry.unique_id if registry_entry else None
         detail = slot_details.get(slot_id, {}) if isinstance(slot_id, str) else {}
 

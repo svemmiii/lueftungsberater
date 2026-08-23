@@ -185,6 +185,10 @@ Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
 
 
+### Hinweis zu v0.6.14
+
+v0.6.14 ist ein kleiner Test- und Config-Flow-Hotfix. Er hält die Remote-Erfolgsseite zuverlässig als Bestätigungsdialog offen, macht die NINA-Auswertung robuster gegenüber fehlendem Entity Registry in Test-/Startup-Kontexten und korrigiert den GitHub-Pytest-Workflow.
+
 ### Hinweis zu v0.6.13
 
 v0.6.13 behebt einen Fehler im neuen Remote-Fortschrittsdialog von v0.6.12, durch den erfolgreiche Tailscale-Verbindungen nach der Prüfung nicht gespeichert werden konnten. Außerdem wurde der lokale Mehrfach-Setup-Pfad vereinfacht und die automatische Pytest-Prüfung im GitHub-Workflow ausdrücklich aktiviert.

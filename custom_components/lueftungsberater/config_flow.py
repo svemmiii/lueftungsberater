@@ -434,6 +434,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             return self.async_create_entry(title=title, data=data)
+        self._set_confirm_only()
         return self.async_show_form(
             step_id="remote_confirm",
             data_schema=vol.Schema({}),
@@ -529,6 +530,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self.hass.config_entries.async_update_entry(entry, title=title, data=data)
             return self.async_abort(reason="reconfigure_successful")
+        self._set_confirm_only()
         return self.async_show_form(
             step_id="reconfigure_confirm",
             data_schema=vol.Schema({}),

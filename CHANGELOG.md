@@ -1,3 +1,13 @@
+## 0.6.14 - Alpha
+
+### Tests und Einrichtungsdialog
+
+- NINA-Warnauswertung funktioniert jetzt auch dann weiter, wenn das Entity Registry in einem leichten Test-/Startup-Kontext noch nicht verfügbar ist; Legacy-Warnattribute bleiben vollständig nutzbar.
+- Remote-Erfolgs- und Reconfigure-Bestätigungsseiten werden jetzt als echte Home-Assistant-Bestätigungsdialoge markiert und nicht automatisch übersprungen.
+- GitHub-Pytest-Workflow korrigiert: Home-Assistant-Version wird über `importlib.metadata` ausgelesen, der fehlerhafte `homeassistant.__version__`-Zugriff wurde entfernt.
+- Pytest läuft ausführlich mit `-v`; unnötiges pip-Cache-Setup ohne Requirements-Datei wurde entfernt.
+- Keine Änderung an Lüftungslogik, Schwellenwerten, Tailscale-Remote-Protokoll oder vorhandenen Entities.
+
 # Changelog
 
 ## 0.6.13 - Alpha
