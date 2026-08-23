@@ -33,7 +33,7 @@ def _create_device(
         "manufacturer": "Lüftungsberater",
         "model": model,
         "name": name,
-        "sw_version": "0.6.15",
+        "sw_version": "0.6.16",
     }
     if configuration_url:
         kwargs["configuration_url"] = configuration_url

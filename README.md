@@ -185,6 +185,10 @@ Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
 
 
+### Hinweis zu v0.6.16
+
+v0.6.16 ist ein kleiner UI-Fix: Die Begründung unter **„Warum diese Empfehlung?“** ist jetzt ausschließlich Text. Sie wird nicht mehr als Verlauf-/More-Info-Link dargestellt und löst beim Antippen keine Navigation aus. Messwerte und echte Statuswerte bleiben weiterhin anklickbar.
+
 ### Hinweis zu v0.6.15
 
 v0.6.15 ist ein kleiner Warnquellen-Hotfix. NINA/DWD und andere erkannte Warnanbieter sind im lokalen Einrichtungsdialog wieder auswählbar; der Warndienst bleibt weiterhin optional und `Kein Warndienst` ist der Standard.

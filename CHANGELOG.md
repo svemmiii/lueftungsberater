@@ -1,3 +1,10 @@
+## 0.6.16 - Alpha
+
+- Begründungstexte unter **„Warum diese Empfehlung?“** sind jetzt reine Texte und nicht mehr anklickbar oder unterstrichen.
+- Ein Klick auf den Begründungstext öffnet weder die Lüftungsberater-Entity noch eine Warn-/Wetter-Entity.
+- Anklickbare Verläufe bleiben auf echte Mess- und Statuswerte beschränkt.
+- Keine Änderung an Entscheidungslogik, Warnlogik oder Schwellenwerten.
+
 ## 0.6.15 - Alpha
 
 ### Warnquellen-Hotfix

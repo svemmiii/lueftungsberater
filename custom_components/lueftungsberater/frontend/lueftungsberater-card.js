@@ -446,11 +446,6 @@ class LueftungsberaterCard extends HTMLElement {
     this.dispatchEvent(event);
   }
 
-  _reasonSource(a) {
-    if (String(a.mode || "").startsWith("nina")) return a.source_nina_status || null;
-    return a.source_weather_reason || a.source_weather_danger || a.source_nina_status || null;
-  }
-
   _render() {
     if (!this.shadowRoot) return;
     if (!this._hass || !this._config) {
@@ -627,9 +622,7 @@ class LueftungsberaterCard extends HTMLElement {
     }
 
     const showDuration = Boolean(durationText) && a.duration_key !== "not_needed";
-    const reasonHtml = reason
-      ? this._metric(reason, this._reasonSource(a), lbT(this._hass, "warning.open"))
-      : "";
+    const reasonHtml = reason ? this._escape(reason) : "";
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -687,6 +680,9 @@ class LueftungsberaterCard extends HTMLElement {
           event.stopPropagation();
           this._dispatchMoreInfo(element.dataset.entity);
         });
+      });
+      this.shadowRoot.querySelectorAll(".why, .reason").forEach((element) => {
+        element.addEventListener("click", (event) => event.stopPropagation());
       });
     }
   }
