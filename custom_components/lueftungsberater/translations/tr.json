@@ -1,0 +1,162 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Havalandırma Danışmanı ekle",
+        "menu_options": {
+          "local": "Yerel Havalandırma Danışmanı kur",
+          "remote": "Tailscale üzerinden uzaktaki Havalandırma Danışmanına bağlan"
+        },
+        "menu_option_descriptions": {
+          "local": "Bu Home Assistant'taki odaları ve sensörleri kullan.",
+          "remote": "Başka bir Havalandırma Danışmanı kurulumunun yalnızca güncel durumunu göster."
+        }
+      },
+      "local": {
+        "title": "Yerel Havalandırma Danışmanı kur",
+        "description": "Bu kuruluma bir ad ver, ardından hava durumu hizmetini ve istersen bir uyarı hizmetini seç. Odaları daha sonra ayrı ayrı ekleyebilirsin.",
+        "data": {
+          "instance_name": "Kurulum adı",
+          "weather_entity": "Hava durumu hizmeti",
+          "warning_source": "Uyarı hizmeti (isteğe bağlı)",
+          "manual_outdoor": "Gelişmiş dış ortam sensörleri (isteğe bağlı)",
+          "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
+          "outdoor_humidity": "Dış nemi geçersiz kıl"
+        }
+      },
+      "remote": {
+        "title": "Uzaktaki Havalandırma Danışmanına bağlan",
+        "description": "Uzak bağlantılar özellikle Tailscale adresleriyle sınırlandırılmıştır. Yalnızca güncel Havalandırma Danışmanı anlık görüntüleri aktarılır; uzaktaki sensörler ve geçmişleri bu Home Assistant'ta oluşturulmaz.",
+        "data": {
+          "instance_name": "Görünen ad",
+          "remote_host": "Tailscale IP veya MagicDNS adı",
+          "remote_port": "Home Assistant portu",
+          "remote_access_token": "Long-Lived Access Token",
+          "remote_use_ssl": "HTTPS kullan"
+        }
+      },
+      "reconfigure": {
+        "title": "Havalandırma Danışmanını yeniden yapılandır",
+        "data": {
+          "instance_name": "Kurulum adı",
+          "weather_entity": "Hava durumu hizmeti",
+          "warning_source": "Uyarı hizmeti (isteğe bağlı)",
+          "manual_outdoor": "Gelişmiş dış ortam sensörleri (isteğe bağlı)",
+          "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
+          "outdoor_humidity": "Dış nemi geçersiz kıl",
+          "remote_host": "Tailscale IP veya MagicDNS adı",
+          "remote_port": "Home Assistant portu",
+          "remote_access_token": "Long-Lived Access Token",
+          "remote_use_ssl": "HTTPS kullan"
+        }
+      }
+    },
+    "error": {
+      "not_tailscale": "Bu adres tanınan bir Tailscale bağlantısına çözülmüyor.",
+      "invalid_auth": "Uzaktaki Home Assistant erişim belirtecini kabul etmedi.",
+      "cannot_connect": "Uzaktaki Home Assistant'a bu Tailscale adresi üzerinden ulaşılamıyor."
+    },
+    "abort": {
+      "already_configured": "Bu uzak Home Assistant zaten bağlı.",
+      "reconfigure_successful": "Ayarlar kaydedildi."
+    }
+  },
+  "config_subentries": {
+    "room": {
+      "entry_type": "Oda",
+      "initiate_flow": {
+        "reconfigure": "Odayı yapılandır",
+        "user": "Oda ekle"
+      },
+      "step": {
+        "user": {
+          "title": "Oda ekle",
+          "description": "İç sıcaklık ve nem zorunludur. CO₂ isteğe bağlıdır. Pencere/kapı kontakları seçilirse Havalandırma Danışmanı en az 5 dakikalık havalandırmaları otomatik olarak algılar ve geçmişi kendi takip eder.",
+          "data": {
+            "room_name": "Oda adı",
+            "indoor_temperature": "İç sıcaklık",
+            "indoor_humidity": "İç nem",
+            "co2_entity": "CO₂ (isteğe bağlı)",
+            "window_entities": "Pencereler / kapılar (isteğe bağlı)",
+            "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
+            "target_temperature": "Yedek hedef sıcaklık"
+          }
+        },
+        "reconfigure": {
+          "title": "Odayı yeniden yapılandır",
+          "data": {
+            "room_name": "Oda adı",
+            "indoor_temperature": "İç sıcaklık",
+            "indoor_humidity": "İç nem",
+            "co2_entity": "CO₂ (isteğe bağlı)",
+            "window_entities": "Pencereler / kapılar (isteğe bağlı)",
+            "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
+            "target_temperature": "Yedek hedef sıcaklık"
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "Bu ada sahip bir oda zaten var."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "advisor": {
+        "state": {
+          "open_now": "Şimdi pencereleri aç",
+          "keep_open": "Pencereleri biraz daha açık tut",
+          "can_close": "Artık pencereleri kapatabilirsin",
+          "short_observation": "Kısa süre havalandır ve durumu takip et",
+          "better_close": "Pencereleri kapatmak daha iyi",
+          "caution_keep_closed": "Şimdilik pencereleri kapalı tutmak daha iyi",
+          "keep_closed": "Pencereleri kapalı tut",
+          "close_now": "Pencereleri şimdi kapat",
+          "wait": "Biraz daha beklemek daha iyi"
+        }
+      },
+      "absolute_humidity": {
+        "name": "İç mutlak nem"
+      },
+      "absolute_humidity_outside": {
+        "name": "Dış mutlak nem"
+      },
+      "co2_status": {
+        "name": "CO₂ durumu",
+        "state": {
+          "very_good": "Çok iyi",
+          "good": "İyi",
+          "elevated": "Yüksek",
+          "high": "Çok yüksek",
+          "critical": "Kritik",
+          "unknown": "Bilinmiyor"
+        }
+      },
+      "airing_status": {
+        "name": "Havalandırma",
+        "state": {
+          "airing": "Şu anda havalandırılıyor",
+          "closed": "Kapalı"
+        }
+      },
+      "last_airing": {
+        "name": "Son havalandırma"
+      },
+      "hours_since_airing": {
+        "name": "Son havalandırmadan beri geçen saat"
+      }
+    },
+    "binary_sensor": {
+      "critical_danger": {
+        "name": "Kritik durum"
+      }
+    }
+  },
+  "selector": {
+    "warning_source": {
+      "options": {
+        "none": "Uyarı hizmeti yok"
+      }
+    }
+  }
+}

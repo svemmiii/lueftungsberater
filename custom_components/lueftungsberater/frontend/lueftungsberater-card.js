@@ -22,8 +22,13 @@ const LB_I18N = {
     "setup.title": "Raum auswählen",
     "setup.description": "Wähle im visuellen Editor einen Lüftungsberater-Raum aus.",
     "entity_missing": "Entity {entity} nicht gefunden.",
-    "window.open_since": "Fenster / Tür gerade offen · seit {minutes} Min.",
+    "window.open_since": "Fenster / Tür gerade offen · seit {duration}",
     "window.open": "Fenster / Tür gerade offen",
+    "window.minute": "Minute",
+    "window.minutes": "Minuten",
+    "window.hour": "Stunde",
+    "window.hours": "Stunden",
+    "window.and": "und",
     "airing.open": "Lüftung öffnen",
     "airing.last": "Letzte bestätigte Lüftung: vor {hours} h",
     "airing.history": "Lüftungsverlauf öffnen",
@@ -39,6 +44,7 @@ const LB_I18N = {
     "metric.indoor_humidity_open": "Innenfeuchte öffnen",
     "metric.outdoor_humidity_open": "Außenfeuchte öffnen",
     "metric.absolute_humidity_open": "Absolute Innenfeuchte öffnen",
+    "metric.absolute_humidity_outdoor_open": "Absolute Außenfeuchte öffnen",
     "co2.history": "CO₂-Verlauf öffnen",
     "co2.grace": "Sensor kurz nicht verfügbar, letzter gültiger Wert",
     "co2.unavailable": "CO₂-Sensor nicht verfügbar · Bewertung vorübergehend ohne CO₂",
@@ -50,32 +56,31 @@ const LB_I18N = {
     "picker.room.name": "Lüftungsberater – Raum",
     "picker.room.description": "Detaillierte Lüftungsempfehlung für einen einzelnen Raum.",
     "overview.invalid_entities": "entities muss eine Liste von Entity-IDs sein.",
-    "overview.no_rooms": "Keine Räume",
-    "overview.room": "Raum",
-    "overview.rooms": "Räume",
-    "overview.critical": "kritisch",
-    "overview.attention": "beachten",
-    "overview.all_good": "alles im grünen Bereich",
     "overview.open": "offen",
-    "overview.no_reason": "Keine Begründung verfügbar",
+    "overview.not_reachable": "Nicht erreichbar",
     "overview.empty_title": "Keine Lüftungsberater-Räume gefunden.",
     "overview.empty_description": "Räume werden automatisch erkannt oder können per entities: angegeben werden.",
+    "overview.no_remote_rooms": "Keine Räume verfügbar",
+    "overview.room": "Raum",
+    "overview.rooms": "Räume",
+    "overview.back": "Zurück",
+    "overview.close": "Schließen",
     "picker.overview.name": "Lüftungsberater – Übersicht",
-    "picker.overview.description": "Kompakte Übersicht über alle oder ausgewählte Lüftungsberater-Räume.",
+    "picker.overview.description": "Kompakte Übersicht über lokale und entfernte Lüftungsberater.",
     "editor.room": "Raum",
     "editor.select_room": "Raum auswählen …",
     "editor.card_name": "Kartenname (optional)",
     "editor.card_name_placeholder": "z. B. Wohnzimmer",
     "editor.room_hint": "Empfehlung, Farbe, Begründung und Messwerte werden automatisch übernommen.",
-    "editor.title": "Titel",
-    "editor.rooms": "Räume",
-    "editor.rooms_hint": "Sind alle angehakt, werden automatisch auch neue Räume aufgenommen."
+    "editor.title": "Titel (optional)",
+    "editor.rooms": "Lokale Räume",
+    "editor.rooms_hint": "Sind alle angehakt, werden neue lokale Räume automatisch aufgenommen. Entfernte Tailscale-Instanzen erscheinen immer automatisch."
   },
   en: {
-    "recommendation.open_now": "Ventilate now",
-    "recommendation.keep_open": "Keep ventilating",
-    "recommendation.can_close": "You can stop ventilating now",
-    "recommendation.short_observation": "Ventilate briefly and keep an eye on it",
+    "recommendation.open_now": "Open the windows now",
+    "recommendation.keep_open": "Keep the windows open a little longer",
+    "recommendation.can_close": "You can close the windows now",
+    "recommendation.short_observation": "Open the windows briefly and keep an eye on it",
     "recommendation.better_close": "Better close the windows",
     "recommendation.caution_keep_closed": "Better keep the windows closed for now",
     "recommendation.keep_closed": "Keep the windows closed",
@@ -92,12 +97,17 @@ const LB_I18N = {
     "setup.title": "Select a room",
     "setup.description": "Choose a Ventilation Advisor room in the visual editor.",
     "entity_missing": "Entity {entity} was not found.",
-    "window.open_since": "Window / door is open · for {minutes} min",
+    "window.open_since": "Window / door is open · for {duration}",
     "window.open": "Window / door is open",
+    "window.minute": "minute",
+    "window.minutes": "minutes",
+    "window.hour": "hour",
+    "window.hours": "hours",
+    "window.and": "and",
     "airing.open": "Open ventilation details",
-    "airing.last": "Last confirmed ventilation: {hours} h ago",
+    "airing.last": "Last confirmed window airing: {hours} h ago",
     "airing.history": "Open ventilation history",
-    "airing.none": "No confirmed ventilation has been recorded yet",
+    "airing.none": "No confirmed window airing has been recorded yet",
     "metric.inside": "{value} indoors",
     "metric.outside": "{value} outside",
     "metric.target": "{value} target",
@@ -109,37 +119,112 @@ const LB_I18N = {
     "metric.indoor_humidity_open": "Open indoor humidity",
     "metric.outdoor_humidity_open": "Open outdoor humidity",
     "metric.absolute_humidity_open": "Open indoor absolute humidity",
+    "metric.absolute_humidity_outdoor_open": "Open outdoor absolute humidity",
     "co2.history": "Open CO₂ history",
     "co2.grace": "Sensor briefly unavailable, using the last valid value",
     "co2.unavailable": "CO₂ sensor unavailable · assessment temporarily continues without CO₂",
     "co2.open": "Open CO₂ sensor",
     "warning.open": "Open warning / source data",
     "why": "Why this recommendation?",
-    "duration": "⏱️ Recommended ventilation time:",
+    "duration": "⏱️ Recommended window-opening time:",
     "hint": "Tap a value for its history · tap the card for details",
     "picker.room.name": "Ventilation Advisor – Room",
     "picker.room.description": "Detailed ventilation recommendation for a single room.",
     "overview.invalid_entities": "entities must be a list of entity IDs.",
-    "overview.no_rooms": "No rooms",
-    "overview.room": "room",
-    "overview.rooms": "rooms",
-    "overview.critical": "critical",
-    "overview.attention": "need attention",
-    "overview.all_good": "all looking good",
     "overview.open": "open",
-    "overview.no_reason": "No explanation available",
+    "overview.not_reachable": "Not reachable",
     "overview.empty_title": "No Ventilation Advisor rooms found.",
     "overview.empty_description": "Rooms are discovered automatically or can be specified with entities:.",
+    "overview.no_remote_rooms": "No rooms available",
+    "overview.room": "room",
+    "overview.rooms": "rooms",
+    "overview.back": "Back",
+    "overview.close": "Close",
     "picker.overview.name": "Ventilation Advisor – Overview",
-    "picker.overview.description": "Compact overview of all or selected Ventilation Advisor rooms.",
+    "picker.overview.description": "Compact overview of local and remote Ventilation Advisors.",
     "editor.room": "Room",
     "editor.select_room": "Select a room …",
     "editor.card_name": "Card name (optional)",
     "editor.card_name_placeholder": "e.g. Living room",
     "editor.room_hint": "Recommendation, color, explanation, and measurements are filled in automatically.",
-    "editor.title": "Title",
-    "editor.rooms": "Rooms",
-    "editor.rooms_hint": "When all are selected, newly added rooms are included automatically as well."
+    "editor.title": "Title (optional)",
+    "editor.rooms": "Local rooms",
+    "editor.rooms_hint": "When all are selected, new local rooms are included automatically. Remote Tailscale instances always appear automatically."
+  },
+  tr: {
+    "recommendation.open_now": "Şimdi pencereleri aç",
+    "recommendation.keep_open": "Pencereleri biraz daha açık tut",
+    "recommendation.can_close": "Artık pencereleri kapatabilirsin",
+    "recommendation.short_observation": "Kısa süre havalandır ve durumu takip et",
+    "recommendation.better_close": "Pencereleri kapatmak daha iyi",
+    "recommendation.caution_keep_closed": "Şimdilik pencereleri kapalı tutmak daha iyi",
+    "recommendation.keep_closed": "Pencereleri kapalı tut",
+    "recommendation.close_now": "Pencereleri şimdi kapat",
+    "recommendation.wait": "Biraz daha beklemek daha iyi",
+    "co2.very_good": "çok iyi",
+    "co2.good": "iyi",
+    "co2.elevated": "yüksek",
+    "co2.high": "çok yüksek",
+    "co2.critical": "kritik",
+    "co2.unknown": "bilinmiyor",
+    "weather_service": "hava durumu hizmeti",
+    "history_open": "Geçmişi aç",
+    "setup.title": "Oda seç",
+    "setup.description": "Görsel düzenleyiciden bir Havalandırma Danışmanı odası seç.",
+    "entity_missing": "{entity} entity'si bulunamadı.",
+    "window.open_since": "Pencere / kapı açık · {duration}dır",
+    "window.open": "Pencere / kapı açık",
+    "window.minute": "dakika",
+    "window.minutes": "dakika",
+    "window.hour": "saat",
+    "window.hours": "saat",
+    "window.and": "ve",
+    "airing.open": "Havalandırma ayrıntılarını aç",
+    "airing.last": "Son doğrulanmış havalandırma: {hours} saat önce",
+    "airing.history": "Havalandırma geçmişini aç",
+    "airing.none": "Henüz doğrulanmış bir havalandırma kaydedilmedi",
+    "metric.inside": "{value} içeride",
+    "metric.outside": "{value} dışarıda",
+    "metric.target": "hedef {value}",
+    "metric.temperature": "Sıcaklık",
+    "metric.humidity": "Nem",
+    "metric.indoor_temperature_open": "İç sıcaklığı aç",
+    "metric.outdoor_temperature_open": "Dış sıcaklığı aç",
+    "metric.thermostat_open": "Termostatı aç",
+    "metric.indoor_humidity_open": "İç nemi aç",
+    "metric.outdoor_humidity_open": "Dış nemi aç",
+    "metric.absolute_humidity_open": "İç mutlak nemi aç",
+    "metric.absolute_humidity_outdoor_open": "Dış mutlak nemi aç",
+    "co2.history": "CO₂ geçmişini aç",
+    "co2.grace": "Sensör kısa süreliğine kullanılamıyor; son geçerli değer kullanılıyor",
+    "co2.unavailable": "CO₂ sensörü kullanılamıyor · değerlendirme geçici olarak CO₂ olmadan devam ediyor",
+    "co2.open": "CO₂ sensörünü aç",
+    "warning.open": "Uyarı / kaynak verisini aç",
+    "why": "Bu önerinin nedeni ne?",
+    "duration": "⏱️ Önerilen pencere açık kalma süresi:",
+    "hint": "Geçmiş için bir değere dokun · ayrıntılar için karta dokun",
+    "picker.room.name": "Havalandırma Danışmanı – Oda",
+    "picker.room.description": "Tek bir oda için ayrıntılı havalandırma önerisi.",
+    "overview.invalid_entities": "entities bir entity ID listesi olmalıdır.",
+    "overview.open": "açık",
+    "overview.not_reachable": "Ulaşılamıyor",
+    "overview.empty_title": "Havalandırma Danışmanı odası bulunamadı.",
+    "overview.empty_description": "Odalar otomatik bulunur veya entities: ile belirtilebilir.",
+    "overview.no_remote_rooms": "Kullanılabilir oda yok",
+    "overview.room": "oda",
+    "overview.rooms": "oda",
+    "overview.back": "Geri",
+    "overview.close": "Kapat",
+    "picker.overview.name": "Havalandırma Danışmanı – Genel Bakış",
+    "picker.overview.description": "Yerel ve uzak Havalandırma Danışmanlarının kompakt görünümü.",
+    "editor.room": "Oda",
+    "editor.select_room": "Oda seç …",
+    "editor.card_name": "Kart adı (isteğe bağlı)",
+    "editor.card_name_placeholder": "örn. Salon",
+    "editor.room_hint": "Öneri, renk, açıklama ve ölçüm değerleri otomatik olarak alınır.",
+    "editor.title": "Başlık (isteğe bağlı)",
+    "editor.rooms": "Yerel odalar",
+    "editor.rooms_hint": "Hepsi seçiliyse yeni yerel odalar otomatik olarak eklenir. Uzak Tailscale kurulumları her zaman otomatik görünür."
   }
 };
 
@@ -150,11 +235,16 @@ function lbLanguage(hass) {
     navigator.language ||
     "en"
   ).toLowerCase();
-  return raw.startsWith("de") ? "de" : "en";
+  if (raw.startsWith("de")) return "de";
+  if (raw.startsWith("tr")) return "tr";
+  return "en";
 }
 
 function lbLocale(hass) {
-  return lbLanguage(hass) === "de" ? "de-DE" : "en-US";
+  const lang = lbLanguage(hass);
+  if (lang === "de") return "de-DE";
+  if (lang === "tr") return "tr-TR";
+  return "en-US";
 }
 
 function lbT(hass, key, values = {}) {
@@ -170,6 +260,7 @@ function lbLocalizedEntityText(hass, attributes, field, fallback = "") {
   const lang = lbLanguage(hass);
   return attributes?.localized_texts?.[lang]?.[field] || fallback;
 }
+
 
 class LueftungsberaterCard extends HTMLElement {
   constructor() {
@@ -202,16 +293,27 @@ class LueftungsberaterCard extends HTMLElement {
     return {};
   }
 
+  _isRemoteSnapshot() {
+    return Boolean(this._config?.remote_snapshot);
+  }
+
+  _stateObject() {
+    if (this._isRemoteSnapshot()) {
+      const snap = this._config.remote_snapshot || {};
+      return {
+        state: snap.state,
+        attributes: snap.attributes || {},
+      };
+    }
+    return this._config?.entity ? this._hass?.states?.[this._config.entity] : null;
+  }
+
   _localizeState(state) {
     return lbT(this._hass, `recommendation.${state}`);
   }
 
   _co2Label(status) {
     return lbT(this._hass, `co2.${status}`);
-  }
-
-  _durationText(duration) {
-    return duration || null;
   }
 
   _statusMeta(status) {
@@ -225,9 +327,7 @@ class LueftungsberaterCard extends HTMLElement {
   }
 
   _fmt(value, digits = 1) {
-    if (value === null || value === undefined || value === "") {
-      return null;
-    }
+    if (value === null || value === undefined || value === "") return null;
     const n = Number(value);
     return Number.isFinite(n)
       ? new Intl.NumberFormat(lbLocale(this._hass), {
@@ -254,6 +354,7 @@ class LueftungsberaterCard extends HTMLElement {
   }
 
   _entityExists(entityId) {
+    if (this._isRemoteSnapshot()) return false;
     return Boolean(entityId && this._hass?.states?.[entityId]);
   }
 
@@ -261,12 +362,25 @@ class LueftungsberaterCard extends HTMLElement {
     return `${value}${LB_NNBSP}${unit}`;
   }
 
+  _openDuration(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    const minutes = Math.max(0, Math.round(number));
+    if (minutes <= 60) {
+      return `${minutes} ${lbT(this._hass, minutes === 1 ? "window.minute" : "window.minutes")}`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+    const hourPart = `${hours} ${lbT(this._hass, hours === 1 ? "window.hour" : "window.hours")}`;
+    if (!remainder) return hourPart;
+    return `${hourPart} ${lbT(this._hass, "window.and")} ${remainder} ${lbT(this._hass, remainder === 1 ? "window.minute" : "window.minutes")}`;
+  }
+
   _metric(text, entityId, title = null) {
     title = title || lbT(this._hass, "history_open");
     const escaped = this._escape(text);
-    if (!this._entityExists(entityId)) {
-      return `<span>${escaped}</span>`;
-    }
+    if (!this._entityExists(entityId)) return `<span>${escaped}</span>`;
     return `
       <button
         type="button"
@@ -278,26 +392,17 @@ class LueftungsberaterCard extends HTMLElement {
 
   _dispatchMoreInfo(entityId) {
     if (!this._entityExists(entityId)) return;
-
-    const event = new Event("hass-action", {
-      bubbles: true,
-      composed: true,
-    });
+    const event = new Event("hass-action", { bubbles: true, composed: true });
     event.detail = {
-      config: {
-        entity: entityId,
-        tap_action: { action: "more-info" },
-      },
+      config: { entity: entityId, tap_action: { action: "more-info" } },
       action: "tap",
     };
     this.dispatchEvent(event);
   }
 
   _handleMainTap() {
-    const event = new Event("hass-action", {
-      bubbles: true,
-      composed: true,
-    });
+    if (this._isRemoteSnapshot() || !this._config?.entity) return;
+    const event = new Event("hass-action", { bubbles: true, composed: true });
     event.detail = {
       config: {
         entity: this._config.entity,
@@ -309,70 +414,52 @@ class LueftungsberaterCard extends HTMLElement {
   }
 
   _reasonSource(a) {
-    if (String(a.mode || "").startsWith("nina")) {
-      return a.source_nina_status || null;
-    }
-    return (
-      a.source_weather_reason ||
-      a.source_weather_danger ||
-      a.source_nina_status ||
-      null
-    );
+    if (String(a.mode || "").startsWith("nina")) return a.source_nina_status || null;
+    return a.source_weather_reason || a.source_weather_danger || a.source_nina_status || null;
   }
 
   _render() {
     if (!this.shadowRoot) return;
-
     if (!this._hass || !this._config) {
       this.shadowRoot.innerHTML = "";
       return;
     }
 
-    if (!this._config.entity) {
+    if (!this._config.entity && !this._isRemoteSnapshot()) {
       this.shadowRoot.innerHTML = `
         <style>
           ha-card { padding: 18px; }
           .setup { display: grid; gap: 6px; }
           .setup strong { font-size: 16px; }
-          .setup span {
-            color: var(--secondary-text-color);
-            line-height: 1.4;
-          }
+          .setup span { color: var(--secondary-text-color); line-height: 1.4; }
         </style>
-        <ha-card>
-          <div class="setup">
-            <strong>${lbT(this._hass, "setup.title")}</strong>
-            <span>${lbT(this._hass, "setup.description")}</span>
-          </div>
-        </ha-card>`;
+        <ha-card><div class="setup">
+          <strong>${lbT(this._hass, "setup.title")}</strong>
+          <span>${lbT(this._hass, "setup.description")}</span>
+        </div></ha-card>`;
       return;
     }
 
-    const st = this._hass.states[this._config.entity];
+    const st = this._stateObject();
     if (!st) {
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="error">
-            ${this._escape(lbT(this._hass, "entity_missing", { entity: this._config.entity }))}
-          </div>
-        </ha-card>`;
+      const entity = this._config.entity || "remote";
+      this.shadowRoot.innerHTML = `<ha-card><div class="error">${this._escape(lbT(this._hass, "entity_missing", { entity }))}</div></ha-card>`;
       return;
     }
 
+    const remote = this._isRemoteSnapshot();
     const a = st.attributes || {};
     const status = a.status || "yellow";
     const meta = this._statusMeta(status);
     const recommendation = lbLocalizedEntityText(
-      this._hass, a, "recommendation", a.recommendation || this._localizeState(st.state)
+      this._hass,
+      a,
+      "recommendation",
+      a.recommendation || this._localizeState(st.state)
     );
     const reason = lbLocalizedEntityText(this._hass, a, "reason", a.reason || "");
-    const durationText = lbLocalizedEntityText(
-      this._hass, a, "duration", a.duration || ""
-    );
-    const title =
-      this._config.name ||
-      st.attributes.friendly_name ||
-      "Lüftungsberater";
+    const durationText = lbLocalizedEntityText(this._hass, a, "duration", a.duration || "");
+    const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsberater";
 
     const tempUnit = a.temperature_display_unit || this._temperatureUnit();
     const ti = this._fmt(this._displayTemperature(a.temperature_inside, tempUnit));
@@ -385,15 +472,11 @@ class LueftungsberaterCard extends HTMLElement {
     const diff = this._fmt(a.absolute_humidity_difference);
     const co2ppm = this._fmt(a.co2_ppm, 0);
     const hours = this._fmt(a.hours_since_last_airing);
-    const openMinutes = this._fmt(a.open_minutes, 0);
+    const openDuration = this._openDuration(a.open_minutes);
 
     const hasWindows = a.has_window_contacts === true;
     const windowOpen = a.window_open === true;
-    const hasCo2 = a.has_co2 === true && co2ppm !== null;
-
-    const windowSources = Array.isArray(a.source_window_entities)
-      ? a.source_window_entities
-      : [];
+    const windowSources = Array.isArray(a.source_window_entities) ? a.source_window_entities : [];
     const airingSource =
       a.source_airing ||
       a.source_last_airing ||
@@ -401,13 +484,11 @@ class LueftungsberaterCard extends HTMLElement {
       null;
 
     const rows = [];
-
     if (hasWindows) {
       if (windowOpen) {
-        const label =
-          openMinutes !== null
-            ? lbT(this._hass, "window.open_since", { minutes: openMinutes })
-            : lbT(this._hass, "window.open");
+        const label = openDuration
+          ? lbT(this._hass, "window.open_since", { duration: openDuration })
+          : lbT(this._hass, "window.open");
         rows.push({
           icon: "mdi:window-open-variant",
           cls: "window-open",
@@ -425,11 +506,7 @@ class LueftungsberaterCard extends HTMLElement {
       } else {
         rows.push({
           icon: "mdi:history",
-          html: this._metric(
-            lbT(this._hass, "airing.none"),
-            airingSource,
-            lbT(this._hass, "airing.open")
-          ),
+          html: this._metric(lbT(this._hass, "airing.none"), airingSource, lbT(this._hass, "airing.open")),
         });
       }
     }
@@ -447,21 +524,14 @@ class LueftungsberaterCard extends HTMLElement {
           lbT(this._hass, "metric.outdoor_temperature_open")
         ),
       ];
-
       if (target !== null) {
-        parts.push(
-          this._metric(
-            lbT(this._hass, "metric.target", { value: this._valueUnit(target, tempUnit) }),
-            a.source_target_temperature,
-            lbT(this._hass, "metric.thermostat_open")
-          )
-        );
+        parts.push(this._metric(
+          lbT(this._hass, "metric.target", { value: this._valueUnit(target, tempUnit) }),
+          a.source_target_temperature,
+          lbT(this._hass, "metric.thermostat_open")
+        ));
       }
-
-      rows.push({
-        icon: "mdi:thermometer",
-        html: `${lbT(this._hass, "metric.temperature")}: ${parts.join(" · ")}`,
-      });
+      rows.push({ icon: "mdi:thermometer", html: `${lbT(this._hass, "metric.temperature")}: ${parts.join(" · ")}` });
     }
 
     if (hi !== null && ho !== null) {
@@ -477,333 +547,100 @@ class LueftungsberaterCard extends HTMLElement {
           lbT(this._hass, "metric.outdoor_humidity_open")
         ),
       ];
-
       let html = `${lbT(this._hass, "metric.humidity")}: ${rh.join(" · ")}`;
-
       if (ahi !== null && aho !== null) {
         html += ` · ${this._metric(
           lbT(this._hass, "metric.inside", { value: this._valueUnit(ahi, "g/m³") }),
           a.source_absolute_humidity_inside,
           lbT(this._hass, "metric.absolute_humidity_open")
-        )} · ${lbT(this._hass, "metric.outside", { value: this._valueUnit(aho, "g/m³") })}`;
+        )} · ${this._metric(
+          lbT(this._hass, "metric.outside", { value: this._valueUnit(aho, "g/m³") }),
+          a.source_absolute_humidity_outside,
+          lbT(this._hass, "metric.absolute_humidity_outdoor_open")
+        )}`;
       }
-
-      if (diff !== null) {
-        html += ` · Δ ${this._valueUnit(diff, "g/m³")}`;
-      }
-
-      rows.push({
-        icon: "mdi:water-percent",
-        html,
-      });
+      if (diff !== null) html += ` · Δ ${this._valueUnit(diff, "g/m³")}`;
+      rows.push({ icon: "mdi:water-percent", html });
     }
 
     const co2DataStatus = a.co2_data_status || "current";
-
     if (a.has_co2 === true) {
       if (co2ppm !== null) {
-        let co2Text = `CO₂: ${this._metric(
-          this._valueUnit(co2ppm, "ppm"),
-          a.source_co2,
-          lbT(this._hass, "co2.history")
-        )} · ${this._escape(this._co2Label(a.co2_status))}`;
-
-        if (co2DataStatus === "grace") {
-          co2Text += ` · ${lbT(this._hass, "co2.grace")}`;
-        }
-
-        rows.push({
-          icon: "mdi:molecule-co2",
-          cls: co2DataStatus === "grace" ? "data-warning" : "",
-          html: co2Text,
-        });
+        let co2Text = `CO₂: ${this._metric(this._valueUnit(co2ppm, "ppm"), a.source_co2, lbT(this._hass, "co2.history"))} · ${this._escape(this._co2Label(a.co2_status))}`;
+        if (co2DataStatus === "grace") co2Text += ` · ${lbT(this._hass, "co2.grace")}`;
+        rows.push({ icon: "mdi:molecule-co2", cls: co2DataStatus === "grace" ? "data-warning" : "", html: co2Text });
       } else {
         rows.push({
           icon: "mdi:molecule-co2-off",
           cls: "data-warning",
-          html: this._metric(
-            lbT(this._hass, "co2.unavailable"),
-            a.source_co2,
-            lbT(this._hass, "co2.open")
-          ),
+          html: this._metric(lbT(this._hass, "co2.unavailable"), a.source_co2, lbT(this._hass, "co2.open")),
         });
       }
     }
 
     const showDuration = Boolean(durationText) && a.duration_key !== "not_needed";
-
     const reasonHtml = reason
-      ? this._metric(
-          reason,
-          this._reasonSource(a),
-          lbT(this._hass, "warning.open")
-        )
+      ? this._metric(reason, this._reasonSource(a), lbT(this._hass, "warning.open"))
       : "";
 
     this.shadowRoot.innerHTML = `
       <style>
-        :host {
-          --lb-green: var(--success-color, #43a047);
-          --lb-yellow: var(--warning-color, #f9a825);
-          --lb-red: var(--error-color, #db4437);
-          display: block;
-        }
-
-        ha-card {
-          overflow: hidden;
-          padding: 0;
-          cursor: pointer;
-          user-select: none;
-          -webkit-tap-highlight-color: transparent;
-        }
-
-        ha-card:focus-visible {
-          outline: 2px solid var(--primary-color);
-          outline-offset: 2px;
-        }
-
-        .header {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          padding: 16px;
-          color: var(--primary-text-color);
-          border-left: 6px solid var(--lb-accent);
-          background:
-            color-mix(
-              in srgb,
-              var(--lb-accent) 14%,
-              var(--ha-card-background, var(--card-background-color))
-            );
-        }
-
-        .header.green { --lb-accent: var(--lb-green); }
-        .header.yellow { --lb-accent: var(--lb-yellow); }
-        .header.red { --lb-accent: var(--lb-red); }
-
-        .icon-wrap {
-          width: 48px;
-          height: 48px;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-          flex: 0 0 auto;
-          background: color-mix(in srgb, var(--lb-accent) 20%, transparent);
-          color: var(--lb-accent);
-        }
-
-        .main-icon {
-          --mdc-icon-size: 31px;
-          color: var(--lb-accent);
-        }
-
-        .head-text {
-          min-width: 0;
-          flex: 1;
-        }
-
-        .title {
-          font-size: 14px;
-          color: var(--secondary-text-color);
-          margin-bottom: 3px;
-        }
-
-        .recommendation {
-          font-size: 20px;
-          font-weight: 600;
-          line-height: 1.15;
-          overflow-wrap: anywhere;
-        }
-
-        .body {
-          padding: 14px 16px 16px;
-        }
-
-        .why {
-          font-size: 15px;
-          font-weight: 700;
-          color: var(--primary-text-color);
-          margin-bottom: 6px;
-        }
-
-        .reason {
-          line-height: 1.45;
-          overflow-wrap: anywhere;
-        }
-
-        .duration {
-          display: grid;
-          gap: 2px;
-          margin-top: 12px;
-          line-height: 1.4;
-        }
-
-        .duration-label {
-          font-weight: 700;
-        }
-
-        .facts {
-          display: grid;
-          gap: 8px;
-          padding-top: 13px;
-          margin-top: 13px;
-          border-top: 1px solid var(--divider-color);
-          color: var(--secondary-text-color);
-          font-size: 12.5px;
-        }
-
-        .fact {
-          display: grid;
-          grid-template-columns: 22px minmax(0, 1fr);
-          gap: 7px;
-          align-items: start;
-          line-height: 1.35;
-        }
-
-        .fact ha-icon {
-          --mdc-icon-size: 18px;
-          color: var(--secondary-text-color);
-        }
-
-        .fact.window-open {
-          color: var(--primary-text-color);
-          font-weight: 600;
-        }
-
-        .fact.window-open ha-icon {
-          color: var(--primary-color);
-        }
-
-        .fact.data-warning {
-          color: var(--warning-color);
-          font-weight: 600;
-        }
-
-        .fact.data-warning ha-icon {
-          color: var(--warning-color);
-        }
-
-        .metric-link {
-          appearance: none;
-          background: none;
-          border: 0;
-          padding: 0;
-          margin: 0;
-          color: inherit;
-          font: inherit;
-          line-height: inherit;
-          cursor: pointer;
-          text-decoration-line: underline;
-          text-decoration-style: dotted;
-          text-decoration-thickness: 1px;
-          text-underline-offset: 2px;
-          text-decoration-color: color-mix(
-            in srgb,
-            currentColor 45%,
-            transparent
-          );
-          text-align: inherit;
-        }
-
-        .metric-link:hover,
-        .metric-link:focus-visible {
-          color: var(--primary-color);
-          text-decoration-style: solid;
-          outline: none;
-        }
-
-        .hint {
-          margin-top: 12px;
-          color: var(--secondary-text-color);
-          font-size: 11px;
-          opacity: 0.8;
-        }
-
-        .error {
-          padding: 16px;
-          color: var(--error-color);
-        }
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: var(--warning-color, #f9a825); --lb-red: var(--error-color, #db4437); display: block; }
+        ha-card { overflow: hidden; padding: 0; ${remote ? "" : "cursor: pointer;"} user-select: none; -webkit-tap-highlight-color: transparent; }
+        ha-card:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+        .header { display: flex; align-items: center; gap: 14px; padding: 16px; color: var(--primary-text-color); border-left: 6px solid var(--lb-accent); background: color-mix(in srgb, var(--lb-accent) 14%, var(--ha-card-background, var(--card-background-color))); }
+        .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.red { --lb-accent: var(--lb-red); }
+        .icon-wrap { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--lb-accent) 20%, transparent); color: var(--lb-accent); }
+        .main-icon { --mdc-icon-size: 31px; color: var(--lb-accent); }
+        .head-text { min-width: 0; flex: 1; }
+        .title { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 3px; }
+        .recommendation { font-size: 20px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
+        .body { padding: 14px 16px 16px; }
+        .why { font-size: 15px; font-weight: 700; color: var(--primary-text-color); margin-bottom: 6px; }
+        .reason { line-height: 1.45; overflow-wrap: anywhere; }
+        .duration { display: grid; gap: 2px; margin-top: 12px; line-height: 1.4; }
+        .duration-label { font-weight: 700; }
+        .facts { display: grid; gap: 8px; padding-top: 13px; margin-top: 13px; border-top: 1px solid var(--divider-color); color: var(--secondary-text-color); font-size: 12.5px; }
+        .fact { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 7px; align-items: start; line-height: 1.35; }
+        .fact ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
+        .fact.window-open { color: var(--primary-text-color); font-weight: 600; }
+        .fact.window-open ha-icon { color: var(--primary-color); }
+        .fact.data-warning { color: var(--warning-color); font-weight: 600; }
+        .fact.data-warning ha-icon { color: var(--warning-color); }
+        .metric-link { appearance: none; background: none; border: 0; padding: 0; margin: 0; color: inherit; font: inherit; line-height: inherit; cursor: pointer; text-decoration-line: underline; text-decoration-style: dotted; text-decoration-thickness: 1px; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-align: inherit; }
+        .metric-link:hover, .metric-link:focus-visible { color: var(--primary-color); text-decoration-style: solid; outline: none; }
+        .hint { margin-top: 12px; color: var(--secondary-text-color); font-size: 11px; opacity: 0.8; }
+        .error { padding: 16px; color: var(--error-color); }
       </style>
-
-      <ha-card
-        tabindex="0"
-        role="button"
-        aria-label="${this._escape(title)}"
-      >
+      <ha-card ${remote ? "" : 'tabindex="0" role="button"'} aria-label="${this._escape(title)}">
         <div class="header ${meta.cls}">
-          <div class="icon-wrap">
-            <ha-icon class="main-icon" icon="${meta.icon}"></ha-icon>
-          </div>
-          <div class="head-text">
-            <div class="title">${this._escape(title)}</div>
-            <div class="recommendation">
-              ${this._escape(recommendation)}
-            </div>
-          </div>
+          <div class="icon-wrap"><ha-icon class="main-icon" icon="${meta.icon}"></ha-icon></div>
+          <div class="head-text"><div class="title">${this._escape(title)}</div><div class="recommendation">${this._escape(recommendation)}</div></div>
         </div>
-
         <div class="body">
-          ${
-            reason
-              ? `
-                <div class="why">${lbT(this._hass, "why")}</div>
-                <div class="reason">${reasonHtml}</div>
-              `
-              : ""
-          }
-
-          ${
-            showDuration
-              ? `
-                <div class="duration">
-                  <span class="duration-label">${lbT(this._hass, "duration")}</span>
-                  <span>${this._escape(durationText)}</span>
-                </div>`
-              : ""
-          }
-
-          ${
-            rows.length
-              ? `
-                <div class="facts">
-                  ${rows
-                    .map(
-                      (row) => `
-                        <div class="fact ${row.cls || ""}">
-                          <ha-icon icon="${row.icon}"></ha-icon>
-                          <span>${row.html}</span>
-                        </div>`
-                    )
-                    .join("")}
-                </div>
-              `
-              : ""
-          }
-
-          <div class="hint">
-            ${lbT(this._hass, "hint")}
-          </div>
+          ${reason ? `<div class="why">${lbT(this._hass, "why")}</div><div class="reason">${reasonHtml}</div>` : ""}
+          ${showDuration ? `<div class="duration"><span class="duration-label">${lbT(this._hass, "duration")}</span><span>${this._escape(durationText)}</span></div>` : ""}
+          ${rows.length ? `<div class="facts">${rows.map((row) => `<div class="fact ${row.cls || ""}"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : ""}
+          ${remote ? "" : `<div class="hint">${lbT(this._hass, "hint")}</div>`}
         </div>
       </ha-card>`;
 
-    const card = this.shadowRoot.querySelector("ha-card");
-
-    if (card) {
-      card.addEventListener("click", () => this._handleMainTap());
-      card.addEventListener("keydown", (event) => {
+    if (!remote) {
+      const card = this.shadowRoot.querySelector("ha-card");
+      card?.addEventListener("click", () => this._handleMainTap());
+      card?.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           this._handleMainTap();
         }
       });
-    }
-
-    this.shadowRoot.querySelectorAll("[data-entity]").forEach((element) => {
-      element.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this._dispatchMoreInfo(element.dataset.entity);
+      this.shadowRoot.querySelectorAll("[data-entity]").forEach((element) => {
+        element.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this._dispatchMoreInfo(element.dataset.entity);
+        });
       });
-    });
+    }
   }
 
   _escape(value) {
@@ -818,7 +655,6 @@ if (!customElements.get("lueftungsberater-card")) {
 }
 
 window.customCards = window.customCards || [];
-
 if (!window.customCards.some((card) => card.type === "lueftungsberater-card")) {
   window.customCards.push({
     type: "lueftungsberater-card",
@@ -827,21 +663,8 @@ if (!window.customCards.some((card) => card.type === "lueftungsberater-card")) {
     preview: false,
     getEntitySuggestion: (hass, entityId) => {
       const stateObj = hass.states[entityId];
-
-      if (
-        !stateObj ||
-        stateObj.attributes.status === undefined ||
-        stateObj.attributes.reason === undefined
-      ) {
-        return null;
-      }
-
-      return {
-        config: {
-          type: "custom:lueftungsberater-card",
-          entity: entityId,
-        },
-      };
+      if (!stateObj || stateObj.attributes.status === undefined || stateObj.attributes.reason === undefined) return null;
+      return { config: { type: "custom:lueftungsberater-card", entity: entityId } };
     },
   });
 }
@@ -850,31 +673,53 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._remoteGroups = [];
+    this._remoteFetchBusy = false;
+    this._remoteTimer = null;
+    this._dialogMode = null;
+    this._dialogGroupId = null;
+    this._openRoomRef = null;
+    this._popupCard = null;
+  }
+
+  connectedCallback() {
+    this._ensureRemoteTimer();
+  }
+
+  disconnectedCallback() {
+    if (this._remoteTimer) clearInterval(this._remoteTimer);
+    this._remoteTimer = null;
+    this._destroyPopupCard();
   }
 
   setConfig(config) {
-    this._config = {
-      title: "Lüftungsberater",
-      ...config,
-    };
-
-    if (
-      this._config.entities !== undefined &&
-      !Array.isArray(this._config.entities)
-    ) {
+    this._config = { ...config };
+    if (this._config.entities !== undefined && !Array.isArray(this._config.entities)) {
       throw new Error(lbT(this._hass, "overview.invalid_entities"));
     }
-
-    this._render();
+    this._ensureShell();
+    this._renderOverview();
   }
 
   set hass(hass) {
+    const first = !this._hass;
+    const previousLanguage = this._hass ? lbLanguage(this._hass) : null;
     this._hass = hass;
-    this._render();
+    this._ensureShell();
+    this._renderOverview();
+    if (this._popupCard && !this._openRoomRef?.remote) this._popupCard.hass = hass;
+    if (this._dialogMode === "instance") {
+      const group = this._findGroup(this._dialogGroupId);
+      if (group && !group.remote) this._showInstanceRooms(group.id);
+    }
+    if (first || previousLanguage !== lbLanguage(hass)) this._fetchRemote();
+    this._ensureRemoteTimer();
   }
 
   getCardSize() {
-    return Math.max(2, (this._rooms()?.length || 1) + 1);
+    const groups = this._groups();
+    if (groups.length > 1) return Math.max(2, groups.length + 1);
+    return Math.max(1, (groups[0]?.rooms?.length || 1));
   }
 
   static getConfigElement() {
@@ -885,501 +730,390 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     return {};
   }
 
+  _ensureRemoteTimer() {
+    if (this._remoteTimer || !this.isConnected) return;
+    this._remoteTimer = setInterval(() => this._fetchRemote(), 10000);
+    if (this._hass) this._fetchRemote();
+  }
+
+  async _fetchRemote() {
+    if (!this._hass || this._remoteFetchBusy) return;
+    this._remoteFetchBusy = true;
+    try {
+      const message = { type: "lueftungsberater/remote_overview" };
+      let result;
+      if (typeof this._hass.callWS === "function") {
+        result = await this._hass.callWS(message);
+      } else if (this._hass.connection?.sendMessagePromise) {
+        result = await this._hass.connection.sendMessagePromise(message);
+      } else {
+        return;
+      }
+      this._remoteGroups = Array.isArray(result) ? result : [];
+      this._renderOverview();
+      this._refreshRemoteDialog();
+    } catch (_err) {
+      // The frontend talks only to the local HA websocket. A temporary frontend
+      // error must not replace the backend coordinator's 3-minute grace logic.
+    } finally {
+      this._remoteFetchBusy = false;
+    }
+  }
+
   _escape(value) {
     const div = document.createElement("div");
     div.textContent = String(value ?? "");
     return div.innerHTML;
   }
 
-  _localizeRecommendation(state, fallback) {
-    return fallback || lbT(this._hass, `recommendation.${state}`);
-  }
-
-  _statusMeta(status) {
-    if (status === "red") {
-      return {
-        rank: 3,
-        cls: "red",
-        icon: "mdi:window-closed-variant",
-      };
-    }
-
-    if (status === "yellow") {
-      return {
-        rank: 2,
-        cls: "yellow",
-        icon: "mdi:window-open",
-      };
-    }
-
-    return {
-      rank: 1,
-      cls: "green",
-      icon: "mdi:window-open-variant",
-    };
-  }
-
   _isAdvisorEntity(stateObj) {
-    if (!stateObj || !stateObj.attributes) return false;
-
+    if (!stateObj?.attributes) return false;
     const a = stateObj.attributes;
-
-    return (
+    return Boolean(
       stateObj.entity_id?.startsWith("sensor.") &&
       typeof a.status === "string" &&
       typeof a.mode === "string" &&
-      typeof a.reason === "string" &&
       typeof a.recommendation === "string" &&
-      (
-        a.room_name !== undefined ||
-        a.absolute_humidity_inside !== undefined
-      )
+      typeof a.reason === "string" &&
+      (a.room_name !== undefined || a.absolute_humidity_inside !== undefined)
     );
   }
 
   _roomName(stateObj) {
-    const explicit = stateObj.attributes.room_name;
-
-    if (explicit) return explicit;
-
-    const friendly = stateObj.attributes.friendly_name || stateObj.entity_id;
-
-    return String(friendly)
-      .replace(/^Lüftungsberater\s*/i, "")
-      .replace(/\s*Lüftungsberater$/i, "")
-      .trim() || friendly;
+    const a = stateObj.attributes || {};
+    if (a.room_name) return String(a.room_name);
+    const friendly = a.friendly_name || stateObj.entity_id;
+    return String(friendly).replace(/^Lüftungsberater\s*/i, "").replace(/\s*Lüftungsberater$/i, "").trim() || friendly;
   }
 
-  _rooms() {
-    if (!this._hass) return [];
-
-    let entityIds = [];
-
-    if (Array.isArray(this._config?.entities) && this._config.entities.length) {
-      entityIds = this._config.entities;
-    } else {
-      entityIds = Object.keys(this._hass.states).filter((entityId) =>
-        this._isAdvisorEntity(this._hass.states[entityId])
-      );
-    }
-
-    const rooms = entityIds
-      .map((entityId, index) => {
-        const stateObj = this._hass.states[entityId];
-
-        if (!this._isAdvisorEntity(stateObj)) return null;
-
-        const a = stateObj.attributes;
-        const meta = this._statusMeta(a.status);
-
-        return {
-          entityId,
-          index,
-          name: this._roomName(stateObj),
-          recommendation: lbLocalizedEntityText(
-            this._hass,
-            a,
-            "recommendation",
-            this._localizeRecommendation(stateObj.state, a.recommendation)
-          ),
-          reason: lbLocalizedEntityText(this._hass, a, "reason", a.reason || ""),
-          status: a.status,
-          rank: meta.rank,
-          cls: meta.cls,
-          icon: meta.icon,
-          windowOpen: a.window_open === true,
-          co2ppm: a.co2_ppm,
-          co2Status: a.co2_status,
-        };
-      })
-      .filter(Boolean);
-
-    // Manuell angegebene Räume behalten exakt ihre Reihenfolge.
-    // Autodiscovery sortiert nur alphabetisch für reproduzierbare Darstellung.
-    if (!Array.isArray(this._config?.entities) || !this._config.entities.length) {
-      rooms.sort((a, b) =>
-        a.name.localeCompare(b.name, this._hass.language || "de")
-      );
-    }
-
-    return rooms;
+  _statusMeta(status) {
+    if (status === "red") return { rank: 3, cls: "red", icon: "mdi:window-closed-variant" };
+    if (status === "yellow") return { rank: 2, cls: "yellow", icon: "mdi:window-open" };
+    return { rank: 1, cls: "green", icon: "mdi:window-open-variant" };
   }
 
-  _dispatchMoreInfo(entityId) {
-    const event = new Event("hass-action", {
-      bubbles: true,
-      composed: true,
-    });
-
-    event.detail = {
-      config: {
-        entity: entityId,
-        tap_action: { action: "more-info" },
-      },
-      action: "tap",
+  _roomFromLocal(stateObj, index) {
+    const a = stateObj.attributes || {};
+    const meta = this._statusMeta(a.status || "yellow");
+    return {
+      key: stateObj.entity_id,
+      entityId: stateObj.entity_id,
+      state: stateObj.state,
+      attributes: a,
+      name: this._roomName(stateObj),
+      status: a.status || "yellow",
+      cls: meta.cls,
+      icon: meta.icon,
+      rank: meta.rank,
+      recommendation: lbLocalizedEntityText(this._hass, a, "recommendation", a.recommendation || lbT(this._hass, `recommendation.${stateObj.state}`)),
+      windowOpen: a.window_open === true,
+      remote: false,
+      index,
     };
-
-    this.dispatchEvent(event);
   }
 
-  _summary(rooms) {
-    if (!rooms.length) return lbT(this._hass, "overview.no_rooms");
-
-    const red = rooms.filter((room) => room.status === "red").length;
-    const yellow = rooms.filter((room) => room.status === "yellow").length;
-    const green = rooms.filter((room) => room.status === "green").length;
-
-    const parts = [
-      `${rooms.length} ${lbT(this._hass, rooms.length === 1 ? "overview.room" : "overview.rooms")}`
-    ];
-
-    if (red) parts.push(`${red} ${lbT(this._hass, "overview.critical")}`);
-    if (yellow) parts.push(`${yellow} ${lbT(this._hass, "overview.attention")}`);
-    if (green && !red && !yellow) parts.push(lbT(this._hass, "overview.all_good"));
-
-    return parts.join(" · ");
+  _localGroups() {
+    if (!this._hass) return [];
+    const explicit = Array.isArray(this._config?.entities)
+      ? new Set(this._config.entities)
+      : null;
+    const groups = new Map();
+    let index = 0;
+    for (const stateObj of Object.values(this._hass.states)) {
+      if (!this._isAdvisorEntity(stateObj)) continue;
+      if (explicit && !explicit.has(stateObj.entity_id)) continue;
+      const a = stateObj.attributes || {};
+      const instanceId = String(a.instance_id || "legacy-local");
+      const instanceName = String(a.instance_name || "Lüftungsberater");
+      if (!groups.has(instanceId)) {
+        groups.set(instanceId, { id: `local:${instanceId}`, sourceId: instanceId, name: instanceName, available: true, remote: false, rooms: [] });
+      }
+      groups.get(instanceId).rooms.push(this._roomFromLocal(stateObj, index++));
+    }
+    for (const group of groups.values()) {
+      group.rooms.sort((a, b) => a.name.localeCompare(b.name, lbLocale(this._hass)));
+    }
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, lbLocale(this._hass)));
   }
 
-  _overallClass(rooms) {
-    if (rooms.some((room) => room.status === "red")) return "red";
-    if (rooms.some((room) => room.status === "yellow")) return "yellow";
+  _remoteRoom(group, room, index) {
+    const attrs = room?.attributes && typeof room.attributes === "object" ? room.attributes : {};
+    const state = String(room?.state || "wait");
+    const status = String(attrs.status || "yellow");
+    const meta = this._statusMeta(status);
+    const name = String(attrs.room_name || attrs.friendly_name || `${lbT(this._hass, "overview.room")} ${index + 1}`);
+    return {
+      key: `${group.id}:${attrs.room_name || index}`,
+      state,
+      attributes: attrs,
+      name,
+      status,
+      cls: meta.cls,
+      icon: meta.icon,
+      rank: meta.rank,
+      recommendation: lbLocalizedEntityText(this._hass, attrs, "recommendation", attrs.recommendation || lbT(this._hass, `recommendation.${state}`)),
+      windowOpen: attrs.window_open === true,
+      remote: true,
+      index,
+    };
+  }
+
+  _normalizedRemoteGroups() {
+    return (this._remoteGroups || []).map((group) => ({
+      id: String(group.id),
+      name: String(group.name || "Lüftungsberater"),
+      available: group.available !== false,
+      remote: true,
+      rooms: Array.isArray(group.rooms) ? group.rooms.map((room, index) => this._remoteRoom(group, room, index)) : [],
+    }));
+  }
+
+  _groups() {
+    return [...this._localGroups(), ...this._normalizedRemoteGroups()];
+  }
+
+  _groupClass(group) {
+    if (!group.available) return "unavailable";
+    if (group.rooms.some((room) => room.status === "red")) return "red";
+    if (group.rooms.some((room) => room.status === "yellow")) return "yellow";
     return "green";
   }
 
-  _render() {
-    if (!this.shadowRoot) return;
+  _roomRow(room, groupId) {
+    const badge = room.windowOpen
+      ? `<span class="badge"><ha-icon icon="mdi:window-open-variant"></ha-icon>${lbT(this._hass, "overview.open")}</span>`
+      : "";
+    return `
+      <button type="button" class="room-row ${room.cls}" data-room-key="${this._escape(room.key)}" data-group-id="${this._escape(groupId)}">
+        <ha-icon class="status-icon" icon="${room.icon}"></ha-icon>
+        <span class="room-line"><strong>${this._escape(room.name)}</strong><span class="separator"> · </span><span>${this._escape(room.recommendation)}</span></span>
+        ${badge}
+        <ha-icon class="chevron" icon="mdi:chevron-right"></ha-icon>
+      </button>`;
+  }
 
-    if (!this._hass || !this._config) {
-      this.shadowRoot.innerHTML = "";
+  _groupRow(group) {
+    const cls = this._groupClass(group);
+    const count = group.rooms.length;
+    const secondary = !group.available
+      ? lbT(this._hass, "overview.not_reachable")
+      : `${count} ${lbT(this._hass, count === 1 ? "overview.room" : "overview.rooms")}`;
+    const disabled = !group.available || !count;
+    return `
+      <button type="button" class="group-row ${cls}" data-group-open="${this._escape(group.id)}" ${disabled ? "disabled" : ""}>
+        <ha-icon class="group-icon" icon="${group.remote ? "mdi:lan-connect" : "mdi:home-outline"}"></ha-icon>
+        <span class="group-copy"><strong>${this._escape(group.name)}</strong><small>${this._escape(secondary)}</small></span>
+        ${disabled ? "" : '<ha-icon class="chevron" icon="mdi:chevron-right"></ha-icon>'}
+      </button>`;
+  }
+
+  _ensureShell() {
+    if (!this.shadowRoot || this.shadowRoot.querySelector("#overview")) return;
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: var(--warning-color, #f9a825); --lb-red: var(--error-color, #db4437); display: block; }
+        ha-card { overflow: hidden; padding: 0; }
+        .overview-title { padding: 12px 16px 9px; color: var(--primary-text-color); font-size: 17px; font-weight: 700; border-bottom: 1px solid var(--divider-color); }
+        .room-row, .group-row { --row-accent: var(--lb-green); appearance: none; width: 100%; min-width: 0; border: 0; border-top: 1px solid var(--divider-color); border-left: 4px solid var(--row-accent); background: transparent; color: var(--primary-text-color); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .room-row:first-child, .group-row:first-child { border-top: 0; }
+        .room-row.yellow, .group-row.yellow { --row-accent: var(--lb-yellow); }
+        .room-row.red, .group-row.red { --row-accent: var(--lb-red); }
+        .group-row.unavailable { --row-accent: var(--secondary-text-color); opacity: .75; cursor: default; }
+        .room-row { display: grid; grid-template-columns: 27px minmax(0, 1fr) auto 22px; gap: 8px; align-items: center; min-height: 48px; padding: 9px 10px 9px 12px; }
+        .group-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 22px; gap: 9px; align-items: center; min-height: 56px; padding: 10px 12px; }
+        .room-row:not(:disabled):hover, .room-row:focus-visible, .group-row:not(:disabled):hover, .group-row:focus-visible { background: color-mix(in srgb, var(--row-accent) 7%, transparent); outline: none; }
+        .status-icon { --mdc-icon-size: 22px; color: var(--row-accent); }
+        .group-icon { --mdc-icon-size: 25px; color: var(--row-accent); }
+        .room-line { min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
+        .room-line strong { font-weight: 700; }
+        .separator { color: var(--secondary-text-color); }
+        .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-text-color); font-size: 10px; font-weight: 600; white-space: nowrap; }
+        .badge ha-icon { --mdc-icon-size: 13px; color: var(--primary-color); }
+        .chevron { --mdc-icon-size: 21px; color: var(--secondary-text-color); }
+        .group-copy { display: grid; min-width: 0; gap: 2px; }
+        .group-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+        .group-copy small { color: var(--secondary-text-color); font-size: 11px; }
+        .empty { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 16px; color: var(--secondary-text-color); }
+        .empty strong { display: block; color: var(--primary-text-color); margin-bottom: 3px; }
+        .empty span { display: block; line-height: 1.4; font-size: 12px; }
+        dialog { box-sizing: border-box; width: min(94vw, 620px); max-height: min(88vh, 850px); margin: auto; padding: 0; border: 0; border-radius: var(--ha-card-border-radius, 12px); background: var(--ha-card-background, var(--card-background-color)); color: var(--primary-text-color); box-shadow: var(--ha-card-box-shadow, 0 8px 35px rgba(0,0,0,.35)); overflow: hidden; }
+        dialog::backdrop { background: rgba(0,0,0,.48); }
+        .dialog-shell { display: grid; grid-template-rows: auto minmax(0, 1fr); max-height: min(88vh, 850px); }
+        .dialog-header { display: grid; grid-template-columns: 40px minmax(0,1fr) 40px; align-items: center; min-height: 52px; border-bottom: 1px solid var(--divider-color); }
+        .dialog-title { padding: 0 8px; text-align: center; font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dialog-action { appearance: none; width: 40px; height: 40px; margin: 6px; border: 0; border-radius: 50%; background: transparent; color: var(--primary-text-color); cursor: pointer; display: grid; place-items: center; }
+        .dialog-action:hover, .dialog-action:focus-visible { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); outline: none; }
+        .dialog-action.hidden { visibility: hidden; }
+        .dialog-body { min-height: 0; overflow: auto; padding: 0; }
+        .detail-wrap { padding: 12px; }
+        @media (max-width: 520px) { dialog { width: calc(100vw - 16px); max-height: calc(100vh - 32px); } .dialog-shell { max-height: calc(100vh - 32px); } .room-row { grid-template-columns: 25px minmax(0,1fr) auto 20px; gap: 6px; } }
+      </style>
+      <ha-card><div id="overview"></div></ha-card>
+      <dialog id="lb-dialog">
+        <div class="dialog-shell">
+          <div class="dialog-header">
+            <button type="button" id="dialog-back" class="dialog-action hidden" aria-label="${lbT(this._hass, "overview.back")}"><ha-icon icon="mdi:arrow-left"></ha-icon></button>
+            <div id="dialog-title" class="dialog-title"></div>
+            <button type="button" id="dialog-close" class="dialog-action" aria-label="${lbT(this._hass, "overview.close")}"><ha-icon icon="mdi:close"></ha-icon></button>
+          </div>
+          <div id="dialog-body" class="dialog-body"></div>
+        </div>
+      </dialog>`;
+
+    const dialog = this.shadowRoot.querySelector("#lb-dialog");
+    this.shadowRoot.querySelector("#dialog-close")?.addEventListener("click", () => this._closeDialog());
+    this.shadowRoot.querySelector("#dialog-back")?.addEventListener("click", () => this._showInstanceRooms(this._dialogGroupId));
+    dialog?.addEventListener("close", () => this._resetDialog());
+    dialog?.addEventListener("click", (event) => {
+      if (event.target === dialog) this._closeDialog();
+    });
+  }
+
+  _renderOverview() {
+    if (!this.shadowRoot || !this._hass || !this._config) return;
+    this._ensureShell();
+    const container = this.shadowRoot.querySelector("#overview");
+    if (!container) return;
+    const groups = this._groups();
+    const title = String(this._config.title || "").trim();
+
+    let content;
+    if (!groups.length) {
+      content = `<div class="empty"><ha-icon icon="mdi:home-search-outline"></ha-icon><div><strong>${lbT(this._hass, "overview.empty_title")}</strong><span>${lbT(this._hass, "overview.empty_description")}</span></div></div>`;
+    } else if (groups.length === 1 && groups[0].available && groups[0].rooms.length) {
+      content = groups[0].rooms.map((room) => this._roomRow(room, groups[0].id)).join("");
+    } else {
+      content = groups.map((group) => this._groupRow(group)).join("");
+    }
+
+    container.innerHTML = `${title ? `<div class="overview-title">${this._escape(title)}</div>` : ""}<div class="overview-content">${content}</div>`;
+    container.querySelectorAll("[data-room-key]").forEach((element) => {
+      element.addEventListener("click", () => this._showRoom(element.dataset.groupId, element.dataset.roomKey, false));
+    });
+    container.querySelectorAll("[data-group-open]").forEach((element) => {
+      element.addEventListener("click", () => this._showInstanceRooms(element.dataset.groupOpen));
+    });
+  }
+
+  _findGroup(groupId) {
+    return this._groups().find((group) => group.id === groupId) || null;
+  }
+
+  _openDialog() {
+    const dialog = this.shadowRoot?.querySelector("#lb-dialog");
+    if (!dialog) return;
+    if (!dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+  }
+
+  _closeDialog() {
+    const dialog = this.shadowRoot?.querySelector("#lb-dialog");
+    if (!dialog) return;
+    if (typeof dialog.close === "function" && dialog.open) dialog.close();
+    else {
+      dialog.removeAttribute("open");
+      this._resetDialog();
+    }
+  }
+
+  _resetDialog() {
+    this._destroyPopupCard();
+    this._dialogMode = null;
+    this._dialogGroupId = null;
+    this._openRoomRef = null;
+    const body = this.shadowRoot?.querySelector("#dialog-body");
+    if (body) body.innerHTML = "";
+  }
+
+  _destroyPopupCard() {
+    if (this._popupCard?.remove) this._popupCard.remove();
+    this._popupCard = null;
+  }
+
+  _setDialogHeader(title, canBack) {
+    const titleNode = this.shadowRoot?.querySelector("#dialog-title");
+    const back = this.shadowRoot?.querySelector("#dialog-back");
+    if (titleNode) titleNode.textContent = title || "";
+    if (back) {
+      back.classList.toggle("hidden", !canBack);
+      back.setAttribute("aria-label", lbT(this._hass, "overview.back"));
+    }
+    const close = this.shadowRoot?.querySelector("#dialog-close");
+    if (close) close.setAttribute("aria-label", lbT(this._hass, "overview.close"));
+  }
+
+  _showInstanceRooms(groupId) {
+    const group = this._findGroup(groupId);
+    if (!group || !group.available || !group.rooms.length) return;
+    this._destroyPopupCard();
+    this._dialogMode = "instance";
+    this._dialogGroupId = group.id;
+    this._openRoomRef = null;
+    this._setDialogHeader(group.name, false);
+    const body = this.shadowRoot.querySelector("#dialog-body");
+    body.innerHTML = group.rooms.map((room) => this._roomRow(room, group.id)).join("");
+    body.querySelectorAll("[data-room-key]").forEach((element) => {
+      element.addEventListener("click", () => this._showRoom(element.dataset.groupId, element.dataset.roomKey, true));
+    });
+    this._openDialog();
+  }
+
+  _showRoom(groupId, roomKey, canBack) {
+    const group = this._findGroup(groupId);
+    const room = group?.rooms?.find((candidate) => candidate.key === roomKey);
+    if (!group || !room) return;
+    this._destroyPopupCard();
+    this._dialogMode = "room";
+    this._dialogGroupId = group.id;
+    this._openRoomRef = { groupId: group.id, roomKey: room.key, remote: room.remote, canBack };
+    this._setDialogHeader(room.name, canBack);
+    const body = this.shadowRoot.querySelector("#dialog-body");
+    body.innerHTML = '<div class="detail-wrap" id="detail-wrap"></div>';
+    const wrap = body.querySelector("#detail-wrap");
+    const card = document.createElement("lueftungsberater-card");
+    if (room.remote) {
+      card.setConfig({ remote_snapshot: { state: room.state, attributes: room.attributes }, name: room.name });
+    } else {
+      card.setConfig({ entity: room.entityId, name: room.name });
+    }
+    card.hass = this._hass;
+    wrap.appendChild(card);
+    this._popupCard = card;
+    this._openDialog();
+  }
+
+  _refreshRemoteDialog() {
+    if (this._dialogMode === "instance") {
+      const group = this._findGroup(this._dialogGroupId);
+      if (!group || !group.remote) return;
+      if (!group.available || !group.rooms.length) {
+        this._closeDialog();
+        return;
+      }
+      this._showInstanceRooms(group.id);
       return;
     }
 
-    const rooms = this._rooms();
-    const overall = this._overallClass(rooms);
-    const title = this._config.title || "Lüftungsberater";
-
-    const roomHtml = rooms.length
-      ? rooms
-          .map((room) => {
-            const secondary = room.reason
-              ? room.reason
-              : lbT(this._hass, "overview.no_reason");
-
-            const windowBadge = room.windowOpen
-              ? `
-                <span class="badge">
-                  <ha-icon icon="mdi:window-open-variant"></ha-icon>
-                  ${lbT(this._hass, "overview.open")}
-                </span>
-              `
-              : "";
-
-            return `
-              <button
-                type="button"
-                class="room ${room.cls}"
-                data-entity="${this._escape(room.entityId)}"
-              >
-                <div class="room-icon">
-                  <ha-icon icon="${room.icon}"></ha-icon>
-                </div>
-
-                <div class="room-copy">
-                  <div class="room-topline">
-                    <span class="room-name">${this._escape(room.name)}</span>
-                    ${windowBadge}
-                  </div>
-
-                  <div class="room-recommendation">
-                    ${this._escape(room.recommendation)}
-                  </div>
-
-                  <div class="room-reason">
-                    ${this._escape(secondary)}
-                  </div>
-                </div>
-
-                <ha-icon
-                  class="chevron"
-                  icon="mdi:chevron-right"
-                ></ha-icon>
-              </button>
-            `;
-          })
-          .join("")
-      : `
-        <div class="empty">
-          <ha-icon icon="mdi:home-search-outline"></ha-icon>
-          <div>
-            <strong>${lbT(this._hass, "overview.empty_title")}</strong>
-            <span>${lbT(this._hass, "overview.empty_description")}</span>
-          </div>
-        </div>
-      `;
-
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host {
-          --lb-green: var(--success-color, #43a047);
-          --lb-yellow: var(--warning-color, #f9a825);
-          --lb-red: var(--error-color, #db4437);
-          display: block;
-        }
-
-        ha-card {
-          overflow: hidden;
-          padding: 0;
-        }
-
-        .header {
-          --lb-accent: var(--lb-green);
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 15px 16px;
-          border-left: 6px solid var(--lb-accent);
-          background:
-            color-mix(
-              in srgb,
-              var(--lb-accent) 10%,
-              var(--ha-card-background, var(--card-background-color))
-            );
-        }
-
-        .header.yellow {
-          --lb-accent: var(--lb-yellow);
-        }
-
-        .header.red {
-          --lb-accent: var(--lb-red);
-        }
-
-        .header ha-icon {
-          --mdc-icon-size: 27px;
-          color: var(--lb-accent);
-        }
-
-        .header-text {
-          min-width: 0;
-        }
-
-        .title {
-          color: var(--primary-text-color);
-          font-size: 18px;
-          font-weight: 700;
-          line-height: 1.2;
-        }
-
-        .summary {
-          margin-top: 2px;
-          color: var(--secondary-text-color);
-          font-size: 12px;
-        }
-
-        .rooms {
-          display: grid;
-        }
-
-        .room {
-          --room-accent: var(--lb-green);
-          appearance: none;
-          display: grid;
-          grid-template-columns: 42px minmax(0, 1fr) 24px;
-          gap: 11px;
-          align-items: center;
-          width: 100%;
-          min-width: 0;
-          padding: 13px 14px 13px 16px;
-          border: 0;
-          border-top: 1px solid var(--divider-color);
-          border-left: 4px solid var(--room-accent);
-          background: transparent;
-          color: var(--primary-text-color);
-          font: inherit;
-          text-align: left;
-          cursor: pointer;
-          -webkit-tap-highlight-color: transparent;
-        }
-
-        .room:first-child {
-          border-top: 0;
-        }
-
-        .room.yellow {
-          --room-accent: var(--lb-yellow);
-        }
-
-        .room.red {
-          --room-accent: var(--lb-red);
-        }
-
-        .room:hover,
-        .room:focus-visible {
-          background:
-            color-mix(
-              in srgb,
-              var(--room-accent) 7%,
-              transparent
-            );
-          outline: none;
-        }
-
-        .room-icon {
-          width: 38px;
-          height: 38px;
-          display: grid;
-          place-items: center;
-          border-radius: 50%;
-          background:
-            color-mix(
-              in srgb,
-              var(--room-accent) 15%,
-              transparent
-            );
-          color: var(--room-accent);
-        }
-
-        .room-icon ha-icon {
-          --mdc-icon-size: 23px;
-        }
-
-        .room-copy {
-          min-width: 0;
-        }
-
-        .room-topline {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          min-width: 0;
-        }
-
-        .room-name {
-          min-width: 0;
-          overflow: hidden;
-          color: var(--primary-text-color);
-          font-size: 14px;
-          font-weight: 700;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .room-recommendation {
-          margin-top: 2px;
-          color: var(--primary-text-color);
-          font-size: 14px;
-          font-weight: 600;
-          line-height: 1.25;
-        }
-
-        .room-reason {
-          display: -webkit-box;
-          margin-top: 3px;
-          overflow: hidden;
-          color: var(--secondary-text-color);
-          font-size: 11.5px;
-          line-height: 1.3;
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 2;
-        }
-
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 3px;
-          flex: 0 0 auto;
-          padding: 2px 6px;
-          border-radius: 999px;
-          background:
-            color-mix(
-              in srgb,
-              var(--primary-color) 12%,
-              transparent
-            );
-          color: var(--primary-text-color);
-          font-size: 10px;
-          font-weight: 600;
-        }
-
-        .badge ha-icon {
-          --mdc-icon-size: 13px;
-          color: var(--primary-color);
-        }
-
-        .chevron {
-          --mdc-icon-size: 22px;
-          color: var(--secondary-text-color);
-        }
-
-        .empty {
-          display: grid;
-          grid-template-columns: 32px minmax(0, 1fr);
-          gap: 10px;
-          align-items: start;
-          padding: 18px 16px;
-          color: var(--secondary-text-color);
-        }
-
-        .empty > ha-icon {
-          --mdc-icon-size: 25px;
-        }
-
-        .empty strong {
-          display: block;
-          color: var(--primary-text-color);
-          margin-bottom: 4px;
-        }
-
-        .empty span {
-          display: block;
-          line-height: 1.4;
-          font-size: 12px;
-        }
-
-        code {
-          font-family: var(--code-font-family, monospace);
-        }
-      </style>
-
-      <ha-card>
-        <div class="header ${overall}">
-          <ha-icon icon="mdi:window-open-variant"></ha-icon>
-          <div class="header-text">
-            <div class="title">${this._escape(title)}</div>
-            <div class="summary">
-              ${this._escape(this._summary(rooms))}
-            </div>
-          </div>
-        </div>
-
-        <div class="rooms">
-          ${roomHtml}
-        </div>
-      </ha-card>
-    `;
-
-    this.shadowRoot.querySelectorAll("[data-entity]").forEach((element) => {
-      element.addEventListener("click", () => {
-        this._dispatchMoreInfo(element.dataset.entity);
-      });
-    });
+    if (!this._popupCard || !this._openRoomRef?.remote) return;
+    const group = this._findGroup(this._openRoomRef.groupId);
+    const room = group?.rooms?.find((candidate) => candidate.key === this._openRoomRef.roomKey);
+    if (!group?.available || !room) {
+      this._closeDialog();
+      return;
+    }
+    this._popupCard.setConfig({ remote_snapshot: { state: room.state, attributes: room.attributes }, name: room.name });
+    this._popupCard.hass = this._hass;
   }
 }
 
 if (!customElements.get("lueftungsberater-overview-card")) {
-  customElements.define(
-    "lueftungsberater-overview-card",
-    LueftungsberaterOverviewCard
-  );
+  customElements.define("lueftungsberater-overview-card", LueftungsberaterOverviewCard);
 }
 
 window.customCards = window.customCards || [];
-
-if (
-  !window.customCards.some(
-    (card) => card.type === "lueftungsberater-overview-card"
-  )
-) {
+if (!window.customCards.some((card) => card.type === "lueftungsberater-overview-card")) {
   window.customCards.push({
     type: "lueftungsberater-overview-card",
     name: lbT(null, "picker.overview.name"),
@@ -1392,6 +1126,7 @@ class LueftungsberaterCardEditor extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._hassSignature = null;
   }
 
   setConfig(config) {
@@ -1400,35 +1135,32 @@ class LueftungsberaterCardEditor extends HTMLElement {
   }
 
   set hass(hass) {
+    const signature = this._signature(hass);
     this._hass = hass;
-    this._render();
+    if (signature !== this._hassSignature) {
+      this._hassSignature = signature;
+      this._render();
+    }
   }
 
-  _advisorEntities() {
-    if (!this._hass) return [];
-    return Object.values(this._hass.states)
+  _advisorEntities(hass = this._hass) {
+    if (!hass) return [];
+    return Object.values(hass.states)
       .filter((stateObj) => {
         const a = stateObj.attributes || {};
-        return (
-          stateObj.entity_id.startsWith("sensor.") &&
-          typeof a.status === "string" &&
-          typeof a.mode === "string" &&
-          typeof a.recommendation === "string" &&
-          typeof a.reason === "string" &&
-          (a.room_name !== undefined || a.absolute_humidity_inside !== undefined)
-        );
+        return stateObj.entity_id.startsWith("sensor.") && typeof a.status === "string" && typeof a.mode === "string" && typeof a.recommendation === "string" && typeof a.reason === "string" && (a.room_name !== undefined || a.absolute_humidity_inside !== undefined);
       })
-      .sort((a, b) =>
-        this._name(a).localeCompare(this._name(b), this._hass.language || "de")
-      );
+      .sort((a, b) => this._name(a).localeCompare(this._name(b), lbLocale(hass)));
+  }
+
+  _signature(hass) {
+    if (!hass) return "none";
+    const entities = this._advisorEntities(hass).map((stateObj) => `${stateObj.entity_id}:${this._name(stateObj)}`);
+    return `${lbLanguage(hass)}|${entities.join("|")}`;
   }
 
   _name(stateObj) {
-    return (
-      stateObj.attributes.room_name ||
-      stateObj.attributes.friendly_name ||
-      stateObj.entity_id
-    );
+    return stateObj.attributes.room_name || stateObj.attributes.friendly_name || stateObj.entity_id;
   }
 
   _escape(value) {
@@ -1443,86 +1175,29 @@ class LueftungsberaterCardEditor extends HTMLElement {
       if (next[key] === undefined || next[key] === "") delete next[key];
     }
     this._config = next;
-
-    const event = new Event("config-changed", {
-      bubbles: true,
-      composed: true,
-    });
+    const event = new Event("config-changed", { bubbles: true, composed: true });
     event.detail = { config: next };
     this.dispatchEvent(event);
   }
 
   _render() {
     if (!this.shadowRoot || !this._config) return;
-
     const entities = this._advisorEntities();
     const current = this._config.entity || "";
-
     this.shadowRoot.innerHTML = `
       <style>
         .editor { display: grid; gap: 14px; padding: 8px 0 16px; }
-        label {
-          display: grid;
-          gap: 6px;
-          color: var(--primary-text-color);
-          font-size: 14px;
-          font-weight: 600;
-        }
-        select, input {
-          box-sizing: border-box;
-          width: 100%;
-          min-height: 44px;
-          padding: 8px 10px;
-          border: 1px solid var(--divider-color);
-          border-radius: 8px;
-          background: var(--ha-color-form-background, var(--card-background-color));
-          color: var(--primary-text-color);
-          font: inherit;
-        }
-        .hint {
-          color: var(--secondary-text-color);
-          font-size: 12px;
-          line-height: 1.4;
-        }
+        label { display: grid; gap: 6px; color: var(--primary-text-color); font-size: 14px; font-weight: 600; }
+        select, input { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--ha-color-form-background, var(--card-background-color)); color: var(--primary-text-color); font: inherit; }
+        .hint { color: var(--secondary-text-color); font-size: 12px; line-height: 1.4; }
       </style>
-
       <div class="editor">
-        <label>
-          ${lbT(this._hass, "editor.room")}
-          <select id="entity">
-            <option value="">${lbT(this._hass, "editor.select_room")}</option>
-            ${entities.map((stateObj) => `
-              <option
-                value="${this._escape(stateObj.entity_id)}"
-                ${stateObj.entity_id === current ? "selected" : ""}
-              >${this._escape(this._name(stateObj))}</option>
-            `).join("")}
-          </select>
-        </label>
-
-        <label>
-          ${lbT(this._hass, "editor.card_name")}
-          <input
-            id="name"
-            type="text"
-            value="${this._escape(this._config.name || "")}"
-            placeholder="${this._escape(lbT(this._hass, "editor.card_name_placeholder"))}"
-          />
-        </label>
-
-        <div class="hint">
-          ${lbT(this._hass, "editor.room_hint")}
-        </div>
-      </div>
-    `;
-
-    this.shadowRoot.querySelector("#entity")?.addEventListener("change", (event) => {
-      this._changed({ entity: event.target.value || undefined });
-    });
-
-    this.shadowRoot.querySelector("#name")?.addEventListener("change", (event) => {
-      this._changed({ name: event.target.value.trim() || undefined });
-    });
+        <label>${lbT(this._hass, "editor.room")}<select id="entity"><option value="">${lbT(this._hass, "editor.select_room")}</option>${entities.map((stateObj) => `<option value="${this._escape(stateObj.entity_id)}" ${stateObj.entity_id === current ? "selected" : ""}>${this._escape(this._name(stateObj))}</option>`).join("")}</select></label>
+        <label>${lbT(this._hass, "editor.card_name")}<input id="name" type="text" value="${this._escape(this._config.name || "")}" placeholder="${this._escape(lbT(this._hass, "editor.card_name_placeholder"))}" /></label>
+        <div class="hint">${lbT(this._hass, "editor.room_hint")}</div>
+      </div>`;
+    this.shadowRoot.querySelector("#entity")?.addEventListener("change", (event) => this._changed({ entity: event.target.value || undefined }));
+    this.shadowRoot.querySelector("#name")?.addEventListener("change", (event) => this._changed({ name: event.target.value.trim() || undefined }));
   }
 }
 
@@ -1530,11 +1205,11 @@ if (!customElements.get("lueftungsberater-card-editor")) {
   customElements.define("lueftungsberater-card-editor", LueftungsberaterCardEditor);
 }
 
-
 class LueftungsberaterOverviewCardEditor extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._hassSignature = null;
   }
 
   setConfig(config) {
@@ -1543,29 +1218,35 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
   }
 
   set hass(hass) {
+    const signature = this._signature(hass);
     this._hass = hass;
-    this._render();
+    if (signature !== this._hassSignature) {
+      this._hassSignature = signature;
+      this._render();
+    }
   }
 
-  _advisorEntities() {
-    if (!this._hass) return [];
-    return Object.values(this._hass.states)
+  _advisorEntities(hass = this._hass) {
+    if (!hass) return [];
+    return Object.values(hass.states)
       .filter((stateObj) => {
         const a = stateObj.attributes || {};
-        return (
-          stateObj.entity_id.startsWith("sensor.") &&
-          typeof a.status === "string" &&
-          typeof a.mode === "string" &&
-          typeof a.recommendation === "string" &&
-          typeof a.reason === "string" &&
-          (a.room_name !== undefined || a.absolute_humidity_inside !== undefined)
-        );
+        return stateObj.entity_id.startsWith("sensor.") && typeof a.status === "string" && typeof a.mode === "string" && typeof a.recommendation === "string" && typeof a.reason === "string" && (a.room_name !== undefined || a.absolute_humidity_inside !== undefined);
       })
       .sort((a, b) => {
-        const an = a.attributes.room_name || a.attributes.friendly_name || a.entity_id;
-        const bn = b.attributes.room_name || b.attributes.friendly_name || b.entity_id;
-        return an.localeCompare(bn, this._hass.language || "de");
+        const an = `${a.attributes.instance_name || ""}:${a.attributes.room_name || a.attributes.friendly_name || a.entity_id}`;
+        const bn = `${b.attributes.instance_name || ""}:${b.attributes.room_name || b.attributes.friendly_name || b.entity_id}`;
+        return an.localeCompare(bn, lbLocale(hass));
       });
+  }
+
+  _signature(hass) {
+    if (!hass) return "none";
+    const entities = this._advisorEntities(hass).map((stateObj) => {
+      const a = stateObj.attributes || {};
+      return `${stateObj.entity_id}:${a.instance_name || ""}:${a.room_name || a.friendly_name || ""}`;
+    });
+    return `${lbLanguage(hass)}|${entities.join("|")}`;
   }
 
   _escape(value) {
@@ -1576,112 +1257,54 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
 
   _emit(next) {
     this._config = next;
-    const event = new Event("config-changed", {
-      bubbles: true,
-      composed: true,
-    });
+    const event = new Event("config-changed", { bubbles: true, composed: true });
     event.detail = { config: next };
     this.dispatchEvent(event);
   }
 
   _render() {
     if (!this.shadowRoot || !this._config) return;
-
     const entities = this._advisorEntities();
-    const explicit = Array.isArray(this._config.entities)
-      ? this._config.entities
-      : null;
+    const explicit = Array.isArray(this._config.entities) ? this._config.entities : null;
 
     this.shadowRoot.innerHTML = `
       <style>
         .editor { display: grid; gap: 14px; padding: 8px 0 16px; }
-        .title {
-          display: grid;
-          gap: 6px;
-          color: var(--primary-text-color);
-          font-size: 14px;
-          font-weight: 600;
-        }
-        input[type="text"] {
-          box-sizing: border-box;
-          width: 100%;
-          min-height: 44px;
-          padding: 8px 10px;
-          border: 1px solid var(--divider-color);
-          border-radius: 8px;
-          background: var(--ha-color-form-background, var(--card-background-color));
-          color: var(--primary-text-color);
-          font: inherit;
-        }
+        .title { display: grid; gap: 6px; color: var(--primary-text-color); font-size: 14px; font-weight: 600; }
+        input[type="text"] { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--divider-color); border-radius: 8px; background: var(--ha-color-form-background, var(--card-background-color)); color: var(--primary-text-color); font: inherit; }
         .rooms { display: grid; gap: 6px; }
-        .room {
-          display: flex;
-          align-items: center;
-          gap: 9px;
-          min-height: 34px;
-          color: var(--primary-text-color);
-          font-size: 13px;
-        }
-        .hint {
-          color: var(--secondary-text-color);
-          font-size: 12px;
-          line-height: 1.4;
-        }
+        .room { display: flex; align-items: center; gap: 9px; min-height: 34px; color: var(--primary-text-color); font-size: 13px; }
+        .room-copy { display: grid; gap: 1px; min-width: 0; }
+        .room-copy small { color: var(--secondary-text-color); }
+        .hint { color: var(--secondary-text-color); font-size: 12px; line-height: 1.4; }
       </style>
-
       <div class="editor">
-        <label class="title">
-          ${lbT(this._hass, "editor.title")}
-          <input
-            id="title"
-            type="text"
-            value="${this._escape(this._config.title || "Lüftungsberater")}"
-          />
-        </label>
-
-        <div>
-          <strong>${lbT(this._hass, "editor.rooms")}</strong>
-          <div class="hint">${lbT(this._hass, "editor.rooms_hint")}</div>
-        </div>
-
+        <label class="title">${lbT(this._hass, "editor.title")}<input id="title" type="text" value="${this._escape(this._config.title || "")}" /></label>
         <div class="rooms">
+          <strong>${lbT(this._hass, "editor.rooms")}</strong>
           ${entities.map((stateObj) => {
-            const checked = explicit === null || explicit.includes(stateObj.entity_id);
-            const name =
-              stateObj.attributes.room_name ||
-              stateObj.attributes.friendly_name ||
-              stateObj.entity_id;
-            return `
-              <label class="room">
-                <input
-                  type="checkbox"
-                  data-entity="${this._escape(stateObj.entity_id)}"
-                  ${checked ? "checked" : ""}
-                />
-                <span>${this._escape(name)}</span>
-              </label>
-            `;
-          }).join("")}
+            const a = stateObj.attributes || {};
+            const checked = explicit ? explicit.includes(stateObj.entity_id) : true;
+            const room = a.room_name || a.friendly_name || stateObj.entity_id;
+            return `<label class="room"><input type="checkbox" data-entity="${this._escape(stateObj.entity_id)}" ${checked ? "checked" : ""}/><span class="room-copy"><span>${this._escape(room)}</span>${a.instance_name ? `<small>${this._escape(a.instance_name)}</small>` : ""}</span></label>`;
+          }).join("") || `<span class="hint">${lbT(this._hass, "overview.empty_title")}</span>`}
         </div>
-      </div>
-    `;
+        <div class="hint">${lbT(this._hass, "editor.rooms_hint")}</div>
+      </div>`;
 
     this.shadowRoot.querySelector("#title")?.addEventListener("change", (event) => {
       const next = { ...this._config };
       const value = event.target.value.trim();
-      if (value && value !== "Lüftungsberater") next.title = value;
-      else delete next.title;
+      if (value) next.title = value; else delete next.title;
       this._emit(next);
     });
 
     this.shadowRoot.querySelectorAll("[data-entity]").forEach((checkbox) => {
       checkbox.addEventListener("change", () => {
-        const selected = Array.from(
-          this.shadowRoot.querySelectorAll("[data-entity]:checked")
-        ).map((item) => item.dataset.entity);
-
+        const all = [...this.shadowRoot.querySelectorAll("[data-entity]")];
+        const selected = all.filter((item) => item.checked).map((item) => item.dataset.entity);
         const next = { ...this._config };
-        if (selected.length === entities.length) delete next.entities;
+        if (selected.length === all.length) delete next.entities;
         else next.entities = selected;
         this._emit(next);
       });
@@ -1690,9 +1313,5 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
 }
 
 if (!customElements.get("lueftungsberater-overview-card-editor")) {
-  customElements.define(
-    "lueftungsberater-overview-card-editor",
-    LueftungsberaterOverviewCardEditor
-  );
+  customElements.define("lueftungsberater-overview-card-editor", LueftungsberaterOverviewCardEditor);
 }
-

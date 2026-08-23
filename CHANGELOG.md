@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.10
+- Mehrere lokale Lüftungsberater-Instanzen werden jetzt unterstützt und in der gemeinsamen Übersicht automatisch nach Instanz gruppiert. Bei nur einer Instanz wird die Gruppenebene übersprungen.
+- Die Gesamtansicht wurde bewusst verkürzt: Pro Raum erscheinen nur Fenster-Symbol, Raumname, aktuelle Empfehlung, Statusfarbe und bei geöffnetem Fenster/Tür das kleine `offen`-Badge.
+- Ein Tipp auf einen Raum öffnet jetzt eine temporär erzeugte vollständige Raumkarte im Dialog statt der More-Info-Ansicht des Hauptsensors. Eine separat konfigurierte Raumkarte ist dafür nicht nötig; nach dem Schließen wird die temporäre Karte wieder entfernt.
+- Editor-Fokusfehler behoben: laufende Sensorupdates rendern den visuellen Karteneditor nicht mehr vollständig neu und werfen den Cursor dadurch nicht mehr aus Textfeldern.
+- Lange offene Lüftungen werden lesbar formatiert: bis einschließlich 60 Minuten in Minuten, danach natürlich als Stunden und Minuten (z. B. `13 Stunden und 20 Minuten`).
+- Eigener Sensor für die absolute Außenfeuchte ergänzt. Dadurch ist der Außenwert in `g/m³` auf lokalen Raumkarten anklickbar und besitzt einen eigenen Recorder-Verlauf.
+- Türkisch als dritte vollständig unterstützte Sprache ergänzt. Deutsche, englische und türkische Empfehlungen bleiben eigenständig und natürlich formuliert.
+- Englische Formulierungen weiter geglättet, u. a. `while your target is` und `opening the windows` statt technisch klingender Formulierungen.
+- Tailscale-Remote hinzugefügt: Andere Home-Assistant-Installationen mit Lüftungsberater können über eine Tailscale-IP bzw. einen auf Tailscale auflösenden MagicDNS-Namen und einen Home-Assistant-Access-Token eingebunden werden.
+- Remote überträgt ausschließlich aktuelle Lüftungsberater-Raum-Snapshots. Es werden keine fremden Sensor-Entities und keine Recorder-Historien auf der empfangenden Instanz angelegt.
+- Remote-Snapshots liegen nur flüchtig im RAM und werden durch neue Werte ersetzt. Abruf alle 30 Sekunden; kurze Aussetzer werden toleriert und erst nach rund 3 Minuten ohne erfolgreichen Abruf wird `Nicht erreichbar` angezeigt.
+- Remote-Raumdetails verwenden dieselbe vollständige Darstellung, bleiben aber bewusst read-only; lokale Karten behalten ihre anklickbaren Messwerte und Verläufe.
+- Tailscale wird beidseitig erzwungen: Zieladressen werden bei Einrichtung und jedem Abruf geprüft; zusätzlich lehnt der Snapshot-Endpunkt Anfragen ab, deren Quell-IP nicht aus einem Tailscale-Adressbereich stammt.
+- Keine Änderung an den eigentlichen Lüftungs-Schwellenwerten oder der Grün/Gelb/Rot-Entscheidungslogik.
+
 ## 0.6.9
 - Messwert und Einheit werden in Karten und natürlich formulierten Begründungen als untrennbare Einheit dargestellt. Dadurch kann z. B. `69,8 °F` nicht mehr so umbrechen, dass `°F` alleine in der nächsten Zeile steht.
 - Dafür wird ein schmaler geschützter Abstand zwischen Zahl und Einheit verwendet; bei Platzmangel wandern Zahl und Einheit gemeinsam in die nächste Zeile.

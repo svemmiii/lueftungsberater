@@ -26,3 +26,16 @@ def test_other_measurement_units_are_non_breaking() -> None:
     assert "1400\u202fppm" in co2
     assert "65\u202f%" in humidity
     assert "2,4\u202fg/m³" in humidity
+
+
+def test_turkish_reasons_are_natural_and_unit_aware() -> None:
+    text = reason_text(
+        "cooling",
+        {"ti": 24.3, "target": 21.0, "ta": 18.0},
+        "tr",
+        "°C",
+    )
+
+    assert "hedefin ise" in text
+    assert "pencereleri açmak" in text
+    assert "24,3\u202f°C" in text

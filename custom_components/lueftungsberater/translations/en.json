@@ -2,9 +2,21 @@
   "config": {
     "step": {
       "user": {
-        "title": "Select data sources",
-        "description": "Select a weather provider and optionally a warning service. Available temperature, humidity, wind, precipitation and warning data is used automatically. Known providers such as DWD and NINA receive enhanced support.",
+        "title": "Add Ventilation Advisor",
+        "menu_options": {
+          "local": "Set up a local Ventilation Advisor",
+          "remote": "Connect a remote Ventilation Advisor through Tailscale"
+        },
+        "menu_option_descriptions": {
+          "local": "Use rooms and sensors from this Home Assistant.",
+          "remote": "Show only the current state of another Ventilation Advisor installation."
+        }
+      },
+      "local": {
+        "title": "Set up a local Ventilation Advisor",
+        "description": "Give this installation a name, then select a weather provider and optionally a warning service. Rooms can be added afterwards.",
         "data": {
+          "instance_name": "Installation name",
           "weather_entity": "Weather provider",
           "warning_source": "Warning service (optional)",
           "manual_outdoor": "Advanced outdoor sensors (optional)",
@@ -12,19 +24,41 @@
           "outdoor_humidity": "Override outdoor humidity"
         }
       },
-      "reconfigure": {
-        "title": "Change data sources",
+      "remote": {
+        "title": "Connect a remote Ventilation Advisor",
+        "description": "Remote connections are deliberately limited to Tailscale addresses. Only current Ventilation Advisor snapshots are transferred; remote sensors and their history are not created in this Home Assistant.",
         "data": {
+          "instance_name": "Display name",
+          "remote_host": "Tailscale IP or MagicDNS name",
+          "remote_port": "Home Assistant port",
+          "remote_access_token": "Long-Lived Access Token",
+          "remote_use_ssl": "Use HTTPS"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Ventilation Advisor",
+        "data": {
+          "instance_name": "Installation name",
           "weather_entity": "Weather provider",
           "warning_source": "Warning service (optional)",
           "manual_outdoor": "Advanced outdoor sensors (optional)",
           "outdoor_temperature": "Override outdoor temperature",
-          "outdoor_humidity": "Override outdoor humidity"
+          "outdoor_humidity": "Override outdoor humidity",
+          "remote_host": "Tailscale IP or MagicDNS name",
+          "remote_port": "Home Assistant port",
+          "remote_access_token": "Long-Lived Access Token",
+          "remote_use_ssl": "Use HTTPS"
         }
       }
     },
+    "error": {
+      "not_tailscale": "This address does not resolve to a recognized Tailscale connection.",
+      "invalid_auth": "The remote Home Assistant rejected the access token.",
+      "cannot_connect": "The remote Home Assistant cannot be reached through this Tailscale address."
+    },
     "abort": {
-      "single_instance_allowed": "Only one global Ventilation Advisor entry is supported. Add rooms as subentries instead."
+      "already_configured": "This remote Home Assistant is already connected.",
+      "reconfigure_successful": "The settings have been saved."
     }
   },
   "config_subentries": {
@@ -82,7 +116,10 @@
         }
       },
       "absolute_humidity": {
-        "name": "Absolute humidity"
+        "name": "Indoor absolute humidity"
+      },
+      "absolute_humidity_outside": {
+        "name": "Outdoor absolute humidity"
       },
       "co2_status": {
         "name": "CO₂ status",

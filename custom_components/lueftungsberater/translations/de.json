@@ -2,9 +2,21 @@
   "config": {
     "step": {
       "user": {
-        "title": "Datenquellen auswählen",
-        "description": "Wähle deinen Wetterdienst und optional eine Warn-App. Der Lüftungsberater nutzt verfügbare Temperatur-, Feuchte-, Wind-, Niederschlags- und Warninformationen automatisch. Bei bekannten Anbietern wie DWD und NINA werden zusätzliche Daten hinter den Kulissen erkannt.",
+        "title": "Lüftungsberater hinzufügen",
+        "menu_options": {
+          "local": "Lokalen Lüftungsberater einrichten",
+          "remote": "Entfernten Lüftungsberater über Tailscale verbinden"
+        },
+        "menu_option_descriptions": {
+          "local": "Räume und Sensoren dieses Home Assistants verwenden.",
+          "remote": "Nur den aktuellen Stand einer anderen Lüftungsberater-Installation anzeigen."
+        }
+      },
+      "local": {
+        "title": "Lokalen Lüftungsberater einrichten",
+        "description": "Gib der Installation einen Namen und wähle Wetterdienst sowie optional einen Warndienst. Räume werden anschließend separat hinzugefügt.",
         "data": {
+          "instance_name": "Name dieser Installation",
           "weather_entity": "Wetterdienst",
           "warning_source": "Warn-App / Warndienst (optional)",
           "manual_outdoor": "Erweiterte Außensensoren (optional)",
@@ -12,19 +24,41 @@
           "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben"
         }
       },
-      "reconfigure": {
-        "title": "Datenquellen ändern",
+      "remote": {
+        "title": "Entfernten Lüftungsberater verbinden",
+        "description": "Die Verbindung ist absichtlich auf Tailscale-Adressen beschränkt. Es werden nur aktuelle Lüftungsberater-Snapshots übertragen; entfernte Sensoren und deren Verlauf werden nicht in diesem Home Assistant angelegt.",
         "data": {
+          "instance_name": "Anzeigename",
+          "remote_host": "Tailscale-IP oder MagicDNS-Name",
+          "remote_port": "Home-Assistant-Port",
+          "remote_access_token": "Long-Lived Access Token",
+          "remote_use_ssl": "HTTPS verwenden"
+        }
+      },
+      "reconfigure": {
+        "title": "Lüftungsberater ändern",
+        "data": {
+          "instance_name": "Name dieser Installation",
           "weather_entity": "Wetterdienst",
           "warning_source": "Warn-App / Warndienst (optional)",
           "manual_outdoor": "Erweiterte Außensensoren (optional)",
           "outdoor_temperature": "Außentemperatur überschreiben",
-          "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben"
+          "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben",
+          "remote_host": "Tailscale-IP oder MagicDNS-Name",
+          "remote_port": "Home-Assistant-Port",
+          "remote_access_token": "Long-Lived Access Token",
+          "remote_use_ssl": "HTTPS verwenden"
         }
       }
     },
+    "error": {
+      "not_tailscale": "Die Adresse gehört nicht zu einer erkannten Tailscale-Verbindung.",
+      "invalid_auth": "Der Access Token wurde vom entfernten Home Assistant abgelehnt.",
+      "cannot_connect": "Der entfernte Home Assistant ist über diese Tailscale-Adresse nicht erreichbar."
+    },
     "abort": {
-      "single_instance_allowed": "Es wird nur ein globaler Lüftungsberater-Eintrag unterstützt. Räume werden darunter hinzugefügt."
+      "already_configured": "Dieser entfernte Home Assistant ist bereits verbunden.",
+      "reconfigure_successful": "Die Einstellungen wurden gespeichert."
     }
   },
   "config_subentries": {
@@ -82,7 +116,10 @@
         }
       },
       "absolute_humidity": {
-        "name": "Absolute Feuchte"
+        "name": "Absolute Feuchte innen"
+      },
+      "absolute_humidity_outside": {
+        "name": "Absolute Feuchte außen"
       },
       "co2_status": {
         "name": "CO₂-Status",

@@ -59,9 +59,12 @@ async def async_setup_entry(
             hass, entry, subentry
         )
 
+        # Register the derived humidity sensors before the advisor so the advisor
+        # can expose their entity IDs as clickable source attributes immediately.
         entities: list[SensorEntity] = [
-            RoomAdvisorSensor(entry, subentry, coordinator),
             RoomAbsoluteHumiditySensor(entry, subentry, coordinator),
+            RoomOutdoorAbsoluteHumiditySensor(entry, subentry, coordinator),
+            RoomAdvisorSensor(entry, subentry, coordinator),
         ]
 
         if subentry.data.get(CONF_CO2):
@@ -137,6 +140,11 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             DOMAIN,
             f"{self.subentry.subentry_id}_absolute_humidity",
         )
+        outdoor_absolute_humidity_entity = registry.async_get_entity_id(
+            "sensor",
+            DOMAIN,
+            f"{self.subentry.subentry_id}_absolute_humidity_outside",
+        )
 
         language = self.hass.config.language
         temperature_unit = str(self.hass.config.units.temperature_unit)
@@ -149,6 +157,8 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         )
 
         return {
+            "instance_id": self.entry.entry_id,
+            "instance_name": self.entry.title,
             "room_name": self.subentry.title,
             "status": r.color,
             "recommendation": recommendation_text(r.recommendation_key, language),
@@ -209,6 +219,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "outdoor_temperature_source": weather.temperature_source_kind,
             "outdoor_humidity_source": weather.humidity_source_kind,
             "source_absolute_humidity_inside": absolute_humidity_entity,
+            "source_absolute_humidity_outside": outdoor_absolute_humidity_entity,
             "source_co2": self.subentry.data.get(CONF_CO2),
             "source_airing": airing_entity,
             "source_last_airing": last_airing_entity,
@@ -260,6 +271,24 @@ class RoomAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity):
             "outside": result.outdoor_absolute_humidity,
             "difference": result.absolute_humidity_difference,
         }
+
+
+class RoomOutdoorAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity):
+    """Absolute outdoor humidity with its own recorder history."""
+
+    _attr_icon = "mdi:water-outline"
+    _attr_native_unit_of_measurement = "g/m³"
+    _attr_suggested_display_precision = 1
+    _attr_translation_key = "absolute_humidity_outside"
+
+    def __init__(self, entry, subentry, coordinator):
+        super().__init__(entry, subentry, coordinator)
+        self._attr_unique_id = f"{subentry.subentry_id}_absolute_humidity_outside"
+
+    @property
+    def native_value(self):
+        result = self.snapshot.result if self.snapshot else None
+        return result.outdoor_absolute_humidity if result else None
 
 
 class RoomCo2StatusSensor(LueftungsberaterRoomEntity, SensorEntity):

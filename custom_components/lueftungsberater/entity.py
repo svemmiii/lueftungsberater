@@ -35,12 +35,16 @@ class LueftungsberaterRoomEntity(
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self.subentry.subentry_id)},
-            name=f"Lüftungsberater {self.subentry.title}",
+            name=f"{self.entry.title} · {self.subentry.title}",
             manufacturer="Lüftungsberater",
             model=(
                 "Raum-Lüftungsberater"
                 if str(self.hass.config.language).lower().startswith("de")
-                else "Room ventilation advisor"
+                else (
+                    "Oda havalandırma danışmanı"
+                    if str(self.hass.config.language).lower().startswith("tr")
+                    else "Room ventilation advisor"
+                )
             ),
-            sw_version="0.6.9",
+            sw_version="0.6.10",
         )

@@ -28,7 +28,7 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 - Detaillierte Raumkarte
 - Kompakte Mehrraumübersicht
 - Karten erscheinen im Home-Assistant-Kartenpicker
-- Natürliche Oberfläche und Empfehlungen auf Deutsch und Englisch
+- Natürliche Oberfläche und Empfehlungen auf Deutsch, Englisch und Türkisch
 - Dashboard-Karten folgen der Sprache des aktuell angemeldeten Home-Assistant-Benutzers
 - Unterstützung für Celsius- und Fahrenheit-Setups
 
@@ -97,7 +97,7 @@ Damit kann z. B. eine amtliche Starkregenwarnung der Stufe 2 vor dem Lüften war
 
 ## Sprache und Einheiten
 
-Lüftungsberater unterstützt aktuell **Deutsch und Englisch**. Empfehlungen werden nicht als kurze technische Meldungen oder wortwörtliche Maschinenübersetzungen erzeugt, sondern für jede Sprache natürlich formuliert. Die Dashboard-Karten richten sich nach der Sprache des jeweils angemeldeten Home-Assistant-Benutzers; Backend-Attribute verwenden die Home-Assistant-Systemsprache. Nicht unterstützte Sprachen fallen aktuell auf Englisch zurück.
+Lüftungsberater unterstützt aktuell **Deutsch, Englisch und Türkisch**. Empfehlungen werden nicht als kurze technische Meldungen oder wortwörtliche Maschinenübersetzungen erzeugt, sondern für jede Sprache natürlich formuliert. Die Dashboard-Karten richten sich nach der Sprache des jeweils angemeldeten Home-Assistant-Benutzers; Backend-Attribute verwenden die Home-Assistant-Systemsprache. Nicht unterstützte Sprachen fallen aktuell auf Englisch zurück.
 
 Texte von externen Warnanbietern wie DWD oder NINA werden nicht automatisch übersetzt. Lüftungsberater erzeugt daraus eine eigene lokalisierte Begründung und bewahrt den Originaltext zusätzlich im Attribut `original_warning_text` auf.
 
@@ -113,9 +113,26 @@ Detaillierte Ansicht für einen Raum mit Empfehlung, Grund und Messwerten.
 
 ### Lüftungsberater – Übersicht
 
-Kompakte Übersicht über mehrere oder alle Räume.
+Die Übersicht ist bewusst sehr kompakt: Pro Raum werden nur Name, aktuelle Empfehlung, Statusfarbe und – falls zutreffend – ein kleines **offen**-Badge gezeigt. Ein Tipp auf einen Raum erzeugt erst in diesem Moment eine vollständige Raumkarte in einem Dialog; eine separat eingerichtete Raumkarte ist dafür nicht erforderlich und es laufen keine unsichtbaren Raumkarten im Hintergrund.
+
+Sind mehrere lokale Lüftungsberater-Instanzen vorhanden, gruppiert dieselbe Übersicht die Räume automatisch nach Instanz. Bei nur einer Instanz wird diese Zwischenebene übersprungen.
 
 Die Dashboard-Ressource wird bei normalen Home-Assistant-Dashboards automatisch registriert.
+
+
+## Mehrere Instanzen und Tailscale-Remote
+
+Ab v0.6.10 können mehrere lokale Lüftungsberater-Instanzen parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Die gemeinsame Übersicht gruppiert sie automatisch und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
+
+Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant ebenfalls Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token.
+
+Remote-Verbindungen sind absichtlich auf Tailscale beschränkt. Beim laufenden Abruf wird erneut geprüft, dass das Ziel ausschließlich auf Tailscale-Adressen auflöst. Zusätzlich akzeptiert der Snapshot-Endpunkt selbst nur Anfragen, deren Quell-IP aus einem Tailscale-Adressbereich stammt. Ein gültiger Home-Assistant-Token allein reicht außerhalb des Tailnets daher nicht aus. Übertragen werden nur die aktuellen Lüftungsberater-Hauptzustände und deren aktuelle Detailwerte – keine Recorder-Historie und keine fremden Sensor-Entities werden im empfangenden Home Assistant angelegt.
+
+Die entfernten Snapshots werden nur im Arbeitsspeicher gehalten und bei neuen Daten ersetzt. Die Remote-Verbindung prüft alle 30 Sekunden. Kurze LTE-/Tailscale-Aussetzer werden toleriert; erst nach ungefähr 3 Minuten ohne erfolgreichen Abruf wird die Instanz als **Nicht erreichbar** angezeigt. Sobald die Verbindung wieder steht, wird wieder ein aktueller Snapshot geladen.
+
+In der Remote-Detailansicht sind Messwerte reine Anzeige und nicht anklickbar. Lokale Raumkarten bleiben unverändert: Dort funktionieren More-Info und Recorder-Verlauf weiterhin.
+
+Für eine möglichst enge Netzfreigabe empfiehlt sich zusätzlich eine Tailscale-Grant/ACL-Regel, die vom abfragenden Home-Assistant-Gerät nur TCP-Port 8123 des entfernten Home Assistants erlaubt.
 
 ## Unterstützte Wetter- und Warndienste
 
@@ -139,7 +156,7 @@ Bitte beachte:
 
 ## Datenschutz
 
-Lüftungsberater selbst sendet keine eigenen Daten an einen externen Dienst. Die Integration verarbeitet die in Home Assistant vorhandenen Entities lokal. Externe Wetter-/Warndienste können unabhängig davon eigene Cloud-Verbindungen verwenden.
+Ohne konfigurierte Remote-Verbindung verarbeitet Lüftungsberater die vorhandenen Entities ausschließlich lokal. Wird Tailscale-Remote verwendet, stellt die entfernte Lüftungsberater-Installation nur über eine authentifizierte, auf Tailscale-Quell- und Zieladressen beschränkte Home-Assistant-API aktuelle Raum-Snapshots bereit. Eine Recorder-Historie wird dabei nicht übertragen oder auf der empfangenden Instanz angelegt. Externe Wetter-/Warndienste können unabhängig davon eigene Cloud-Verbindungen verwenden.
 
 ## Fehler melden
 

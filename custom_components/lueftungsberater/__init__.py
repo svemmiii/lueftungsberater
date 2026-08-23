@@ -10,18 +10,29 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
+from .api import async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .coordinator import (
     async_get_or_create_room_coordinator,
     async_stop_entry_coordinators,
 )
-from .const import PLATFORMS, SUBENTRY_TYPE_ROOM
+from .const import (
+    ENTRY_KIND_LOCAL,
+    ENTRY_KIND_REMOTE,
+    PLATFORMS,
+    SUBENTRY_TYPE_ROOM,
+    entry_kind,
+)
+from .remote import (
+    async_get_or_create_remote_coordinator,
+    async_stop_remote_coordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.9"
+FRONTEND_VERSION = "0.6.10"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -62,9 +73,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
             break
 
     if existing is None:
-        await resources.async_create_item(
-            {"res_type": "module", "url": wanted_url}
-        )
+        await resources.async_create_item({"res_type": "module", "url": wanted_url})
         _LOGGER.info("Registered Lüftungsberater dashboard cards")
         return
 
@@ -80,8 +89,18 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Lüftungsberater."""
+    """Set up one local or Tailscale-remote Lüftungsberater entry."""
     await _async_register_frontend(hass)
+    async_register_api(hass)
+
+    kind = entry_kind(entry)
+    if kind == ENTRY_KIND_REMOTE:
+        coordinator = await async_get_or_create_remote_coordinator(hass, entry)
+        # A coordinator without entities has no natural listener. Keep one lightweight
+        # listener attached so the 30-second poll remains active in the background.
+        entry.async_on_unload(coordinator.async_add_listener(lambda: None))
+        entry.async_on_unload(entry.add_update_listener(_async_reload))
+        return True
 
     for subentry in entry.subentries.values():
         if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
@@ -100,7 +119,11 @@ async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload platforms and trackers."""
+    """Unload local platforms/trackers or a remote coordinator."""
+    if entry_kind(entry) == ENTRY_KIND_REMOTE:
+        await async_stop_remote_coordinator(hass, entry)
+        return True
+
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         await async_stop_entry_coordinators(hass, entry)
