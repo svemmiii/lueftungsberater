@@ -73,14 +73,27 @@ def _entity(domain: str | list[str], multiple: bool = False) -> EntitySelector:
     return EntitySelector(EntitySelectorConfig(domain=domain, multiple=multiple))
 
 
-def _warning_source_options(hass: HomeAssistant) -> list[str | SelectOptionDict]:
+def _warning_source_options(hass: HomeAssistant) -> list[SelectOptionDict]:
     """Build a friendly list of installed warning providers.
 
     A broken/unusual entity-registry entry must never make the whole local
     config flow unusable. Known warning integrations are included directly;
     the generic warning-name scan is best-effort only.
     """
-    options: list[str | SelectOptionDict] = [WARNING_SOURCE_NONE]
+    language = str(getattr(hass.config, "language", "en") or "en").lower()
+    if language.startswith("de"):
+        none_label = "Kein Warndienst"
+    elif language.startswith("tr"):
+        none_label = "Uyarı hizmeti yok"
+    else:
+        none_label = "No warning service"
+
+    # SelectSelector requires one homogeneous option format. Dynamic provider
+    # labels need SelectOptionDict, so the optional "none" entry must use the
+    # same format instead of mixing a plain string with labelled dictionaries.
+    options: list[SelectOptionDict] = [
+        SelectOptionDict(value=WARNING_SOURCE_NONE, label=none_label)
+    ]
     known_domains = {"nina", "dwd_weather_warnings"}
 
     try:

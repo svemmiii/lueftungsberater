@@ -1,3 +1,13 @@
+## 0.6.15 - Alpha
+
+### Warnquellen-Hotfix
+
+- Warn-App / Warndienst ist weiterhin vollständig optional; ohne Auswahl wird wie bisher `Kein Warndienst` verwendet.
+- NINA, DWD Weather Warnings und erkannte weitere Warnanbieter erscheinen wieder im Einrichtungs-Dropdown.
+- Fehler behoben, bei dem der Select-Selector einen String (`none`) mit beschrifteten Optionsobjekten gemischt hat und dadurch auf die Fallback-Auswahl ohne Warnanbieter zurückfiel.
+- Neue Regressionstests prüfen gleichzeitig `Kein Warndienst`, NINA und DWD sowie den optionalen Default.
+- Keine Änderung an Pflichtsensoren, Lüftungslogik, Warnbewertung, Remote-Protokoll oder Dashboard-Verhalten.
+
 ## 0.6.14 - Alpha
 
 ### Tests und Einrichtungsdialog

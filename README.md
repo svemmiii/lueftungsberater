@@ -185,6 +185,10 @@ Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
 
 
+### Hinweis zu v0.6.15
+
+v0.6.15 ist ein kleiner Warnquellen-Hotfix. NINA/DWD und andere erkannte Warnanbieter sind im lokalen Einrichtungsdialog wieder auswählbar; der Warndienst bleibt weiterhin optional und `Kein Warndienst` ist der Standard.
+
 ### Hinweis zu v0.6.14
 
 v0.6.14 ist ein kleiner Test- und Config-Flow-Hotfix. Er hält die Remote-Erfolgsseite zuverlässig als Bestätigungsdialog offen, macht die NINA-Auswertung robuster gegenüber fehlendem Entity Registry in Test-/Startup-Kontexten und korrigiert den GitHub-Pytest-Workflow.

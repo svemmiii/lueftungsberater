@@ -167,3 +167,42 @@ def test_remote_summary_keeps_v0610_protocol_shape() -> None:
     summary = _remote_summary(payload)
     assert summary["remote_name"] == "Older Remote"
     assert summary["instances"] == "1"
+
+
+async def test_warning_source_options_include_none_nina_and_dwd(
+    hass, enable_custom_integrations
+) -> None:
+    """Optional warning source must coexist with dynamic labelled providers."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.lueftungsberater.config_flow import (
+        _global_schema,
+        _warning_source_options,
+    )
+    from custom_components.lueftungsberater.const import (
+        CONF_WARNING_SOURCE,
+        CONF_WEATHER,
+        WARNING_SOURCE_NONE,
+    )
+
+    nina = MockConfigEntry(domain="nina", title="NINA", data={}, entry_id="nina-test")
+    dwd = MockConfigEntry(
+        domain="dwd_weather_warnings",
+        title="DWD Warnungen",
+        data={},
+        entry_id="dwd-test",
+    )
+    nina.add_to_hass(hass)
+    dwd.add_to_hass(hass)
+
+    options = _warning_source_options(hass)
+    values = [option["value"] for option in options]
+
+    assert WARNING_SOURCE_NONE in values
+    assert nina.entry_id in values
+    assert dwd.entry_id in values
+    assert all("value" in option and "label" in option for option in options)
+
+    # The warning provider remains optional: omitting the field must select none.
+    validated = _global_schema(hass)({CONF_WEATHER: "weather.home"})
+    assert validated[CONF_WARNING_SOURCE] == WARNING_SOURCE_NONE
