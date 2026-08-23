@@ -22,8 +22,12 @@
           "manual_outdoor": "Advanced outdoor sensors (optional)",
           "outdoor_temperature": "Override outdoor temperature",
           "outdoor_humidity": "Override outdoor humidity",
-          "notify_target": "Notification target for open-window hazards (optional)",
-          "notify_triggers": "Notify me about (optional)"
+          "notify_target": "Standard notification target (optional)",
+          "notify_triggers": "Notify me about (optional)",
+          "notify_mobile_service": "Companion App target for silent/vibration/critical alerts (optional)",
+          "notify_caution_vibration": "Vibration for caution alerts (Android)",
+          "notify_danger_vibration": "Vibration for danger alerts (Android)",
+          "notify_critical_bypass": "Enable critical delivery (where supported by the phone)"
         }
       },
       "remote": {
@@ -50,8 +54,12 @@
           "remote_port": "Home Assistant port",
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "Use HTTPS",
-          "notify_target": "Notification target for open-window hazards (optional)",
-          "notify_triggers": "Notify me about (optional)"
+          "notify_target": "Standard notification target (optional)",
+          "notify_triggers": "Notify me about (optional)",
+          "notify_mobile_service": "Companion App target for silent/vibration/critical alerts (optional)",
+          "notify_caution_vibration": "Vibration for caution alerts (Android)",
+          "notify_danger_vibration": "Vibration for danger alerts (Android)",
+          "notify_critical_bypass": "Enable critical delivery (where supported by the phone)"
         }
       },
       "remote_confirm": {
@@ -185,10 +193,20 @@
     },
     "notify_triggers": {
       "options": {
+        "airing_recommended": "Opening the windows is useful again (silent with Companion App)",
+        "airing_finished": "Airing can be finished (silent with Companion App)",
         "air_danger": "Serious outdoor-air warnings (e.g. smoke / hazardous substances)",
         "air_caution": "Precautionary outdoor-air advisories",
         "weather_danger": "Severe weather warnings",
         "weather_caution": "Weather warnings / caution advisories"
+      }
+    },
+    "notify_vibration": {
+      "options": {
+        "off": "Off",
+        "gentle": "Gentle",
+        "normal": "Medium",
+        "strong": "Strong"
       }
     }
   }

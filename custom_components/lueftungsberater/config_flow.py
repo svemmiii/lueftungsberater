@@ -41,7 +41,11 @@ from .const import (
     CONF_INSTANCE_NAME,
     CONF_MANUAL_OUTDOOR,
     CONF_NOTIFY_TARGET,
+    CONF_NOTIFY_MOBILE_SERVICE,
     CONF_NOTIFY_TRIGGERS,
+    CONF_NOTIFY_CAUTION_VIBRATION,
+    CONF_NOTIFY_DANGER_VIBRATION,
+    CONF_NOTIFY_CRITICAL_BYPASS,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
     CONF_REMOTE_HOST,
@@ -56,16 +60,25 @@ from .const import (
     CONF_WINDOWS,
     DEFAULT_REMOTE_PORT,
     DEFAULT_NOTIFY_TRIGGERS,
+    DEFAULT_NOTIFY_CAUTION_VIBRATION,
+    DEFAULT_NOTIFY_DANGER_VIBRATION,
+    DEFAULT_NOTIFY_CRITICAL_BYPASS,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     SUBENTRY_TYPE_ROOM,
     WARNING_SOURCE_NONE,
+    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+    NOTIFY_TRIGGER_AIRING_FINISHED,
     NOTIFY_TRIGGER_AIR_DANGER,
     NOTIFY_TRIGGER_AIR_CAUTION,
     NOTIFY_TRIGGER_WEATHER_DANGER,
     NOTIFY_TRIGGER_WEATHER_CAUTION,
+    NOTIFY_VIBRATION_OFF,
+    NOTIFY_VIBRATION_GENTLE,
+    NOTIFY_VIBRATION_NORMAL,
+    NOTIFY_VIBRATION_STRONG,
     entry_kind,
 )
 _LOGGER = logging.getLogger(__name__)
@@ -152,52 +165,119 @@ def _warning_source_options(hass: HomeAssistant) -> list[SelectOptionDict]:
     return options
 
 
-def _global_schema(hass: HomeAssistant) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required(CONF_WEATHER): _entity("weather"),
-            vol.Optional(CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE): SelectSelector(
-                SelectSelectorConfig(
-                    options=_warning_source_options(hass),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="warning_source",
-                )
-            ),
-            vol.Optional(CONF_MANUAL_OUTDOOR): section(
-                vol.Schema(
-                    {
-                        vol.Optional(CONF_OUTDOOR_TEMP): _entity(
-                            "sensor", device_class=SensorDeviceClass.TEMPERATURE
-                        ),
-                        vol.Optional(CONF_OUTDOOR_HUMIDITY): _entity(
-                            "sensor", device_class=SensorDeviceClass.HUMIDITY
-                        ),
-                    }
-                ),
-                SectionConfig(collapsed=True),
-            ),
-            vol.Optional(CONF_NOTIFY_TARGET): _entity("notify"),
-            vol.Optional(
-                CONF_NOTIFY_TRIGGERS, default=DEFAULT_NOTIFY_TRIGGERS
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        NOTIFY_TRIGGER_AIR_DANGER,
-                        NOTIFY_TRIGGER_AIR_CAUTION,
-                        NOTIFY_TRIGGER_WEATHER_DANGER,
-                        NOTIFY_TRIGGER_WEATHER_CAUTION,
-                    ],
-                    multiple=True,
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="notify_triggers",
-                )
-            ),
-        }
+def _mobile_notify_service_options(
+    hass: HomeAssistant, current: str | None = None
+) -> list[SelectOptionDict]:
+    """Return Companion App notify actions that support extended payloads."""
+    try:
+        services = hass.services.async_services().get("notify", {})
+    except Exception:  # noqa: BLE001 - setup must stay usable without services
+        services = {}
+
+    values = sorted(
+        name for name in services if isinstance(name, str) and name.startswith("mobile_app_")
     )
+    if isinstance(current, str) and current:
+        normalized = current.removeprefix("notify.")
+        if normalized not in values:
+            values.append(normalized)
+    return [
+        SelectOptionDict(value=name, label=f"notify.{name}") for name in values
+    ]
 
 
-def _local_schema(hass: HomeAssistant) -> vol.Schema:
-    base = dict(_global_schema(hass).schema)
+def _global_schema(
+    hass: HomeAssistant, current_mobile_service: str | None = None
+) -> vol.Schema:
+    schema: dict[Any, Any] = {
+        vol.Required(CONF_WEATHER): _entity("weather"),
+        vol.Optional(CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE): SelectSelector(
+            SelectSelectorConfig(
+                options=_warning_source_options(hass),
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="warning_source",
+            )
+        ),
+        vol.Optional(CONF_MANUAL_OUTDOOR): section(
+            vol.Schema(
+                {
+                    vol.Optional(CONF_OUTDOOR_TEMP): _entity(
+                        "sensor", device_class=SensorDeviceClass.TEMPERATURE
+                    ),
+                    vol.Optional(CONF_OUTDOOR_HUMIDITY): _entity(
+                        "sensor", device_class=SensorDeviceClass.HUMIDITY
+                    ),
+                }
+            ),
+            SectionConfig(collapsed=True),
+        ),
+        vol.Optional(CONF_NOTIFY_TARGET): _entity("notify"),
+        vol.Optional(
+            CONF_NOTIFY_TRIGGERS, default=DEFAULT_NOTIFY_TRIGGERS
+        ): SelectSelector(
+            SelectSelectorConfig(
+                options=[
+                    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+                    NOTIFY_TRIGGER_AIRING_FINISHED,
+                    NOTIFY_TRIGGER_AIR_DANGER,
+                    NOTIFY_TRIGGER_AIR_CAUTION,
+                    NOTIFY_TRIGGER_WEATHER_DANGER,
+                    NOTIFY_TRIGGER_WEATHER_CAUTION,
+                ],
+                multiple=True,
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="notify_triggers",
+            )
+        ),
+    }
+
+    mobile_options = _mobile_notify_service_options(hass, current_mobile_service)
+    if mobile_options:
+        schema[vol.Optional(CONF_NOTIFY_MOBILE_SERVICE)] = SelectSelector(
+            SelectSelectorConfig(
+                options=mobile_options,
+                mode=SelectSelectorMode.DROPDOWN,
+            )
+        )
+        schema[vol.Optional(
+            CONF_NOTIFY_CAUTION_VIBRATION, default=DEFAULT_NOTIFY_CAUTION_VIBRATION
+        )] = SelectSelector(
+            SelectSelectorConfig(
+                options=[
+                    NOTIFY_VIBRATION_OFF,
+                    NOTIFY_VIBRATION_GENTLE,
+                    NOTIFY_VIBRATION_NORMAL,
+                    NOTIFY_VIBRATION_STRONG,
+                ],
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="notify_vibration",
+            )
+        )
+        schema[vol.Optional(
+            CONF_NOTIFY_DANGER_VIBRATION, default=DEFAULT_NOTIFY_DANGER_VIBRATION
+        )] = SelectSelector(
+            SelectSelectorConfig(
+                options=[
+                    NOTIFY_VIBRATION_OFF,
+                    NOTIFY_VIBRATION_GENTLE,
+                    NOTIFY_VIBRATION_NORMAL,
+                    NOTIFY_VIBRATION_STRONG,
+                ],
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="notify_vibration",
+            )
+        )
+        schema[vol.Optional(
+            CONF_NOTIFY_CRITICAL_BYPASS, default=DEFAULT_NOTIFY_CRITICAL_BYPASS
+        )] = BooleanSelector()
+
+    return vol.Schema(schema)
+
+
+def _local_schema(
+    hass: HomeAssistant, current_mobile_service: str | None = None
+) -> vol.Schema:
+    base = dict(_global_schema(hass, current_mobile_service).schema)
     return vol.Schema(
         {
             vol.Required(CONF_INSTANCE_NAME, default="Lüftungsberater"): TextSelector(
@@ -549,15 +629,31 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_WEATHER: entry.data.get(CONF_WEATHER),
             CONF_WARNING_SOURCE: entry.data.get(CONF_WARNING_SOURCE, WARNING_SOURCE_NONE),
             CONF_NOTIFY_TARGET: entry.data.get(CONF_NOTIFY_TARGET),
+            CONF_NOTIFY_MOBILE_SERVICE: entry.data.get(CONF_NOTIFY_MOBILE_SERVICE),
             CONF_NOTIFY_TRIGGERS: entry.data.get(
                 CONF_NOTIFY_TRIGGERS, DEFAULT_NOTIFY_TRIGGERS
+            ),
+            CONF_NOTIFY_CAUTION_VIBRATION: entry.data.get(
+                CONF_NOTIFY_CAUTION_VIBRATION, DEFAULT_NOTIFY_CAUTION_VIBRATION
+            ),
+            CONF_NOTIFY_DANGER_VIBRATION: entry.data.get(
+                CONF_NOTIFY_DANGER_VIBRATION, DEFAULT_NOTIFY_DANGER_VIBRATION
+            ),
+            CONF_NOTIFY_CRITICAL_BYPASS: entry.data.get(
+                CONF_NOTIFY_CRITICAL_BYPASS, DEFAULT_NOTIFY_CRITICAL_BYPASS
             ),
         }
         if manual:
             defaults[CONF_MANUAL_OUTDOOR] = manual
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=self.add_suggested_values_to_schema(_local_schema(self.hass), defaults),
+            data_schema=self.add_suggested_values_to_schema(
+                _local_schema(
+                    self.hass,
+                    entry.data.get(CONF_NOTIFY_MOBILE_SERVICE),
+                ),
+                defaults,
+            ),
         )
 
     async def _async_reconfigure_remote(

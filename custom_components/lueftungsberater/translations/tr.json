@@ -22,8 +22,12 @@
           "manual_outdoor": "Gelişmiş dış ortam sensörleri (isteğe bağlı)",
           "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
           "outdoor_humidity": "Dış nemi geçersiz kıl",
-          "notify_target": "Açık pencere tehlikeleri için bildirim hedefi (isteğe bağlı)",
-          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
+          "notify_target": "Standart bildirim hedefi (isteğe bağlı)",
+          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
+          "notify_mobile_service": "Sessiz/titreşim/kritik bildirimler için Companion App hedefi (isteğe bağlı)",
+          "notify_caution_vibration": "Dikkat uyarılarında titreşim (Android)",
+          "notify_danger_vibration": "Tehlike uyarılarında titreşim (Android)",
+          "notify_critical_bypass": "Kritik teslimatı etkinleştir (telefon destekliyorsa)"
         }
       },
       "remote": {
@@ -50,8 +54,12 @@
           "remote_port": "Home Assistant portu",
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "HTTPS kullan",
-          "notify_target": "Açık pencere tehlikeleri için bildirim hedefi (isteğe bağlı)",
-          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
+          "notify_target": "Standart bildirim hedefi (isteğe bağlı)",
+          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
+          "notify_mobile_service": "Sessiz/titreşim/kritik bildirimler için Companion App hedefi (isteğe bağlı)",
+          "notify_caution_vibration": "Dikkat uyarılarında titreşim (Android)",
+          "notify_danger_vibration": "Tehlike uyarılarında titreşim (Android)",
+          "notify_critical_bypass": "Kritik teslimatı etkinleştir (telefon destekliyorsa)"
         }
       },
       "remote_confirm": {
@@ -185,10 +193,20 @@
     },
     "notify_triggers": {
       "options": {
+        "airing_recommended": "Havalandırmak yeniden uygun (Companion App ile sessiz)",
+        "airing_finished": "Havalandırma bitirilebilir (Companion App ile sessiz)",
         "air_danger": "Ciddi dış hava uyarıları (örn. yangın dumanı / tehlikeli maddeler)",
         "air_caution": "Önleyici dış hava uyarıları",
         "weather_danger": "Şiddetli hava durumu uyarıları",
         "weather_caution": "Hava durumu uyarıları / dikkat bildirimleri"
+      }
+    },
+    "notify_vibration": {
+      "options": {
+        "off": "Kapalı",
+        "gentle": "Hafif",
+        "normal": "Orta",
+        "strong": "Güçlü"
       }
     }
   }

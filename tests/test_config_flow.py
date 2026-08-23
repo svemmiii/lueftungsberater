@@ -215,6 +215,44 @@ async def test_warning_source_options_include_none_nina_and_dwd(
     ]
 
 
+async def test_mobile_notification_actions_enable_advanced_controls(
+    hass, enable_custom_integrations
+) -> None:
+    """Companion App actions expose vibration and critical-alert settings."""
+    from custom_components.lueftungsberater.config_flow import (
+        _global_schema,
+        _mobile_notify_service_options,
+    )
+    from custom_components.lueftungsberater.const import (
+        CONF_NOTIFY_CAUTION_VIBRATION,
+        CONF_NOTIFY_CRITICAL_BYPASS,
+        CONF_NOTIFY_DANGER_VIBRATION,
+        CONF_NOTIFY_MOBILE_SERVICE,
+        CONF_WEATHER,
+        DEFAULT_NOTIFY_CAUTION_VIBRATION,
+        DEFAULT_NOTIFY_CRITICAL_BYPASS,
+        DEFAULT_NOTIFY_DANGER_VIBRATION,
+    )
+
+    async def _notify_handler(call):
+        return None
+
+    hass.services.async_register("notify", "mobile_app_test_phone", _notify_handler)
+
+    options = _mobile_notify_service_options(hass)
+    assert {option["value"] for option in options} == {"mobile_app_test_phone"}
+
+    validated = _global_schema(hass)(
+        {
+            CONF_WEATHER: "weather.home",
+            CONF_NOTIFY_MOBILE_SERVICE: "mobile_app_test_phone",
+        }
+    )
+    assert validated[CONF_NOTIFY_CAUTION_VIBRATION] == DEFAULT_NOTIFY_CAUTION_VIBRATION
+    assert validated[CONF_NOTIFY_DANGER_VIBRATION] == DEFAULT_NOTIFY_DANGER_VIBRATION
+    assert validated[CONF_NOTIFY_CRITICAL_BYPASS] is DEFAULT_NOTIFY_CRITICAL_BYPASS
+
+
 def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
     hass, enable_custom_integrations
 ) -> None:

@@ -33,7 +33,7 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 - Unterstützung für Celsius- und Fahrenheit-Setups
 - Ruhigere Empfehlungen durch Hysterese an normalen CO₂-/Feuchte-/Temperaturgrenzen
 - Optionaler Schimmelschutz über einen kalten/kritischen Oberflächentemperatursensor
-- Optionale Gefahrenbenachrichtigung bei offenem Fenster/Tür und passenden NINA-/Wetterwarnungen
+- Frei konfigurierbare Benachrichtigungen für Lüftungsstatus und Gefahren, optional mit Companion-App-Vibration/Critical-Verhalten
 
 ## Voraussetzungen
 
@@ -50,7 +50,7 @@ Optional:
 - Climate-/Thermostat-Entity
 - Temperatur-Sensor an einer kalten/kritischen Oberfläche für zusätzlichen Schimmelschutz
 - Warnintegration wie NINA oder DWD Weather Warnings
-- `notify`-Entity für gezielte Warnungen bei offenem Fenster/Tür
+- `notify`-Entity für normale Benachrichtigungen und/oder ein Companion-App-`notify.mobile_app_*`-Ziel für erweiterte Handyfunktionen
 
 ## Installation über HACS – Custom Repository
 
@@ -73,9 +73,20 @@ Beim ersten Einrichten wählst du:
 
 - **Wetterdienst**
 - optional **Warn-App / Warndienst**
-- optional ein **Benachrichtigungsziel** und die Warnkategorien, bei denen ein offenes Fenster/eine offene Tür gemeldet werden soll
+- optional ein **Benachrichtigungsziel** und die Ereignisse, über die du informiert werden möchtest
 
-Standardmäßig lösen nur **ernste Außenluftgefahren** (z. B. Brandrauch/Gefahrstoffe) und **schwere Wettergefahren** eine solche Benachrichtigung aus. Vorsorgliche Luft- oder Wetterhinweise können zusätzlich aktiviert werden. Eine rote Empfehlung allein ist ausdrücklich kein Benachrichtigungsauslöser.
+Standardmäßig lösen weiterhin nur **ernste Außenluftgefahren** (z. B. Brandrauch/Gefahrstoffe) und **schwere Wettergefahren** eine Benachrichtigung aus, wenn tatsächlich ein konfiguriertes Fenster oder eine Tür offen ist. Zusätzlich kannst du vorsorgliche Luft-/Wetterhinweise sowie zwei reine Lüftungsstatus-Hinweise aktivieren: **„Lüften ist wieder sinnvoll“** und **„Lüften kann beendet werden“**. Eine rote Empfehlung allein ist ausdrücklich kein Benachrichtigungsauslöser.
+
+Für einfache Ziele bleibt die normale `notify`-Entity vollständig unterstützt. Bei diesem generischen Weg bestimmt das Ziel selbst Ton und Vibration; Lüftungsberater kann dort nur Titel und Nachricht vorgeben. Wenn Home Assistant zusätzlich ein `notify.mobile_app_*`-Ziel der Companion App bereitstellt, kann dieses als erweitertes Handy-Ziel gewählt werden. Es ersetzt dann für diesen Lüftungsberater das normale Ziel und ermöglicht die folgenden Abstufungen:
+
+- **Lüftungsstatus:** stiller Hinweis ohne erzwungene Vibration; auf iOS als `passive`, auf Android über einen Low-Importance-Kanal.
+- **Vorsichtshinweise:** Android-Vibration separat auf **Aus / Leicht / Mittel / Stark** einstellbar.
+- **Gefahren:** eigene Android-Vibrationsstufe; zusätzlich hohe Zustellpriorität.
+- **Kritische Zustellung:** standardmäßig aus. Auf iOS wird bei Aktivierung ein echter Critical Alert verwendet. Auf Android wird dafür ein eigener Kanal mit maximaler Importance verwendet; ob dieser `Nicht stören` tatsächlich übergehen darf, entscheidet Android weiterhin in den Systemeinstellungen des Kanals.
+
+Android kennt über die Companion-App-Payload kein frei wählbares Motor-Amplitudenlevel. Die Stufen **Leicht / Mittel / Stark** werden deshalb als unterschiedlich deutliche Vibrationsmuster umgesetzt. Weil Android Kanalparameter wie Importance und Vibrationsmuster nach der ersten Erstellung speichert, verwendet Lüftungsberater getrennte Kanäle je Stufe. Änderungen an der Stufe greifen dadurch sauber, ohne einen bereits angelegten Kanal umprogrammieren zu müssen.
+
+Die beiden Lüftungsstatus-Hinweise sind zustandswechselbasiert: Sie werden nicht bei jedem Sensorupdate und nicht direkt nach einem Home-Assistant-Neustart erneut gesendet. Companion-App-Hinweise verwenden außerdem stabile Tags pro Raum, sodass veraltete Status-/Warnmeldungen ersetzt bzw. nach Ende des Zustands wieder entfernt werden können.
 
 Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden. Werden konfigurierte Außensensoren vorübergehend `unavailable` oder `unknown`, fällt Lüftungsberater für Temperatur und Luftfeuchtigkeit unabhängig voneinander automatisch auf die aktuelle `weather.*`-Entity zurück, sofern der jeweilige Wert dort verfügbar ist. Die Raumkarte kennzeichnet einen solchen aktiven Fallback direkt am betroffenen Außenwert mit **Wetterdienst**.
 
@@ -114,7 +125,7 @@ Damit kann z. B. eine amtliche Starkregenwarnung der Stufe 2 vor dem Lüften war
 
 ## Wie die Empfehlung stabil bleibt
 
-Lüftungsberater bewertet weiterhin den tatsächlichen Nutzen des Lüftens statt nur einzelne Grenzwerte. Für normale Grenzbereiche verwendet v0.6.17 zusätzlich kleine Hysteresen: Eine bereits aktive CO₂-Empfehlung wird beispielsweise nicht sofort bei 999 ppm wieder verworfen, und auch Feuchte-/Temperaturentscheidungen erhalten einen kleinen Rücklaufbereich. Dadurch flattert die Karte bei Messrauschen deutlich weniger. Kritisches CO₂ sowie echte Außenluft- und Unwettergefahren umgehen diese Beruhigung und wirken sofort.
+Lüftungsberater bewertet weiterhin den tatsächlichen Nutzen des Lüftens statt nur einzelne Grenzwerte. Für normale Grenzbereiche verwendet Lüftungsberater kleine Hysteresen: Eine bereits aktive CO₂-Empfehlung wird beispielsweise nicht sofort bei 999 ppm wieder verworfen, und auch Feuchte-/Temperaturentscheidungen erhalten einen kleinen Rücklaufbereich. Dadurch flattert die Karte bei Messrauschen deutlich weniger. Kritisches CO₂ sowie echte Außenluft- und Unwettergefahren umgehen diese Beruhigung und wirken sofort.
 
 Der Hauptsensor bleibt bewusst die zentrale Automation-Schnittstelle. Eine zusätzliche Binary-Entity „Lüften empfohlen“ wird nicht erzeugt, weil die Zustände des Hauptsensors (`open_now`, `keep_open`, `close_now`, `wait` usw.) bereits gezieltere Automationen erlauben.
 
@@ -207,6 +218,10 @@ Home Assistant verwendet das mitgelieferte lokale Brand-Icon nach der Installati
 Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
 
+
+### Hinweis zu v0.6.19
+
+v0.6.19 erweitert die Benachrichtigungen um frei wählbare Lüftungsstatus-Hinweise und optionale Companion-App-Steuerung. Normale Hinweise können still auf dem Handy erscheinen, während Vorsicht und Gefahr getrennte Android-Vibrationsmuster erhalten. Kritische Zustellung bleibt ausdrücklich opt-in. Die Entscheidungslogik und Lüftungsschwellen bleiben unverändert.
 
 ### Hinweis zu v0.6.18
 

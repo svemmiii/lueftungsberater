@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.19 - Alpha
+
+### Konfigurierbare Handy-Benachrichtigungen
+
+- Benachrichtigungsauswahl erweitert: Zusätzlich zu Außenluft- und Wetterwarnungen können optional **„Lüften ist wieder sinnvoll“** und **„Lüften kann beendet werden“** aktiviert werden.
+- Die beiden Lüftungsstatus-Hinweise sind echte Zustandswechsel-Benachrichtigungen: kein erneutes Senden bei jedem Sensorupdate und kein unnötiger Hinweis direkt nach einem Home-Assistant-Neustart.
+- Optionales Companion-App-Ziel (`notify.mobile_app_*`) ergänzt. Ist es ausgewählt, wird es anstelle des normalen `notify`-Ziels verwendet und ermöglicht erweiterte Handy-Payloads ohne doppelte Zustellung.
+- Lüftungsstatus-Hinweise werden über die Companion App bewusst still zugestellt: Android nutzt einen Low-Importance-Kanal ohne erzwungene Vibration, iOS eine passive Benachrichtigung ohne Ton.
+- Android-Vibration für **Vorsicht** und **Gefahr** getrennt konfigurierbar: Aus, Leicht, Mittel oder Stark. Die Stufen verwenden unterschiedliche Vibrationsmuster; die tatsächliche Motoramplitude bleibt geräteabhängig.
+- Android verwendet getrennte Notification Channels je Warnstufe/Vibrationsprofil, weil Importance und Vibrationsmuster ab Android 8 nach der ersten Kanalerstellung vom System gespeichert werden.
+- Gefahren werden über die Companion App mit hoher Zustellpriorität (`priority: high`, `ttl: 0`) verschickt.
+- Kritische Zustellung ist ein eigener, standardmäßig deaktivierter Opt-in: iOS nutzt einen echten Critical Alert; Android verwendet dafür einen Kanal mit maximaler Importance. Ein DND-Bypass auf Android muss, sofern gewünscht, weiterhin in den Systemeinstellungen des Kanals erlaubt werden.
+- Companion-App-Meldungen verwenden stabile Tags pro Raum. Veraltete Lüftungsstatus- und Warnmeldungen werden bei Zustandsende bestmöglich wieder entfernt bzw. durch die aktuelle Meldung ersetzt.
+- Bestehende Installationen bleiben kompatibel: Ohne Companion-App-Ziel arbeitet das bisherige generische `notify.send_message` weiter wie zuvor.
+- Keine Änderung an Entscheidungslogik, Hysterese-Schwellen, Warnbewertung, Schimmelschutz, Karten oder Remote-Protokoll.
+
 ## 0.6.18 - Alpha
 
 ### Pytest-/CI-Hotfix für die CO₂-Hysterese

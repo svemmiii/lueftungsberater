@@ -22,8 +22,12 @@
           "manual_outdoor": "Erweiterte Außensensoren (optional)",
           "outdoor_temperature": "Außentemperatur überschreiben",
           "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben",
-          "notify_target": "Benachrichtigungsziel bei offenem Fenster (optional)",
-          "notify_triggers": "Benachrichtigen bei (optional)"
+          "notify_target": "Normales Benachrichtigungsziel (optional)",
+          "notify_triggers": "Benachrichtigen bei (optional)",
+          "notify_mobile_service": "Companion-App-Ziel für Stumm/Vibration/Critical (optional)",
+          "notify_caution_vibration": "Vibration bei Vorsichtshinweisen (Android)",
+          "notify_danger_vibration": "Vibration bei Gefahren (Android)",
+          "notify_critical_bypass": "Kritische Zustellung aktivieren (soweit vom Handy unterstützt)"
         }
       },
       "remote": {
@@ -50,8 +54,12 @@
           "remote_port": "Home-Assistant-Port",
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "HTTPS verwenden",
-          "notify_target": "Benachrichtigungsziel bei offenem Fenster (optional)",
-          "notify_triggers": "Benachrichtigen bei (optional)"
+          "notify_target": "Normales Benachrichtigungsziel (optional)",
+          "notify_triggers": "Benachrichtigen bei (optional)",
+          "notify_mobile_service": "Companion-App-Ziel für Stumm/Vibration/Critical (optional)",
+          "notify_caution_vibration": "Vibration bei Vorsichtshinweisen (Android)",
+          "notify_danger_vibration": "Vibration bei Gefahren (Android)",
+          "notify_critical_bypass": "Kritische Zustellung aktivieren (soweit vom Handy unterstützt)"
         }
       },
       "remote_confirm": {
@@ -185,10 +193,20 @@
     },
     "notify_triggers": {
       "options": {
+        "airing_recommended": "Lüften ist wieder sinnvoll (mit Companion App still)",
+        "airing_finished": "Lüften kann beendet werden (mit Companion App still)",
         "air_danger": "Ernste Luftwarnungen (z. B. Brandrauch / Gefahrstoffe)",
         "air_caution": "Vorsorgliche Luftwarnungen",
         "weather_danger": "Unwetter / schwere Wetterwarnungen",
         "weather_caution": "Wetterwarnungen / Vorsichtshinweise"
+      }
+    },
+    "notify_vibration": {
+      "options": {
+        "off": "Aus",
+        "gentle": "Leicht",
+        "normal": "Mittel",
+        "strong": "Stark"
       }
     }
   }
