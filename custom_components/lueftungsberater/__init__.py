@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.12"
+FRONTEND_VERSION = "0.6.13"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -87,6 +87,23 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
             "Updated Lüftungsberater dashboard cards to frontend %s",
             FRONTEND_VERSION,
         )
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate Lüftungsberater config entries."""
+    if entry.version == 1 and entry.minor_version < 2:
+        updates: dict[str, object] = {"minor_version": 2}
+        # v0.6.12 briefly assigned random local unique IDs. A ConfigEntry unique
+        # ID must be stable and identify a real device/service, so remove only
+        # that known temporary format. The normal entry_id remains untouched.
+        if (
+            entry_kind(entry) == ENTRY_KIND_LOCAL
+            and isinstance(entry.unique_id, str)
+            and entry.unique_id.startswith("local:")
+        ):
+            updates["unique_id"] = None
+        hass.config_entries.async_update_entry(entry, **updates)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

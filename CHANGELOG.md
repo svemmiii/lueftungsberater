@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.13 - Alpha
+
+Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
+
+- Erfolgreiche Tailscale-Remote-Verbindungen können wieder abgeschlossen und gespeichert werden; ein Fehler im Progress-/Bestätigungsübergang wurde behoben.
+- Remote-Protokoll bleibt Version 1 und damit kompatibel zu entfernten Lüftungsberater-Installationen ab v0.6.10.
+- Lokale Lüftungsberater verwenden keine zufällig erzeugte `ConfigEntry.unique_id` mehr; mehrere manuell angelegte lokale Installationen bleiben voneinander unabhängig.
+- Die kurzfristig in v0.6.12 erzeugten `local:...`-Unique-IDs werden beim Update automatisch entfernt.
+- Der Aufbau der lokalen Einrichtung ist gegen fehlerhafte/ungewöhnliche Warnanbieter-Einträge abgesichert, damit ein einzelner Registry-Eintrag nicht den ganzen Config Flow mit „Fehler“ beendet.
+- Zusätzliche Config-Flow-Regressionstests decken erfolgreiche Remote-Einrichtung und mehrere lokale Installationen ab.
+- Der GitHub-Workflow führt Pytest nun ausdrücklich mit aus.
+
 ## 0.6.12 - Alpha
 
 - Mehrere lokale Lüftungsberater-Installationen explizit unterstützt und neue lokale Config Entries mit eigener Unique-ID versehen.

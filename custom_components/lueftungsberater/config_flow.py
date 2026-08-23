@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
-from uuid import uuid4
 
 import voluptuous as vol
 
@@ -58,6 +58,9 @@ from .const import (
     WARNING_SOURCE_NONE,
     entry_kind,
 )
+_LOGGER = logging.getLogger(__name__)
+
+
 from .remote import (
     RemoteAuthError,
     RemoteConnectionError,
@@ -71,22 +74,44 @@ def _entity(domain: str | list[str], multiple: bool = False) -> EntitySelector:
 
 
 def _warning_source_options(hass: HomeAssistant) -> list[str | SelectOptionDict]:
-    """Build a friendly list of installed warning providers."""
-    registry = er.async_get(hass)
+    """Build a friendly list of installed warning providers.
+
+    A broken/unusual entity-registry entry must never make the whole local
+    config flow unusable. Known warning integrations are included directly;
+    the generic warning-name scan is best-effort only.
+    """
     options: list[str | SelectOptionDict] = [WARNING_SOURCE_NONE]
     known_domains = {"nina", "dwd_weather_warnings"}
 
-    for entry in hass.config_entries.async_entries():
+    try:
+        registry = er.async_get(hass)
+        entries = hass.config_entries.async_entries()
+    except Exception:  # noqa: BLE001 - config flow must remain available
+        _LOGGER.exception("Unable to read warning providers for config flow")
+        return options
+
+    for entry in entries:
         if entry.domain == DOMAIN:
             continue
-        entities = er.async_entries_for_config_entry(registry, entry.entry_id)
+
         looks_like_warning = entry.domain in known_domains
         if not looks_like_warning:
+            try:
+                entities = er.async_entries_for_config_entry(registry, entry.entry_id)
+            except Exception:  # noqa: BLE001 - skip only the broken provider
+                _LOGGER.exception(
+                    "Unable to inspect entities for config entry %s", entry.entry_id
+                )
+                entities = []
+
             for entity in entities:
-                low = " ".join((entity.entity_id, entity.original_name or "")).lower()
+                original_name = getattr(entity, "original_name", None) or ""
+                entity_id = getattr(entity, "entity_id", "") or ""
+                low = f"{entity_id} {original_name}".lower()
                 if "warn" in low or "warning" in low or "nina" in low:
                     looks_like_warning = True
                     break
+
         if looks_like_warning:
             options.append(
                 SelectOptionDict(
@@ -285,7 +310,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 1
+    MINOR_VERSION = 2
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
@@ -298,12 +323,33 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data = dict(user_input)
             title = str(data.pop(CONF_INSTANCE_NAME)).strip() or "Lüftungsberater"
             data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
-            # A local installation is intentionally repeatable. Give every new
-            # top-level advisor its own unique ID instead of relying on a blank
-            # unique_id, which also makes multiple local entries explicit to HA.
-            await self.async_set_unique_id(f"local:{uuid4().hex}")
+            # Local advisors are manually created, repeatable config entries.
+            # They intentionally do not use ConfigEntry.unique_id: Home Assistant
+            # reserves that field for stable identifiers of a real device/API.
             return self.async_create_entry(title=title, data=data)
-        return self.async_show_form(step_id="local", data_schema=_local_schema(self.hass))
+
+        try:
+            schema = _local_schema(self.hass)
+        except Exception:  # noqa: BLE001 - never strand the user on a generic error
+            _LOGGER.exception("Unable to build local Lüftungsberater setup form")
+            schema = vol.Schema(
+                {
+                    vol.Required(
+                        CONF_INSTANCE_NAME, default="Lüftungsberater"
+                    ): TextSelector(TextSelectorConfig()),
+                    vol.Required(CONF_WEATHER): _entity("weather"),
+                    vol.Optional(
+                        CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[WARNING_SOURCE_NONE],
+                            mode=SelectSelectorMode.DROPDOWN,
+                            translation_key="warning_source",
+                        )
+                    ),
+                }
+            )
+        return self.async_show_form(step_id="local", data_schema=schema)
 
     async def async_step_remote(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
@@ -352,12 +398,16 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             error, payload = await task
+        except Exception:  # noqa: BLE001 - convert unexpected network/API failures
+            _LOGGER.exception("Unexpected error while testing remote Lüftungsberater")
+            error, payload = "cannot_connect", None
         finally:
             self._remote_test_task = None
 
         self._pending_remote_error = error
         if error is None:
-            self._pending_remote_summary = _remote_summary(payload, title)
+            fallback_title = getattr(self, "_pending_remote_title", "Home Assistant")
+            self._pending_remote_summary = _remote_summary(payload, fallback_title)
         return self.async_show_progress_done(next_step_id="remote_confirm")
 
     async def async_step_remote_confirm(

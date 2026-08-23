@@ -124,7 +124,7 @@ Die Dashboard-Ressource wird bei normalen Home-Assistant-Dashboards automatisch 
 
 ## Mehrere Instanzen und Tailscale-Remote
 
-Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Ab v0.6.12 erhält jede neu angelegte lokale Installation eine eigene stabile Config-Entry-Kennung; die gemeinsame Übersicht gruppiert die Installationen unabhängig voneinander und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
+Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden. Jede Installation verwendet Home Assistants eigene Config-Entry-ID; eine künstliche `unique_id` wird bewusst nicht vergeben, weil lokale Berater manuell wiederholbare Konfigurationen und keine einzelne physische Hardware sind. Die gemeinsame Übersicht gruppiert die Installationen unabhängig voneinander und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
 
 Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token. Ab v0.6.12 zeigt Home Assistant während der Prüfung einen Fortschrittsdialog und anschließend eine Zusammenfassung der gefundenen Lüftungsberater und Räume, bevor die Verbindung gespeichert wird.
 
@@ -183,3 +183,8 @@ die Versionsnummer des Releases statt den Commit-Hash des Default-Branches.
 Home Assistant verwendet das mitgelieferte lokale Brand-Icon nach der Installation.
 Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
+
+
+### Hinweis zu v0.6.13
+
+v0.6.13 behebt einen Fehler im neuen Remote-Fortschrittsdialog von v0.6.12, durch den erfolgreiche Tailscale-Verbindungen nach der Prüfung nicht gespeichert werden konnten. Außerdem wurde der lokale Mehrfach-Setup-Pfad vereinfacht und die automatische Pytest-Prüfung im GitHub-Workflow ausdrücklich aktiviert.
