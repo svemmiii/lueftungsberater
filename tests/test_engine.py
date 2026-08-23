@@ -219,7 +219,21 @@ def test_temperature_hysteresis_keeps_hot_outdoor_block_stable():
 
 
 def test_open_window_co2_hysteresis_avoids_flapping_at_1000_ppm():
-    kept = evaluate_room(base(co2=980, window_open=True, previous_mode="weiter_lueften"))
-    released = evaluate_room(base(co2=940, window_open=True, previous_mode="weiter_lueften"))
+    kept = evaluate_room(
+        base(
+            co2=980,
+            target_temp=23,
+            window_open=True,
+            previous_mode="weiter_lueften",
+        )
+    )
+    released = evaluate_room(
+        base(
+            co2=940,
+            target_temp=23,
+            window_open=True,
+            previous_mode="weiter_lueften",
+        )
+    )
     assert kept.mode == "weiter_lueften"
-    assert released.mode != "weiter_lueften"
+    assert released.mode == "lueftung_fertig"

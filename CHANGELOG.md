@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.18 - Alpha
+
+### Pytest-/CI-Hotfix für die CO₂-Hysterese
+
+- Regressionstest für die CO₂-Hysterese bei offenem Fenster korrigiert. Der bisherige Test aktivierte mit den Standardwerten `23 °C` innen, `22 °C` Soll und `15 °C` außen gleichzeitig die Kühl-Hysterese und erwartete deshalb fälschlich ein Ende des Lüftens bei `940 ppm`.
+- Der Test neutralisiert den Temperatureinfluss jetzt mit `target_temp=23`, sodass ausschließlich die CO₂-Hysterese geprüft wird: Bei `980 ppm` bleibt eine laufende Lüftung aktiv, bei `940 ppm` wird sie beendet.
+- Die Abschlussprüfung erwartet nun explizit `lueftung_fertig` statt nur „nicht `weiter_lueften`“ und schützt damit genauer vor zukünftigen Regressionen.
+- Keine Änderung an Lüftungslogik, Hysterese-Schwellen, Warnungen, Benachrichtigungen, Karten oder Sensorberechnungen.
+
 ## 0.6.17 - Alpha
 
 ### Letzter Funktions-/Polish-Schritt vor der öffentlichen HACS-Einreichung

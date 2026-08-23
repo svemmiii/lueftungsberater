@@ -208,6 +208,10 @@ Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
 
 
+### Hinweis zu v0.6.18
+
+v0.6.18 ist ein reiner Test-/CI-Hotfix. Die Lüftungslogik aus v0.6.17 bleibt unverändert. Korrigiert wurde ausschließlich ein Regressionstest, der bei der Prüfung der CO₂-Hysterese unbeabsichtigt gleichzeitig die Kühl-Hysterese aktiviert hatte.
+
 ### Hinweis zu v0.6.17
 
 v0.6.17 vereinheitlicht die Klicklogik der Raumkarte, filtert die Sensorauswahl nach passenden Geräteklassen, beruhigt Grenzbereiche mit Hysterese und ergänzt optionalen Schimmelschutz sowie gezielte Warn-Benachrichtigungen bei tatsächlich offenem Fenster/Tür. Die bestehenden Wetter-/Radarwege bleiben bewusst unverändert.
