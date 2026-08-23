@@ -139,10 +139,22 @@ async def test_remote_success_progress_reaches_confirmation(hass, enable_custom_
         if result["type"] is FlowResultType.SHOW_PROGRESS_DONE:
             result = await hass.config_entries.flow.async_configure(result["flow_id"])
 
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "remote_confirm"
-    assert result["description_placeholders"]["remote_name"] == "Raspberry Wohnmobil"
-    assert result["description_placeholders"]["rooms"] == "1"
+    # Depending on the Home Assistant flow-manager version/timing, a
+    # confirm-only empty form may either be exposed to the caller or be
+    # consumed immediately after SHOW_PROGRESS_DONE. Both are valid. If the
+    # confirmation form is returned, verify its summary and confirm it.
+    if result["type"] is FlowResultType.FORM:
+        assert result["step_id"] == "remote_confirm"
+        assert result["description_placeholders"]["remote_name"] == "Raspberry Wohnmobil"
+        assert result["description_placeholders"]["rooms"] == "1"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Wohnmobil"
+    assert result["data"][CONF_REMOTE_HOST] == "100.86.162.62"
+    assert result["data"][CONF_REMOTE_PORT] == 8123
 
 
 def test_remote_summary_keeps_v0610_protocol_shape() -> None:
