@@ -118,7 +118,8 @@
         }
       },
       "abort": {
-        "already_configured": "Bu ada sahip bir oda zaten var."
+        "already_configured": "Bu ada sahip bir oda zaten var.",
+        "remote_read_only": "Uzak/Tailscale bağlantıları salt okunurdur. Odalar yalnızca yerel bir Havalandırma Danışmanına eklenebilir."
       }
     }
   },

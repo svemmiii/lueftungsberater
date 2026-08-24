@@ -590,12 +590,86 @@ def reason_text(
     return texts.get(key, key)
 
 
+
+def night_advice_text(
+    key: str | None,
+    args: dict[str, Any] | None,
+    language: str | None,
+    temperature_unit: str = "°C",
+) -> str:
+    """Render the compact evening night-ventilation hint."""
+    if not key:
+        return ""
+    lang = normalize_language(language)
+    a = args or {}
+    indoor = _temperature(a.get("indoor_temp"), lang, temperature_unit)
+    target = _temperature(a.get("target_temp"), lang, temperature_unit)
+    minimum = _temperature(a.get("minimum_temp"), lang, temperature_unit)
+
+    if key == "night_recommended":
+        return {
+            "de": f"🌙 Nachtlüftung sinnvoll: Von {indoor} Richtung {target} kann die kühlere Nachtluft gut helfen (nachts bis etwa {minimum}).",
+            "en": f"🌙 Night airing is useful: cooler night air can help move the room from {indoor} toward {target} (down to about {minimum} outside).",
+            "tr": f"🌙 Gece havalandırması uygun: daha serin gece havası odayı {indoor} seviyesinden {target} hedefine yaklaştırabilir (dışarıda yaklaşık {minimum} seviyesine kadar).",
+        }[lang]
+    if key == "night_conditional":
+        details: list[str] = []
+        if a.get("rain_risk"):
+            details.append({"de": "Regen möglich", "en": "rain is possible", "tr": "yağmur mümkün"}[lang])
+        if a.get("humidity_disadvantage"):
+            details.append({"de": "Außenluft eher feuchter", "en": "outdoor air is rather wetter", "tr": "dış hava daha nemli"}[lang])
+        if a.get("weather_caution"):
+            details.append({"de": "Wetterhinweis aktiv", "en": "weather advisory active", "tr": "hava uyarısı aktif"}[lang])
+        if a.get("air_warning"):
+            details.append({"de": "Außenluft-Hinweis aktiv", "en": "outdoor-air advisory active", "tr": "dış hava uyarısı aktif"}[lang])
+        if a.get("air_quality_moderate"):
+            details.append({"de": "Außenluftqualität nur mäßig", "en": "outdoor air quality only moderate", "tr": "dış hava kalitesi yalnızca orta"}[lang])
+        detail = ", ".join(details) or {"de": "Bedingungen nicht ideal", "en": "conditions are not ideal", "tr": "koşullar ideal değil"}[lang]
+        return {
+            "de": f"🌙 Nachtlüftung nur bedingt sinnvoll: Abkühlung wäre möglich, aber {detail}.",
+            "en": f"🌙 Night airing is only conditionally useful: cooling would help, but {detail}.",
+            "tr": f"🌙 Gece havalandırması yalnızca koşullu olarak uygun: serinleme faydalı olurdu ancak {detail}.",
+        }[lang]
+    if key == "night_target_already_ok":
+        return {
+            "de": f"🌙 Nachtlüftung eher nicht nötig: Der Raum liegt mit {indoor} bereits nahe am Wunschwert {target}.",
+            "en": f"🌙 Night airing is probably unnecessary: the room is already near the {target} target at {indoor}.",
+            "tr": f"🌙 Gece havalandırması pek gerekli değil: oda {indoor} ile {target} hedef değerine zaten yakın.",
+        }[lang]
+    if key == "night_not_cooler":
+        return {
+            "de": f"🌙 Nachtlüftung eher nicht sinnvoll: Die kommende Nacht bietet voraussichtlich zu wenig Abkühlung (Minimum etwa {minimum}).",
+            "en": f"🌙 Night airing is probably not useful: the coming night is not expected to provide much cooling (minimum about {minimum}).",
+            "tr": f"🌙 Gece havalandırması pek uygun değil: bu gece yeterli serinleme beklenmiyor (minimum yaklaşık {minimum}).",
+        }[lang]
+    if key == "night_strong_wind":
+        return {
+            "de": "🌙 Nachtlüftung nicht empfohlen: Für längeres unbeaufsichtigtes Öffnen ist zu starker Wind vorhergesagt.",
+            "en": "🌙 Night airing is not recommended: winds are forecast to be too strong for a long unattended opening.",
+            "tr": "🌙 Gece havalandırması önerilmez: uzun süre gözetimsiz açık bırakmak için çok güçlü rüzgâr bekleniyor.",
+        }[lang]
+    if key == "night_poor_air":
+        return {
+            "de": "🌙 Nachtlüftung nicht empfohlen: Die aktuelle Außenluftqualität spricht gegen ein längeres Öffnen.",
+            "en": "🌙 Night airing is not recommended: current outdoor air quality argues against leaving the window open for longer.",
+            "tr": "🌙 Gece havalandırması önerilmez: mevcut dış hava kalitesi pencerenin uzun süre açık kalmasına karşı.",
+        }[lang]
+    if key == "night_hard_conditions":
+        return {
+            "de": "🌙 Nachtlüftung nicht empfohlen: Aktuell besteht ein deutlicher Außenluft- oder Wetterschutzgrund.",
+            "en": "🌙 Night airing is not recommended: there is currently a clear outdoor-air or weather safety reason to keep closed.",
+            "tr": "🌙 Gece havalandırması önerilmez: şu anda pencereleri kapalı tutmak için belirgin bir dış hava veya hava durumu güvenlik nedeni var.",
+        }[lang]
+    return ""
+
 def localized_bundle(
     recommendation_key: str,
     reason_key: str,
     reason_args: dict[str, Any],
     duration_key: str,
     temperature_unit: str,
+    night_key: str | None = None,
+    night_args: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, str]]:
     """Render all bundled languages for per-user frontend selection."""
     return {
@@ -603,6 +677,7 @@ def localized_bundle(
             "recommendation": recommendation_text(recommendation_key, language),
             "reason": reason_text(reason_key, reason_args, language, temperature_unit),
             "duration": duration_text(duration_key, language),
+            "night": night_advice_text(night_key, night_args, language, temperature_unit),
         }
         for language in SUPPORTED_LANGUAGES
     }

@@ -58,3 +58,22 @@ def test_incomplete_sensor_data_has_natural_text_in_all_languages() -> None:
             "incomplete_data", {}, language, "°C"
         )
         assert "incomplete_data" not in duration_text("incomplete_data", language)
+
+
+def test_night_advice_text_is_localized() -> None:
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    expected_fragments = {
+        "de": "Nachtlüftung",
+        "en": "Night airing",
+        "tr": "Gece havalandırması",
+    }
+    for language, fragment in expected_fragments.items():
+        text = night_advice_text(
+            "night_recommended",
+            {"indoor_temp": 24.0, "minimum_temp": 17.0, "target_temp": 22.0},
+            language,
+            "°C",
+        )
+        assert fragment in text
+        assert "17" in text

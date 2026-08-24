@@ -135,9 +135,26 @@ def _color(mode: str) -> str:
         "normal",
     }:
         return "yellow"
-    # Red deliberately means "keep closed / overall disadvantage", not only
-    # an emergency. That includes severe weather as well as simply worsening an
-    # otherwise good room for no useful reason.
+    if mode in {
+        "nina_vorsicht",
+        "wetter_vorsicht",
+        "luftqualitaet_maessig",
+        "luftqualitaet_schlecht",
+        "co2_warten",
+        "schimmel_warten",
+        "feuchte_warten",
+        "routine_warten",
+        "aussen_zu_warm",
+        "aussen_zu_kalt",
+        "aussen_deutlich_feuchter",
+        "innen_zu_trocken",
+        "regen",
+        "regen_bald",
+    }:
+        return "orange"
+    # Red is now reserved for a genuinely strong keep-closed reason: an explicit
+    # outdoor-air danger, severe weather, very poor air quality, or another hard
+    # safety/health constraint.
     return "red"
 
 
@@ -146,6 +163,8 @@ def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
         return "keep_open" if window_open else "open_now"
     if color == "red":
         return "close_now" if window_open else "keep_closed"
+    if color == "orange":
+        return "better_close" if window_open else "caution_keep_closed"
     if mode in {"co2_kritisch_vorsicht", "co2_abwaegung", "komfort_abwaegung"}:
         return "short_observation"
     if window_open:
@@ -333,6 +352,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif data.air_quality == "very_poor":
         hard_mode = "luftqualitaet_sehr_schlecht"
     elif data.air_quality == "poor":
+        # Poor outdoor air is a strong reason not to open the window, but with
+        # the four-stage UI it is intentionally orange rather than a hard red
+        # emergency unless the provider reaches "very poor" or a warning says so.
         hard_mode = "luftqualitaet_schlecht"
 
     mode: str

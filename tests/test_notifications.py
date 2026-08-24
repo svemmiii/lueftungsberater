@@ -16,7 +16,7 @@ from custom_components.lueftungsberater.notifications import (
 def test_notification_modes_are_explicit_not_generic_red_states():
     assert _trigger_for_mode("nina_aussenluftgefahr") == NOTIFY_TRIGGER_AIR_DANGER
     assert _trigger_for_mode("nina_vorsicht") == NOTIFY_TRIGGER_AIR_CAUTION
-    assert _trigger_for_mode("luftqualitaet_schlecht") == NOTIFY_TRIGGER_AIR_DANGER
+    assert _trigger_for_mode("luftqualitaet_schlecht") == NOTIFY_TRIGGER_AIR_CAUTION
     assert _trigger_for_mode("luftqualitaet_sehr_schlecht") == NOTIFY_TRIGGER_AIR_DANGER
     assert _trigger_for_mode("luftqualitaet_maessig") == NOTIFY_TRIGGER_AIR_CAUTION
     assert _trigger_for_mode("wettergefahr") == NOTIFY_TRIGGER_WEATHER_DANGER

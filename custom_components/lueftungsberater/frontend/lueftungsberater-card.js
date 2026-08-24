@@ -356,6 +356,9 @@ class LueftungsberaterCard extends HTMLElement {
     if (status === "green") {
       return { cls: "green", icon: "mdi:window-open-variant" };
     }
+    if (status === "orange") {
+      return { cls: "orange", icon: "mdi:window-closed-variant" };
+    }
     if (status === "red") {
       return { cls: "red", icon: "mdi:window-closed-variant" };
     }
@@ -501,6 +504,12 @@ class LueftungsberaterCard extends HTMLElement {
       "duration",
       a.duration || (incompleteData ? lbT(this._hass, "duration.incomplete_data") : "")
     );
+    const nightText = lbLocalizedEntityText(
+      this._hass,
+      a,
+      "night",
+      a.night_ventilation || ""
+    );
     const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsberater";
 
     const tempUnit = a.temperature_display_unit || this._temperatureUnit();
@@ -624,17 +633,25 @@ class LueftungsberaterCard extends HTMLElement {
       }
     }
 
+    if (nightText && a.night_ventilation_status && a.night_ventilation_status !== "unavailable") {
+      rows.push({
+        icon: "mdi:weather-night",
+        cls: `night-${a.night_ventilation_status}`,
+        html: this._escape(nightText),
+      });
+    }
+
     const showDuration = Boolean(durationText) && a.duration_key !== "not_needed";
     const reasonHtml = reason ? this._escape(reason) : "";
 
     this.shadowRoot.innerHTML = `
       <style>
-        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: var(--warning-color, #f9a825); --lb-red: var(--error-color, #db4437); display: block; }
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); display: block; }
         ha-card { overflow: hidden; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
         .header { display: flex; align-items: center; gap: 14px; padding: 16px; color: var(--primary-text-color); border-left: 6px solid var(--lb-accent); background: color-mix(in srgb, var(--lb-accent) 14%, var(--ha-card-background, var(--card-background-color))); }
         .header.main-tap { cursor: pointer; }
         .header.main-tap:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
-        .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.red { --lb-accent: var(--lb-red); }
+        .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.orange { --lb-accent: var(--lb-orange); } .header.red { --lb-accent: var(--lb-red); }
         .icon-wrap { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--lb-accent) 20%, transparent); color: var(--lb-accent); }
         .main-icon { --mdc-icon-size: 31px; color: var(--lb-accent); }
         .head-text { min-width: 0; flex: 1; }
@@ -1002,6 +1019,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   _groupClass(group) {
     if (!group.available) return "unavailable";
     if (group.rooms.some((room) => room.status === "red")) return "red";
+    if (group.rooms.some((room) => room.status === "orange")) return "orange";
     if (group.rooms.some((room) => room.status === "yellow")) return "yellow";
     return "green";
   }
@@ -1038,12 +1056,13 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     if (!this.shadowRoot || this.shadowRoot.querySelector("#overview")) return;
     this.shadowRoot.innerHTML = `
       <style>
-        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: var(--warning-color, #f9a825); --lb-red: var(--error-color, #db4437); display: block; }
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); display: block; }
         ha-card { overflow: hidden; padding: 0; }
         .overview-title { padding: 12px 16px 9px; color: var(--primary-text-color); font-size: 17px; font-weight: 700; border-bottom: 1px solid var(--divider-color); }
         .room-row, .group-row { --row-accent: var(--lb-green); appearance: none; width: 100%; min-width: 0; border: 0; border-top: 1px solid var(--divider-color); border-left: 4px solid var(--row-accent); background: transparent; color: var(--primary-text-color); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
         .room-row:first-child, .group-row:first-child { border-top: 0; }
         .room-row.yellow, .group-row.yellow { --row-accent: var(--lb-yellow); }
+        .room-row.orange, .group-row.orange { --row-accent: var(--lb-orange); }
         .room-row.red, .group-row.red { --row-accent: var(--lb-red); }
         .group-row.unavailable { --row-accent: var(--secondary-text-color); opacity: .75; cursor: default; }
         .room-row { display: grid; grid-template-columns: 27px minmax(0, 1fr) auto 22px; gap: 8px; align-items: center; min-height: 48px; padding: 9px 10px 9px 12px; }

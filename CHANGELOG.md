@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.22 - Alpha
+
+- Vierstufige Ampel eingeführt: Grün = klar sinnvoll, Gelb = optional/nahe Abwägung, Orange = eher nachteilig bzw. besser geschlossen lassen, Rot = deutlicher Schutz-/Gefahrengrund zum Geschlossenhalten.
+- Bisherige harmlose Rot-Fälle wie ungünstige Feuchte, unnötiges Auskühlen, mäßige/schlechte Außenluftqualität oder starker Wind werden soweit passend nach Orange getrennt; echte Außenluftgefahren, sehr schlechte Luftqualität und schwere Wetterlagen bleiben Rot.
+- Rohwindwerte neu zur Vierfarbenlogik passend abgestuft: ungefähr 50 km/h anhaltender Wind bzw. 65 km/h Böen sind ein klarer Orange-Nachteil; erst deutlich extremere Rohwerte (ca. 75 km/h Dauerwind bzw. 105 km/h Böen) werden ohne zusätzliche Warnquelle als harter Rot-Fall behandelt.
+- Remote-/Tailscale-Lüftungsberater werden nicht mehr als Ziel beim Hinzufügen eines lokalen Raums angeboten. Legacy-Remoteeinträge mit Remote-Host werden ebenfalls erkannt; Remote-Topologie bleibt read-only.
+- Neue kompakte Nachtlüftungs-Zusatzempfehlung am späten Abend. Wenn der gewählte Weather-Provider einen stündlichen Forecast unterstützt, werden persönliche Solltemperatur sowie vorhandene Temperatur-, Feuchte-, Regen- und Windprognosen für die kommende Nacht ausgewertet.
+- Nachtlüftung bleibt bewusst eine Zusatzinformation und ändert die aktuelle Hauptampel nicht. Fehlende Forecastdaten werden ignoriert statt geschätzt; Provider ohne Stundenforecast zeigen keine Nachtzeile.
+- Stündliche Forecasts werden über Home Assistants `weather.get_forecasts` bezogen und pro Lüftungsberater gecacht, damit mehrere Räume denselben Wetterdienst nicht unnötig mehrfach abfragen.
+- Deutsch, Englisch und Türkisch sowie Frontend- und Remote-Snapshot-Texte für die neuen Zustände aktualisiert.
+
 ## 0.6.21 - Alpha
 
 - Hotfix: Temperaturberatung bewertet kalte bzw. warme Außenluft jetzt nach der **Richtung der Temperaturänderung zum persönlichen Sollwert**. Außenluft muss nicht selbst näher am Sollwert liegen, um einen zu warmen/zu kalten Raum sinnvoll in Richtung Soll zu bewegen.

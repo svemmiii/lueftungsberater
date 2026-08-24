@@ -55,6 +55,7 @@ DEFAULT_REMOTE_PORT = 8123
 REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
 REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
 REMOTE_PROTOCOL_VERSION = 1
+FORECAST_REFRESH_INTERVAL = timedelta(hours=1)
 
 CONF_ROOM_NAME = "room_name"
 CONF_INDOOR_TEMP = "indoor_temperature"
@@ -89,6 +90,7 @@ DATA_COORDINATORS = "room_coordinators"
 DATA_REMOTE_COORDINATORS = "remote_coordinators"
 DATA_API_REGISTERED = "api_registered"
 DATA_NOTIFICATION_STATE = "notification_state"
+DATA_FORECAST_CACHE = "hourly_forecast_cache"
 STORAGE_VERSION = 1
 
 

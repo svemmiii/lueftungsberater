@@ -62,6 +62,9 @@ REMOTE_ATTRIBUTE_KEYS = {
     "wind_speed_kmh",
     "wind_gust_kmh",
     "rain_minutes_until",
+    "night_ventilation_status",
+    "night_ventilation_key",
+    "night_ventilation_args",
     "has_co2",
     "has_window_contacts",
     "window_open",
@@ -143,6 +146,10 @@ def _export_attributes(
             reason_args,
             duration_key,
             temperature_unit,
+            attrs.get("night_ventilation_key"),
+            attrs.get("night_ventilation_args")
+            if isinstance(attrs.get("night_ventilation_args"), dict)
+            else {},
         )
 
     if remote_export:

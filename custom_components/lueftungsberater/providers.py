@@ -3,12 +3,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     CONF_MANUAL_OUTDOOR,
@@ -16,6 +19,8 @@ from .const import (
     CONF_OUTDOOR_TEMP,
     CONF_WARNING_SOURCE,
     CONF_WEATHER,
+    DATA_FORECAST_CACHE,
+    DOMAIN,
     WARNING_SOURCE_NONE,
 )
 
@@ -115,6 +120,9 @@ HARD_CLOSE_WORDS = (
 
 SEVERITY_DANGER = {"severe", "extreme"}
 
+_LOGGER = logging.getLogger(__name__)
+HOURLY_FORECAST_CACHE_MAX_AGE = timedelta(minutes=45)
+
 
 @dataclass(slots=True)
 class WeatherAssessment:
@@ -144,6 +152,8 @@ class WeatherAssessment:
     air_quality_pollutant: str | None = None
     air_quality_value: float | None = None
     air_quality_values: dict[str, float] = field(default_factory=dict)
+    hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
+    hourly_forecast_updated: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -395,6 +405,113 @@ def _discover_air_quality(
     return worst_class, worst_kind, worst_value, values, used
 
 
+
+def _forecast_temperature_to_celsius(value: Any, unit: str | None) -> float | None:
+    number = _float(value)
+    if number is None:
+        return None
+    if not unit or unit == UnitOfTemperature.CELSIUS:
+        return number
+    try:
+        return float(TemperatureConverter.convert(number, unit, UnitOfTemperature.CELSIUS))
+    except (TypeError, ValueError):
+        return number
+
+
+def _normalize_hourly_forecast(
+    hass: HomeAssistant,
+    weather_entity_id: str,
+    items: Any,
+) -> list[dict[str, Any]]:
+    """Normalize best-effort hourly forecast data into engine-friendly units."""
+    if not isinstance(items, list):
+        return []
+    state = hass.states.get(weather_entity_id)
+    temperature_unit = state.attributes.get("temperature_unit") if state else None
+    wind_unit = state.attributes.get("wind_speed_unit") if state else None
+    normalized: list[dict[str, Any]] = []
+    for raw in items[:36]:
+        if not isinstance(raw, dict):
+            continue
+        stamp = _parse_datetime(raw.get("datetime"))
+        temp = _forecast_temperature_to_celsius(raw.get("temperature"), temperature_unit)
+        if stamp is None or temp is None:
+            continue
+        item: dict[str, Any] = {
+            "datetime": dt_util.as_local(stamp),
+            "temperature": temp,
+        }
+        for key in ("humidity", "precipitation_probability", "precipitation"):
+            value = _float(raw.get(key))
+            if value is not None:
+                item[key] = value
+        condition = raw.get("condition")
+        if isinstance(condition, str) and condition:
+            item["condition"] = condition
+        wind = _float(raw.get("wind_speed"))
+        gust = _float(raw.get("wind_gust_speed"))
+        if wind is not None:
+            item["wind_speed"] = _wind_to_kmh(wind, wind_unit)
+        if gust is not None:
+            item["wind_gust_speed"] = _wind_to_kmh(gust, wind_unit)
+        normalized.append(item)
+    return normalized
+
+
+def _cached_hourly_forecast(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> tuple[list[dict[str, Any]], datetime | None]:
+    entry_id = getattr(entry, "entry_id", None)
+    domain_data = getattr(hass, "data", {})
+    if not entry_id or not isinstance(domain_data, dict):
+        return [], None
+    cache = domain_data.get(DOMAIN, {}).get(DATA_FORECAST_CACHE, {}).get(entry_id)
+    if not isinstance(cache, dict):
+        return [], None
+    items = cache.get("forecast")
+    updated = cache.get("updated")
+    return (list(items) if isinstance(items, list) else [], updated if isinstance(updated, datetime) else None)
+
+
+async def async_refresh_hourly_forecast(
+    hass: HomeAssistant, entry: ConfigEntry, *, force: bool = False
+) -> None:
+    """Refresh the selected weather entity's hourly forecast, if supported.
+
+    Forecasts are optional. Unsupported providers or temporary failures must never
+    make the normal current-condition advice unavailable.
+    """
+    weather_entity_id = entry.data.get(CONF_WEATHER)
+    if not isinstance(weather_entity_id, str) or not weather_entity_id:
+        return
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    store = domain_data.setdefault(DATA_FORECAST_CACHE, {})
+    cached = store.get(entry.entry_id)
+    now = dt_util.utcnow()
+    if not force and isinstance(cached, dict):
+        updated = cached.get("updated")
+        if isinstance(updated, datetime) and now - updated < HOURLY_FORECAST_CACHE_MAX_AGE:
+            return
+
+    try:
+        response = await hass.services.async_call(
+            "weather",
+            "get_forecasts",
+            {"type": "hourly"},
+            target={"entity_id": weather_entity_id},
+            blocking=True,
+            return_response=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - forecast support is optional
+        _LOGGER.debug("Hourly forecast unavailable for %s: %s", weather_entity_id, exc)
+        return
+
+    entity_response = response.get(weather_entity_id) if isinstance(response, dict) else None
+    raw_forecast = entity_response.get("forecast") if isinstance(entity_response, dict) else None
+    normalized = _normalize_hourly_forecast(hass, weather_entity_id, raw_forecast)
+    if normalized:
+        store[entry.entry_id] = {"updated": now, "forecast": normalized}
+
 def _discover_dwd_radar_entities(
     hass: HomeAssistant,
     weather_entity_id: str,
@@ -468,6 +585,9 @@ def weather_assessment(
     result.provider_domain = _provider_domain_for_entity(
         hass,
         weather_entity_id,
+    )
+    result.hourly_forecast, result.hourly_forecast_updated = _cached_hourly_forecast(
+        hass, entry
     )
 
     temp_override = _manual_override(entry, CONF_OUTDOOR_TEMP)
@@ -564,7 +684,7 @@ def weather_assessment(
     # DWD warning colour. Bft 6 (39 km/h mean wind) starts as caution; from
     # roughly Bft 7 / storm-force gusts an open window itself becomes a
     # meaningful disadvantage, so the advisor may recommend keeping it shut.
-    if condition in WEATHER_DANGER_CONDITIONS or wind >= 50 or gust >= 65:
+    if condition in WEATHER_DANGER_CONDITIONS or wind >= 75 or gust >= 105:
         result.weather_danger = True
         result.weather_caution = False
 
@@ -574,15 +694,15 @@ def weather_assessment(
             result.weather_reason_key = "weather_hail_danger"
         elif condition == "exceptional":
             result.weather_reason_key = "weather_exceptional_danger"
-        elif gust >= 65:
+        else:
+            speed = gust if gust >= 105 else wind
             result.weather_reason_key = "weather_wind_danger"
-            result.weather_reason_args = {"speed_kmh": gust}
-        elif wind >= 50:
-            result.weather_reason_key = "weather_wind_danger"
-            result.weather_reason_args = {"speed_kmh": wind}
-    elif wind >= 39 or gust >= 50:
+            result.weather_reason_args = {"speed_kmh": speed}
+    elif wind >= 50 or gust >= 65:
+        # With the four-stage advisor this is a clear disadvantage (orange),
+        # not automatically the same as a hard red weather hazard.
         result.weather_caution = True
-        speed = gust if gust >= 50 else wind
+        speed = gust if gust >= 65 else wind
         result.weather_reason_key = "weather_wind_caution"
         result.weather_reason_args = {"speed_kmh": speed}
 

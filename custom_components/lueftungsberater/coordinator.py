@@ -18,9 +18,11 @@ from .const import (
     CONF_WINDOWS,
     DATA_COORDINATORS,
     DOMAIN,
+    FORECAST_REFRESH_INTERVAL,
     MOLD_SAMPLE_INTERVAL,
 )
 from .runtime import RoomSnapshot, build_room_snapshot, room_source_entities
+from .providers import async_refresh_hourly_forecast
 from .notifications import (
     async_handle_room_notification,
     clear_room_notification_state,
@@ -62,6 +64,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         )
 
     async def _async_update_data(self) -> RoomSnapshot:
+        # Hourly forecasts are optional and cached per local advisor. Fetching
+        # them here keeps the normal synchronous room calculation lightweight.
+        await async_refresh_hourly_forecast(self.hass, self.entry)
         snapshot = self._build_snapshot()
         await async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot)
         return snapshot
@@ -119,6 +124,20 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                     MOLD_SAMPLE_INTERVAL,
                 )
             )
+
+        # Forecast-based night advice needs to appear/disappear even if no room
+        # sensor changes around the evening boundary. The provider cache ensures
+        # that multiple rooms of the same advisor do not hammer the weather API.
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass,
+                lambda _now: self.hass.async_create_task(
+                    self.async_request_refresh(),
+                    f"Lüftungsberater forecast refresh {self.subentry.subentry_id}",
+                ),
+                FORECAST_REFRESH_INTERVAL,
+            )
+        )
 
     @callback
     def _handle_source_change(self, event: Event) -> None:

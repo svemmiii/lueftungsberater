@@ -13,10 +13,11 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 ## Funktionen
 
 - Eigene Lüftungsempfehlung pro Raum
-- Grün/Gelb/Rot-Status mit konkreter Begründung
+- Grün/Gelb/Orange/Rot-Status mit konkreter Begründung
   - **Grün:** Lüften bringt aktuell einen klaren Gesamtvorteil
   - **Gelb:** Lüften ist optional oder Nutzen und Nachteile liegen nah beieinander
-  - **Rot:** Lüften ist aktuell unnötig oder die Nachteile überwiegen; Fenster besser geschlossen halten
+  - **Orange:** Lüften ist aktuell eher nachteilig; geschlossen lassen ist sinnvoller, aber es besteht keine harte Sperre
+  - **Rot:** Fenster geschlossen halten; es besteht ein starker Sicherheits-, Gesundheits- oder Wetterschutzgrund
 - Absolute Feuchtigkeit innen/außen
 - Optionaler CO₂-Sensor pro Raum
 - Automatischer Lüftungsverlauf mit Fenster-/Türkontakt
@@ -110,7 +111,11 @@ Ab ungefähr **80 % relativer Oberflächenfeuchte** wird die Situation im Hinter
 
 Regen ist kein Ersatz für eine Feuchtebewertung: Ob Lüften trocknet, entscheidet die absolute Feuchtedifferenz innen/außen. Aktueller bzw. unmittelbar bevorstehender Niederschlag wird nur als praktischer Nachteil für ein geöffnetes Fenster gewertet. Ein Radarereignis beeinflusst die Empfehlung nur noch dann, wenn es während der erwarteten Lüftungsdauer beziehungsweise kurz danach beginnen kann; ein Niederschlag in deutlich späterer Zukunft blockiert keine kurze Lüftung.
 
-Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als angebliche amtliche DWD-Warnfarbe. Ab ungefähr Bft 6 wird vorsichtiger bewertet; ab etwa **50 km/h anhaltendem Wind** oder **65 km/h Böen** kann Lüften insgesamt nachteilig und damit Rot sein. Offizielle DWD-Warnungen werden weiterhin separat nach ihrer konkreten Warnstufe und Handlungsempfehlung berücksichtigt.
+Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als angebliche amtliche DWD-Warnfarbe. Ab ungefähr Bft 6 wird vorsichtiger bewertet; ab etwa **50 km/h anhaltendem Wind** oder **65 km/h Böen** kann Lüften insgesamt nachteilig und damit Orange sein. Erst deutlich extremere Rohwerte bzw. echte Warnlagen werden als Rot behandelt. Offizielle DWD-Warnungen werden weiterhin separat nach ihrer konkreten Warnstufe und Handlungsempfehlung berücksichtigt.
+
+### Nachtlüftung
+
+Am späten Abend kann Lüftungsberater zusätzlich eine kompakte Nachtlüftungs-Empfehlung anzeigen. Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die stündliche Home-Assistant-Wettervorhersage ausgewertet. Die persönliche Solltemperatur bleibt der Ausgangspunkt; vorhandene Prognosen für Regen, Wind und Luftfeuchte sowie aktuelle Warn-/Luftqualitätslagen können die Empfehlung einschränken. Fehlende Forecast-Felder werden nicht geschätzt. Die Nachtbewertung ist eine Zusatzinformation und verändert die normale aktuelle Ampel zunächst nicht.
 
 Wenn der ausgewählte Wetter-Provider passende Ozon-, PM2.5-, PM10-, NO₂- oder SO₂-Sensoren bereitstellt, nutzt Lüftungsberater plausible und aktuelle Einzelwerte nach den Klassen des Umweltbundesamt-Luftqualitätsindex. Der jeweils schlechteste verfügbare gültige Schadstoff bestimmt die Außenluftbewertung. Fehlende Schadstoffe sind erlaubt; `unknown`, `unavailable`, veraltete, negative oder offensichtlich unplausible Providerwerte werden dagegen ignoriert. Fehlende Daten werden niemals als gute Luft interpretiert.
 

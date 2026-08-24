@@ -29,6 +29,7 @@ from .engine import co2_status
 from .localization import (
     duration_text,
     localized_bundle,
+    night_advice_text,
     reason_text,
     recommendation_text,
 )
@@ -112,7 +113,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             return "mdi:window-closed-variant"
         if result.color == "green":
             return "mdi:window-open-variant"
-        if result.color == "red":
+        if result.color in {"orange", "red"}:
             return "mdi:window-closed-variant"
         return "mdi:window-open"
 
@@ -188,12 +189,16 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             absolute_humidity_difference = r.absolute_humidity_difference
             current_co2_status = r.co2_status
 
+        night_key = values.get("night_ventilation_key")
+        night_args = dict(values.get("night_ventilation_args") or {})
         texts = localized_bundle(
             recommendation_key,
             reason_key,
             reason_args,
             duration_key,
             temperature_unit,
+            night_key,
+            night_args,
         )
 
         return {
@@ -253,6 +258,12 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "wind_speed_kmh": weather.wind_speed_kmh,
             "wind_gust_kmh": weather.wind_gust_kmh,
             "rain_minutes_until": weather.rain_minutes_until,
+            "night_ventilation_status": values.get("night_ventilation_status", "unavailable"),
+            "night_ventilation_key": night_key,
+            "night_ventilation_args": night_args,
+            "night_ventilation": night_advice_text(
+                night_key, night_args, language, temperature_unit
+            ),
             "has_co2": values["has_co2"],
             "has_window_contacts": values["has_window_contacts"],
             "window_open": values["window_open"],

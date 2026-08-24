@@ -258,3 +258,31 @@ def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
     assert validated[CONF_ROOM_NAME] == "Küche"
     assert validated[CONF_INDOOR_TEMP] == "sensor.kueche_temperatur"
     assert validated[CONF_INDOOR_HUMIDITY] == "sensor.kueche_luftfeuchtigkeit"
+
+
+def test_remote_entry_is_not_offered_as_room_parent() -> None:
+    """Tailscale peers are read-only and must not appear in Add room targets."""
+    from types import SimpleNamespace
+
+    from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
+    from custom_components.lueftungsberater.const import (
+        CONF_ENTRY_KIND,
+        CONF_REMOTE_HOST,
+        ENTRY_KIND_REMOTE,
+    )
+
+    remote = SimpleNamespace(
+        data={CONF_ENTRY_KIND: ENTRY_KIND_REMOTE, CONF_REMOTE_HOST: "100.64.0.5"}
+    )
+    assert LueftungsberaterConfigFlow.async_get_supported_subentry_types(remote) == {}
+
+
+def test_legacy_remote_host_is_not_offered_as_room_parent() -> None:
+    """A legacy remote without entry_kind must still stay read-only."""
+    from types import SimpleNamespace
+
+    from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
+    from custom_components.lueftungsberater.const import CONF_REMOTE_HOST
+
+    legacy_remote = SimpleNamespace(data={CONF_REMOTE_HOST: "100.64.0.6"})
+    assert LueftungsberaterConfigFlow.async_get_supported_subentry_types(legacy_remote) == {}

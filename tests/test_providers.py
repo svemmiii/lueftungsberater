@@ -428,8 +428,8 @@ def test_lone_zero_with_unavailable_air_quality_siblings_is_ignored():
     assert used == {pm25, pm10, ozone}
 
 
-def test_wind_thresholds_are_window_advice_not_dwd_warning_colours():
-    caution = assess(
+def test_wind_thresholds_split_orange_disadvantage_from_red_hazard():
+    ordinary = assess(
         {
             WEATHER: FakeState(
                 "sunny",
@@ -445,7 +445,7 @@ def test_wind_thresholds_are_window_advice_not_dwd_warning_colours():
         temp=None,
         humidity=None,
     )
-    avoid = assess(
+    disadvantage = assess(
         {
             WEATHER: FakeState(
                 "sunny",
@@ -461,5 +461,22 @@ def test_wind_thresholds_are_window_advice_not_dwd_warning_colours():
         temp=None,
         humidity=None,
     )
-    assert caution.weather_caution is True and caution.weather_danger is False
-    assert avoid.weather_danger is True
+    hazard = assess(
+        {
+            WEATHER: FakeState(
+                "sunny",
+                {
+                    "temperature": 18,
+                    "humidity": 60,
+                    "wind_speed": 75,
+                    "wind_gust_speed": 105,
+                    "wind_speed_unit": "km/h",
+                },
+            )
+        },
+        temp=None,
+        humidity=None,
+    )
+    assert ordinary.weather_caution is False and ordinary.weather_danger is False
+    assert disadvantage.weather_caution is True and disadvantage.weather_danger is False
+    assert hazard.weather_danger is True

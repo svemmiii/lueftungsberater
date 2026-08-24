@@ -42,9 +42,9 @@ def test_nina_danger_wins_even_against_high_co2():
     assert r.reason_key == "air_smoke_danger"
 
 
-def test_nina_caution_is_red_when_there_is_no_reason_to_air():
+def test_nina_caution_is_orange_when_there_is_no_reason_to_air():
     r = evaluate_room(base(nina_status="caution"))
-    assert r.color == "red" and r.mode == "nina_vorsicht"
+    assert r.color == "orange" and r.mode == "nina_vorsicht"
 
 
 def test_nina_caution_becomes_tradeoff_with_high_co2():
@@ -68,14 +68,14 @@ def test_weather_danger_keeps_specific_semantic_reason():
     assert "heavy rain" in reason_text(r.reason_key, r.reason_args, "en").lower()
 
 
-def test_weather_caution_is_red_without_a_ventilation_need():
+def test_weather_caution_is_orange_without_a_ventilation_need():
     r = evaluate_room(
         base(
             weather_caution=True,
             weather_reason_key="weather_heavy_rain_caution",
         )
     )
-    assert r.color == "red"
+    assert r.color == "orange"
     assert r.mode == "wetter_vorsicht"
 
 
@@ -108,7 +108,7 @@ def test_small_absolute_humidity_delta_is_neutral_not_a_fake_threshold():
     assert r.recommendation_key == "optional"
 
 
-def test_wetter_outdoor_air_is_red_when_everything_inside_is_already_good():
+def test_wetter_outdoor_air_is_orange_when_everything_inside_is_already_good():
     r = evaluate_room(
         base(
             indoor_temp=22,
@@ -118,7 +118,7 @@ def test_wetter_outdoor_air_is_red_when_everything_inside_is_already_good():
         )
     )
     assert -1.1 < r.absolute_humidity_difference < -0.8
-    assert r.color == "red"
+    assert r.color == "orange"
     assert r.mode == "aussen_deutlich_feuchter"
 
 
@@ -184,7 +184,7 @@ def test_personal_target_is_the_normal_temperature_reference():
         )
     )
     assert r.mode == "aussen_zu_kalt"
-    assert r.color == "red"
+    assert r.color == "orange"
 
 
 def test_very_hot_room_can_be_cooled_even_if_target_was_set_very_high():
@@ -262,17 +262,17 @@ def test_surface_moisture_waits_when_outdoor_air_is_wetter():
     )
     assert r.mold_risk is True
     assert r.mode == "schimmel_warten"
-    assert r.color == "red"
+    assert r.color == "orange"
 
 
 def test_air_quality_moderate_is_a_disadvantage_not_a_hard_hazard():
     no_need = evaluate_room(base(air_quality="moderate", air_quality_pollutant="o3", air_quality_value=100))
     high_co2 = evaluate_room(base(co2=2500, air_quality="moderate", air_quality_pollutant="o3", air_quality_value=100))
-    assert no_need.color == "red" and no_need.mode == "luftqualitaet_maessig"
+    assert no_need.color == "orange" and no_need.mode == "luftqualitaet_maessig"
     assert high_co2.color == "yellow" and high_co2.mode == "co2_kritisch_vorsicht"
 
 
-def test_poor_air_quality_stays_closed_even_with_critical_co2():
+def test_poor_air_quality_is_orange_even_with_critical_co2():
     r = evaluate_room(
         base(
             co2=2500,
@@ -281,7 +281,7 @@ def test_poor_air_quality_stays_closed_even_with_critical_co2():
             air_quality_value=35,
         )
     )
-    assert r.color == "red"
+    assert r.color == "orange"
     assert r.mode == "luftqualitaet_schlecht"
 
 
@@ -405,8 +405,8 @@ def test_closed_window_does_not_reopen_for_small_temperature_deviation():
     )
     # Starting threshold remains 1 K; hysteresis only applies to an airing that
     # is already in progress.
-    assert r.color in {"yellow", "red"}
-    assert r.mode != "kuehlen"
+    assert r.color == "orange"
+    assert r.mode == "aussen_zu_kalt"
 
 
 def test_temperature_airing_finishes_cleanly_at_target_instead_of_turning_red():

@@ -118,7 +118,8 @@
         }
       },
       "abort": {
-        "already_configured": "Ein Raum mit diesem Namen existiert bereits."
+        "already_configured": "Ein Raum mit diesem Namen existiert bereits.",
+        "remote_read_only": "Remote-/Tailscale-Verbindungen sind schreibgeschützt. Räume können nur zu einem lokalen Lüftungsberater hinzugefügt werden."
       }
     }
   },

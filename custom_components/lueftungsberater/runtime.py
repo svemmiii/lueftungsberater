@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .airing import get_tracker
@@ -15,6 +16,7 @@ from .const import *
 from .engine import evaluate_room, surface_relative_humidity
 from .models import RoomInput, VentilationResult
 from .mold import get_mold_tracker
+from .night import evaluate_night_ventilation
 from .providers import (
     WeatherAssessment,
     WarningAssessment,
@@ -238,6 +240,9 @@ def _room_values(
             if tracker is not None
             else None
         ),
+        "night_ventilation_status": "unavailable",
+        "night_ventilation_key": None,
+        "night_ventilation_args": {},
     }
 
 
@@ -398,6 +403,21 @@ def build_room_snapshot(
 
     legacy_rain_now = _is_on(hass, entry.data.get(CONF_RAIN_NOW))
     legacy_rain_soon = _is_on(hass, entry.data.get(CONF_RAIN_SOON))
+
+    night_advice = evaluate_night_ventilation(
+        now=dt_util.now(),
+        indoor_temp=ti,
+        indoor_humidity=hi,
+        target_temp=values["target_temperature"],
+        hourly_forecast=weather.hourly_forecast,
+        air_quality=weather.air_quality_index,
+        nina_status=normalized_nina,
+        weather_caution=weather_caution,
+        weather_danger=weather_danger,
+    )
+    values["night_ventilation_status"] = night_advice.status
+    values["night_ventilation_key"] = night_advice.reason_key
+    values["night_ventilation_args"] = dict(night_advice.reason_args)
 
     result = evaluate_room(
         RoomInput(

@@ -627,7 +627,13 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         cls,
         config_entry: ConfigEntry,
     ) -> dict[str, type[ConfigSubentryFlow]]:
-        if entry_kind(config_entry) != ENTRY_KIND_LOCAL:
+        # Remote/Tailscale entries are read-only topology. Never offer them as
+        # a parent for a locally configured room, including legacy remotes where
+        # the explicit entry_kind marker might be missing.
+        if (
+            entry_kind(config_entry) != ENTRY_KIND_LOCAL
+            or bool(config_entry.data.get(CONF_REMOTE_HOST))
+        ):
             return {}
         return {SUBENTRY_TYPE_ROOM: RoomSubentryFlow}
 
@@ -636,6 +642,9 @@ class RoomSubentryFlow(ConfigSubentryFlow):
     """Room subentry flow."""
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
+        if entry_kind(entry) != ENTRY_KIND_LOCAL or entry.data.get(CONF_REMOTE_HOST):
+            return self.async_abort(reason="remote_read_only")
         if user_input is not None:
             name = user_input[CONF_ROOM_NAME].strip()
             data = _normalize_room_input(self.hass, user_input)

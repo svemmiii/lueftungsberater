@@ -118,7 +118,8 @@
         }
       },
       "abort": {
-        "already_configured": "A room with this name already exists."
+        "already_configured": "A room with this name already exists.",
+        "remote_read_only": "Remote/Tailscale connections are read-only. Rooms can only be added to a local Ventilation Advisor."
       }
     }
   },

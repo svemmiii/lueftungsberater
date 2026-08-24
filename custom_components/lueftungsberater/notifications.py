@@ -28,11 +28,10 @@ _LOGGER = logging.getLogger(__name__)
 def _trigger_for_mode(mode: str) -> str | None:
     if mode in {
         "nina_aussenluftgefahr",
-        "luftqualitaet_schlecht",
         "luftqualitaet_sehr_schlecht",
     }:
         return NOTIFY_TRIGGER_AIR_DANGER
-    if mode in {"nina_vorsicht", "luftqualitaet_maessig"}:
+    if mode in {"nina_vorsicht", "luftqualitaet_maessig", "luftqualitaet_schlecht"}:
         return NOTIFY_TRIGGER_AIR_CAUTION
     if mode == "wettergefahr":
         return NOTIFY_TRIGGER_WEATHER_DANGER
