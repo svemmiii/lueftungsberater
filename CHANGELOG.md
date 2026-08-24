@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.21 - Alpha
+
+- Hotfix: Temperaturberatung bewertet kalte bzw. warme Außenluft jetzt nach der **Richtung der Temperaturänderung zum persönlichen Sollwert**. Außenluft muss nicht selbst näher am Sollwert liegen, um einen zu warmen/zu kalten Raum sinnvoll in Richtung Soll zu bewegen.
+- Temperatur-Hysterese korrigiert: Eine bereits laufende temperaturbedingte Lüftung bleibt bis auf etwa 0,2 K am Sollwert aktiv, statt beim Annähern plötzlich wegen der weiter entfernten Außentemperatur auf Rot zu springen.
+- Tailscale-Geräteansicht korrigiert: Die unnötigen Zwischenkarten für Remote-HA und Remote-Lüftungsberater bleiben entfernt, **Remote-Raumkarten werden wieder angezeigt**. Sie enthalten weiterhin ausschließlich Topologie-Metadaten – Remote-Messwerte bleiben flüchtig, ohne lokale Entities, Recorder-Historie oder Spiegelung.
+
 ## 0.6.20 - Alpha
 
 ### Kontextabhängige Gesamtbewertung statt starrer Einzelgrenzen

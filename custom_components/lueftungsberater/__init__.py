@@ -29,13 +29,13 @@ from .remote import (
     async_get_or_create_remote_coordinator,
     async_stop_remote_coordinator,
 )
-from .remote_devices import async_cleanup_remote_devices
+from .remote_devices import async_sync_remote_room_devices
 
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.20"
+FRONTEND_VERSION = "0.6.21"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -130,14 +130,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     kind = entry_kind(entry)
     if kind == ENTRY_KIND_REMOTE:
         coordinator = await async_get_or_create_remote_coordinator(hass, entry)
-        # Receiving Home Assistants deliberately keep remote values transient:
-        # no mirrored entities, devices, recorder rows or histories are created.
-        # Remove only the empty topology devices produced by older releases.
-        async_cleanup_remote_devices(hass, entry)
+        # Receiving Home Assistants deliberately keep remote measurements
+        # transient: no mirrored entities, recorder rows or histories are
+        # created. Only lightweight room cards are mirrored into the device
+        # registry so the remote connection remains visible without the old
+        # duplicate Remote-HA -> Lüftungsberater hierarchy.
+        async_sync_remote_room_devices(hass, entry, coordinator.data)
 
-        # A coordinator without entities needs a listener so its polling remains
-        # active. The frontend reads only the coordinator's cached snapshot.
-        entry.async_on_unload(coordinator.async_add_listener(lambda: None))
+        # A coordinator without entities needs a listener both to keep polling
+        # active and to keep the lightweight room topology in sync.
+        entry.async_on_unload(
+            coordinator.async_add_listener(
+                lambda: async_sync_remote_room_devices(hass, entry, coordinator.data)
+            )
+        )
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
 

@@ -362,3 +362,64 @@ def test_open_window_co2_hysteresis_avoids_flapping_at_1000_ppm():
     )
     assert kept.mode == "weiter_lueften"
     assert released.mode == "lueftung_fertig"
+
+
+def test_cold_outdoor_air_cools_warm_room_toward_personal_target():
+    r = evaluate_room(
+        base(
+            indoor_temp=23.5,
+            target_temp=22.0,
+            outdoor_temp=16.0,
+            outdoor_humidity=50,
+        )
+    )
+    assert r.color == "green"
+    assert r.mode == "kuehlen"
+
+
+def test_open_window_keeps_cooling_until_target_is_effectively_reached():
+    r = evaluate_room(
+        base(
+            indoor_temp=22.4,
+            target_temp=22.0,
+            outdoor_temp=16.0,
+            outdoor_humidity=50,
+            window_open=True,
+            previous_mode="weiter_lueften",
+        )
+    )
+    assert r.color == "green"
+    assert r.mode == "weiter_lueften"
+    assert r.reason_args["continue_cooling"] is True
+
+
+def test_closed_window_does_not_reopen_for_small_temperature_deviation():
+    r = evaluate_room(
+        base(
+            indoor_temp=22.4,
+            target_temp=22.0,
+            outdoor_temp=16.0,
+            outdoor_humidity=50,
+            window_open=False,
+        )
+    )
+    # Starting threshold remains 1 K; hysteresis only applies to an airing that
+    # is already in progress.
+    assert r.color in {"yellow", "red"}
+    assert r.mode != "kuehlen"
+
+
+def test_temperature_airing_finishes_cleanly_at_target_instead_of_turning_red():
+    r = evaluate_room(
+        base(
+            indoor_temp=22.1,
+            target_temp=22.0,
+            outdoor_temp=16.0,
+            outdoor_humidity=50,
+            window_open=True,
+            previous_mode="weiter_lueften",
+        )
+    )
+    assert r.color == "yellow"
+    assert r.mode == "lueftung_fertig"
+    assert r.recommendation_key == "can_close"

@@ -167,11 +167,33 @@ def _rain_relevant(data: RoomInput, candidate_mode: str, outdoor_temp: float) ->
 
 
 def _temperature_moves_toward_target(ti: float, ta: float, target: float) -> bool:
-    return abs(ta - target) + 0.5 < abs(ti - target) and abs(ta - ti) >= 0.7
+    """Return whether airing initially moves room temperature toward target.
+
+    Outdoor air does not need to be numerically closer to the target than the
+    current room temperature. If a room is too warm, any sufficiently cooler
+    outdoor air moves it in the correct direction until the target is reached;
+    the same applies vice versa for warming.
+    """
+    if ti > target:
+        return ta <= ti - 0.7
+    if ti < target:
+        return ta >= ti + 0.7
+    return False
 
 
 def _temperature_moves_away(ti: float, ta: float, target: float) -> bool:
-    return abs(ta - target) > abs(ti - target) + 2.0 and abs(ta - ti) >= 2.0
+    """Return whether airing would move an otherwise comfortable room away.
+
+    Once the room is already above/below target, outdoor air on the useful
+    side of the current temperature must never be treated as a disadvantage
+    merely because it lies far beyond the target. Overshoot is controlled by
+    the airing hysteresis/duration instead.
+    """
+    if ti > target + 0.5:
+        return ta >= ti + 2.0
+    if ti < target - 0.5:
+        return ta <= ti - 2.0
+    return abs(ta - target) >= 2.0 and abs(ta - ti) >= 2.0
 
 
 def _primary_need(
@@ -186,6 +208,7 @@ def _primary_need(
     mold_persistent: bool,
     hours: float,
     previous_mode: str,
+    window_open: bool,
 ) -> tuple[str, int]:
     """Return the strongest current reason and a small ordinal urgency level."""
     if co2 is not None and co2 > 2000:
@@ -223,7 +246,19 @@ def _primary_need(
     # heat-protection layer, but only use ventilation when outdoor air helps.
     if ti >= 26 and hi >= 65 and ta <= ti - 1 and diff >= -AH_NEUTRAL:
         return "humid_heat", 1
-    if abs(ti - target) >= 1 and _temperature_moves_toward_target(ti, ta, target):
+    temperature_start = (
+        abs(ti - target) >= 1
+        and _temperature_moves_toward_target(ti, ta, target)
+    )
+    temperature_continue = window_open and previous_mode in {
+        "kuehlen",
+        "erwaermen",
+        "weiter_lueften",
+    } and (
+        (ti > target + 0.2 and ta <= ti - 0.5)
+        or (ti < target - 0.2 and ta >= ti + 0.5)
+    )
+    if temperature_start or temperature_continue:
         return "temperature", 1
     if hours >= 24:
         return "routine", 1
@@ -284,6 +319,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mold_persistent=mold_persistent,
         hours=hours,
         previous_mode=previous_mode,
+        window_open=data.window_open,
     )
 
     # True external hazards beat ordinary ventilation goals. Poor UBA-LQI air
@@ -479,13 +515,37 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 )
                 or (mold_risk and diff > AH_NEUTRAL)
             )
-            continue_cooling = ti > target + 0.5 and ta <= ti - 0.7
-            continue_warming = ti < target - 0.5 and ta >= ti + 0.7 and ta <= target + 4
+            # Once temperature-driven airing has started, keep it active until
+            # the personal target is effectively reached. A small 0.2 K margin
+            # avoids flicker from sensor noise while preventing the old behaviour
+            # where cooling was declared finished noticeably above target.
+            continue_cooling = ti > target + 0.2 and ta <= ti - 0.5
+            continue_warming = ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4
             if continue_co2 or continue_moisture or continue_cooling or continue_warming:
                 mode = "weiter_lueften"
             else:
                 mode = "lueftung_fertig"
-        elif mode == "normal":
+        elif mode == "normal" or (
+            need == "none"
+            and previous_mode in {
+                "co2_lueften",
+                "feuchte_lueften",
+                "schimmel_lueften",
+                "schimmel_langzeit_lueften",
+                "kuehlen",
+                "erwaermen",
+                "weiter_lueften",
+            }
+            and mode in {
+                "aussen_zu_kalt",
+                "aussen_zu_warm",
+                "aussen_deutlich_feuchter",
+                "innen_zu_trocken",
+            }
+        ):
+            # The active ventilation goal has been reached. A now-unfavourable
+            # outdoor condition is a reason to finish, not a reason to make the
+            # session look as if airing had suddenly become a failure.
             mode = "lueftung_fertig"
 
     color = _color(mode)
@@ -528,8 +588,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 or (previous_mode == "weiter_lueften" and hi >= 58 and diff >= AH_CONTINUE)
                 or (mold_risk and diff > AH_NEUTRAL)
             ),
-            "continue_cooling": ti > target + 0.5 and ta <= ti - 0.7,
-            "continue_warming": ti < target - 0.5 and ta >= ti + 0.7,
+            "continue_cooling": ti > target + 0.2 and ta <= ti - 0.5,
+            "continue_warming": ti < target - 0.2 and ta >= ti + 0.5,
             "co2": co2,
             "diff": diff,
             "ti": ti,
