@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
 from .api import async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
+from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
 from .coordinator import (
     async_get_or_create_room_coordinator,
     async_stop_entry_coordinators,
@@ -19,6 +20,7 @@ from .coordinator import (
 from .const import (
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
+    LEGACY_NOTIFY_KEYS,
     PLATFORMS,
     SUBENTRY_TYPE_ROOM,
     entry_kind,
@@ -27,13 +29,13 @@ from .remote import (
     async_get_or_create_remote_coordinator,
     async_stop_remote_coordinator,
 )
-from .remote_devices import async_sync_remote_devices
+from .remote_devices import async_cleanup_remote_devices
 
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.19"
+FRONTEND_VERSION = "0.6.20"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -90,9 +92,10 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate Lüftungsberater config entries."""
+    """Migrate Lüftungsberater config entries without guessing replacements."""
+    updates: dict[str, object] = {}
+
     if entry.version == 1 and entry.minor_version < 2:
-        updates: dict[str, object] = {"minor_version": 2}
         # v0.6.12 briefly assigned random local unique IDs. A ConfigEntry unique
         # ID must be stable and identify a real device/service, so remove only
         # that known temporary format. The normal entry_id remains untouched.
@@ -102,6 +105,19 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             and entry.unique_id.startswith("local:")
         ):
             updates["unique_id"] = None
+
+    if entry.version == 1 and entry.minor_version < 3:
+        # v0.6.20 uses Home Assistant's notify entity action exclusively. Old
+        # Companion-App-specific service/vibration options are removed rather
+        # than guessed into a new target. A configured notify_target survives.
+        cleaned_data = dict(entry.data)
+        for key in LEGACY_NOTIFY_KEYS:
+            cleaned_data.pop(key, None)
+        if cleaned_data != dict(entry.data):
+            updates["data"] = cleaned_data
+        updates["minor_version"] = 3
+
+    if updates:
         hass.config_entries.async_update_entry(entry, **updates)
     return True
 
@@ -114,16 +130,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     kind = entry_kind(entry)
     if kind == ENTRY_KIND_REMOTE:
         coordinator = await async_get_or_create_remote_coordinator(hass, entry)
-        async_sync_remote_devices(hass, entry, coordinator.data)
+        # Receiving Home Assistants deliberately keep remote values transient:
+        # no mirrored entities, devices, recorder rows or histories are created.
+        # Remove only the empty topology devices produced by older releases.
+        async_cleanup_remote_devices(hass, entry)
 
-        # A coordinator without entities has no natural listener. The listener both
-        # keeps polling active and updates the device-registry topology when rooms
-        # are added/removed on the remote Home Assistant.
-        entry.async_on_unload(
-            coordinator.async_add_listener(
-                lambda: async_sync_remote_devices(hass, entry, coordinator.data)
-            )
-        )
+        # A coordinator without entities needs a listener so its polling remains
+        # active. The frontend reads only the coordinator's cached snapshot.
+        entry.async_on_unload(coordinator.async_add_listener(lambda: None))
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
 
@@ -131,6 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
             await async_get_or_create_tracker(hass, entry, subentry)
             await async_get_or_create_co2_tracker(hass, entry, subentry)
+            await async_get_or_create_mold_tracker(hass, entry, subentry)
             await async_get_or_create_room_coordinator(hass, entry, subentry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -154,4 +169,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_stop_entry_coordinators(hass, entry)
         await async_stop_entry_trackers(hass, entry)
         await async_stop_entry_co2_trackers(hass, entry)
+        await async_stop_entry_mold_trackers(hass, entry)
     return unloaded

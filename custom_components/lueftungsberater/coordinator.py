@@ -7,12 +7,19 @@ import logging
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .airing import tracker_signal
 from .co2 import co2_tracker_signal
-from .const import CONF_CO2, CONF_WINDOWS, DATA_COORDINATORS, DOMAIN
+from .const import (
+    CONF_CO2,
+    CONF_SURFACE_TEMP,
+    CONF_WINDOWS,
+    DATA_COORDINATORS,
+    DOMAIN,
+    MOLD_SAMPLE_INTERVAL,
+)
 from .runtime import RoomSnapshot, build_room_snapshot, room_source_entities
 from .notifications import (
     async_handle_room_notification,
@@ -98,6 +105,18 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                         self.subentry.subentry_id,
                     ),
                     self._handle_tracker_change,
+                )
+            )
+
+        if self.subentry.data.get(CONF_SURFACE_TEMP):
+            # Surface persistence is time-dependent. Refresh periodically even
+            # when the sensor value itself is unchanged so a genuinely long
+            # critical period can influence the advice later.
+            self._unsubs.append(
+                async_track_time_interval(
+                    self.hass,
+                    lambda _now: self._handle_tracker_change(),
+                    MOLD_SAMPLE_INTERVAL,
                 )
             )
 

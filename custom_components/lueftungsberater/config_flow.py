@@ -41,11 +41,7 @@ from .const import (
     CONF_INSTANCE_NAME,
     CONF_MANUAL_OUTDOOR,
     CONF_NOTIFY_TARGET,
-    CONF_NOTIFY_MOBILE_SERVICE,
     CONF_NOTIFY_TRIGGERS,
-    CONF_NOTIFY_CAUTION_VIBRATION,
-    CONF_NOTIFY_DANGER_VIBRATION,
-    CONF_NOTIFY_CRITICAL_BYPASS,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
     CONF_REMOTE_HOST,
@@ -60,9 +56,6 @@ from .const import (
     CONF_WINDOWS,
     DEFAULT_REMOTE_PORT,
     DEFAULT_NOTIFY_TRIGGERS,
-    DEFAULT_NOTIFY_CAUTION_VIBRATION,
-    DEFAULT_NOTIFY_DANGER_VIBRATION,
-    DEFAULT_NOTIFY_CRITICAL_BYPASS,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
     ENTRY_KIND_LOCAL,
@@ -75,10 +68,6 @@ from .const import (
     NOTIFY_TRIGGER_AIR_CAUTION,
     NOTIFY_TRIGGER_WEATHER_DANGER,
     NOTIFY_TRIGGER_WEATHER_CAUTION,
-    NOTIFY_VIBRATION_OFF,
-    NOTIFY_VIBRATION_GENTLE,
-    NOTIFY_VIBRATION_NORMAL,
-    NOTIFY_VIBRATION_STRONG,
     entry_kind,
 )
 _LOGGER = logging.getLogger(__name__)
@@ -165,30 +154,7 @@ def _warning_source_options(hass: HomeAssistant) -> list[SelectOptionDict]:
     return options
 
 
-def _mobile_notify_service_options(
-    hass: HomeAssistant, current: str | None = None
-) -> list[SelectOptionDict]:
-    """Return Companion App notify actions that support extended payloads."""
-    try:
-        services = hass.services.async_services().get("notify", {})
-    except Exception:  # noqa: BLE001 - setup must stay usable without services
-        services = {}
-
-    values = sorted(
-        name for name in services if isinstance(name, str) and name.startswith("mobile_app_")
-    )
-    if isinstance(current, str) and current:
-        normalized = current.removeprefix("notify.")
-        if normalized not in values:
-            values.append(normalized)
-    return [
-        SelectOptionDict(value=name, label=f"notify.{name}") for name in values
-    ]
-
-
-def _global_schema(
-    hass: HomeAssistant, current_mobile_service: str | None = None
-) -> vol.Schema:
+def _global_schema(hass: HomeAssistant) -> vol.Schema:
     schema: dict[Any, Any] = {
         vol.Required(CONF_WEATHER): _entity("weather"),
         vol.Optional(CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE): SelectSelector(
@@ -231,53 +197,11 @@ def _global_schema(
         ),
     }
 
-    mobile_options = _mobile_notify_service_options(hass, current_mobile_service)
-    if mobile_options:
-        schema[vol.Optional(CONF_NOTIFY_MOBILE_SERVICE)] = SelectSelector(
-            SelectSelectorConfig(
-                options=mobile_options,
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        )
-        schema[vol.Optional(
-            CONF_NOTIFY_CAUTION_VIBRATION, default=DEFAULT_NOTIFY_CAUTION_VIBRATION
-        )] = SelectSelector(
-            SelectSelectorConfig(
-                options=[
-                    NOTIFY_VIBRATION_OFF,
-                    NOTIFY_VIBRATION_GENTLE,
-                    NOTIFY_VIBRATION_NORMAL,
-                    NOTIFY_VIBRATION_STRONG,
-                ],
-                mode=SelectSelectorMode.DROPDOWN,
-                translation_key="notify_vibration",
-            )
-        )
-        schema[vol.Optional(
-            CONF_NOTIFY_DANGER_VIBRATION, default=DEFAULT_NOTIFY_DANGER_VIBRATION
-        )] = SelectSelector(
-            SelectSelectorConfig(
-                options=[
-                    NOTIFY_VIBRATION_OFF,
-                    NOTIFY_VIBRATION_GENTLE,
-                    NOTIFY_VIBRATION_NORMAL,
-                    NOTIFY_VIBRATION_STRONG,
-                ],
-                mode=SelectSelectorMode.DROPDOWN,
-                translation_key="notify_vibration",
-            )
-        )
-        schema[vol.Optional(
-            CONF_NOTIFY_CRITICAL_BYPASS, default=DEFAULT_NOTIFY_CRITICAL_BYPASS
-        )] = BooleanSelector()
-
     return vol.Schema(schema)
 
 
-def _local_schema(
-    hass: HomeAssistant, current_mobile_service: str | None = None
-) -> vol.Schema:
-    base = dict(_global_schema(hass, current_mobile_service).schema)
+def _local_schema(hass: HomeAssistant) -> vol.Schema:
+    base = dict(_global_schema(hass).schema)
     return vol.Schema(
         {
             vol.Required(CONF_INSTANCE_NAME, default="Lüftungsberater"): TextSelector(
@@ -458,7 +382,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 2
+    MINOR_VERSION = 3
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
@@ -629,18 +553,8 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_WEATHER: entry.data.get(CONF_WEATHER),
             CONF_WARNING_SOURCE: entry.data.get(CONF_WARNING_SOURCE, WARNING_SOURCE_NONE),
             CONF_NOTIFY_TARGET: entry.data.get(CONF_NOTIFY_TARGET),
-            CONF_NOTIFY_MOBILE_SERVICE: entry.data.get(CONF_NOTIFY_MOBILE_SERVICE),
             CONF_NOTIFY_TRIGGERS: entry.data.get(
                 CONF_NOTIFY_TRIGGERS, DEFAULT_NOTIFY_TRIGGERS
-            ),
-            CONF_NOTIFY_CAUTION_VIBRATION: entry.data.get(
-                CONF_NOTIFY_CAUTION_VIBRATION, DEFAULT_NOTIFY_CAUTION_VIBRATION
-            ),
-            CONF_NOTIFY_DANGER_VIBRATION: entry.data.get(
-                CONF_NOTIFY_DANGER_VIBRATION, DEFAULT_NOTIFY_DANGER_VIBRATION
-            ),
-            CONF_NOTIFY_CRITICAL_BYPASS: entry.data.get(
-                CONF_NOTIFY_CRITICAL_BYPASS, DEFAULT_NOTIFY_CRITICAL_BYPASS
             ),
         }
         if manual:
@@ -648,10 +562,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(
-                _local_schema(
-                    self.hass,
-                    entry.data.get(CONF_NOTIFY_MOBILE_SERVICE),
-                ),
+                _local_schema(self.hass),
                 defaults,
             ),
         )

@@ -14,9 +14,9 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 
 - Eigene Lüftungsempfehlung pro Raum
 - Grün/Gelb/Rot-Status mit konkreter Begründung
-  - **Grün:** Lüften ist aktuell sinnvoll
-  - **Gelb:** nur eingeschränkt sinnvoll / besser abwarten oder beobachten
-  - **Rot:** Lüften ist aktuell klar nicht sinnvoll; Fenster besser geschlossen halten
+  - **Grün:** Lüften bringt aktuell einen klaren Gesamtvorteil
+  - **Gelb:** Lüften ist optional oder Nutzen und Nachteile liegen nah beieinander
+  - **Rot:** Lüften ist aktuell unnötig oder die Nachteile überwiegen; Fenster besser geschlossen halten
 - Absolute Feuchtigkeit innen/außen
 - Optionaler CO₂-Sensor pro Raum
 - Automatischer Lüftungsverlauf mit Fenster-/Türkontakt
@@ -32,8 +32,9 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 - Dashboard-Karten folgen der Sprache des aktuell angemeldeten Home-Assistant-Benutzers
 - Unterstützung für Celsius- und Fahrenheit-Setups
 - Ruhigere Empfehlungen durch Hysterese an normalen CO₂-/Feuchte-/Temperaturgrenzen
-- Optionaler Schimmelschutz über einen kalten/kritischen Oberflächentemperatursensor
-- Frei konfigurierbare Benachrichtigungen für Lüftungsstatus und Gefahren, optional mit Companion-App-Vibration/Critical-Verhalten
+- Optionaler Feuchte-/Schimmelschutz über einen realen kalten/kritischen Oberflächentemperatursensor mit zeitlichem Kontext
+- Plausibilitätsgeprüfte Außenluftqualität über passende Ozon-, PM2.5-, PM10-, NO₂- und SO₂-Sensoren des Wetter-Providers
+- Frei konfigurierbare Benachrichtigungen für Lüftungsstatus und Gefahren über eine normale Home-Assistant-`notify`-Entity
 
 ## Voraussetzungen
 
@@ -50,7 +51,7 @@ Optional:
 - Climate-/Thermostat-Entity
 - Temperatur-Sensor an einer kalten/kritischen Oberfläche für zusätzlichen Schimmelschutz
 - Warnintegration wie NINA oder DWD Weather Warnings
-- `notify`-Entity für normale Benachrichtigungen und/oder ein Companion-App-`notify.mobile_app_*`-Ziel für erweiterte Handyfunktionen
+- `notify`-Entity für Benachrichtigungen
 
 ## Installation über HACS – Custom Repository
 
@@ -77,16 +78,9 @@ Beim ersten Einrichten wählst du:
 
 Standardmäßig lösen weiterhin nur **ernste Außenluftgefahren** (z. B. Brandrauch/Gefahrstoffe) und **schwere Wettergefahren** eine Benachrichtigung aus, wenn tatsächlich ein konfiguriertes Fenster oder eine Tür offen ist. Zusätzlich kannst du vorsorgliche Luft-/Wetterhinweise sowie zwei reine Lüftungsstatus-Hinweise aktivieren: **„Lüften ist wieder sinnvoll“** und **„Lüften kann beendet werden“**. Eine rote Empfehlung allein ist ausdrücklich kein Benachrichtigungsauslöser.
 
-Für einfache Ziele bleibt die normale `notify`-Entity vollständig unterstützt. Bei diesem generischen Weg bestimmt das Ziel selbst Ton und Vibration; Lüftungsberater kann dort nur Titel und Nachricht vorgeben. Wenn Home Assistant zusätzlich ein `notify.mobile_app_*`-Ziel der Companion App bereitstellt, kann dieses als erweitertes Handy-Ziel gewählt werden. Es ersetzt dann für diesen Lüftungsberater das normale Ziel und ermöglicht die folgenden Abstufungen:
+Benachrichtigungen verwenden ab v0.6.20 ausschließlich den aktuellen Home-Assistant-Weg über eine ausgewählte `notify`-Entity und `notify.send_message`. Titel und Nachricht kommen vom Lüftungsberater; Ton, Vibration, Priorität und weitere gerätespezifische Eigenschaften bestimmt das gewählte Notify-Ziel. Der frühere separate `notify.mobile_app_*`-Companion-Weg mit eigenen Vibrations-/Critical-Einstellungen wurde entfernt, damit es nur noch einen klaren Benachrichtigungsweg gibt. Bestehende alte Companion-Optionen werden beim Update verworfen; ein bereits gesetztes normales Notify-Ziel bleibt erhalten.
 
-- **Lüftungsstatus:** stiller Hinweis ohne erzwungene Vibration; auf iOS als `passive`, auf Android über einen Low-Importance-Kanal.
-- **Vorsichtshinweise:** Android-Vibration separat auf **Aus / Leicht / Mittel / Stark** einstellbar.
-- **Gefahren:** eigene Android-Vibrationsstufe; zusätzlich hohe Zustellpriorität.
-- **Kritische Zustellung:** standardmäßig aus. Auf iOS wird bei Aktivierung ein echter Critical Alert verwendet. Auf Android wird dafür ein eigener Kanal mit maximaler Importance verwendet; ob dieser `Nicht stören` tatsächlich übergehen darf, entscheidet Android weiterhin in den Systemeinstellungen des Kanals.
-
-Android kennt über die Companion-App-Payload kein frei wählbares Motor-Amplitudenlevel. Die Stufen **Leicht / Mittel / Stark** werden deshalb als unterschiedlich deutliche Vibrationsmuster umgesetzt. Weil Android Kanalparameter wie Importance und Vibrationsmuster nach der ersten Erstellung speichert, verwendet Lüftungsberater getrennte Kanäle je Stufe. Änderungen an der Stufe greifen dadurch sauber, ohne einen bereits angelegten Kanal umprogrammieren zu müssen.
-
-Die beiden Lüftungsstatus-Hinweise sind zustandswechselbasiert: Sie werden nicht bei jedem Sensorupdate und nicht direkt nach einem Home-Assistant-Neustart erneut gesendet. Companion-App-Hinweise verwenden außerdem stabile Tags pro Raum, sodass veraltete Status-/Warnmeldungen ersetzt bzw. nach Ende des Zustands wieder entfernt werden können.
+Die beiden Lüftungsstatus-Hinweise bleiben zustandswechselbasiert: Sie werden nicht bei jedem Sensorupdate und nicht direkt nach einem Home-Assistant-Neustart erneut gesendet.
 
 Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden. Werden konfigurierte Außensensoren vorübergehend `unavailable` oder `unknown`, fällt Lüftungsberater für Temperatur und Luftfeuchtigkeit unabhängig voneinander automatisch auf die aktuelle `weather.*`-Entity zurück, sofern der jeweilige Wert dort verfügbar ist. Die Raumkarte kennzeichnet einen solchen aktiven Fallback direkt am betroffenen Außenwert mit **Wetterdienst**.
 
@@ -106,26 +100,27 @@ Ohne Fensterkontakt arbeitet der Raum rein beobachtend. Mit Fensterkontakt erken
 
 Die Sensor-Auswahl wird nach Home-Assistant-Geräteklassen gefiltert: Temperatur, Luftfeuchtigkeit und CO₂ werden nur in den jeweils passenden Sensorfeldern angeboten; bei Fenster-/Türkontakten erscheinen passende Öffnungs-, Fenster-, Tür- und Garagentor-Binary-Sensoren.
 
-### Optionaler Schimmelschutz
+### Optionaler Feuchte-/Schimmelschutz
 
-Die normale Feuchtebewertung funktioniert weiterhin ohne zusätzliche Hardware. Optional kann pro Raum die Temperatur einer besonders kalten bzw. kritischen Oberfläche angegeben werden, zum Beispiel an einer bekannten Wärmebrücke. Lüftungsberater berechnet aus Raumtemperatur, Raumfeuchte und dieser Oberflächentemperatur die relative Feuchte direkt an der Oberfläche. Ab **80 % relativer Oberflächenfeuchte** wird das Risiko in der Empfehlung berücksichtigt. Der Wert wird bewusst nicht als zusätzliche große Kartenzeile in den Vordergrund gestellt, sondern dient der Entscheidung im Hintergrund.
+Die normale Feuchtebewertung funktioniert vollständig ohne zusätzliche Hardware. Optional kann pro Raum die Temperatur einer besonders kalten bzw. kritischen Oberfläche angegeben werden, zum Beispiel an einer bekannten Wärmebrücke. Nur wenn dieser **reale Oberflächentemperatursensor** vorhanden ist, berechnet Lüftungsberater aus Raumtemperatur, Raumfeuchte und gemessener Oberflächentemperatur die relative Feuchte direkt an dieser Stelle. Ohne Sensor werden keine Oberflächenwerte geschätzt oder erfunden.
 
-Der Grenzwert ist bewusst konservativ gewählt: Das Umweltbundesamt beschreibt bei etwa 70–80 % relativer Feuchte an Materialoberflächen bereits mögliche Wachstumsbedingungen; bei rund 80 % sind die Bedingungen für viele innenraumrelevante Schimmelpilze erreicht.
+Ab ungefähr **80 % relativer Oberflächenfeuchte** wird die Situation im Hintergrund stärker berücksichtigt. Zusätzlich merkt sich Lüftungsberater lokal, wie lange und wie wiederholt dieser Bereich tatsächlich anliegt. Ein kurzer Peak wird dadurch anders bewertet als eine länger anhaltende Belastung. Die zeitliche Bewertung ist eine vorsichtige Beratungsheuristik und ausdrücklich **keine Schimmeldiagnose oder DIN-Grenze**. Erst wenn die Belastung relevant anhält, wird sie deutlicher in Ampel und Begründung aufgenommen.
 
-### Wetterwarnungen und Regen
+### Wetterwarnungen, Regen, Wind und Außenluftqualität
 
-Regen allein ist kein roter Zustand. Normaler Regen und auch der Home-Assistant-Wetterzustand `pouring` werden als Niederschlag behandelt und führen grundsätzlich zu Gelb, sofern kein stärkerer Grund greift.
+Regen ist kein Ersatz für eine Feuchtebewertung: Ob Lüften trocknet, entscheidet die absolute Feuchtedifferenz innen/außen. Aktueller bzw. unmittelbar bevorstehender Niederschlag wird nur als praktischer Nachteil für ein geöffnetes Fenster gewertet. Ein Radarereignis beeinflusst die Empfehlung nur noch dann, wenn es während der erwarteten Lüftungsdauer beziehungsweise kurz danach beginnen kann; ein Niederschlag in deutlich späterer Zukunft blockiert keine kurze Lüftung.
 
-Bei DWD Weather Warnings berücksichtigt Lüftungsberater die Warnstufe:
+Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als angebliche amtliche DWD-Warnfarbe. Ab ungefähr Bft 6 wird vorsichtiger bewertet; ab etwa **50 km/h anhaltendem Wind** oder **65 km/h Böen** kann Lüften insgesamt nachteilig und damit Rot sein. Offizielle DWD-Warnungen werden weiterhin separat nach ihrer konkreten Warnstufe und Handlungsempfehlung berücksichtigt.
 
-- Stufe 1/2 bzw. Vorabinformation → **Gelb / Vorsicht**
-- Stufe 3/4 (Unwetter / extremes Unwetter) → **Rot / geschlossen halten**
+Wenn der ausgewählte Wetter-Provider passende Ozon-, PM2.5-, PM10-, NO₂- oder SO₂-Sensoren bereitstellt, nutzt Lüftungsberater plausible und aktuelle Einzelwerte nach den Klassen des Umweltbundesamt-Luftqualitätsindex. Der jeweils schlechteste verfügbare gültige Schadstoff bestimmt die Außenluftbewertung. Fehlende Schadstoffe sind erlaubt; `unknown`, `unavailable`, veraltete, negative oder offensichtlich unplausible Providerwerte werden dagegen ignoriert. Fehlende Daten werden niemals als gute Luft interpretiert.
 
-Damit kann z. B. eine amtliche Starkregenwarnung der Stufe 2 vor dem Lüften warnen, ohne automatisch dieselbe Bewertung wie eine echte Unwetterwarnung zu erhalten.
+## Wie die Empfehlung entschieden und stabil gehalten wird
 
-## Wie die Empfehlung stabil bleibt
+Lüftungsberater bewertet den **Gesamtnutzen** des Lüftens. Ein einzelner Grenzwert gewinnt nicht automatisch gegen alle anderen Messwerte. Gesundheit und Sicherheit haben Vorrang; danach werden Innenraumluft, Feuchte-/Oberflächenrisiko, persönliches Temperatursoll, erwartete Komfortänderung sowie Außenbedingungen gemeinsam eingeordnet. Der persönliche Sollwert bleibt der Maßstab für thermische Behaglichkeit, während sehr hohe und länger anhaltende Raumtemperaturen zusätzlich als gesundheitlicher Hitzefaktor berücksichtigt werden. Lüftungsberater bleibt dabei ein Berater und gibt kein medizinisches oder bauphysikalisches Gutachten ab.
 
-Lüftungsberater bewertet weiterhin den tatsächlichen Nutzen des Lüftens statt nur einzelne Grenzwerte. Für normale Grenzbereiche verwendet Lüftungsberater kleine Hysteresen: Eine bereits aktive CO₂-Empfehlung wird beispielsweise nicht sofort bei 999 ppm wieder verworfen, und auch Feuchte-/Temperaturentscheidungen erhalten einen kleinen Rücklaufbereich. Dadurch flattert die Karte bei Messrauschen deutlich weniger. Kritisches CO₂ sowie echte Außenluft- und Unwettergefahren umgehen diese Beruhigung und wirken sofort.
+Für die absolute Feuchtedifferenz wird um **±0,5 g/m³** eine kleine technische Neutralzone verwendet. Diese Zahl ist kein Gesundheits- oder Normgrenzwert, sondern verhindert, dass Messrauschen und praktisch sehr kleine Unterschiede eine starke Empfehlung auslösen. Positive Differenzen bedeuten trocknere Außenluft; negative Differenzen bedeuten feuchtere Außenluft. Die Stärke dieser Abweichung wird zusammen mit CO₂, Raumfeuchte, Temperatur und optionalen Zusatzdaten abgewogen. Eine laufende sinnvolle Feuchtelüftung erhält zusätzlich eine kleine Hysterese.
+
+Auch an normalen CO₂-/Feuchte-/Temperaturgrenzen werden Hysteresen verwendet, damit die Karte nicht bei jedem kleinen Sensorschritt umspringt. Kritisches CO₂ sowie echte Außenluft- und Unwettergefahren wirken dagegen unmittelbar. Die Routinelüftung nach 24 Stunden bleibt bewusst nur ein Fallback für Situationen ohne früheren echten Lüftungsgrund.
 
 Der Hauptsensor bleibt bewusst die zentrale Automation-Schnittstelle. Eine zusätzliche Binary-Entity „Lüften empfohlen“ wird nicht erzeugt, weil die Zustände des Hauptsensors (`open_now`, `keep_open`, `close_now`, `wait` usw.) bereits gezieltere Automationen erlauben.
 
@@ -162,7 +157,7 @@ Mehrere lokale Lüftungsberater-Instanzen können parallel eingerichtet werden, 
 
 Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Dafür muss das entfernte Home Assistant Lüftungsberater v0.6.10 oder neuer ausführen und über seine Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token. Ab v0.6.12 zeigt Home Assistant während der Prüfung einen Fortschrittsdialog und anschließend eine Zusammenfassung der gefundenen Lüftungsberater und Räume, bevor die Verbindung gespeichert wird.
 
-Für die Übersicht unter **Einstellungen → Geräte & Dienste** spiegelt v0.6.12 die erreichbare Remote-Struktur zusätzlich nur als Geräte-Metadaten: **Remote Home Assistant → Lüftungsberater → Räume**. Dafür werden ausdrücklich keine Remote-Sensor-Entities erzeugt; die entfernten Messwerte bleiben reine flüchtige Snapshots ohne lokalen Recorder-Verlauf.
+Ab v0.6.20 erzeugt eine Tailscale-Remote-Verbindung auf der empfangenden Home-Assistant-Instanz **keine zusätzlichen Remote-Geräte und keine Remote-Entities**. Frühere leere Geräte-Registry-Einträge für **Remote Home Assistant → Lüftungsberater → Räume** werden beim Laden aufgeräumt. Die funktionale Remote-Architektur bleibt unverändert: Die Karte arbeitet ausschließlich mit flüchtigen Snapshots im Arbeitsspeicher.
 
 Remote-Verbindungen sind absichtlich auf Tailscale beschränkt. Beim laufenden Abruf wird erneut geprüft, dass das Ziel ausschließlich auf Tailscale-Adressen auflöst. Zusätzlich akzeptiert der Snapshot-Endpunkt selbst nur Anfragen, deren Quell-IP aus einem Tailscale-Adressbereich stammt. Ein gültiger Home-Assistant-Token allein reicht außerhalb des Tailnets daher nicht aus. Übertragen werden nur die aktuellen Lüftungsberater-Hauptzustände und deren aktuelle Detailwerte – keine Recorder-Historie und keine fremden Sensor-Entities werden im empfangenden Home Assistant angelegt.
 
@@ -218,6 +213,10 @@ Home Assistant verwendet das mitgelieferte lokale Brand-Icon nach der Installati
 Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
 einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
 
+
+### Hinweis zu v0.6.20
+
+v0.6.20 überarbeitet die Beratungslogik grundlegend zu einer nachvollziehbaren Gesamtabwägung: absolute Feuchte verwendet eine technische Neutralzone statt einer harten 1,0-g/m³-Hürde, CO₂ wird gegen Außenbedingungen und Komfort abgewogen, Regen nur noch zeitlich passend zur Lüftung berücksichtigt, Wind und Warntexte differenzierter bewertet und plausible Außenluftqualität automatisch einbezogen. Der optionale Oberflächensensor erhält einen lokalen zeitlichen Feuchtekontext, ohne ohne Sensor Werte zu erfinden oder eine Schimmeldiagnose zu behaupten. Benachrichtigungen laufen nur noch über `notify.send_message`; der alte Companion-Sonderweg entfällt. Remote-Tailscale-Werte bleiben vollständig flüchtig und entity-frei, während frühere leere Remote-Geräte-Metadaten aufgeräumt werden. Deutsch, Englisch und Türkisch wurden gemeinsam aktualisiert.
 
 ### Hinweis zu v0.6.19
 

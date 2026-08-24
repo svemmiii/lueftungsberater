@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.20 - Alpha
+
+### Kontextabhängige Gesamtbewertung statt starrer Einzelgrenzen
+
+- Entscheidungsengine neu geordnet: Sicherheit/Gesundheit, Innenraumluft, Feuchte-/Oberflächenrisiko, persönliches Temperatursoll, Komfort und Außenbedingungen werden gemeinsam bewertet statt einfach den schlechtesten Einzelwert gewinnen zu lassen.
+- Ampelbedeutung geschärft: Grün = klarer Gesamtvorteil, Gelb = optional/nahe Abwägung, Rot = unnötig oder Nachteile überwiegen.
+- Absolute Feuchte: harte 1,0-g/m³-Startschwelle entfernt. ±0,5 g/m³ dient nur als technische Neutralzone gegen Messrauschen; laufende Feuchtelüftung besitzt eine kleine Rücklaufhysterese.
+- CO₂-Stufen 1000/1400/2000 ppm bleiben erhalten, werden aber kontextabhängig gegen Feuchte, Temperatur, Luftqualität, Wetter und echte Außenluftgefahren abgewogen. Hohes CO₂ kann kleine Nachteile akzeptieren, harte Sicherheitslagen bleiben vorrangig.
+- Persönliche Solltemperatur stärker als Komfortreferenz genutzt. Hohe Raumtemperaturen werden zusätzlich separat als Hitzebelastung bewertet, ohne 26 °C pauschal als ungesund zu bezeichnen.
+- Optionale Oberflächenfeuchte erweitert: Nur mit realem Oberflächentemperatursensor wird Oberflächen-rF berechnet. Lokaler zeitlicher Kontext unterscheidet kurze Peaks von länger anhaltender kritischer Feuchte; ohne Sensor werden keine Werte geschätzt. Die Anzeige bleibt bewusst beratend und nicht diagnostisch.
+- Regenlogik entkoppelt von der Feuchtephysik. Radar-Niederschlag beeinflusst eine Empfehlung nur noch, wenn er die erwartete Lüftungsdauer plus kleine Reserve tatsächlich überlappt; die alte pauschale 2-Stunden-Wirkung entfällt.
+- Wind differenzierter bewertet: ungefähr ab Bft 6 Vorsicht; etwa 50 km/h anhaltender Wind bzw. 65 km/h Böen können als realer Nachteil eines offenen Fensters Rot auslösen, ohne dies als amtliche DWD-Rotwarnung darzustellen.
+- NINA/CAP- und DWD-Auswertung stärker an konkreten Handlungsempfehlungen ausgerichtet. „Keine Gefahr“ ohne Schutzanweisung blockiert nicht mehr nur wegen Rauch-/Brand-Schlüsselwörtern; explizites Fenster-schließen bzw. schwere Warnlage bleibt vorrangig.
+- Außenluftqualität ergänzt: plausible aktuelle Ozon-, PM2.5-, PM10-, NO₂- und SO₂-Sensoren aus dem Wetter-Config-Entry werden nach UBA-LQI-Klassen bewertet; der schlechteste verfügbare gültige Schadstoff zählt. Fehlende, veraltete und unplausible Daten werden ignoriert.
+- Lüftungsdauer überarbeitet: warme Außenbedingungen werden nicht mehr pauschal mit nur 5–10 Minuten als ausreichend dargestellt; empfohlene Normalzeiten beginnen bei mindestens 5 Minuten und bleiben mit der Lüftungsbestätigung konsistent.
+- 24-Stunden-Routinelüftung bewusst unverändert als letzter Fallback beibehalten.
+- Benachrichtigungen vereinheitlicht: nur noch moderne `notify`-Entity via `notify.send_message`. Companion-spezifischer `notify.mobile_app_*`-Pfad, Vibrationsstufen, Critical-Payloads, Channels und Tags entfernt. Alte Optionsschlüssel werden bei der Migration sicher verworfen; ein vorhandenes normales Notify-Ziel bleibt erhalten.
+- Tailscale-Remote bleibt vollständig flüchtig: weiterhin keine Remote-Entities, kein lokaler Recorder-Verlauf und keine gespiegelten Messsensoren. Die früher erzeugte leere Remote-Gerätehierarchie wird entfernt/aufgeräumt, sodass keine doppelten „Wohnmobil/Lüftungsberater/Raum“-Gerätekarten mehr entstehen.
+- UI-Texte bewusst kurz gehalten; komplexere Abwägungen passieren im Hintergrund und werden mit wenigen relevanten Gründen erklärt.
+- Deutsch, Englisch und Türkisch vollständig an neue Zustände und Texte angepasst.
+
 ## 0.6.19 - Alpha
 
 ### Konfigurierbare Handy-Benachrichtigungen

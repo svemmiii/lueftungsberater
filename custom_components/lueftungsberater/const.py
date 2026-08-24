@@ -25,11 +25,16 @@ CONF_MANUAL_OUTDOOR = "manual_outdoor"
 WARNING_SOURCE_NONE = "none"
 
 CONF_NOTIFY_TARGET = "notify_target"
-CONF_NOTIFY_MOBILE_SERVICE = "notify_mobile_service"
 CONF_NOTIFY_TRIGGERS = "notify_triggers"
-CONF_NOTIFY_CAUTION_VIBRATION = "notify_caution_vibration"
-CONF_NOTIFY_DANGER_VIBRATION = "notify_danger_vibration"
-CONF_NOTIFY_CRITICAL_BYPASS = "notify_critical_bypass"
+
+# Removed with v0.6.20. Kept as one private migration list only so existing
+# config entries can be cleaned without breaking setup after the update.
+LEGACY_NOTIFY_KEYS = (
+    "notify_mobile_service",
+    "notify_caution_vibration",
+    "notify_danger_vibration",
+    "notify_critical_bypass",
+)
 
 NOTIFY_TRIGGER_AIRING_RECOMMENDED = "airing_recommended"
 NOTIFY_TRIGGER_AIRING_FINISHED = "airing_finished"
@@ -41,14 +46,6 @@ DEFAULT_NOTIFY_TRIGGERS = [
     NOTIFY_TRIGGER_AIR_DANGER,
     NOTIFY_TRIGGER_WEATHER_DANGER,
 ]
-
-NOTIFY_VIBRATION_OFF = "off"
-NOTIFY_VIBRATION_GENTLE = "gentle"
-NOTIFY_VIBRATION_NORMAL = "normal"
-NOTIFY_VIBRATION_STRONG = "strong"
-DEFAULT_NOTIFY_CAUTION_VIBRATION = NOTIFY_VIBRATION_OFF
-DEFAULT_NOTIFY_DANGER_VIBRATION = NOTIFY_VIBRATION_STRONG
-DEFAULT_NOTIFY_CRITICAL_BYPASS = False
 
 CONF_REMOTE_HOST = "remote_host"
 CONF_REMOTE_PORT = "remote_port"
@@ -76,8 +73,18 @@ DEFAULT_TARGET_TEMP = 21.0
 MIN_CONFIRMED_AIRING = timedelta(minutes=5)
 CO2_GRACE_PERIOD = timedelta(seconds=60)
 
+# The mould tracker is optional and only exists when a surface-temperature
+# sensor is configured. A 50% time-of-wetness-style signal over the last 24 h
+# is used only as a conservative product-side escalation helper; it is not a
+# medical diagnosis, a DIN threshold or proof of mould growth.
+MOLD_SAMPLE_INTERVAL = timedelta(minutes=5)
+MOLD_HISTORY_WINDOW = timedelta(hours=24)
+MOLD_HISTORY_RETENTION = timedelta(hours=48)
+MOLD_PERSISTENT_24H = timedelta(hours=12)
+
 DATA_TRACKERS = "airing_trackers"
 DATA_CO2_TRACKERS = "co2_trackers"
+DATA_MOLD_TRACKERS = "mold_trackers"
 DATA_COORDINATORS = "room_coordinators"
 DATA_REMOTE_COORDINATORS = "remote_coordinators"
 DATA_API_REGISTERED = "api_registered"

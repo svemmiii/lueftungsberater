@@ -12,8 +12,9 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .airing import get_tracker
 from .co2 import get_co2_tracker
 from .const import *
-from .engine import evaluate_room
+from .engine import evaluate_room, surface_relative_humidity
 from .models import RoomInput, VentilationResult
+from .mold import get_mold_tracker
 from .providers import (
     WeatherAssessment,
     WarningAssessment,
@@ -210,6 +211,10 @@ def _room_values(
         "target_temperature": target_temperature(hass, subentry),
         "humidity_inside": _number(hass, subentry.data.get(CONF_INDOOR_HUMIDITY)),
         "humidity_outside": weather.humidity,
+        "air_quality_index": weather.air_quality_index,
+        "air_quality_pollutant": weather.air_quality_pollutant,
+        "air_quality_value": weather.air_quality_value,
+        "air_quality_values": dict(weather.air_quality_values),
         "co2_ppm": room_co2_value(hass, entry, subentry),
         "surface_temperature": _temperature_state_celsius(
             hass, subentry.data.get(CONF_SURFACE_TEMP)
@@ -306,6 +311,23 @@ def build_room_snapshot(
     ta = values["temperature_outside"]
     ha = values["humidity_outside"]
 
+    surface_rh = (
+        surface_relative_humidity(ti, hi, values.get("surface_temperature"))
+        if ti is not None and hi is not None
+        else None
+    )
+    mold_tracker = get_mold_tracker(hass, entry, subentry)
+    if mold_tracker is not None:
+        mold_tracker.observe(surface_rh)
+        values["mold_current_critical_minutes"] = mold_tracker.current_critical_minutes
+        values["mold_critical_minutes_24h"] = mold_tracker.critical_minutes_24h
+        values["mold_persistent"] = mold_tracker.persistent
+    else:
+        values["mold_current_critical_minutes"] = None
+        values["mold_critical_minutes_24h"] = None
+        values["mold_persistent"] = False
+    values["surface_relative_humidity"] = surface_rh
+
     if None in (ti, hi, ta, ha):
         return RoomSnapshot(None, values, weather, warnings)
 
@@ -389,6 +411,7 @@ def build_room_snapshot(
             hours_since_airing=values["hours_since_last_airing"],
             rain_now=(weather.rain_now or legacy_rain_now),
             rain_soon=(weather.rain_soon or legacy_rain_soon),
+            rain_minutes_until=weather.rain_minutes_until,
             weather_caution=weather_caution,
             weather_danger=weather_danger,
             weather_reason_key=weather_reason_key,
@@ -399,6 +422,12 @@ def build_room_snapshot(
             nina_reason_args=nina_reason_args,
             nina_original_reason=nina_original_reason,
             surface_temp=values.get("surface_temperature"),
+            mold_current_critical_minutes=values.get("mold_current_critical_minutes"),
+            mold_critical_minutes_24h=values.get("mold_critical_minutes_24h"),
+            mold_persistent=bool(values.get("mold_persistent")),
+            air_quality=weather.air_quality_index,
+            air_quality_pollutant=weather.air_quality_pollutant,
+            air_quality_value=weather.air_quality_value,
             previous_mode=previous_mode,
         )
     )

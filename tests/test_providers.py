@@ -48,6 +48,10 @@ def assess(values, *, temp=TEMP, humidity=HUM):
             "custom_components.lueftungsberater.providers._discover_dwd_radar_entities",
             return_value=(None, None, set()),
         ),
+        patch(
+            "custom_components.lueftungsberater.providers._discover_air_quality",
+            return_value=("unknown", None, None, {}, set()),
+        ),
     ):
         return weather_assessment(hass, entry)
 
@@ -326,3 +330,136 @@ def test_nina_new_severity_sensor_can_mark_warning_as_danger():
     assert result.weather_danger is True
     assert result.weather_caution is False
     assert result.weather_reason_key == "weather_heavy_rain_danger"
+
+
+
+def test_air_warning_with_explicit_no_danger_is_none_without_close_instruction():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Brandentwicklung",
+            "Es besteht keine Gefahr für die Bevölkerung durch den Rauch.",
+            "Bitte informieren Sie sich weiter.",
+            "Moderate",
+        )
+        == "none"
+    )
+
+
+def test_moderate_air_warning_is_caution_unless_actions_make_it_dangerous():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Rauchentwicklung",
+            "Rauch zieht über das Gebiet.",
+            "Meiden Sie den Bereich.",
+            "Moderate",
+        )
+        == "caution"
+    )
+    assert (
+        _evaluate_air_warning(
+            "Gefahrstoffaustritt",
+            "Gefahrstoffe befinden sich in der Außenluft.",
+            "Fenster und Türen geschlossen halten.",
+            "Moderate",
+        )
+        == "danger"
+    )
+
+
+def test_uba_air_quality_classes_use_worst_available_pollutant():
+    from custom_components.lueftungsberater.providers import (
+        AIR_QUALITY_RANK,
+        _air_quality_class,
+    )
+
+    classes = {
+        "pm2_5": _air_quality_class("pm2_5", 35),
+        "o3": _air_quality_class("o3", 80),
+        "no2": _air_quality_class("no2", 20),
+    }
+    worst = max(classes, key=lambda key: AIR_QUALITY_RANK[classes[key]])
+    assert classes["pm2_5"] == "poor"
+    assert classes["o3"] == "moderate"
+    assert classes["no2"] == "good"
+    assert worst == "pm2_5"
+
+
+def test_lone_zero_with_unavailable_air_quality_siblings_is_ignored():
+    from custom_components.lueftungsberater.providers import _discover_air_quality
+
+    weather = "weather.bornheim"
+    pm25 = "sensor.bornheim_luftqualitat_pm2_5"
+    pm10 = "sensor.bornheim_luftqualitat_pm10"
+    ozone = "sensor.bornheim_luftqualitat_ozon"
+    values = {
+        pm25: FakeState("0", {"unit_of_measurement": "µg/m³"}),
+        pm10: FakeState("unknown", {"unit_of_measurement": "µg/m³"}),
+        ozone: FakeState("unknown", {"unit_of_measurement": "µg/m³"}),
+    }
+    hass = FakeHass(values)
+    registry_items = {
+        pm25: SimpleNamespace(original_name="Luftqualität PM2.5"),
+        pm10: SimpleNamespace(original_name="Luftqualität PM10"),
+        ozone: SimpleNamespace(original_name="Luftqualität Ozon"),
+    }
+    registry = SimpleNamespace(async_get=lambda entity_id: registry_items.get(entity_id))
+    with (
+        patch(
+            "custom_components.lueftungsberater.providers._registry_entry",
+            return_value=SimpleNamespace(config_entry_id="weather-entry"),
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers._config_entry_entities",
+            return_value=[pm25, pm10, ozone],
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers.er.async_get",
+            return_value=registry,
+        ),
+    ):
+        quality, pollutant, value, found, used = _discover_air_quality(hass, weather)
+
+    assert quality == "unknown"
+    assert pollutant is None and value is None and found == {}
+    assert used == {pm25, pm10, ozone}
+
+
+def test_wind_thresholds_are_window_advice_not_dwd_warning_colours():
+    caution = assess(
+        {
+            WEATHER: FakeState(
+                "sunny",
+                {
+                    "temperature": 18,
+                    "humidity": 60,
+                    "wind_speed": 42,
+                    "wind_gust_speed": 55,
+                    "wind_speed_unit": "km/h",
+                },
+            )
+        },
+        temp=None,
+        humidity=None,
+    )
+    avoid = assess(
+        {
+            WEATHER: FakeState(
+                "sunny",
+                {
+                    "temperature": 18,
+                    "humidity": 60,
+                    "wind_speed": 50,
+                    "wind_gust_speed": 65,
+                    "wind_speed_unit": "km/h",
+                },
+            )
+        },
+        temp=None,
+        humidity=None,
+    )
+    assert caution.weather_caution is True and caution.weather_danger is False
+    assert avoid.weather_danger is True

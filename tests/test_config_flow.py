@@ -215,42 +215,26 @@ async def test_warning_source_options_include_none_nina_and_dwd(
     ]
 
 
-async def test_mobile_notification_actions_enable_advanced_controls(
+async def test_global_schema_uses_only_notify_entity_target(
     hass, enable_custom_integrations
 ) -> None:
-    """Companion App actions expose vibration and critical-alert settings."""
-    from custom_components.lueftungsberater.config_flow import (
-        _global_schema,
-        _mobile_notify_service_options,
-    )
+    """The setup exposes one modern notify-entity path and no Companion controls."""
+    from custom_components.lueftungsberater.config_flow import _global_schema
     from custom_components.lueftungsberater.const import (
-        CONF_NOTIFY_CAUTION_VIBRATION,
-        CONF_NOTIFY_CRITICAL_BYPASS,
-        CONF_NOTIFY_DANGER_VIBRATION,
-        CONF_NOTIFY_MOBILE_SERVICE,
+        CONF_NOTIFY_TARGET,
         CONF_WEATHER,
-        DEFAULT_NOTIFY_CAUTION_VIBRATION,
-        DEFAULT_NOTIFY_CRITICAL_BYPASS,
-        DEFAULT_NOTIFY_DANGER_VIBRATION,
     )
 
-    async def _notify_handler(call):
-        return None
-
-    hass.services.async_register("notify", "mobile_app_test_phone", _notify_handler)
-
-    options = _mobile_notify_service_options(hass)
-    assert {option["value"] for option in options} == {"mobile_app_test_phone"}
-
-    validated = _global_schema(hass)(
+    schema = _global_schema(hass)
+    validated = schema(
         {
             CONF_WEATHER: "weather.home",
-            CONF_NOTIFY_MOBILE_SERVICE: "mobile_app_test_phone",
+            CONF_NOTIFY_TARGET: "notify.phone",
         }
     )
-    assert validated[CONF_NOTIFY_CAUTION_VIBRATION] == DEFAULT_NOTIFY_CAUTION_VIBRATION
-    assert validated[CONF_NOTIFY_DANGER_VIBRATION] == DEFAULT_NOTIFY_DANGER_VIBRATION
-    assert validated[CONF_NOTIFY_CRITICAL_BYPASS] is DEFAULT_NOTIFY_CRITICAL_BYPASS
+    assert validated[CONF_NOTIFY_TARGET] == "notify.phone"
+    assert not any("mobile" in str(key).lower() for key in schema.schema)
+    assert not any("vibration" in str(key).lower() for key in schema.schema)
 
 
 def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(

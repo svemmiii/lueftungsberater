@@ -39,6 +39,7 @@ RECOMMENDATION_STATES = [
     "keep_open",
     "can_close",
     "short_observation",
+    "optional",
     "better_close",
     "caution_keep_closed",
     "keep_closed",
@@ -234,6 +235,24 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 r.surface_relative_humidity if r is not None else None
             ),
             "mold_risk": bool(r.mold_risk) if r is not None else False,
+            "mold_persistent": bool(r.mold_persistent) if r is not None else False,
+            "mold_current_critical_minutes": (
+                r.mold_current_critical_minutes if r is not None else None
+            ),
+            "mold_critical_minutes_24h": (
+                r.mold_critical_minutes_24h if r is not None else None
+            ),
+            "air_quality": r.air_quality if r is not None else weather.air_quality_index,
+            "air_quality_pollutant": (
+                r.air_quality_pollutant if r is not None else weather.air_quality_pollutant
+            ),
+            "air_quality_value": (
+                r.air_quality_value if r is not None else weather.air_quality_value
+            ),
+            "air_quality_values": dict(weather.air_quality_values),
+            "wind_speed_kmh": weather.wind_speed_kmh,
+            "wind_gust_kmh": weather.wind_gust_kmh,
+            "rain_minutes_until": weather.rain_minutes_until,
             "has_co2": values["has_co2"],
             "has_window_contacts": values["has_window_contacts"],
             "window_open": values["window_open"],

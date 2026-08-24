@@ -113,7 +113,7 @@ HARD_CLOSE_WORDS = (
     "keep windows closed",
 )
 
-SEVERITY_DANGER = {"moderate", "severe", "extreme"}
+SEVERITY_DANGER = {"severe", "extreme"}
 
 
 @dataclass(slots=True)
@@ -124,6 +124,7 @@ class WeatherAssessment:
     humidity: float | None = None
     rain_now: bool = False
     rain_soon: bool = False
+    rain_minutes_until: float | None = None
     weather_caution: bool = False
     weather_danger: bool = False
     weather_reason_key: str | None = None
@@ -137,6 +138,12 @@ class WeatherAssessment:
     provider_domain: str | None = None
     radar_current_entity: str | None = None
     radar_next_entity: str | None = None
+    wind_speed_kmh: float | None = None
+    wind_gust_kmh: float | None = None
+    air_quality_index: str = "unknown"
+    air_quality_pollutant: str | None = None
+    air_quality_value: float | None = None
+    air_quality_values: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -249,6 +256,143 @@ def _parse_datetime(value: Any) -> datetime | None:
     if result.tzinfo is None:
         result = result.replace(tzinfo=dt_util.UTC)
     return result
+
+
+
+AIR_QUALITY_LIMITS: dict[str, tuple[float, float, float, float]] = {
+    # UBA LQI 2025/2026 hourly classes: very good / good / moderate / poor /
+    # very poor. Values are µg/m³ and the worst available pollutant wins.
+    "no2": (10.0, 30.0, 60.0, 100.0),
+    "pm10": (9.0, 27.0, 54.0, 90.0),
+    "pm2_5": (5.0, 15.0, 30.0, 50.0),
+    "o3": (24.0, 72.0, 144.0, 240.0),
+    "so2": (10.0, 30.0, 60.0, 100.0),
+}
+AIR_QUALITY_MAX_AGE = timedelta(hours=3)
+
+AIR_QUALITY_RANK = {
+    "unknown": -1,
+    "very_good": 0,
+    "good": 1,
+    "moderate": 2,
+    "poor": 3,
+    "very_poor": 4,
+}
+
+
+def _air_quality_kind(entity_id: str, original_name: str = "") -> str | None:
+    low = f"{entity_id} {original_name}".lower().replace("-", "_")
+    if "pm2_5" in low or "pm25" in low or "pm2.5" in low:
+        return "pm2_5"
+    if "pm10" in low:
+        return "pm10"
+    if "stickstoffdioxid" in low or "nitrogen_dioxide" in low or " no2" in f" {low}":
+        return "no2"
+    if "ozon" in low or "ozone" in low or " o3" in f" {low}":
+        return "o3"
+    if "schwefeldioxid" in low or "sulfur_dioxide" in low or "sulphur_dioxide" in low or " so2" in f" {low}":
+        return "so2"
+    return None
+
+
+def _air_quality_state_is_fresh(state: State) -> bool:
+    """Reject stale pollutant values without penalising lightweight test stubs."""
+    stamp = getattr(state, "last_reported", None) or getattr(state, "last_updated", None)
+    if not isinstance(stamp, datetime):
+        return True
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=dt_util.UTC)
+    age = dt_util.utcnow() - stamp
+    return timedelta(0) <= age <= AIR_QUALITY_MAX_AGE
+
+
+def _air_quality_ugm3(state: State | None) -> float | None:
+    if state is None or state.state in {"unknown", "unavailable", "none", ""}:
+        return None
+    if not _air_quality_state_is_fresh(state):
+        return None
+    value = _state_float(state)
+    if value is None or value < 0:
+        return None
+    unit = str(state.attributes.get("unit_of_measurement") or "").lower().replace("μ", "µ")
+    if unit in {"µg/m³", "ug/m³", "µg/m3", "ug/m3"}:
+        converted = value
+    elif unit in {"mg/m³", "mg/m3"}:
+        converted = value * 1000.0
+    else:
+        # Do not guess concentrations from a unitless/foreign sensor.
+        return None
+    if converted > 5000:
+        return None
+    return converted
+
+
+def _air_quality_class(kind: str, value: float) -> str:
+    limits = AIR_QUALITY_LIMITS[kind]
+    if value <= limits[0]:
+        return "very_good"
+    if value <= limits[1]:
+        return "good"
+    if value <= limits[2]:
+        return "moderate"
+    if value <= limits[3]:
+        return "poor"
+    return "very_poor"
+
+
+def _discover_air_quality(
+    hass: HomeAssistant,
+    weather_entity_id: str,
+) -> tuple[str, str | None, float | None, dict[str, float], set[str]]:
+    """Return the UBA-LQI class from plausible sibling air-quality sensors."""
+    registry_entry = _registry_entry(hass, weather_entity_id)
+    if registry_entry is None:
+        return "unknown", None, None, {}, set()
+
+    registry = er.async_get(hass)
+    candidates: list[tuple[str, str, State | None]] = []
+    used: set[str] = set()
+    for entity_id in _config_entry_entities(hass, registry_entry.config_entry_id):
+        item = registry.async_get(entity_id)
+        original_name = str(getattr(item, "original_name", "") or "") if item else ""
+        kind = _air_quality_kind(entity_id, original_name)
+        if kind is None:
+            continue
+        state = hass.states.get(entity_id)
+        candidates.append((kind, entity_id, state))
+        used.add(entity_id)
+
+    values: dict[str, float] = {}
+    valid_items: list[tuple[str, float]] = []
+    for kind, _entity_id, state in candidates:
+        value = _air_quality_ugm3(state)
+        if value is None:
+            continue
+        # Keep the worst sensor when a provider exposes the same pollutant twice.
+        values[kind] = max(value, values.get(kind, value))
+
+    # dwd_weather temporarily exposed a lone 0 while its other air-quality
+    # siblings were unavailable. A single zero surrounded by unavailable
+    # siblings is therefore treated as a provider placeholder, not "perfect air".
+    if len(candidates) >= 2 and len(values) == 1 and next(iter(values.values())) == 0:
+        return "unknown", None, None, {}, used
+
+    for kind, value in values.items():
+        valid_items.append((kind, value))
+    if not valid_items:
+        return "unknown", None, None, {}, used
+
+    worst_kind = None
+    worst_value = None
+    worst_class = "unknown"
+    for kind, value in valid_items:
+        classification = _air_quality_class(kind, value)
+        if AIR_QUALITY_RANK[classification] > AIR_QUALITY_RANK[worst_class]:
+            worst_class = classification
+            worst_kind = kind
+            worst_value = value
+
+    return worst_class, worst_kind, worst_value, values, used
 
 
 def _discover_dwd_radar_entities(
@@ -390,6 +534,18 @@ def weather_assessment(
         result.source_humidity = humidity_override or weather_entity_id
         result.humidity_source_kind = "unavailable"
 
+    # Air-quality sensors are sibling entities of the selected weather config
+    # entry and can remain valid even when the weather entity itself is briefly
+    # unavailable. Evaluate them independently and subscribe to their changes.
+    (
+        result.air_quality_index,
+        result.air_quality_pollutant,
+        result.air_quality_value,
+        result.air_quality_values,
+        air_entities,
+    ) = _discover_air_quality(hass, weather_entity_id)
+    result.source_entities.update(air_entities)
+
     if not weather_available:
         return result
 
@@ -401,17 +557,18 @@ def weather_assessment(
     wind_unit = state.attributes.get("wind_speed_unit")
     wind = _wind_to_kmh(state.attributes.get("wind_speed"), wind_unit)
     gust = _wind_to_kmh(state.attributes.get("wind_gust_speed"), wind_unit)
+    result.wind_speed_kmh = wind if wind > 0 else None
+    result.wind_gust_kmh = gust if gust > 0 else None
 
-    if (
-        condition in WEATHER_DANGER_CONDITIONS
-        or wind >= 50
-        or gust >= 65
-    ):
+    # These are ventilation/window-safety thresholds, not claims about the
+    # DWD warning colour. Bft 6 (39 km/h mean wind) starts as caution; from
+    # roughly Bft 7 / storm-force gusts an open window itself becomes a
+    # meaningful disadvantage, so the advisor may recommend keeping it shut.
+    if condition in WEATHER_DANGER_CONDITIONS or wind >= 50 or gust >= 65:
         result.weather_danger = True
+        result.weather_caution = False
 
-        if condition == "lightning":
-            result.weather_reason_key = "weather_thunderstorm_danger"
-        elif condition == "lightning-rainy":
+        if condition in {"lightning", "lightning-rainy"}:
             result.weather_reason_key = "weather_thunderstorm_danger"
         elif condition == "hail":
             result.weather_reason_key = "weather_hail_danger"
@@ -423,6 +580,11 @@ def weather_assessment(
         elif wind >= 50:
             result.weather_reason_key = "weather_wind_danger"
             result.weather_reason_args = {"speed_kmh": wind}
+    elif wind >= 39 or gust >= 50:
+        result.weather_caution = True
+        speed = gust if gust >= 50 else wind
+        result.weather_reason_key = "weather_wind_caution"
+        result.weather_reason_args = {"speed_kmh": speed}
 
     current_radar, next_radar, radar_entities = _discover_dwd_radar_entities(
         hass,
@@ -458,8 +620,13 @@ def weather_assessment(
 
         if next_dt is not None:
             now = dt_util.utcnow()
-            if now <= next_dt <= now + timedelta(hours=2):
-                result.rain_soon = True
+            if now <= next_dt:
+                result.rain_minutes_until = (next_dt - now).total_seconds() / 60.0
+                # Keep the old boolean as a compatibility signal for exported
+                # diagnostics/legacy inputs; the engine now decides whether the
+                # forecast is actually relevant to the expected airing duration.
+                if next_dt <= now + timedelta(hours=2):
+                    result.rain_soon = True
 
     return result
 
@@ -543,7 +710,10 @@ def _evaluate_air_warning(
     severity_low = severity.lower()
 
     if no_danger:
-        return "caution" if (precaution or air) else "none"
+        # A warning text explicitly saying that there is no danger must not be
+        # kept yellow merely because it also mentions smoke/fire. Only an actual
+        # precautionary/close-windows instruction still warrants caution.
+        return "caution" if (precaution or hard_close) else "none"
 
     if (
         severity_low in SEVERITY_DANGER

@@ -17,6 +17,7 @@ class RoomInput:
     hours_since_airing: float | None = None
     rain_now: bool = False
     rain_soon: bool = False
+    rain_minutes_until: float | None = None
     weather_caution: bool = False
     weather_danger: bool = False
     weather_reason_key: str | None = None
@@ -27,6 +28,12 @@ class RoomInput:
     nina_reason_args: dict[str, Any] = field(default_factory=dict)
     nina_original_reason: str | None = None
     surface_temp: float | None = None
+    mold_current_critical_minutes: float | None = None
+    mold_critical_minutes_24h: float | None = None
+    mold_persistent: bool = False
+    air_quality: str = "unknown"
+    air_quality_pollutant: str | None = None
+    air_quality_value: float | None = None
     previous_mode: str | None = None
 
 
@@ -46,3 +53,9 @@ class VentilationResult:
     co2_status: str
     surface_relative_humidity: float | None = None
     mold_risk: bool = False
+    mold_persistent: bool = False
+    mold_current_critical_minutes: float | None = None
+    mold_critical_minutes_24h: float | None = None
+    air_quality: str = "unknown"
+    air_quality_pollutant: str | None = None
+    air_quality_value: float | None = None

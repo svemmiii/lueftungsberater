@@ -22,12 +22,8 @@
           "manual_outdoor": "Advanced outdoor sensors (optional)",
           "outdoor_temperature": "Override outdoor temperature",
           "outdoor_humidity": "Override outdoor humidity",
-          "notify_target": "Standard notification target (optional)",
-          "notify_triggers": "Notify me about (optional)",
-          "notify_mobile_service": "Companion App target for silent/vibration/critical alerts (optional)",
-          "notify_caution_vibration": "Vibration for caution alerts (Android)",
-          "notify_danger_vibration": "Vibration for danger alerts (Android)",
-          "notify_critical_bypass": "Enable critical delivery (where supported by the phone)"
+          "notify_target": "Notification target (optional)",
+          "notify_triggers": "Notify me about (optional)"
         }
       },
       "remote": {
@@ -54,12 +50,8 @@
           "remote_port": "Home Assistant port",
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "Use HTTPS",
-          "notify_target": "Standard notification target (optional)",
-          "notify_triggers": "Notify me about (optional)",
-          "notify_mobile_service": "Companion App target for silent/vibration/critical alerts (optional)",
-          "notify_caution_vibration": "Vibration for caution alerts (Android)",
-          "notify_danger_vibration": "Vibration for danger alerts (Android)",
-          "notify_critical_bypass": "Enable critical delivery (where supported by the phone)"
+          "notify_target": "Notification target (optional)",
+          "notify_triggers": "Notify me about (optional)"
         }
       },
       "remote_confirm": {
@@ -98,7 +90,7 @@
       "step": {
         "user": {
           "title": "Add room",
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts, and a critical surface temperature are optional. With a surface-temperature sensor, the advisor can also consider moisture risk at cold spots. If window/door contacts are selected, it automatically recognizes airing sessions from 5 minutes onward and tracks them itself.",
+          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts, and a cold or critical surface-temperature sensor are optional. With a real surface-temperature sensor, the advisor can additionally evaluate calculated humidity at that spot and its history; without one, no surface values are estimated. Window/door contacts automatically recognize airing sessions from 5 minutes onward and track the airing history.",
           "data": {
             "room_name": "Room name",
             "indoor_temperature": "Indoor temperature",
@@ -107,7 +99,7 @@
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
             "target_temperature": "Fallback target temperature",
-            "surface_temperature": "Cold / critical surface temperature for mold prevention (optional)"
+            "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)"
           }
         },
         "reconfigure": {
@@ -120,9 +112,9 @@
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
             "target_temperature": "Fallback target temperature",
-            "surface_temperature": "Cold / critical surface temperature for mold prevention (optional)"
+            "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)"
           },
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts, and a critical surface temperature are optional. With a surface-temperature sensor, the advisor can also consider moisture risk at cold spots. If window/door contacts are selected, it automatically recognizes airing sessions from 5 minutes onward and tracks them itself."
+          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts, and a cold or critical surface-temperature sensor are optional. With a real surface-temperature sensor, the advisor can additionally evaluate calculated humidity at that spot and its history; without one, no surface values are estimated. Window/door contacts automatically recognize airing sessions from 5 minutes onward and track the airing history."
         }
       },
       "abort": {
@@ -142,7 +134,8 @@
           "caution_keep_closed": "Better keep the windows closed for now",
           "keep_closed": "Keep the windows closed",
           "close_now": "Close the windows now",
-          "wait": "Better wait a little longer"
+          "wait": "Better wait a little longer",
+          "optional": "Airing is optional"
         }
       },
       "absolute_humidity": {
@@ -193,20 +186,12 @@
     },
     "notify_triggers": {
       "options": {
-        "airing_recommended": "Opening the windows is useful again (silent with Companion App)",
-        "airing_finished": "Airing can be finished (silent with Companion App)",
-        "air_danger": "Serious outdoor-air warnings (e.g. smoke / hazardous substances)",
-        "air_caution": "Precautionary outdoor-air advisories",
+        "airing_recommended": "Opening the windows is useful again",
+        "airing_finished": "Airing can be finished",
+        "air_danger": "Serious outdoor-air warnings / poor air quality",
+        "air_caution": "Outdoor-air advisories / moderate air quality",
         "weather_danger": "Severe weather warnings",
         "weather_caution": "Weather warnings / caution advisories"
-      }
-    },
-    "notify_vibration": {
-      "options": {
-        "off": "Off",
-        "gentle": "Gentle",
-        "normal": "Medium",
-        "strong": "Strong"
       }
     }
   }

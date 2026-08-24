@@ -1,14 +1,21 @@
 """Home-Assistant-independent ventilation decision engine.
 
-The engine deliberately returns semantic keys plus raw values instead of
-pre-rendered language. Home Assistant and the frontend can therefore render the
-same decision naturally in the user's language without changing the logic.
+The engine returns semantic keys plus raw values instead of pre-rendered
+language. Decisions deliberately use a hierarchy of evidence instead of a
+single additive score: safety/health constraints first, then the strongest
+current ventilation need, then expected humidity/temperature/comfort effects.
 """
 from __future__ import annotations
 
 import math
 
 from .models import RoomInput, VentilationResult
+
+# Absolute-humidity differences are continuous physics, not health thresholds.
+# This small dead-band is only a technical neutral zone to avoid treating sensor
+# noise and tiny practical differences as a strong reason for/against airing.
+AH_NEUTRAL = 0.5
+AH_CONTINUE = 0.3
 
 
 def absolute_humidity(temp_c: float, rh: float) -> float:
@@ -17,13 +24,12 @@ def absolute_humidity(temp_c: float, rh: float) -> float:
     return 216.7 * vapor_pressure / (273.15 + temp_c)
 
 
-def surface_relative_humidity(indoor_temp_c: float, indoor_rh: float, surface_temp_c: float | None) -> float | None:
-    """Estimate RH directly at a measured cold surface.
-
-    The indoor vapour pressure is compared with the saturation vapour pressure
-    at the surface temperature. Values are capped at 100 %, where condensation
-    would begin.
-    """
+def surface_relative_humidity(
+    indoor_temp_c: float,
+    indoor_rh: float,
+    surface_temp_c: float | None,
+) -> float | None:
+    """Estimate RH directly at an actually measured cold surface."""
     if surface_temp_c is None:
         return None
     actual_vapor_pressure = (indoor_rh / 100.0) * 6.112 * math.exp(
@@ -51,12 +57,25 @@ def co2_status(ppm: float | None) -> str:
     return "very_good"
 
 
+def _normal_airing_duration(outdoor_temp: float) -> str:
+    """Return a compact practical airing band with a >=5 min lower bound."""
+    if outdoor_temp < 0:
+        return "5_8"
+    if outdoor_temp < 10:
+        return "5_10"
+    if outdoor_temp < 18:
+        return "8_12"
+    if outdoor_temp <= 25:
+        return "10_15"
+    return "10_20"
+
+
 def _duration_key(mode: str, outdoor_temp: float) -> str:
     if mode == "weiter_lueften":
         return "until_targets"
     if mode == "lueftung_fertig":
         return "can_end"
-    if mode == "co2_kritisch_vorsicht":
+    if mode in {"co2_kritisch_vorsicht", "co2_abwaegung"}:
         return "brief_observation"
     if mode == "co2_kritisch":
         return "co2_recheck"
@@ -66,35 +85,60 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
         return "cooling"
     if mode == "erwaermen":
         return "warming"
-    if mode in {"feuchte_lueften", "schimmel_lueften", "routine_lueften"}:
-        if outdoor_temp < -5:
-            return "2_4"
-        if outdoor_temp < 0:
-            return "3_5"
-        if outdoor_temp < 5:
-            return "4_6"
-        if outdoor_temp < 10:
-            return "5_8"
-        if outdoor_temp < 18:
-            return "8_12"
-        if outdoor_temp <= 25:
-            return "10_15"
-        return "5_10"
+    if mode in {
+        "feuchte_lueften",
+        "schimmel_lueften",
+        "schimmel_langzeit_lueften",
+        "routine_lueften",
+    }:
+        return _normal_airing_duration(outdoor_temp)
     return "not_needed"
+
+
+def _duration_max_minutes(mode: str, outdoor_temp: float) -> float:
+    key = _duration_key(mode, outdoor_temp)
+    return {
+        "brief_observation": 5,
+        "co2_recheck": 10,
+        "co2_until_good": 10,
+        "cooling": 30,
+        "warming": 10,
+        "5_8": 8,
+        "5_10": 10,
+        "8_12": 12,
+        "10_15": 15,
+        "10_20": 20,
+        "until_targets": 10,
+    }.get(key, 10)
 
 
 def _color(mode: str) -> str:
     if mode in {
-        "co2_kritisch", "co2_lueften", "weiter_lueften", "feuchte_lueften",
-        "schimmel_lueften", "kuehlen", "erwaermen", "routine_lueften",
+        "co2_kritisch",
+        "co2_lueften",
+        "weiter_lueften",
+        "feuchte_lueften",
+        "schimmel_lueften",
+        "schimmel_langzeit_lueften",
+        "kuehlen",
+        "erwaermen",
+        "routine_lueften",
     }:
         return "green"
     if mode in {
-        "nina_aussenluftgefahr", "wettergefahr", "aussen_zu_warm",
-        "aussen_zu_kalt", "aussen_deutlich_feuchter", "innen_zu_trocken",
+        "co2_kritisch_vorsicht",
+        "co2_abwaegung",
+        "feuchte_neutral",
+        "schimmel_neutral",
+        "komfort_abwaegung",
+        "lueftung_fertig",
+        "normal",
     }:
-        return "red"
-    return "yellow"
+        return "yellow"
+    # Red deliberately means "keep closed / overall disadvantage", not only
+    # an emergency. That includes severe weather as well as simply worsening an
+    # otherwise good room for no useful reason.
+    return "red"
 
 
 def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
@@ -102,11 +146,98 @@ def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
         return "keep_open" if window_open else "open_now"
     if color == "red":
         return "close_now" if window_open else "keep_closed"
-    if mode in {"nina_vorsicht", "wetter_vorsicht"}:
-        return "better_close" if window_open else "caution_keep_closed"
+    if mode in {"co2_kritisch_vorsicht", "co2_abwaegung", "komfort_abwaegung"}:
+        return "short_observation"
     if window_open:
-        return "short_observation" if mode == "co2_kritisch_vorsicht" else "can_close"
+        return "can_close"
+    if mode in {"normal", "feuchte_neutral", "schimmel_neutral"}:
+        return "optional"
     return "wait"
+
+
+def _rain_relevant(data: RoomInput, candidate_mode: str, outdoor_temp: float) -> bool:
+    """Return whether predicted rain can realistically overlap this airing."""
+    if data.rain_now:
+        return True
+    if data.rain_minutes_until is not None:
+        return 0 <= data.rain_minutes_until <= _duration_max_minutes(candidate_mode, outdoor_temp) + 5
+    # Legacy/manual rain-soon binary sensors do not carry a timestamp. Keep them
+    # as a conservative advisory because the engine cannot know the lead time.
+    return bool(data.rain_soon)
+
+
+def _temperature_moves_toward_target(ti: float, ta: float, target: float) -> bool:
+    return abs(ta - target) + 0.5 < abs(ti - target) and abs(ta - ti) >= 0.7
+
+
+def _temperature_moves_away(ti: float, ta: float, target: float) -> bool:
+    return abs(ta - target) > abs(ti - target) + 2.0 and abs(ta - ti) >= 2.0
+
+
+def _primary_need(
+    *,
+    co2: float | None,
+    hi: float,
+    ti: float,
+    ta: float,
+    target: float,
+    diff: float,
+    mold_risk: bool,
+    mold_persistent: bool,
+    hours: float,
+    previous_mode: str,
+) -> tuple[str, int]:
+    """Return the strongest current reason and a small ordinal urgency level."""
+    if co2 is not None and co2 > 2000:
+        return "co2_critical", 3
+
+    # Personal target remains the comfort reference, but very hot indoor air can
+    # still justify cooling even if an unusually high target was configured.
+    if ti >= 30 and ta <= ti - 1:
+        return "heat", 3
+
+    if mold_persistent:
+        return "mold_persistent", 3
+    if hi >= 65:
+        return "humidity_urgent", 2
+    if co2 is not None and co2 >= 1400:
+        return "co2_high", 2
+    if mold_risk:
+        return "mold", 2
+    if hi >= 60 or (
+        previous_mode in {"feuchte_lueften", "weiter_lueften"}
+        and hi >= 58
+        and diff >= AH_CONTINUE
+    ):
+        return "humidity", 2
+    if co2 is not None and (
+        co2 >= 1000
+        or (
+            previous_mode in {"co2_lueften", "co2_abwaegung", "co2_warten", "weiter_lueften"}
+            and co2 >= 950
+        )
+    ):
+        return "co2_elevated", 1
+
+    # Warm + humid rooms can be noticeably uncomfortable even below the hard
+    # heat-protection layer, but only use ventilation when outdoor air helps.
+    if ti >= 26 and hi >= 65 and ta <= ti - 1 and diff >= -AH_NEUTRAL:
+        return "humid_heat", 1
+    if abs(ti - target) >= 1 and _temperature_moves_toward_target(ti, ta, target):
+        return "temperature", 1
+    if hours >= 24:
+        return "routine", 1
+    return "none", 0
+
+
+def _outdoor_soft_caution(data: RoomInput) -> str | None:
+    if data.air_quality == "moderate":
+        return "air_quality"
+    if data.nina_status == "caution":
+        return "air_warning"
+    if data.weather_caution:
+        return "weather"
+    return None
 
 
 def evaluate_room(data: RoomInput) -> VentilationResult:
@@ -114,145 +245,248 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     target = data.target_temp
     ahi = absolute_humidity(ti, hi)
     aha = absolute_humidity(ta, data.outdoor_humidity)
-    diff = ahi - aha
+    diff = ahi - aha  # positive = outdoor air is drier
     co2 = data.co2
     hours = data.hours_since_airing or 0.0
     previous_mode = data.previous_mode or ""
 
-    # Small hysteresis bands keep recommendations from bouncing when a sensor
-    # sits directly on a threshold. Critical CO₂ remains immediate.
     co2_critical = co2 is not None and co2 > 2000
     co2_high = co2 is not None and co2 >= 1400
     co2_elevated = co2 is not None and (
         co2 >= 1000
-        or (previous_mode in {"co2_lueften", "co2_warten"} and co2 >= 950)
-    )
-    moisture_urgent = hi >= 65 and diff >= 0.3
-    moisture_good = (
-        hi >= 60 and diff >= 1.0
-    ) or (
-        previous_mode == "feuchte_lueften" and hi >= 58 and diff >= 0.5
-    )
-    too_hot = ti >= target + 1
-    too_cold = ti <= target - 1
-    cooling_good = (
-        too_hot and ta <= ti - 1 and diff >= -0.5
-    ) or (
-        previous_mode == "kuehlen"
-        and ti >= target + 0.5
-        and ta <= ti - 0.7
-        and diff >= -0.5
-    )
-    warming_good = (
-        too_cold and ta >= ti + 1 and ta <= target + 4 and diff >= -0.5
-    ) or (
-        previous_mode == "erwaermen"
-        and ti <= target - 0.5
-        and ta >= ti + 0.7
-        and ta <= target + 4
-        and diff >= -0.5
+        or (previous_mode in {"co2_lueften", "co2_abwaegung", "co2_warten", "weiter_lueften"} and co2 >= 950)
     )
 
     surface_rh = surface_relative_humidity(ti, hi, data.surface_temp)
     mold_risk = surface_rh is not None and (
         surface_rh >= 80.0
         or (
-            previous_mode in {"schimmel_lueften", "schimmel_warten", "weiter_lueften"}
+            previous_mode in {
+                "schimmel_lueften",
+                "schimmel_langzeit_lueften",
+                "schimmel_warten",
+                "schimmel_neutral",
+                "weiter_lueften",
+            }
             and surface_rh >= 78.0
         )
     )
-    mold_can_improve = mold_risk and diff >= 0.5
-    outside_too_hot_bad = (
-        too_hot and ta >= ti + 1
-    ) or (
-        previous_mode == "aussen_zu_warm"
-        and ti >= target + 0.5
-        and ta >= ti + 0.5
-    )
-    outside_too_cold_bad = (
-        too_cold and ta <= ti - 1
-    ) or (
-        previous_mode == "aussen_zu_kalt"
-        and ti <= target - 0.5
-        and ta <= ti - 0.5
-    )
-    outside_much_wetter = diff <= -1.0 or (
-        previous_mode == "aussen_deutlich_feuchter" and diff <= -0.5
-    )
-    inside_too_dry = (hi < 40 and diff >= 0.5) or (
-        previous_mode == "innen_zu_trocken" and hi < 42 and diff >= 0.3
-    )
-    climate_ok = ta <= ti + 3 and diff >= -1.0
-    routine = hours >= 24 and (co2 is None or co2 < 1000) and climate_ok
+    mold_persistent = bool(data.mold_persistent and mold_risk)
 
-    continue_co2 = data.window_open and co2 is not None and (
-        co2 >= 1000 or (previous_mode == "weiter_lueften" and co2 >= 950)
+    need, urgency = _primary_need(
+        co2=co2,
+        hi=hi,
+        ti=ti,
+        ta=ta,
+        target=target,
+        diff=diff,
+        mold_risk=mold_risk,
+        mold_persistent=mold_persistent,
+        hours=hours,
+        previous_mode=previous_mode,
     )
-    continue_moisture = data.window_open and (
-        (hi >= 60 and diff >= 0.5)
-        or (previous_mode == "weiter_lueften" and hi >= 58 and diff >= 0.5)
-        or mold_can_improve
-    )
-    continue_cooling = data.window_open and ti > target + 0.5 and ta <= ti - 0.7 and diff >= -0.5
-    continue_warming = data.window_open and ti < target - 0.5 and ta >= ti + 0.7 and ta <= target + 4 and diff >= -0.5
-    continue_airing = continue_co2 or continue_moisture or continue_cooling or continue_warming
 
+    # True external hazards beat ordinary ventilation goals. Poor UBA-LQI air
+    # also remains closed: typical indoor CO₂ levels are a ventilation-quality
+    # indicator, not a reason to deliberately import substantially polluted air.
+    hard_mode: str | None = None
     if data.nina_status == "danger":
-        mode = "nina_aussenluftgefahr"
+        hard_mode = "nina_aussenluftgefahr"
     elif data.weather_danger:
-        mode = "wettergefahr"
-    elif data.nina_status == "caution":
-        mode = "nina_vorsicht"
-    elif data.weather_caution:
-        mode = "wetter_vorsicht"
-    elif data.window_open and continue_airing and not data.rain_now:
-        mode = "weiter_lueften"
-    elif data.window_open and not continue_airing:
-        mode = "lueftung_fertig"
-    elif co2_critical and (data.rain_now or data.rain_soon):
-        mode = "co2_kritisch_vorsicht"
-    elif co2_critical:
-        mode = "co2_kritisch"
-    elif co2_high and climate_ok and not data.rain_now:
-        mode = "co2_lueften"
-    elif co2_high:
-        mode = "co2_warten"
-    elif co2_elevated and climate_ok and not data.rain_now and not data.rain_soon:
-        mode = "co2_lueften"
-    elif co2_elevated:
-        mode = "co2_warten"
-    elif mold_can_improve and not data.rain_now and not data.rain_soon:
-        mode = "schimmel_lueften"
-    elif moisture_urgent and not data.rain_now and not data.rain_soon:
-        mode = "feuchte_lueften"
-    elif moisture_good and not data.rain_now and not data.rain_soon:
-        mode = "feuchte_lueften"
-    elif mold_risk:
-        mode = "schimmel_warten"
-    elif cooling_good and not data.rain_now:
-        mode = "kuehlen"
-    elif warming_good and not data.rain_now:
-        mode = "erwaermen"
-    elif routine and not data.rain_now and not data.rain_soon:
-        mode = "routine_lueften"
-    elif hi >= 65 and diff < 0.3:
-        mode = "feuchte_warten"
-    elif outside_too_hot_bad:
-        mode = "aussen_zu_warm"
-    elif outside_too_cold_bad:
-        mode = "aussen_zu_kalt"
-    elif outside_much_wetter:
-        mode = "aussen_deutlich_feuchter"
-    elif inside_too_dry:
-        mode = "innen_zu_trocken"
-    elif data.rain_now:
-        mode = "regen"
-    elif data.rain_soon:
-        mode = "regen_bald"
-    elif hours >= 24:
-        mode = "routine_warten"
+        hard_mode = "wettergefahr"
+    elif data.air_quality == "very_poor":
+        hard_mode = "luftqualitaet_sehr_schlecht"
+    elif data.air_quality == "poor":
+        hard_mode = "luftqualitaet_schlecht"
+
+    mode: str
+    caution_kind = _outdoor_soft_caution(data)
+
+    if hard_mode is not None:
+        mode = hard_mode
+
+    elif need == "co2_critical":
+        # Critical CO₂ may justify accepting modest humidity/temperature costs,
+        # but official/advisory outdoor hazards keep the recommendation cautious.
+        if caution_kind is not None:
+            mode = "co2_kritisch_vorsicht"
+        elif hi >= 65 and diff <= -2.0:
+            mode = "co2_kritisch_vorsicht"
+            caution_kind = "humidity"
+        elif (
+            (ti >= target + 1 and ta >= ti + 5)
+            or (ti <= target - 1 and ta <= ti - 8)
+        ):
+            mode = "co2_kritisch_vorsicht"
+            caution_kind = "temperature"
+        else:
+            mode = "co2_kritisch"
+
+    elif need == "co2_high":
+        if caution_kind is not None:
+            mode = "co2_abwaegung"
+        elif mold_persistent and diff <= -AH_NEUTRAL:
+            mode = "co2_warten"
+        elif hi >= 65 and diff <= -1.5:
+            mode = "co2_warten"
+        elif hi >= 60 and diff < -AH_NEUTRAL:
+            mode = "co2_abwaegung"
+            caution_kind = "humidity"
+        elif (
+            (ti >= target + 1 and ta >= ti + 5)
+            or (ti <= target - 1 and ta <= ti - 8)
+        ):
+            mode = "co2_abwaegung"
+            caution_kind = "temperature"
+        else:
+            mode = "co2_lueften"
+
+    elif need == "co2_elevated":
+        if caution_kind is not None:
+            mode = "co2_abwaegung"
+        elif mold_persistent and diff <= -AH_NEUTRAL:
+            mode = "co2_warten"
+        elif hi >= 60 and diff <= -1.0:
+            mode = "co2_warten"
+        elif diff < -AH_NEUTRAL and hi >= 55:
+            mode = "co2_abwaegung"
+            caution_kind = "humidity"
+        elif (
+            (ti >= target + 1 and ta >= ti + 3)
+            or (ti <= target - 1 and ta <= ti - 6)
+        ):
+            mode = "co2_abwaegung"
+            caution_kind = "temperature"
+        else:
+            mode = "co2_lueften"
+
+    elif need in {"mold_persistent", "mold"}:
+        if diff > AH_NEUTRAL:
+            mode = (
+                "schimmel_langzeit_lueften"
+                if need == "mold_persistent"
+                else "schimmel_lueften"
+            )
+            if caution_kind is not None:
+                mode = "komfort_abwaegung"
+        elif diff < -AH_NEUTRAL:
+            mode = "schimmel_warten"
+        else:
+            mode = "schimmel_neutral"
+
+    elif need in {"humidity_urgent", "humidity"}:
+        humidity_continuation = (
+            previous_mode in {"feuchte_lueften", "weiter_lueften"}
+            and hi >= 58
+            and diff >= AH_CONTINUE
+        )
+        if diff > AH_NEUTRAL or humidity_continuation:
+            mode = "feuchte_lueften"
+            if caution_kind is not None:
+                mode = "komfort_abwaegung"
+        elif diff < -AH_NEUTRAL:
+            mode = "feuchte_warten"
+        else:
+            mode = "feuchte_neutral"
+
+    elif need in {"heat", "humid_heat", "temperature"}:
+        temperature_help = _temperature_moves_toward_target(ti, ta, target) or (
+            need == "heat" and ta <= ti - 1
+        )
+        if not temperature_help:
+            mode = "normal"
+        elif caution_kind is not None:
+            # Comfort-only gains do not justify knowingly importing moderate
+            # air pollution or opening into an active warning situation.
+            mode = (
+                "luftqualitaet_maessig"
+                if caution_kind == "air_quality"
+                else ("nina_vorsicht" if caution_kind == "air_warning" else "wetter_vorsicht")
+            )
+        elif diff < -1.0 and hi >= 55:
+            mode = "komfort_abwaegung"
+            caution_kind = "humidity"
+        elif ta < ti:
+            mode = "kuehlen"
+        else:
+            mode = "erwaermen"
+
+    elif need == "routine":
+        routine_bad = (
+            caution_kind is not None
+            or diff < -AH_NEUTRAL
+            or hi < 40 and diff > AH_NEUTRAL
+            or _temperature_moves_away(ti, ta, target)
+        )
+        mode = "routine_warten" if routine_bad else "routine_lueften"
+
     else:
-        mode = "normal"
+        # No ventilation need: only show yellow when opening would be essentially
+        # neutral. Any meaningful downside makes red exactly as the UI defines it.
+        if data.air_quality == "moderate":
+            mode = "luftqualitaet_maessig"
+        elif data.nina_status == "caution":
+            mode = "nina_vorsicht"
+        elif data.weather_caution:
+            mode = "wetter_vorsicht"
+        elif (hi < 40 and diff > AH_NEUTRAL) or (
+            previous_mode == "innen_zu_trocken"
+            and hi < 42
+            and diff >= AH_CONTINUE
+        ):
+            mode = "innen_zu_trocken"
+        elif diff < -AH_NEUTRAL:
+            mode = "aussen_deutlich_feuchter"
+        elif _temperature_moves_away(ti, ta, target):
+            mode = "aussen_zu_warm" if ta > ti else "aussen_zu_kalt"
+        else:
+            mode = "normal"
+
+    # Rain is a practical window-opening disadvantage, never a proxy for
+    # moisture physics. Only near-term rain that can overlap the actual airing
+    # is relevant. Strong reasons can still justify a short exchange.
+    rain_relevant = _rain_relevant(data, mode, ta)
+    if hard_mode is None and rain_relevant:
+        if mode == "co2_kritisch":
+            # Light/current rain does not erase a very strong indoor-air need.
+            # Keep green but use a short, explicit rain reason.
+            mode = "co2_kritisch"
+            caution_kind = "rain"
+        elif mode in {"co2_lueften", "feuchte_lueften", "schimmel_lueften", "schimmel_langzeit_lueften", "kuehlen", "erwaermen", "routine_lueften"}:
+            if urgency >= 2:
+                mode = "co2_abwaegung" if need.startswith("co2") else "komfort_abwaegung"
+                caution_kind = "rain"
+            else:
+                mode = "komfort_abwaegung"
+                caution_kind = "rain"
+        elif mode == "normal":
+            mode = "regen" if data.rain_now else "regen_bald"
+
+    # If a window is already open, keep green goals going, mark a finished
+    # neutral session as done, and preserve red/yellow trade-off modes so the
+    # user sees why closing may now be sensible.
+    if data.window_open:
+        if _color(mode) == "green":
+            continue_co2 = co2 is not None and (
+                co2 >= 1000 or (previous_mode == "weiter_lueften" and co2 >= 950)
+            )
+            continue_moisture = (
+                (hi >= 60 and diff > AH_NEUTRAL)
+                or (
+                    previous_mode == "weiter_lueften"
+                    and hi >= 58
+                    and diff >= AH_CONTINUE
+                )
+                or (mold_risk and diff > AH_NEUTRAL)
+            )
+            continue_cooling = ti > target + 0.5 and ta <= ti - 0.7
+            continue_warming = ti < target - 0.5 and ta >= ti + 0.7 and ta <= target + 4
+            if continue_co2 or continue_moisture or continue_cooling or continue_warming:
+                mode = "weiter_lueften"
+            else:
+                mode = "lueftung_fertig"
+        elif mode == "normal":
+            mode = "lueftung_fertig"
 
     color = _color(mode)
     recommendation_key = _recommendation_key(color, mode, data.window_open)
@@ -274,13 +508,28 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key = data.weather_reason_key or "weather_caution"
         reason_args = dict(data.weather_reason_args)
         original_reason = data.weather_original_reason
+    elif mode in {"luftqualitaet_maessig", "luftqualitaet_schlecht", "luftqualitaet_sehr_schlecht"}:
+        reason_key = {
+            "luftqualitaet_maessig": "air_quality_moderate",
+            "luftqualitaet_schlecht": "air_quality_poor",
+            "luftqualitaet_sehr_schlecht": "air_quality_very_poor",
+        }[mode]
+        reason_args = {
+            "pollutant": data.air_quality_pollutant,
+            "value": data.air_quality_value,
+            "co2": co2,
+        }
     elif mode == "weiter_lueften":
         reason_key = "continue_airing"
         reason_args = {
-            "continue_co2": continue_co2,
-            "continue_moisture": continue_moisture,
-            "continue_cooling": continue_cooling,
-            "continue_warming": continue_warming,
+            "continue_co2": co2 is not None and co2 >= 950,
+            "continue_moisture": (
+                (hi >= 60 and diff > AH_NEUTRAL)
+                or (previous_mode == "weiter_lueften" and hi >= 58 and diff >= AH_CONTINUE)
+                or (mold_risk and diff > AH_NEUTRAL)
+            ),
+            "continue_cooling": ti > target + 0.5 and ta <= ti - 0.7,
+            "continue_warming": ti < target - 0.5 and ta >= ti + 0.7,
             "co2": co2,
             "diff": diff,
             "ti": ti,
@@ -288,24 +537,73 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         }
     elif mode == "lueftung_fertig":
         reason_key, reason_args = "airing_finished", {}
-    elif mode == "co2_kritisch_vorsicht":
-        reason_key, reason_args = "co2_critical_rain", {"co2": co2}
     elif mode == "co2_kritisch":
-        reason_key, reason_args = "co2_critical", {"co2": co2}
+        if caution_kind == "rain":
+            reason_key, reason_args = "co2_critical_rain", {"co2": co2}
+        else:
+            reason_key, reason_args = "co2_critical", {"co2": co2}
+    elif mode in {"co2_kritisch_vorsicht", "co2_abwaegung"}:
+        reason_key = "co2_tradeoff"
+        reason_args = {
+            "co2": co2,
+            "caution": caution_kind or "conditions",
+            "diff": diff,
+            "ti": ti,
+            "ta": ta,
+            "air_quality": data.air_quality,
+        }
     elif mode == "co2_lueften":
         reason_key, reason_args = "co2_ventilate", {"co2": co2}
     elif mode == "co2_warten":
-        reason_key, reason_args = "co2_wait", {"co2": co2}
+        reason_key, reason_args = "co2_wait", {"co2": co2, "diff": diff}
+    elif mode == "schimmel_langzeit_lueften":
+        reason_key = "surface_moisture_persistent_ventilate"
+        reason_args = {
+            "surface_humidity": surface_rh,
+            "current_minutes": data.mold_current_critical_minutes,
+            "minutes_24h": data.mold_critical_minutes_24h,
+            "diff": diff,
+        }
     elif mode == "schimmel_lueften":
-        reason_key, reason_args = "mold_prevention", {"surface_humidity": surface_rh, "diff": diff}
+        # Short-term surface protection stays intentionally low-key; this is not
+        # worded as a mould diagnosis.
+        reason_key = "surface_moisture_ventilate"
+        reason_args = {"surface_humidity": surface_rh, "diff": diff}
     elif mode == "schimmel_warten":
-        reason_key, reason_args = "mold_wait", {"surface_humidity": surface_rh}
+        reason_key = "surface_moisture_wait"
+        reason_args = {
+            "surface_humidity": surface_rh,
+            "persistent": mold_persistent,
+            "current_minutes": data.mold_current_critical_minutes,
+        }
+    elif mode == "schimmel_neutral":
+        reason_key = "surface_moisture_neutral"
+        reason_args = {"surface_humidity": surface_rh}
     elif mode == "feuchte_lueften":
         reason_key, reason_args = "humidity_ventilate", {"humidity": hi, "diff": diff}
     elif mode == "feuchte_warten":
-        reason_key, reason_args = "humidity_wait", {}
+        reason_key, reason_args = "humidity_wait", {"humidity": hi, "diff": diff}
+    elif mode == "feuchte_neutral":
+        reason_key, reason_args = "humidity_neutral", {"humidity": hi, "diff": diff}
+    elif mode == "komfort_abwaegung":
+        reason_key = "comfort_tradeoff"
+        reason_args = {
+            "need": need,
+            "caution": caution_kind or "conditions",
+            "humidity": hi,
+            "diff": diff,
+            "ti": ti,
+            "ta": ta,
+            "target": target,
+            "surface_humidity": surface_rh,
+        }
     elif mode == "kuehlen":
-        reason_key, reason_args = "cooling", {"ti": ti, "target": target, "ta": ta}
+        reason_key, reason_args = "cooling", {
+            "ti": ti,
+            "target": target,
+            "ta": ta,
+            "health_heat": ti >= 30,
+        }
     elif mode == "erwaermen":
         reason_key, reason_args = "warming", {"ti": ti, "target": target, "ta": ta}
     elif mode == "routine_lueften":
@@ -313,19 +611,19 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "routine_warten":
         reason_key, reason_args = "routine_wait", {"hours": hours}
     elif mode == "aussen_zu_warm":
-        reason_key, reason_args = "outside_too_hot", {"ti": ti, "ta": ta}
+        reason_key, reason_args = "outside_too_hot", {"ti": ti, "ta": ta, "target": target}
     elif mode == "aussen_zu_kalt":
-        reason_key, reason_args = "outside_too_cold", {"ti": ti, "ta": ta}
+        reason_key, reason_args = "outside_too_cold", {"ti": ti, "ta": ta, "target": target}
     elif mode == "aussen_deutlich_feuchter":
         reason_key, reason_args = "outside_more_humid", {"amount": abs(diff)}
     elif mode == "innen_zu_trocken":
-        reason_key, reason_args = "inside_too_dry", {}
+        reason_key, reason_args = "inside_too_dry", {"humidity": hi, "diff": diff}
     elif mode == "regen":
         reason_key = data.weather_reason_key or "rain_now"
         reason_args = dict(data.weather_reason_args)
         original_reason = data.weather_original_reason
     elif mode == "regen_bald":
-        reason_key, reason_args = "rain_soon", {}
+        reason_key, reason_args = "rain_soon", {"minutes": data.rain_minutes_until}
     else:
         reason_key, reason_args = "normal", {}
 
@@ -344,4 +642,18 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         co2_status=co2_status(co2),
         surface_relative_humidity=(round(surface_rh, 1) if surface_rh is not None else None),
         mold_risk=mold_risk,
+        mold_persistent=mold_persistent,
+        mold_current_critical_minutes=(
+            round(data.mold_current_critical_minutes, 1)
+            if data.mold_current_critical_minutes is not None
+            else None
+        ),
+        mold_critical_minutes_24h=(
+            round(data.mold_critical_minutes_24h, 1)
+            if data.mold_critical_minutes_24h is not None
+            else None
+        ),
+        air_quality=data.air_quality,
+        air_quality_pollutant=data.air_quality_pollutant,
+        air_quality_value=data.air_quality_value,
     )
