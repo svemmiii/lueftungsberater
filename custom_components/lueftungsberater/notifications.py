@@ -89,7 +89,7 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
         "tr": {
             NOTIFY_TRIGGER_AIRING_RECOMMENDED: f"{room} odasını havalandırmak yeniden uygun.",
             NOTIFY_TRIGGER_AIRING_FINISHED: f"{room} odasını havalandırmayı şimdi bitirip pencereleri yeniden kapatabilirsin.",
-            NOTIFY_TRIGGER_AIR_DANGER: f"{room} odasında bir pencere veya kapı hâlâ açıkken dış hava ciddi şekilde kirli ya da önemli bir uyarı aktif. Lütfen koruyucu bir uyarı varsa hemen kapat; hava kirliliği yüksekse güncel öneriyi kontrol et.",
+            NOTIFY_TRIGGER_AIR_DANGER: f"{room} odasında bir pencere veya kapı hâlâ açıkken dış hava ciddi şekilde kirli ya da önemli bir uyarı aktif. Lütfen kapat; koruyucu bir uyarı varsa bunu hemen yap, hava kirliliği yüksekse güncel öneriyi kontrol et.",
             NOTIFY_TRIGGER_AIR_CAUTION: f"{room} odasında bir pencere veya kapı hâlâ açıkken dış hava uyarısı aktif. Kapatmanın gerekip gerekmediğini kontrol et.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"{room} odasında bir pencere veya kapı hâlâ açıkken ciddi hava koşulları aktif. Lütfen kontrol edip gerekirse kapat.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"{room} odasında bir pencere veya kapı hâlâ açıkken hava durumu uyarısı aktif. Lütfen durumu takip et.",
