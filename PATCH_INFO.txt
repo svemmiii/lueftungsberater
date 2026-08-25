@@ -1,26 +1,68 @@
-Lüftungsberater Patch v0.6.5 -> v0.6.6
-======================================
+Lüftungsberater v0.6.24 - GitHub Actions / Repository-Struktur Fix
+==================================================================
 
-Dieses Paket enthält nur die Dateien, die sich zwischen v0.6.5 und v0.6.6 geändert haben.
+Ursache
+-------
+Beim bisherigen GitHub-Webupload sind mehrere Dateien, die eigentlich unter
+custom_components/lueftungsberater/ bzw. tests/ liegen, zusätzlich im
+Repository-Hauptordner gelandet.
 
-Geänderte / neue Dateien:
-- CHANGELOG.md
+Das verursacht zwei Probleme:
+1. Hassfest findet das zusätzliche manifest.json im Root und meldet:
+   [MANIFEST] Domain does not match dir name
+2. Pytest findet Testdateien mit identischen Namen sowohl im Root als auch
+   unter tests/. Das kann die Test-Collection mit Exit-Code 2 abbrechen.
+
+Dieser Patch
+------------
+- lässt Hassfest das versehentlich im Root liegende manifest.json im
+  Actions-Arbeitsverzeichnis entfernen;
+- begrenzt Pytest ausdrücklich auf den korrekten tests/-Ordner;
+- setzt testpaths = tests zusätzlich in pytest.ini;
+- ändert KEINE Lüftungslogik und KEINE Dateien unter
+  custom_components/lueftungsberater/.
+
+Empfohlene einmalige Repo-Bereinigung
+-------------------------------------
+Die folgenden versehentlich im Repository-Root liegenden Duplikate sollten
+bei Gelegenheit auf GitHub gelöscht werden. Die echten Dateien bleiben in
+custom_components/lueftungsberater/ bzw. tests/ erhalten:
+
+__init__.py
+air_quality.py
+airing.py
+config_flow.py
+const.py
+coordinator.py
+de.json
+en.json
+entity.py
+lueftungsberater-card.js
+manifest.json
+mold.py
+night.py
+outside.py
+providers.py
+remote_devices.py
+runtime.py
+sensor.py
+test_airing.py
+test_config_flow.py
+test_providers.py
+test_runtime.py
+tr.json
+
+NICHT löschen:
+- hacs.json
+- pytest.ini
 - README.md
-- custom_components/lueftungsberater/__init__.py
-- custom_components/lueftungsberater/entity.py
-- custom_components/lueftungsberater/manifest.json
-- custom_components/lueftungsberater/providers.py
-- custom_components/lueftungsberater/sensor.py
-- tests/test_providers.py (neu)
+- CHANGELOG.md
+- LICENSE
+- .github/
+- custom_components/
+- tests/
+- reference/
 
-Für GitHub:
-Die enthaltenen Dateien in derselben Ordnerstruktur in dein Repository hochladen bzw. vorhandene Dateien ersetzen.
-
-Inhalt des Patches:
-- Fallback für Außentemperatur auf weather.* bei unavailable/unknown lokalem Sensor
-- Fallback für Außenluftfeuchte unabhängig davon
-- automatische Rückkehr zum lokalen Sensor
-- Quellenattribute für Temperatur und Feuchte
-- Versionsanhebung auf v0.6.6
-- README / CHANGELOG aktualisiert
-- Provider-Tests ergänzt
+Nach der Bereinigung bleiben die Änderungen an validate.yml und pytest.ini
+sinnvoll und verhindern, dass versehentlich im Root abgelegte Testdateien
+künftig wieder gesammelt werden.
