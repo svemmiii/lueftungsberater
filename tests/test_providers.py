@@ -486,6 +486,7 @@ async def test_nina_get_details_is_cached_by_warning_id(hass, enable_custom_inte
     """Full NINA actions are fetched once and reused until the warning id changes."""
     from unittest.mock import AsyncMock, patch
 
+    from homeassistant.core import SupportsResponse
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
     from custom_components.lueftungsberater.const import CONF_WARNING_SOURCE
@@ -509,19 +510,24 @@ async def test_nina_get_details_is_cached_by_warning_id(hass, enable_custom_inte
             "id": "warning-123",
         }
     }
-    call = AsyncMock(return_value=response)
+    service_handler = AsyncMock(return_value=response)
+    hass.services.async_register(
+        "nina",
+        "get_details",
+        service_handler,
+        supports_response=SupportsResponse.ONLY,
+    )
 
-    with (
-        patch(
+    try:
+        with patch(
             "custom_components.lueftungsberater.providers._config_entry_entities",
             return_value=[warning],
-        ),
-        patch.object(hass.services, "has_service", return_value=True),
-        patch.object(hass.services, "async_call", call),
-    ):
-        await async_refresh_nina_details(hass, advisor)
-        await async_refresh_nina_details(hass, advisor)
-        result = _evaluate_nina_like_entities(hass, advisor, [warning])
+        ):
+            await async_refresh_nina_details(hass, advisor)
+            await async_refresh_nina_details(hass, advisor)
+            result = _evaluate_nina_like_entities(hass, advisor, [warning])
+    finally:
+        hass.services.async_remove("nina", "get_details")
 
-    assert call.await_count == 1
+    assert service_handler.await_count == 1
     assert result.nina_status == "danger"

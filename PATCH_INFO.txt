@@ -1,68 +1,13 @@
-Lüftungsberater v0.6.24 - GitHub Actions / Repository-Struktur Fix
-==================================================================
+Lüftungsberater v0.6.24 – Patch für aktuellen NINA-Pytest
 
-Ursache
--------
-Beim bisherigen GitHub-Webupload sind mehrere Dateien, die eigentlich unter
-custom_components/lueftungsberater/ bzw. tests/ liegen, zusätzlich im
-Repository-Hauptordner gelandet.
+Fehler:
+AttributeError: 'ServiceRegistry' object attribute 'has_service' is read-only
 
-Das verursacht zwei Probleme:
-1. Hassfest findet das zusätzliche manifest.json im Root und meldet:
-   [MANIFEST] Domain does not match dir name
-2. Pytest findet Testdateien mit identischen Namen sowohl im Root als auch
-   unter tests/. Das kann die Test-Collection mit Exit-Code 2 abbrechen.
+Geändert:
+tests/test_providers.py
 
-Dieser Patch
-------------
-- lässt Hassfest das versehentlich im Root liegende manifest.json im
-  Actions-Arbeitsverzeichnis entfernen;
-- begrenzt Pytest ausdrücklich auf den korrekten tests/-Ordner;
-- setzt testpaths = tests zusätzlich in pytest.ini;
-- ändert KEINE Lüftungslogik und KEINE Dateien unter
-  custom_components/lueftungsberater/.
+Der Test test_nina_get_details_is_cached_by_warning_id registriert jetzt einen
+echten temporären nina.get_details-Service mit SupportsResponse.ONLY, statt
+has_service/async_call direkt am ServiceRegistry-Objekt zu monkeypatchen.
 
-Empfohlene einmalige Repo-Bereinigung
--------------------------------------
-Die folgenden versehentlich im Repository-Root liegenden Duplikate sollten
-bei Gelegenheit auf GitHub gelöscht werden. Die echten Dateien bleiben in
-custom_components/lueftungsberater/ bzw. tests/ erhalten:
-
-__init__.py
-air_quality.py
-airing.py
-config_flow.py
-const.py
-coordinator.py
-de.json
-en.json
-entity.py
-lueftungsberater-card.js
-manifest.json
-mold.py
-night.py
-outside.py
-providers.py
-remote_devices.py
-runtime.py
-sensor.py
-test_airing.py
-test_config_flow.py
-test_providers.py
-test_runtime.py
-tr.json
-
-NICHT löschen:
-- hacs.json
-- pytest.ini
-- README.md
-- CHANGELOG.md
-- LICENSE
-- .github/
-- custom_components/
-- tests/
-- reference/
-
-Nach der Bereinigung bleiben die Änderungen an validate.yml und pytest.ini
-sinnvoll und verhindern, dass versehentlich im Root abgelegte Testdateien
-künftig wieder gesammelt werden.
+Produktionslogik: unverändert.
