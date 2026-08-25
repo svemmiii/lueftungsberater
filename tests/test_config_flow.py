@@ -107,9 +107,21 @@ async def test_remote_success_progress_reaches_confirmation(hass, enable_custom_
         ],
     }
 
-    with patch(
-        "custom_components.lueftungsberater.config_flow._test_remote",
-        AsyncMock(return_value=(None, payload)),
+    setup_entry = AsyncMock(return_value=True)
+
+    # This test verifies only the config-flow progression. Once CREATE_ENTRY is
+    # reached, Home Assistant automatically schedules setup of the new config
+    # entry. A real remote entry would start its coordinator and perform an HTTP
+    # request, which must not happen in a unit test.
+    with (
+        patch(
+            "custom_components.lueftungsberater.config_flow._test_remote",
+            AsyncMock(return_value=(None, payload)),
+        ),
+        patch(
+            "custom_components.lueftungsberater.async_setup_entry",
+            setup_entry,
+        ),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": SOURCE_USER}
@@ -141,22 +153,27 @@ async def test_remote_success_progress_reaches_confirmation(hass, enable_custom_
         if result["type"] is FlowResultType.SHOW_PROGRESS_DONE:
             result = await hass.config_entries.flow.async_configure(result["flow_id"])
 
-    # Depending on the Home Assistant flow-manager version/timing, a
-    # confirm-only empty form may either be exposed to the caller or be
-    # consumed immediately after SHOW_PROGRESS_DONE. Both are valid. If the
-    # confirmation form is returned, verify its summary and confirm it.
-    if result["type"] is FlowResultType.FORM:
-        assert result["step_id"] == "remote_confirm"
-        assert result["description_placeholders"]["remote_name"] == "Raspberry Wohnmobil"
-        assert result["description_placeholders"]["rooms"] == "1"
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={}
-        )
+        # Depending on the Home Assistant flow-manager version/timing, a
+        # confirm-only empty form may either be exposed to the caller or be
+        # consumed immediately after SHOW_PROGRESS_DONE. Both are valid.
+        if result["type"] is FlowResultType.FORM:
+            assert result["step_id"] == "remote_confirm"
+            assert result["description_placeholders"]["remote_name"] == "Raspberry Wohnmobil"
+            assert result["description_placeholders"]["rooms"] == "1"
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], user_input={}
+            )
 
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Wohnmobil"
-    assert result["data"][CONF_REMOTE_HOST] == "100.86.162.62"
-    assert result["data"][CONF_REMOTE_PORT] == 8123
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert result["title"] == "Wohnmobil"
+        assert result["data"][CONF_REMOTE_HOST] == "100.86.162.62"
+        assert result["data"][CONF_REMOTE_PORT] == 8123
+
+        # CREATE_ENTRY schedules config-entry setup. Keep the setup mock active
+        # until those tasks have finished so the test never opens a real socket.
+        await hass.async_block_till_done()
+
+    setup_entry.assert_awaited_once()
 
 
 def test_remote_summary_keeps_v0610_protocol_shape() -> None:
@@ -252,7 +269,6 @@ def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
     """The room form must remain usable with strict sensor-class selectors."""
     from custom_components.lueftungsberater.config_flow import (
         SECTION_ROOM_CLIMATE,
-        SECTION_ROOM_NIGHT,
         _flatten_room_input,
         _room_schema,
     )
@@ -269,7 +285,6 @@ def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
                 CONF_INDOOR_TEMP: "sensor.kueche_temperatur",
                 CONF_INDOOR_HUMIDITY: "sensor.kueche_luftfeuchtigkeit",
             },
-            SECTION_ROOM_NIGHT: {},
         }
     )
     flattened = _flatten_room_input(validated)

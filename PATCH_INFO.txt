@@ -1,13 +1,21 @@
-Lüftungsberater v0.6.24 – Patch für aktuellen NINA-Pytest
+Lüftungsberater v0.6.24 – Remote Config-Flow Socket Test Fix
 
-Fehler:
-AttributeError: 'ServiceRegistry' object attribute 'has_service' is read-only
+GitHub result before this patch:
+- 118 tests passed
+- 1 teardown error
+- test_remote_success_progress_reaches_confirmation
+- AssertionError: the test opens sockets
 
-Geändert:
-tests/test_providers.py
+Cause:
+The config flow successfully creates the remote ConfigEntry. Home Assistant then
+automatically schedules async_setup_entry for that new entry. The real remote
+setup starts its coordinator, which tries to fetch the configured Tailscale host.
+pytest-homeassistant-custom-component correctly blocks that real socket attempt.
 
-Der Test test_nina_get_details_is_cached_by_warning_id registriert jetzt einen
-echten temporären nina.get_details-Service mit SupportsResponse.ONLY, statt
-has_service/async_call direkt am ServiceRegistry-Objekt zu monkeypatchen.
+Fix:
+tests/test_config_flow.py now patches
+custom_components.lueftungsberater.async_setup_entry with AsyncMock(True)
+for the COMPLETE config-flow test, including the optional confirmation step.
+It also awaits hass.async_block_till_done() before leaving the patch context.
 
-Produktionslogik: unverändert.
+Production integration code is unchanged.
