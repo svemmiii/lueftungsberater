@@ -27,17 +27,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # Older uploads accidentally copied the integration manifest into the
-      # repository root. Hassfest treats every manifest.json as an integration
-      # manifest and therefore reports "Domain does not match dir name" there.
-      # Keep this guard until the accidental root copy has been deleted from git.
-      - name: Ignore accidental root integration manifest
+      - name: Clean accidental root integration copies
         shell: bash
         run: |
-          if [ -f manifest.json ]; then
-            echo "::warning title=Repository layout::Removing accidental root manifest.json from the CI checkout. Delete the root copy from the repository permanently."
-            rm -f manifest.json
-          fi
+          # The actual Home Assistant integration belongs only in:
+          # custom_components/lueftungsberater/
+          #
+          # Older web uploads accidentally copied integration files into the
+          # repository root. Hassfest interprets a root manifest.json as another
+          # integration and fails with "Domain does not match dir name".
+          rm -f             manifest.json             __init__.py             api.py             airing.py             air_quality.py             binary_sensor.py             co2.py             config_flow.py             const.py             coordinator.py             engine.py             entity.py             localization.py             models.py             mold.py             night.py             notifications.py             outside.py             providers.py             remote.py             remote_devices.py             runtime.py             sensor.py
 
       - name: Hassfest validation
         uses: home-assistant/actions/hassfest@master
@@ -51,6 +50,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Clean accidental root integration copies
+        shell: bash
+        run: |
+          # A root __init__.py makes pytest treat the complete repository as
+          # the Python package "lueftungsberater". That package is incomplete
+          # and caused all 118 tests to fail during setup.
+          rm -f             manifest.json             __init__.py             api.py             airing.py             air_quality.py             binary_sensor.py             co2.py             config_flow.py             const.py             coordinator.py             engine.py             entity.py             localization.py             models.py             mold.py             night.py             notifications.py             outside.py             providers.py             remote.py             remote_devices.py             runtime.py             sensor.py
+
+          # Old uploads also left duplicated test modules in the repository
+          # root. They are not needed; the canonical tests live in tests/.
+          rm -f test_*.py
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -59,8 +70,6 @@ jobs:
       - name: Install Home Assistant test stack
         run: |
           python -m pip install --upgrade pip
-          # This release tracks Home Assistant 2026.6.1, matching the
-          # integration's declared minimum Home Assistant 2026.6.x generation.
           python -m pip install "pytest-homeassistant-custom-component==0.13.337"
 
       - name: Show test versions
