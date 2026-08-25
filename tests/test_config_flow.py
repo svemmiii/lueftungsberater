@@ -252,6 +252,7 @@ def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
     """The room form must remain usable with strict sensor-class selectors."""
     from custom_components.lueftungsberater.config_flow import (
         SECTION_ROOM_CLIMATE,
+        SECTION_ROOM_NIGHT,
         _flatten_room_input,
         _room_schema,
     )
@@ -268,6 +269,7 @@ def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
                 CONF_INDOOR_TEMP: "sensor.kueche_temperatur",
                 CONF_INDOOR_HUMIDITY: "sensor.kueche_luftfeuchtigkeit",
             },
+            SECTION_ROOM_NIGHT: {},
         }
     )
     flattened = _flatten_room_input(validated)

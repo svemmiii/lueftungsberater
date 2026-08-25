@@ -1,29 +1,19 @@
-LUEFTUNGSBERATER v0.6.24 - PYTEST FIX v3
-========================================
+Lüftungsberater v0.6.24 – Pytest Fix v4
 
-Fixes the failing Home Assistant 2026.6.1 test in tests/test_config_flow.py.
+Änderung:
+- tests/test_config_flow.py:
+  test_room_schema_accepts_required_room_inputs_with_filtered_selectors
+  sendet jetzt SECTION_ROOM_NIGHT: {} mit.
 
-Cause:
-ConfigEntry.as_json_fragment is an orjson.Fragment in Home Assistant 2026.6.1,
-not a Python dict. Therefore code such as:
+Warum:
+_room_schema() definiert SECTION_ROOM_NIGHT als vol.Required(...).
+Der bisherige Test ließ diese erforderliche Section vollständig weg und
+scheiterte deshalb bei der Schema-Validierung, bevor die eigentlichen
+Sensor-Assertions erreicht wurden.
 
-    entry.as_json_fragment["supported_subentry_types"]
+Keine Produktionslogik wurde verändert.
 
-raises:
-
-    TypeError: 'orjson.Fragment' object is not subscriptable
-
-The test now checks the public-ish ConfigEntry property used to build that JSON:
-
-    entry.supported_subentry_types
-
-No Lüftungsberater production/runtime logic is changed by this patch.
-
-UPLOAD:
-Open the GitHub repository folder tests/ and replace test_config_flow.py with the
-file from this ZIP's tests/ directory.
-
-REPOSITORY LAYOUT WARNING:
-The CI warning about the repository-root manifest.json is separate from Pytest.
-Delete the accidental manifest.json from the repository ROOT permanently.
-Keep custom_components/lueftungsberater/manifest.json.
+Separat:
+Die GitHub-Warnung wegen /manifest.json verschwindet erst, wenn die
+versehentliche manifest.json im Repository-Root dauerhaft gelöscht wird.
+custom_components/lueftungsberater/manifest.json muss natürlich bleiben.
