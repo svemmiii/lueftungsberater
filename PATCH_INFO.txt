@@ -1,21 +1,45 @@
-Lüftungsberater v0.6.24 – Remote Config-Flow Socket Test Fix
+Lüftungsberater v0.6.24 – vollständiger CI/Test-Audit vor CLEAN_COMPLETE_v3
 
-GitHub result before this patch:
-- 118 tests passed
-- 1 teardown error
-- test_remote_success_progress_reaches_confirmation
-- AssertionError: the test opens sockets
+Aktueller GitHub-Fehler
+=======================
+tests/test_config_flow.py::test_room_schema_accepts_required_room_inputs_with_filtered_selectors
 
-Cause:
-The config flow successfully creates the remote ConfigEntry. Home Assistant then
-automatically schedules async_setup_entry for that new entry. The real remote
-setup starts its coordinator, which tries to fetch the configured Tailscale host.
-pytest-homeassistant-custom-component correctly blocks that real socket attempt.
+voluptuous.error.MultipleInvalid:
+required key not provided @ data['room_night']
 
-Fix:
-tests/test_config_flow.py now patches
-custom_components.lueftungsberater.async_setup_entry with AsyncMock(True)
-for the COMPLETE config-flow test, including the optional confirmation step.
-It also awaits hass.async_block_till_done() before leaving the patch context.
+Ursache
+=======
+custom_components/lueftungsberater/config_flow.py definiert in _room_schema():
 
-Production integration code is unchanged.
+  vol.Required(SECTION_ROOM_CLIMATE)
+  vol.Required(SECTION_ROOM_NIGHT)
+
+Der betroffene Test übergab SECTION_ROOM_CLIMATE, aber SECTION_ROOM_NIGHT nicht.
+Der produktive Config-Flow wurde dafür NICHT geändert; der Test bildet jetzt ein
+gültiges Home-Assistant-Formular ab und sendet SECTION_ROOM_NIGHT: {} mit.
+
+Vollständige Prüfungen vor dem Packen
+=====================================
+- 118 Testfunktionen gefunden.
+- Keine doppelten Testfunktionsnamen.
+- Alle direkten _global_schema()-Aufrufe geprüft:
+  erforderliche SECTION_GENERAL vorhanden.
+- Alle direkten _room_schema()-Aufrufe geprüft:
+  erforderliche SECTION_ROOM_CLIMATE und SECTION_ROOM_NIGHT vorhanden.
+- Kein Zugriff mehr auf ConfigEntry.as_json_fragment als Dictionary.
+- Kein patch.object(...) mehr auf hass.services.has_service/async_call.
+- NINA-Test verwendet echten temporären Response-Service.
+- Remote-Config-Flow-Test mockt async_setup_entry bis nach hass.async_block_till_done().
+- Keine Integration-Dateien im Repository-Root.
+- Keine test_*.py-Duplikate im Repository-Root.
+- manifest.json: domain=lueftungsberater, version=0.6.24.
+- hacs.json: Mindestversion Home Assistant 2026.6.0.
+- GitHub Pytest-Workflow: Python 3.14, pytest nur gegen tests/.
+- Alle Python-Dateien syntaktisch kompiliert.
+- Alle JSON-Dateien geparst.
+- GitHub-YAML geparst.
+
+Produktionslogik
+================
+Für diesen Patch wurde keine Datei unter custom_components/lueftungsberater/
+verändert. Es wird ausschließlich tests/test_config_flow.py korrigiert.
