@@ -29,6 +29,7 @@ from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
+    selector,
 )
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -54,12 +55,14 @@ from .const import (
     CONF_TARGET_TEMP,
     CONF_SURFACE_TEMP,
     CONF_NIGHT_START_HOUR,
+    CONF_NIGHT_START_TIME,
     CONF_WARNING_SOURCE,
     CONF_WEATHER,
     CONF_WINDOWS,
     DEFAULT_REMOTE_PORT,
     DEFAULT_DISPLAY_MODE,
     DEFAULT_NIGHT_START_HOUR,
+    DEFAULT_NIGHT_START_TIME,
     DEFAULT_NOTIFY_TRIGGERS,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
@@ -78,6 +81,18 @@ from .const import (
     entry_kind,
 )
 _LOGGER = logging.getLogger(__name__)
+
+
+# Visual grouping only. Stored ConfigEntry/Subentry data intentionally remains
+# flat (apart from the existing manual_outdoor mapping) so the runtime and old
+# installations do not depend on frontend form layout.
+SECTION_GENERAL = "general"
+SECTION_OUTDOOR = "outdoor"
+SECTION_NOTIFICATIONS = "notifications"
+SECTION_ROOM_CLIMATE = "room_climate"
+SECTION_ROOM_NIGHT = "room_night"
+SECTION_ROOM_SENSORS = "room_sensors"
+SECTION_ROOM_OPENINGS = "room_openings"
 
 
 from .remote import (
@@ -162,71 +177,163 @@ def _warning_source_options(hass: HomeAssistant) -> list[SelectOptionDict]:
 
 
 def _global_schema(hass: HomeAssistant) -> vol.Schema:
-    schema: dict[Any, Any] = {
-        vol.Required(CONF_WEATHER): _entity("weather"),
-        vol.Optional(CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE): SelectSelector(
-            SelectSelectorConfig(
-                options=_warning_source_options(hass),
-                mode=SelectSelectorMode.DROPDOWN,
-                translation_key="warning_source",
-            )
-        ),
-        vol.Optional(CONF_DISPLAY_MODE, default=DEFAULT_DISPLAY_MODE): SelectSelector(
-            SelectSelectorConfig(
-                options=[DISPLAY_MODE_VENTILATION, DISPLAY_MODE_ROOM_AIR],
-                mode=SelectSelectorMode.DROPDOWN,
-                translation_key="display_mode",
-            )
-        ),
-        vol.Optional(CONF_MANUAL_OUTDOOR): section(
-            vol.Schema(
-                {
-                    vol.Optional(CONF_OUTDOOR_TEMP): _entity(
-                        "sensor", device_class=SensorDeviceClass.TEMPERATURE
-                    ),
-                    vol.Optional(CONF_OUTDOOR_HUMIDITY): _entity(
-                        "sensor", device_class=SensorDeviceClass.HUMIDITY
-                    ),
-                    vol.Optional(CONF_OUTDOOR_CO2): _entity(
-                        "sensor", device_class=SensorDeviceClass.CO2
-                    ),
-                }
+    return vol.Schema(
+        {
+            vol.Required(SECTION_GENERAL): section(
+                vol.Schema(
+                    {
+                        vol.Required(CONF_WEATHER): _entity("weather"),
+                        vol.Optional(
+                            CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=_warning_source_options(hass),
+                                mode=SelectSelectorMode.DROPDOWN,
+                                translation_key="warning_source",
+                            )
+                        ),
+                        vol.Optional(
+                            CONF_DISPLAY_MODE, default=DEFAULT_DISPLAY_MODE
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[DISPLAY_MODE_ROOM_AIR, DISPLAY_MODE_VENTILATION],
+                                mode=SelectSelectorMode.DROPDOWN,
+                                translation_key="display_mode",
+                            )
+                        ),
+                    }
+                ),
+                SectionConfig(collapsed=False),
             ),
-            SectionConfig(collapsed=True),
-        ),
-        vol.Optional(CONF_NOTIFY_TARGET): _entity("notify"),
-        vol.Optional(
-            CONF_NOTIFY_TRIGGERS, default=DEFAULT_NOTIFY_TRIGGERS
-        ): SelectSelector(
-            SelectSelectorConfig(
-                options=[
-                    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
-                    NOTIFY_TRIGGER_AIRING_FINISHED,
-                    NOTIFY_TRIGGER_AIR_DANGER,
-                    NOTIFY_TRIGGER_AIR_CAUTION,
-                    NOTIFY_TRIGGER_WEATHER_DANGER,
-                    NOTIFY_TRIGGER_WEATHER_CAUTION,
-                ],
-                multiple=True,
-                mode=SelectSelectorMode.DROPDOWN,
-                translation_key="notify_triggers",
-            )
-        ),
-    }
-
-    return vol.Schema(schema)
+            vol.Optional(SECTION_OUTDOOR): section(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_OUTDOOR_TEMP): _entity(
+                            "sensor", device_class=SensorDeviceClass.TEMPERATURE
+                        ),
+                        vol.Optional(CONF_OUTDOOR_HUMIDITY): _entity(
+                            "sensor", device_class=SensorDeviceClass.HUMIDITY
+                        ),
+                        vol.Optional(CONF_OUTDOOR_CO2): _entity(
+                            "sensor", device_class=SensorDeviceClass.CO2
+                        ),
+                    }
+                ),
+                SectionConfig(collapsed=True),
+            ),
+            vol.Optional(SECTION_NOTIFICATIONS): section(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_NOTIFY_TARGET): _entity("notify"),
+                        vol.Optional(
+                            CONF_NOTIFY_TRIGGERS, default=DEFAULT_NOTIFY_TRIGGERS
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[
+                                    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+                                    NOTIFY_TRIGGER_AIRING_FINISHED,
+                                    NOTIFY_TRIGGER_AIR_DANGER,
+                                    NOTIFY_TRIGGER_AIR_CAUTION,
+                                    NOTIFY_TRIGGER_WEATHER_DANGER,
+                                    NOTIFY_TRIGGER_WEATHER_CAUTION,
+                                ],
+                                multiple=True,
+                                mode=SelectSelectorMode.DROPDOWN,
+                                translation_key="notify_triggers",
+                            )
+                        ),
+                    }
+                ),
+                SectionConfig(collapsed=True),
+            ),
+        }
+    )
 
 
 def _local_schema(hass: HomeAssistant) -> vol.Schema:
-    base = dict(_global_schema(hass).schema)
     return vol.Schema(
         {
             vol.Required(CONF_INSTANCE_NAME, default="Lüftungsberater"): TextSelector(
                 TextSelectorConfig()
             ),
-            **base,
+            **dict(_global_schema(hass).schema),
         }
     )
+
+
+def _normalize_local_input(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Flatten visual sections into the stable ConfigEntry data shape."""
+    if SECTION_GENERAL not in user_input:
+        # Compatibility for programmatic callers/tests that still use the old
+        # flat form shape.
+        return dict(user_input)
+
+    data: dict[str, Any] = {}
+    if CONF_INSTANCE_NAME in user_input:
+        data[CONF_INSTANCE_NAME] = user_input[CONF_INSTANCE_NAME]
+
+    general = user_input.get(SECTION_GENERAL)
+    if isinstance(general, dict):
+        for key in (CONF_WEATHER, CONF_WARNING_SOURCE, CONF_DISPLAY_MODE):
+            if key in general:
+                data[key] = general[key]
+
+    outdoor = user_input.get(SECTION_OUTDOOR)
+    if isinstance(outdoor, dict):
+        manual = {
+            key: value
+            for key, value in outdoor.items()
+            if key in {CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2}
+            and value not in (None, "")
+        }
+        if manual:
+            data[CONF_MANUAL_OUTDOOR] = manual
+
+    notifications = user_input.get(SECTION_NOTIFICATIONS)
+    if isinstance(notifications, dict):
+        for key in (CONF_NOTIFY_TARGET, CONF_NOTIFY_TRIGGERS):
+            if key in notifications and notifications[key] not in (None, ""):
+                data[key] = notifications[key]
+
+    return data
+
+
+def _local_form_defaults(entry: ConfigEntry) -> dict[str, Any]:
+    """Return section-shaped defaults from stable flat entry data."""
+    manual = entry.data.get(CONF_MANUAL_OUTDOOR)
+    if not isinstance(manual, dict):
+        manual = {}
+    # Preserve legacy top-level manual sensor keys when reconfiguring an older
+    # entry, but keep the newly stored shape compact.
+    outdoor = dict(manual)
+    for key in (CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2):
+        if not outdoor.get(key):
+            old = entry.data.get(key)
+            if isinstance(old, str) and old:
+                outdoor[key] = old
+
+    notifications: dict[str, Any] = {}
+    if entry.data.get(CONF_NOTIFY_TARGET):
+        notifications[CONF_NOTIFY_TARGET] = entry.data.get(CONF_NOTIFY_TARGET)
+    notifications[CONF_NOTIFY_TRIGGERS] = entry.data.get(
+        CONF_NOTIFY_TRIGGERS, DEFAULT_NOTIFY_TRIGGERS
+    )
+
+    defaults: dict[str, Any] = {
+        CONF_INSTANCE_NAME: entry.title,
+        SECTION_GENERAL: {
+            CONF_WEATHER: entry.data.get(CONF_WEATHER),
+            CONF_WARNING_SOURCE: entry.data.get(
+                CONF_WARNING_SOURCE, WARNING_SOURCE_NONE
+            ),
+            CONF_DISPLAY_MODE: entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
+        },
+        SECTION_NOTIFICATIONS: notifications,
+    }
+    if outdoor:
+        defaults[SECTION_OUTDOOR] = outdoor
+    return defaults
+
 
 
 def _remote_schema() -> vol.Schema:
@@ -282,56 +389,149 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_ROOM_NAME): TextSelector(TextSelectorConfig()),
-            vol.Required(CONF_INDOOR_TEMP): _entity(
-                "sensor", device_class=SensorDeviceClass.TEMPERATURE
+            vol.Required(SECTION_ROOM_CLIMATE): section(
+                vol.Schema(
+                    {
+                        vol.Required(CONF_INDOOR_TEMP): _entity(
+                            "sensor", device_class=SensorDeviceClass.TEMPERATURE
+                        ),
+                        vol.Required(CONF_INDOOR_HUMIDITY): _entity(
+                            "sensor", device_class=SensorDeviceClass.HUMIDITY
+                        ),
+                        vol.Optional(CONF_CLIMATE): _entity("climate"),
+                        vol.Optional(
+                            CONF_TARGET_TEMP, default=default_value
+                        ): NumberSelector(
+                            NumberSelectorConfig(
+                                min=min_value,
+                                max=max_value,
+                                step=step,
+                                mode=NumberSelectorMode.BOX,
+                                unit_of_measurement=unit,
+                            )
+                        ),
+                    }
+                ),
+                SectionConfig(collapsed=False),
             ),
-            vol.Required(CONF_INDOOR_HUMIDITY): _entity(
-                "sensor", device_class=SensorDeviceClass.HUMIDITY
+            vol.Required(SECTION_ROOM_NIGHT): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_NIGHT_START_TIME, default=DEFAULT_NIGHT_START_TIME
+                        ): selector({"time": {}}),
+                    }
+                ),
+                SectionConfig(collapsed=False),
             ),
-            vol.Optional(CONF_CO2): _entity(
-                "sensor", device_class=SensorDeviceClass.CO2
+            vol.Optional(SECTION_ROOM_SENSORS): section(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_CO2): _entity(
+                            "sensor", device_class=SensorDeviceClass.CO2
+                        ),
+                        vol.Optional(CONF_SURFACE_TEMP): _entity(
+                            "sensor", device_class=SensorDeviceClass.TEMPERATURE
+                        ),
+                    }
+                ),
+                SectionConfig(collapsed=True),
             ),
-            vol.Optional(CONF_WINDOWS): _entity(
-                "binary_sensor",
-                multiple=True,
-                device_class=[
-                    BinarySensorDeviceClass.WINDOW,
-                    BinarySensorDeviceClass.DOOR,
-                    BinarySensorDeviceClass.OPENING,
-                    BinarySensorDeviceClass.GARAGE_DOOR,
-                ],
-            ),
-            vol.Optional(CONF_SURFACE_TEMP): _entity(
-                "sensor", device_class=SensorDeviceClass.TEMPERATURE
-            ),
-            vol.Optional(CONF_CLIMATE): _entity("climate"),
-            vol.Optional(CONF_NIGHT_START_HOUR, default=DEFAULT_NIGHT_START_HOUR): NumberSelector(
-                NumberSelectorConfig(
-                    min=0,
-                    max=23,
-                    step=1,
-                    mode=NumberSelectorMode.BOX,
-                    unit_of_measurement="h",
-                )
-            ),
-            vol.Optional(CONF_TARGET_TEMP, default=default_value): NumberSelector(
-                NumberSelectorConfig(
-                    min=min_value,
-                    max=max_value,
-                    step=step,
-                    mode=NumberSelectorMode.BOX,
-                    unit_of_measurement=unit,
-                )
+            vol.Optional(SECTION_ROOM_OPENINGS): section(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_WINDOWS): _entity(
+                            "binary_sensor",
+                            multiple=True,
+                            device_class=[
+                                BinarySensorDeviceClass.WINDOW,
+                                BinarySensorDeviceClass.DOOR,
+                                BinarySensorDeviceClass.OPENING,
+                                BinarySensorDeviceClass.GARAGE_DOOR,
+                            ],
+                        ),
+                    }
+                ),
+                SectionConfig(collapsed=True),
             ),
         }
     )
 
 
+def _flatten_room_input(user_input: dict[str, Any]) -> dict[str, Any]:
+    if SECTION_ROOM_CLIMATE not in user_input:
+        return dict(user_input)
+    data: dict[str, Any] = {}
+    if CONF_ROOM_NAME in user_input:
+        data[CONF_ROOM_NAME] = user_input[CONF_ROOM_NAME]
+    for section_key in (
+        SECTION_ROOM_CLIMATE,
+        SECTION_ROOM_NIGHT,
+        SECTION_ROOM_SENSORS,
+        SECTION_ROOM_OPENINGS,
+    ):
+        values = user_input.get(section_key)
+        if isinstance(values, dict):
+            data.update(values)
+    return data
+
+
 def _normalize_room_input(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[str, Any]:
-    data = dict(user_input)
+    data = _flatten_room_input(user_input)
     if CONF_TARGET_TEMP in data:
         data[CONF_TARGET_TEMP] = _stored_temperature(hass, data[CONF_TARGET_TEMP])
+    raw_time = data.get(CONF_NIGHT_START_TIME)
+    if raw_time is not None and not isinstance(raw_time, str):
+        if hasattr(raw_time, "strftime"):
+            data[CONF_NIGHT_START_TIME] = raw_time.strftime("%H:%M")
+        else:
+            data[CONF_NIGHT_START_TIME] = str(raw_time)
+    data.pop(CONF_NIGHT_START_HOUR, None)
     return data
+
+
+def _room_form_defaults(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
+    flat = dict(data)
+    if CONF_NIGHT_START_TIME not in flat:
+        try:
+            old_hour = int(flat.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR))
+        except (TypeError, ValueError):
+            old_hour = DEFAULT_NIGHT_START_HOUR
+        flat[CONF_NIGHT_START_TIME] = f"{max(0, min(23, old_hour)):02d}:00"
+    flat.pop(CONF_NIGHT_START_HOUR, None)
+    if CONF_TARGET_TEMP in flat:
+        flat[CONF_TARGET_TEMP] = _display_temperature(hass, float(flat[CONF_TARGET_TEMP]))
+
+    form: dict[str, Any] = {
+        CONF_ROOM_NAME: flat.get(CONF_ROOM_NAME, ""),
+        SECTION_ROOM_CLIMATE: {
+            key: flat[key]
+            for key in (
+                CONF_INDOOR_TEMP,
+                CONF_INDOOR_HUMIDITY,
+                CONF_CLIMATE,
+                CONF_TARGET_TEMP,
+            )
+            if key in flat and flat[key] not in (None, "")
+        },
+        SECTION_ROOM_NIGHT: {
+            CONF_NIGHT_START_TIME: flat.get(
+                CONF_NIGHT_START_TIME, DEFAULT_NIGHT_START_TIME
+            )
+        },
+    }
+    sensors = {
+        key: flat[key]
+        for key in (CONF_CO2, CONF_SURFACE_TEMP)
+        if key in flat and flat[key] not in (None, "")
+    }
+    if sensors:
+        form[SECTION_ROOM_SENSORS] = sensors
+    openings = flat.get(CONF_WINDOWS)
+    if openings:
+        form[SECTION_ROOM_OPENINGS] = {CONF_WINDOWS: openings}
+    return form
+
 
 
 def _remote_data(user_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -408,7 +608,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 4
+    MINOR_VERSION = 5
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
@@ -418,7 +618,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_local(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
-            data = dict(user_input)
+            data = _normalize_local_input(user_input)
             title = str(data.pop(CONF_INSTANCE_NAME)).strip() or "Lüftungsberater"
             data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
             # Local advisors are manually created, repeatable config entries.
@@ -556,46 +756,17 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None,
     ):
         if user_input is not None:
-            data = dict(user_input)
+            data = _normalize_local_input(user_input)
             title = str(data.pop(CONF_INSTANCE_NAME)).strip() or entry.title
             data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
             self.hass.config_entries.async_update_entry(entry, title=title, data=data)
             return self.async_abort(reason="reconfigure_successful")
 
-        manual = entry.data.get(CONF_MANUAL_OUTDOOR)
-        if not isinstance(manual, dict):
-            manual = {}
-        if not manual.get(CONF_OUTDOOR_TEMP):
-            old = entry.data.get(CONF_OUTDOOR_TEMP)
-            if isinstance(old, str) and old:
-                manual[CONF_OUTDOOR_TEMP] = old
-        if not manual.get(CONF_OUTDOOR_HUMIDITY):
-            old = entry.data.get(CONF_OUTDOOR_HUMIDITY)
-            if isinstance(old, str) and old:
-                manual[CONF_OUTDOOR_HUMIDITY] = old
-
-        if not manual.get(CONF_OUTDOOR_CO2):
-            old = entry.data.get(CONF_OUTDOOR_CO2)
-            if isinstance(old, str) and old:
-                manual[CONF_OUTDOOR_CO2] = old
-
-        defaults: dict[str, Any] = {
-            CONF_INSTANCE_NAME: entry.title,
-            CONF_WEATHER: entry.data.get(CONF_WEATHER),
-            CONF_WARNING_SOURCE: entry.data.get(CONF_WARNING_SOURCE, WARNING_SOURCE_NONE),
-            CONF_DISPLAY_MODE: entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
-            CONF_NOTIFY_TARGET: entry.data.get(CONF_NOTIFY_TARGET),
-            CONF_NOTIFY_TRIGGERS: entry.data.get(
-                CONF_NOTIFY_TRIGGERS, DEFAULT_NOTIFY_TRIGGERS
-            ),
-        }
-        if manual:
-            defaults[CONF_MANUAL_OUTDOOR] = manual
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(
                 _local_schema(self.hass),
-                defaults,
+                _local_form_defaults(entry),
             ),
         )
 
@@ -678,7 +849,8 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         if entry_kind(entry) != ENTRY_KIND_LOCAL or entry.data.get(CONF_REMOTE_HOST):
             return self.async_abort(reason="remote_read_only")
         if user_input is not None:
-            name = user_input[CONF_ROOM_NAME].strip()
+            flat_input = _flatten_room_input(user_input)
+            name = str(flat_input[CONF_ROOM_NAME]).strip()
             data = _normalize_room_input(self.hass, user_input)
             return self.async_create_entry(title=name, data=data, unique_id=name.casefold())
         return self.async_show_form(step_id="user", data_schema=_room_schema(self.hass))
@@ -687,14 +859,13 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         entry = self._get_entry()
         subentry = self._get_reconfigure_subentry()
         if user_input is not None:
-            name = user_input[CONF_ROOM_NAME].strip()
+            flat_input = _flatten_room_input(user_input)
+            name = str(flat_input[CONF_ROOM_NAME]).strip()
             data = _normalize_room_input(self.hass, user_input)
             return self.async_update_and_abort(entry, subentry, title=name, data=data)
 
-        defaults = dict(subentry.data)
-        if CONF_TARGET_TEMP in defaults:
-            defaults[CONF_TARGET_TEMP] = _display_temperature(
-                self.hass, float(defaults[CONF_TARGET_TEMP])
-            )
-        schema = self.add_suggested_values_to_schema(_room_schema(self.hass), defaults)
+        schema = self.add_suggested_values_to_schema(
+            _room_schema(self.hass),
+            _room_form_defaults(self.hass, dict(subentry.data)),
+        )
         return self.async_show_form(step_id="reconfigure", data_schema=schema)

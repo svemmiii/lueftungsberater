@@ -6,7 +6,7 @@ to infer a surface temperature when no dedicated sensor is configured.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
@@ -20,7 +20,9 @@ from .const import (
     DOMAIN,
     MOLD_HISTORY_RETENTION,
     MOLD_HISTORY_WINDOW,
-    MOLD_PERSISTENT_24H,
+    MOLD_CURRENT_LONG,
+    MOLD_REPEATED_DAY_MIN,
+    MOLD_REPEATED_DAYS,
     STORAGE_VERSION,
 )
 
@@ -69,6 +71,10 @@ class RoomMoldTracker:
                 if start is not None and end is not None and end >= start:
                     self.intervals.append((start, end))
         self._prune(dt_util.utcnow())
+
+    async def async_shutdown(self) -> None:
+        """Flush the compact exposure context before unload/reload."""
+        await self._store.async_save(self._serialize())
 
     def _serialize(self) -> dict[str, Any]:
         return {
@@ -141,18 +147,41 @@ class RoomMoldTracker:
 
         return max(0.0, seconds / 60.0)
 
+    def _critical_minutes_per_day(self) -> dict[str, float]:
+        """Return compact daily exposure totals for the retained week."""
+        now = dt_util.utcnow()
+        cutoff = now - MOLD_HISTORY_RETENTION
+        totals: dict[str, float] = {}
+        intervals = list(self.intervals)
+        if self.critical_since is not None:
+            intervals.append((self.critical_since, now))
+
+        for start, end in intervals:
+            start = max(start, cutoff)
+            end = min(end, now)
+            while end > start:
+                local_start = dt_util.as_local(start)
+                next_day_local = local_start.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                split = min(end, next_day_local.astimezone(start.tzinfo))
+                key = local_start.date().isoformat()
+                totals[key] = totals.get(key, 0.0) + (split - start).total_seconds() / 60.0
+                start = split
+        return totals
+
     @property
     def persistent(self) -> bool:
-        """Return a conservative product-side persistence indicator.
+        """Return a soft product-side persistence hint, never a diagnosis.
 
-        This is intentionally not exposed as a mould diagnosis or standards
-        threshold. It uses a conservative 50 %-of-24h time-of-wetness-style
-        signal only to escalate an already measured >=80 % surface-RH condition.
+        Instead of one fixed 12-of-24-hour threshold, escalation is based on an
+        actually measured surface remaining critical for many hours or recurring
+        on several days. The numbers are intentionally conservative software
+        heuristics and are not presented as medical/DIN limits.
         """
-        return (
-            self.critical_minutes_24h
-            >= MOLD_PERSISTENT_24H.total_seconds() / 60.0
-        )
+        if self.current_critical_minutes >= MOLD_CURRENT_LONG.total_seconds() / 60.0:
+            return True
+        day_min = MOLD_REPEATED_DAY_MIN.total_seconds() / 60.0
+        active_days = sum(1 for minutes in self._critical_minutes_per_day().values() if minutes >= day_min)
+        return active_days >= MOLD_REPEATED_DAYS
 
 
 def _tracker_key(entry: ConfigEntry, subentry: ConfigSubentry) -> str:
@@ -196,4 +225,6 @@ async def async_stop_entry_mold_trackers(
     store = hass.data.get(DOMAIN, {}).get(DATA_MOLD_TRACKERS, {})
     prefix = f"{entry.entry_id}:"
     for key in [item for item in store if item.startswith(prefix)]:
-        store.pop(key)
+        tracker = store.pop(key, None)
+        if tracker is not None:
+            await tracker.async_shutdown()

@@ -28,12 +28,13 @@ class NightAdvice:
     reason_args: dict[str, Any] = field(default_factory=dict)
 
 
-def _display_interval(now: datetime, start_hour: int) -> tuple[datetime, datetime] | None:
+def _display_interval(now: datetime, start_minute: int) -> tuple[datetime, datetime] | None:
     """Return the configured evening-to-morning interval containing ``now``."""
-    start_hour = max(0, min(23, int(start_hour)))
+    start_minute = max(0, min(1439, int(start_minute)))
+    start_hour, start_min = divmod(start_minute, 60)
     for offset in (-1, 0):
         day = now + timedelta(days=offset)
-        start = day.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+        start = day.replace(hour=start_hour, minute=start_min, second=0, microsecond=0)
         if start_hour < NIGHT_WINDOW_END_HOUR:
             end = day.replace(hour=NIGHT_WINDOW_END_HOUR, minute=0, second=0, microsecond=0)
         else:
@@ -95,7 +96,8 @@ def evaluate_night_ventilation(
     indoor_humidity: float | None,
     target_temp: float | None,
     hourly_forecast: list[dict[str, Any]],
-    start_hour: int = 22,
+    start_minute: int = 22 * 60,
+    start_hour: int | None = None,
     indoor_co2: float | None = None,
     outdoor_co2: float | None = None,
     outdoor_temp: float | None = None,
@@ -118,7 +120,9 @@ def evaluate_night_ventilation(
     first useful period later in the night. If there is no meaningful benefit,
     no extra line is shown at all.
     """
-    interval = _display_interval(now, start_hour)
+    if start_hour is not None:
+        start_minute = max(0, min(23, int(start_hour))) * 60
+    interval = _display_interval(now, start_minute)
     if interval is None:
         return NightAdvice()
     if indoor_temp is None or indoor_humidity is None or target_temp is None:

@@ -26,6 +26,44 @@
           "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
           "display_mode": "Gösterge biçimi",
           "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+        },
+        "data_description": {
+          "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir.",
+          "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
+        },
+        "sections": {
+          "general": {
+            "name": "🎛️ Temel ayarlar",
+            "description": "Hava durumu, uyarılar ve danışmanın nasıl gösterileceği.",
+            "data": {
+              "weather_entity": "Hava durumu hizmeti",
+              "warning_source": "Uyarı hizmeti (isteğe bağlı)",
+              "display_mode": "Gösterge biçimi"
+            },
+            "data_description": {
+              "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir."
+            }
+          },
+          "outdoor": {
+            "name": "🌤️ Kendi dış ortam sensörlerin",
+            "description": "İsteğe bağlı. Bulunduğun yerdeki havayı daha iyi temsil ediyorsa kendi dış ortam ölçümlerini kullan.",
+            "data": {
+              "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
+              "outdoor_humidity": "Dış nemi geçersiz kıl",
+              "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+            },
+            "data_description": {
+              "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
+            }
+          },
+          "notifications": {
+            "name": "🔔 Bildirimler",
+            "description": "Danışmanın hangi hedefe ve hangi durumlarda kısa bir bildirim gönderebileceğini seç.",
+            "data": {
+              "notify_target": "Bildirim hedefi (isteğe bağlı)",
+              "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
+            }
+          }
         }
       },
       "remote": {
@@ -56,6 +94,44 @@
           "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
           "display_mode": "Gösterge biçimi",
           "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+        },
+        "data_description": {
+          "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir.",
+          "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
+        },
+        "sections": {
+          "general": {
+            "name": "🎛️ Temel ayarlar",
+            "description": "Hava durumu, uyarılar ve danışmanın nasıl gösterileceği.",
+            "data": {
+              "weather_entity": "Hava durumu hizmeti",
+              "warning_source": "Uyarı hizmeti (isteğe bağlı)",
+              "display_mode": "Gösterge biçimi"
+            },
+            "data_description": {
+              "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir."
+            }
+          },
+          "outdoor": {
+            "name": "🌤️ Kendi dış ortam sensörlerin",
+            "description": "İsteğe bağlı. Bulunduğun yerdeki havayı daha iyi temsil ediyorsa kendi dış ortam ölçümlerini kullan.",
+            "data": {
+              "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
+              "outdoor_humidity": "Dış nemi geçersiz kıl",
+              "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+            },
+            "data_description": {
+              "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
+            }
+          },
+          "notifications": {
+            "name": "🔔 Bildirimler",
+            "description": "Danışmanın hangi hedefe ve hangi durumlarda kısa bir bildirim gönderebileceğini seç.",
+            "data": {
+              "notify_target": "Bildirim hedefi (isteğe bağlı)",
+              "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
+            }
+          }
         }
       },
       "remote_confirm": {
@@ -102,9 +178,53 @@
             "co2_entity": "CO₂ (isteğe bağlı)",
             "window_entities": "Pencereler / kapılar (isteğe bağlı)",
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
-            "target_temperature": "Yedek hedef sıcaklık",
+            "target_temperature": "🌡️ Yedek hedef sıcaklık",
             "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
-            "night_advice_start_hour": "Gece önerisini şu saatten sonra göster"
+            "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
+          },
+          "data_description": {
+            "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
+            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+          },
+          "sections": {
+            "room_climate": {
+              "name": "🌡️ Oda iklimi",
+              "description": "Zorunlu ölçümler ve kişisel hedef sıcaklığın.",
+              "data": {
+                "indoor_temperature": "İç sıcaklık",
+                "indoor_humidity": "İç nem",
+                "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
+                "target_temperature": "🌡️ Yedek hedef sıcaklık"
+              },
+              "data_description": {
+                "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır."
+              }
+            },
+            "room_night": {
+              "name": "🌙 Gece havalandırması",
+              "description": "Yalnızca gelecek geceye ait önerinin ne zamandan itibaren gösterilebileceğini belirler.",
+              "data": {
+                "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
+              },
+              "data_description": {
+                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+              }
+            },
+            "room_sensors": {
+              "name": "🧪 Ek sensörler",
+              "description": "İsteğe bağlı. CO₂ ve yüzey sıcaklığı danışmana daha fazla bilgi sağlar.",
+              "data": {
+                "co2_entity": "CO₂ (isteğe bağlı)",
+                "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
+              }
+            },
+            "room_openings": {
+              "name": "🪟 Pencereler ve kapılar",
+              "description": "İsteğe bağlı. Danışmanın havalandırma süresini izlemesini ve yeniden başlatmadan sonra sürdürmesini sağlar.",
+              "data": {
+                "window_entities": "Pencereler / kapılar (isteğe bağlı)"
+              }
+            }
           }
         },
         "reconfigure": {
@@ -116,11 +236,55 @@
             "co2_entity": "CO₂ (isteğe bağlı)",
             "window_entities": "Pencereler / kapılar (isteğe bağlı)",
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
-            "target_temperature": "Yedek hedef sıcaklık",
+            "target_temperature": "🌡️ Yedek hedef sıcaklık",
             "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
-            "night_advice_start_hour": "Gece önerisini şu saatten sonra göster"
+            "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
           },
-          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Saat yalnızca anlamlı bir gece önerisinin ne zamandan itibaren gösterilebileceğini belirler. Eksik isteğe bağlı sensörler için değer tahmin edilmez."
+          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Saat yalnızca anlamlı bir gece önerisinin ne zamandan itibaren gösterilebileceğini belirler. Eksik isteğe bağlı sensörler için değer tahmin edilmez.",
+          "data_description": {
+            "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
+            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+          },
+          "sections": {
+            "room_climate": {
+              "name": "🌡️ Oda iklimi",
+              "description": "Zorunlu ölçümler ve kişisel hedef sıcaklığın.",
+              "data": {
+                "indoor_temperature": "İç sıcaklık",
+                "indoor_humidity": "İç nem",
+                "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
+                "target_temperature": "🌡️ Yedek hedef sıcaklık"
+              },
+              "data_description": {
+                "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır."
+              }
+            },
+            "room_night": {
+              "name": "🌙 Gece havalandırması",
+              "description": "Yalnızca gelecek geceye ait önerinin ne zamandan itibaren gösterilebileceğini belirler.",
+              "data": {
+                "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
+              },
+              "data_description": {
+                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+              }
+            },
+            "room_sensors": {
+              "name": "🧪 Ek sensörler",
+              "description": "İsteğe bağlı. CO₂ ve yüzey sıcaklığı danışmana daha fazla bilgi sağlar.",
+              "data": {
+                "co2_entity": "CO₂ (isteğe bağlı)",
+                "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
+              }
+            },
+            "room_openings": {
+              "name": "🪟 Pencereler ve kapılar",
+              "description": "İsteğe bağlı. Danışmanın havalandırma süresini izlemesini ve yeniden başlatmadan sonra sürdürmesini sağlar.",
+              "data": {
+                "window_entities": "Pencereler / kapılar (isteğe bağlı)"
+              }
+            }
+          }
         }
       },
       "abort": {
@@ -203,8 +367,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Havalandırma göstergesi – yeşil = havalandır",
-        "room_air": "Oda havası durumu – yeşil = her şey iyi"
+        "ventilation": "Havalandırma göstergesi · 🟢 = havalandır · 🔴 = kapalı tut",
+        "room_air": "Oda havası durumu · 🟢 = iyi · 🔴 = havalandırma gerekli"
       }
     }
   }

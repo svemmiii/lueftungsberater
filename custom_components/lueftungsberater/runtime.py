@@ -315,7 +315,10 @@ def room_display_values(
     subentry: ConfigSubentry,
 ) -> dict[str, Any]:
     """Return normalized room input values for UI/attributes."""
-    weather = weather_assessment(hass, entry)
+    from .outside import get_outside_coordinator
+
+    outside = get_outside_coordinator(hass, entry)
+    weather = outside.data.weather if outside is not None and outside.data is not None else weather_assessment(hass, entry)
     return _room_values(hass, entry, subentry, weather)
 
 
@@ -324,28 +327,8 @@ def room_source_entities(
     entry: ConfigEntry,
     subentry: ConfigSubentry,
 ) -> set[str]:
-    """Return all entities which should refresh this room."""
+    """Return only room-local entities; outside sources are shared per advisor."""
     entities: set[str] = set()
-
-    weather = weather_assessment(hass, entry)
-    warning = warning_assessment(hass, entry)
-    entities.update(weather.source_entities)
-    entities.update(warning.source_entities)
-
-    for key in (
-        CONF_OUTDOOR_TEMP,
-        CONF_OUTDOOR_HUMIDITY,
-        CONF_OUTDOOR_CO2,
-        CONF_WEATHER_DANGER,
-        CONF_WEATHER_REASON,
-        CONF_NINA_STATUS,
-        CONF_RAIN_NOW,
-        CONF_RAIN_SOON,
-    ):
-        val = entry.data.get(key)
-        if isinstance(val, str) and val:
-            entities.add(val)
-
     for key in (
         CONF_INDOOR_TEMP,
         CONF_INDOOR_HUMIDITY,
@@ -356,16 +339,28 @@ def room_source_entities(
         val = subentry.data.get(key)
         if isinstance(val, str) and val:
             entities.add(val)
-
-    outdoor_co2_entity = _manual_outdoor_entity(entry, CONF_OUTDOOR_CO2)
-    if outdoor_co2_entity:
-        entities.add(outdoor_co2_entity)
-
     for val in subentry.data.get(CONF_WINDOWS, []) or []:
         if val:
             entities.add(val)
-
     return entities
+
+
+def _night_start_minutes(subentry: ConfigSubentry) -> int:
+    """Return configured local display start as minutes after midnight."""
+    raw = subentry.data.get(CONF_NIGHT_START_TIME)
+    if isinstance(raw, str):
+        parts = raw.split(":")
+        try:
+            hour = max(0, min(23, int(parts[0])))
+            minute = max(0, min(59, int(parts[1]) if len(parts) > 1 else 0))
+            return hour * 60 + minute
+        except (TypeError, ValueError):
+            pass
+    try:
+        hour = int(subentry.data.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR))
+    except (TypeError, ValueError):
+        hour = DEFAULT_NIGHT_START_HOUR
+    return max(0, min(23, hour)) * 60
 
 
 def build_room_snapshot(
@@ -373,15 +368,16 @@ def build_room_snapshot(
     entry: ConfigEntry,
     subentry: ConfigSubentry,
     previous_mode: str | None = None,
+    weather: WeatherAssessment | None = None,
+    warnings: WarningAssessment | None = None,
 ) -> RoomSnapshot:
     """Build all room data once so every room entity sees the same snapshot."""
-    weather = weather_assessment(hass, entry)
-    warnings = warning_assessment(hass, entry)
+    weather = weather or weather_assessment(hass, entry)
+    warnings = warnings or warning_assessment(hass, entry)
     values = _room_values(hass, entry, subentry, weather)
 
     air_tracker = get_air_quality_tracker(hass, entry)
     if air_tracker is not None and weather.air_quality_values:
-        air_tracker.observe(weather.air_quality_values)
         air_context = air_tracker.context(
             weather.air_quality_pollutant, weather.air_quality_value
         )
@@ -496,7 +492,7 @@ def build_room_snapshot(
         rain_now=(weather.rain_now or legacy_rain_now),
         wind_speed_kmh=weather.wind_speed_kmh,
         wind_gust_kmh=weather.wind_gust_kmh,
-        start_hour=int(subentry.data.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR)),
+        start_minute=_night_start_minutes(subentry),
         hourly_forecast=weather.hourly_forecast,
         air_quality=weather.air_quality_index,
         nina_status=normalized_nina,

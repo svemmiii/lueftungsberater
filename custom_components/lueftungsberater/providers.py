@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -862,6 +862,84 @@ def _optional_entity_registry(hass: HomeAssistant):
         return None
 
 
+
+
+def _nina_details_bucket(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
+    return hass.data.setdefault(DOMAIN, {}).setdefault("nina_details_cache", {})
+
+
+async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Fetch full NINA details once per active warning id.
+
+    Home Assistant's current NINA integration intentionally keeps only the
+    warning id on the binary sensor and exposes long description/recommended
+    actions through ``nina.get_details``. Caching by warning id avoids service
+    calls on every room/sensor refresh.
+    """
+    source = entry.data.get(CONF_WARNING_SOURCE)
+    if not isinstance(source, str) or not source or source == WARNING_SOURCE_NONE:
+        return
+    source_entry = hass.config_entries.async_get_entry(source)
+    if source_entry is None or source_entry.domain != "nina":
+        return
+    if not hass.services.has_service("nina", "get_details"):
+        return
+
+    entity_ids = _config_entry_entities(hass, source_entry.entry_id)
+    active: dict[str, str] = {}
+    for entity_id in entity_ids:
+        if not entity_id.startswith("binary_sensor."):
+            continue
+        state = hass.states.get(entity_id)
+        if state is None or state.state != "on":
+            continue
+        warning_id = str(state.attributes.get("id") or "").strip()
+        if warning_id:
+            active[entity_id] = warning_id
+
+    bucket = _nina_details_bucket(hass)
+    prefix = f"{entry.entry_id}:"
+    active_keys = {f"{prefix}{entity_id}" for entity_id in active}
+    for key in [key for key in bucket if key.startswith(prefix) and key not in active_keys]:
+        bucket.pop(key, None)
+
+    for entity_id, warning_id in active.items():
+        key = f"{prefix}{entity_id}"
+        cached = bucket.get(key)
+        if isinstance(cached, dict) and cached.get("warning_id") == warning_id:
+            continue
+        try:
+            response = await hass.services.async_call(
+                "nina",
+                "get_details",
+                {},
+                target={"entity_id": entity_id},
+                blocking=True,
+                return_response=True,
+            )
+        except Exception:  # noqa: BLE001 - provider failure must never break advice
+            _LOGGER.debug("Unable to fetch NINA details for %s", entity_id, exc_info=True)
+            continue
+        details = response.get(entity_id) if isinstance(response, dict) else None
+        if isinstance(details, dict):
+            bucket[key] = {"warning_id": warning_id, "details": dict(details)}
+
+
+@callback
+def async_clear_nina_details_cache(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop the small per-advisor NINA detail cache on unload."""
+    bucket = _nina_details_bucket(hass)
+    prefix = f"{entry.entry_id}:"
+    for key in [key for key in bucket if key.startswith(prefix)]:
+        bucket.pop(key, None)
+
+
+def _cached_nina_details(hass: HomeAssistant, entry: ConfigEntry, entity_id: str) -> dict[str, Any]:
+    cached = _nina_details_bucket(hass).get(f"{entry.entry_id}:{entity_id}")
+    details = cached.get("details") if isinstance(cached, dict) else None
+    return dict(details) if isinstance(details, dict) else {}
+
+
 def _nina_slot_sensor_values(
     hass: HomeAssistant,
     entity_ids: list[str],
@@ -901,8 +979,19 @@ def _nina_slot_sensor_values(
 
 def _evaluate_nina_like_entities(
     hass: HomeAssistant,
-    entity_ids: list[str],
+    entry: ConfigEntry | list[str],
+    entity_ids: list[str] | None = None,
 ) -> WarningAssessment:
+    # Keep the older two-argument helper shape for focused unit tests and for
+    # third-party callers. Full NINA detail caching is available only when the
+    # owning Lüftungsberater ConfigEntry is supplied.
+    advisor_entry: ConfigEntry | None
+    if entity_ids is None:
+        entity_ids = list(entry) if isinstance(entry, list) else []
+        advisor_entry = None
+    else:
+        advisor_entry = entry if not isinstance(entry, list) else None
+
     result = WarningAssessment()
     air_rank = {"none": 0, "caution": 1, "danger": 2}
     slot_details = _nina_slot_sensor_values(hass, entity_ids)
@@ -920,13 +1009,15 @@ def _evaluate_nina_like_entities(
         slot_id = registry_entry.unique_id if registry_entry else None
         detail = slot_details.get(slot_id, {}) if isinstance(slot_id, str) else {}
 
-        headline = _text(state, "headline") or detail.get("headline", "")
-        description = _text(state, "description")
+        full = _cached_nina_details(hass, advisor_entry, entity_id) if advisor_entry is not None else {}
+        headline = _text(state, "headline") or detail.get("headline", "") or str(full.get("headline") or "")
+        description = _text(state, "description") or str(full.get("description") or "")
         actions = (
             _text(state, "recommended_actions")
             or _text(state, "instruction")
+            or str(full.get("recommended_actions") or "")
         )
-        severity = _text(state, "severity") or detail.get("severity", "") or "Unknown"
+        severity = _text(state, "severity") or detail.get("severity", "") or str(full.get("severity") or "") or "Unknown"
         alltext = " ".join((headline, description, actions))
 
         if _is_clear_warning(alltext):
@@ -1060,7 +1151,7 @@ def warning_assessment(
     if source_entry.domain == "dwd_weather_warnings":
         assessed = _evaluate_dwd_warning_entities(hass, entity_ids)
     else:
-        assessed = _evaluate_nina_like_entities(hass, entity_ids)
+        assessed = _evaluate_nina_like_entities(hass, entry, entity_ids)
         dwd_like = _evaluate_dwd_warning_entities(hass, entity_ids)
 
         if dwd_like.weather_danger:

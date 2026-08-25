@@ -1,9 +1,8 @@
-"""Local outdoor-air-quality context for Lüftungsberater.
+"""Compact local outdoor-air-quality context for Lüftungsberater.
 
 The UBA LQI remains the absolute health-oriented classification. This tracker
-only adds local context: whether the current concentration is typical for the
-configured Home Assistant location and whether it has recently been rising or
-falling. A chronically poor location is therefore never relabelled as good.
+adds only local context (typical/unusual and a short trend) and deliberately
+keeps a fixed-size persistent memory instead of a second raw-history database.
 """
 from __future__ import annotations
 
@@ -19,8 +18,10 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    AIR_QUALITY_BASELINE_ALPHA,
     AIR_QUALITY_HISTORY_MIN_SAMPLES,
-    AIR_QUALITY_HISTORY_RETENTION,
+    AIR_QUALITY_MAX_LOCATIONS,
+    AIR_QUALITY_RECENT_SAMPLES,
     AIR_QUALITY_SAMPLE_MIN_INTERVAL,
     CONF_WEATHER,
     DATA_AIR_QUALITY_TRACKERS,
@@ -31,12 +32,10 @@ from .const import (
 
 @dataclass(slots=True)
 class AirQualityContext:
-    """Local context for one current pollutant value."""
-
     baseline: float | None = None
     typical: bool | None = None
     unusual: bool = False
-    trend: str = "unknown"  # rising | falling | stable | unknown
+    trend: str = "unknown"
     samples: int = 0
     location_key: str | None = None
 
@@ -61,14 +60,7 @@ def _finite(value: Any) -> float | None:
 
 
 def location_key(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
-    """Return a coarse key so history does not silently follow a moved home.
-
-    Prefer coordinates exposed by the selected weather entity because a mobile
-    Home Assistant (for example a motorhome) may deliberately use a moving
-    provider. Fall back to Home Assistant's configured location. Two decimal
-    places are roughly kilometre-scale and are only a context bucket, never a
-    claim that pollution is spatially uniform inside it.
-    """
+    """Return a coarse location bucket; never transfer learned context blindly."""
     lat = lon = None
     weather_id = entry.data.get(CONF_WEATHER)
     if isinstance(weather_id, str):
@@ -85,97 +77,170 @@ def location_key(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
 
 
 class OutdoorAirQualityTracker:
-    """Keep a compact rolling history for the local advisor location."""
+    """Keep a bounded statistical memory per location and pollutant."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
-        self._buckets: dict[str, dict[str, list[tuple[datetime, float]]]] = {}
+        self._buckets: dict[str, dict[str, dict[str, Any]]] = {}
+        self._last_seen: dict[str, datetime] = {}
         self._store: Store[dict[str, Any]] = Store(
-            hass,
-            STORAGE_VERSION,
-            f"{DOMAIN}.air_quality.{entry.entry_id}",
+            hass, STORAGE_VERSION, f"{DOMAIN}.air_quality.{entry.entry_id}"
         )
 
     async def async_initialize(self) -> None:
         stored = await self._store.async_load() or {}
-        raw_buckets = stored.get("buckets", {})
-        if isinstance(raw_buckets, dict):
-            for loc, raw_pollutants in raw_buckets.items():
-                if not isinstance(loc, str) or not isinstance(raw_pollutants, dict):
+        raw = stored.get("buckets", {})
+        if isinstance(raw, dict):
+            for loc, pollutants in raw.items():
+                if not isinstance(loc, str) or not isinstance(pollutants, dict):
                     continue
-                pollutants: dict[str, list[tuple[datetime, float]]] = {}
-                for kind, raw_points in raw_pollutants.items():
-                    if not isinstance(kind, str) or not isinstance(raw_points, list):
+                clean: dict[str, dict[str, Any]] = {}
+                newest: datetime | None = None
+                for kind, stats in pollutants.items():
+                    if not isinstance(kind, str):
                         continue
-                    points: list[tuple[datetime, float]] = []
-                    for item in raw_points:
-                        if not isinstance(item, (list, tuple)) or len(item) != 2:
+
+                    # v0.6.23 stored half-hour raw points. Fold those points into
+                    # the new fixed-size statistics once so an update does not
+                    # throw away the local context the advisor already learned.
+                    if isinstance(stats, list):
+                        legacy: list[tuple[datetime, float]] = []
+                        for item in stats:
+                            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                                continue
+                            stamp, value = _parse_dt(item[0]), _finite(item[1])
+                            if stamp is not None and value is not None and value >= 0:
+                                legacy.append((stamp, value))
+                        legacy.sort(key=lambda item: item[0])
+                        if not legacy:
                             continue
-                        stamp = _parse_dt(item[0])
-                        value = _finite(item[1])
-                        if stamp is not None and value is not None and value >= 0:
-                            points.append((stamp, value))
-                    if points:
-                        pollutants[kind] = sorted(points, key=lambda item: item[0])
-                if pollutants:
-                    self._buckets[loc] = pollutants
-        self._prune(dt_util.utcnow())
+                        values = [value for _stamp, value in legacy]
+                        baseline = float(median(values))
+                        deviation = float(median(abs(value - baseline) for value in values))
+                        count = len(values)
+                        last_sample = legacy[-1][0]
+                        recent = legacy[-AIR_QUALITY_RECENT_SAMPLES:]
+                    elif isinstance(stats, dict):
+                        baseline = _finite(stats.get("baseline"))
+                        deviation = _finite(stats.get("deviation"))
+                        count = int(stats.get("count", 0) or 0)
+                        last_sample = _parse_dt(stats.get("last_sample"))
+                        recent = []
+                    else:
+                        continue
+
+                    raw_recent = stats.get("recent", []) if isinstance(stats, dict) else []
+                    if isinstance(raw_recent, list):
+                        for item in raw_recent[-AIR_QUALITY_RECENT_SAMPLES:]:
+                            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                                continue
+                            stamp, value = _parse_dt(item[0]), _finite(item[1])
+                            if stamp is not None and value is not None and value >= 0:
+                                recent.append((stamp, value))
+                    if baseline is None and recent:
+                        baseline = float(median(value for _stamp, value in recent))
+                    if baseline is None:
+                        continue
+                    clean[kind] = {
+                        "baseline": baseline,
+                        "deviation": max(0.0, deviation or 0.0),
+                        "count": max(1, count),
+                        "last_sample": last_sample,
+                        "recent": recent,
+                    }
+                    candidate = last_sample or (recent[-1][0] if recent else None)
+                    if candidate is not None and (newest is None or candidate > newest):
+                        newest = candidate
+                if clean:
+                    self._buckets[loc] = clean
+                    self._last_seen[loc] = newest or dt_util.utcnow()
+        self._trim_locations()
+
+    async def async_shutdown(self) -> None:
+        """Flush the small bounded memory before unload/reload."""
+        await self._store.async_save(self._serialize())
 
     def _serialize(self) -> dict[str, Any]:
         return {
             "buckets": {
                 loc: {
-                    kind: [[stamp.isoformat(), value] for stamp, value in points]
-                    for kind, points in pollutants.items()
+                    kind: {
+                        "baseline": stats["baseline"],
+                        "deviation": stats["deviation"],
+                        "count": stats["count"],
+                        "last_sample": stats["last_sample"].isoformat() if stats.get("last_sample") else None,
+                        "recent": [[stamp.isoformat(), value] for stamp, value in stats.get("recent", [])],
+                    }
+                    for kind, stats in pollutants.items()
                 }
                 for loc, pollutants in self._buckets.items()
             }
         }
 
     def _schedule_save(self) -> None:
-        self._store.async_delay_save(self._serialize, 15)
+        self._store.async_delay_save(self._serialize, 30)
 
-    def _prune(self, now: datetime) -> None:
-        cutoff = now - AIR_QUALITY_HISTORY_RETENTION
-        for loc in list(self._buckets):
-            pollutants = self._buckets[loc]
-            for kind in list(pollutants):
-                kept = [point for point in pollutants[kind] if point[0] >= cutoff]
-                if kept:
-                    pollutants[kind] = kept
-                else:
-                    pollutants.pop(kind, None)
-            if not pollutants:
-                self._buckets.pop(loc, None)
+    def _trim_locations(self) -> None:
+        if len(self._buckets) <= AIR_QUALITY_MAX_LOCATIONS:
+            return
+        ordered = sorted(self._buckets, key=lambda loc: self._last_seen.get(loc, datetime.min.replace(tzinfo=dt_util.UTC)))
+        for loc in ordered[: len(self._buckets) - AIR_QUALITY_MAX_LOCATIONS]:
+            self._buckets.pop(loc, None)
+            self._last_seen.pop(loc, None)
 
     def observe(self, values: dict[str, float], *, now: datetime | None = None) -> None:
-        """Record valid current provider values at most twice an hour."""
+        """Fold one provider sample into a fixed-size local memory."""
         loc = location_key(self.hass, self.entry)
         if loc is None or not values:
             return
         now = now or dt_util.utcnow()
-        self._prune(now)
         pollutants = self._buckets.setdefault(loc, {})
+        self._last_seen[loc] = now
         changed = False
+
         for kind, raw in values.items():
             value = _finite(raw)
             if value is None or value < 0:
                 continue
-            points = pollutants.setdefault(kind, [])
-            if points and now - points[-1][0] < AIR_QUALITY_SAMPLE_MIN_INTERVAL:
-                # Keep the newest reading for the current half-hour slot rather
-                # than allowing multiple rooms to duplicate the same sample.
-                if abs(points[-1][1] - value) > 1e-9:
-                    # Update the value inside the current sampling slot but keep
-                    # the slot timestamp. Otherwise a frequently changing sensor
-                    # would continuously move the timestamp forward and never
-                    # reach the next 30-minute sample.
-                    points[-1] = (points[-1][0], value)
-                    changed = True
+            stats = pollutants.get(kind)
+            if stats is None:
+                pollutants[kind] = {
+                    "baseline": value,
+                    "deviation": 0.0,
+                    "count": 1,
+                    "last_sample": now,
+                    "recent": [(now, value)],
+                }
+                changed = True
                 continue
-            points.append((now, value))
+
+            last_sample = stats.get("last_sample")
+            if isinstance(last_sample, datetime) and now - last_sample < AIR_QUALITY_SAMPLE_MIN_INTERVAL:
+                # Current-slot changes are useful for decisions but not worth a
+                # persistent write. The next scheduled sample will fold them in.
+                continue
+
+            baseline = float(stats.get("baseline", value))
+            count = int(stats.get("count", 0) or 0)
+            # Adapt quickly while learning, then slowly. The steady alpha keeps
+            # roughly weeks of memory without storing weeks of raw measurements.
+            alpha = (1.0 / max(count + 1, 1)) if count < 50 else AIR_QUALITY_BASELINE_ALPHA
+            new_baseline = baseline + alpha * (value - baseline)
+            deviation = float(stats.get("deviation", 0.0) or 0.0)
+            new_deviation = deviation + alpha * (abs(value - new_baseline) - deviation)
+            recent = list(stats.get("recent", []))
+            recent.append((now, value))
+            stats.update(
+                baseline=new_baseline,
+                deviation=max(0.0, new_deviation),
+                count=count + 1,
+                last_sample=now,
+                recent=recent[-AIR_QUALITY_RECENT_SAMPLES:],
+            )
             changed = True
+
+        self._trim_locations()
         if changed:
             self._schedule_save()
 
@@ -183,44 +248,37 @@ class OutdoorAirQualityTracker:
         loc = location_key(self.hass, self.entry)
         if loc is None or not kind or current_value is None:
             return AirQualityContext(location_key=loc)
-        points = self._buckets.get(loc, {}).get(kind, [])
-        if not points:
+        stats = self._buckets.get(loc, {}).get(kind)
+        if not stats:
             return AirQualityContext(location_key=loc)
 
-        values = [value for _stamp, value in points]
-        samples = len(values)
-        baseline = float(median(values))
+        baseline = float(stats.get("baseline", current_value))
+        samples = int(stats.get("count", 0) or 0)
         if samples < AIR_QUALITY_HISTORY_MIN_SAMPLES:
-            return AirQualityContext(
-                baseline=baseline,
-                samples=samples,
-                location_key=loc,
-            )
+            return AirQualityContext(baseline=baseline, samples=samples, location_key=loc)
 
-        ordered = sorted(values)
-        p90 = ordered[min(len(ordered) - 1, int((len(ordered) - 1) * 0.9))]
-        # Deliberately broad: local history is context, not a second health
-        # threshold. A current value must be clearly outside the recent local
-        # distribution before it is called unusual.
-        unusual_limit = max(p90 * 1.15, baseline + max(2.0, baseline * 0.15))
+        deviation = float(stats.get("deviation", 0.0) or 0.0)
+        # Local context must be broad enough not to re-label normal measurement
+        # noise as an event. It never changes the absolute UBA class.
+        unusual_limit = baseline + max(2.0, baseline * 0.20, deviation * 3.0)
         unusual = current_value > unusual_limit
-        typical = not unusual
 
+        recent = [float(value) for _stamp, value in stats.get("recent", [])]
         trend = "unknown"
-        if samples >= 6:
-            recent = median(values[-3:])
-            previous = median(values[-6:-3])
-            threshold = max(2.0, baseline * 0.10)
-            if recent > previous + threshold:
+        if len(recent) >= 6:
+            previous = median(recent[-6:-3])
+            latest = median(recent[-3:])
+            threshold = max(2.0, baseline * 0.10, deviation * 1.5)
+            if latest > previous + threshold:
                 trend = "rising"
-            elif recent < previous - threshold:
+            elif latest < previous - threshold:
                 trend = "falling"
             else:
                 trend = "stable"
 
         return AirQualityContext(
             baseline=baseline,
-            typical=typical,
+            typical=not unusual,
             unusual=unusual,
             trend=trend,
             samples=samples,
@@ -228,9 +286,7 @@ class OutdoorAirQualityTracker:
         )
 
 
-async def async_get_or_create_air_quality_tracker(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> OutdoorAirQualityTracker:
+async def async_get_or_create_air_quality_tracker(hass: HomeAssistant, entry: ConfigEntry) -> OutdoorAirQualityTracker:
     store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_AIR_QUALITY_TRACKERS, {})
     tracker = store.get(entry.entry_id)
     if tracker is None:
@@ -240,15 +296,15 @@ async def async_get_or_create_air_quality_tracker(
     return tracker
 
 
-def get_air_quality_tracker(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> OutdoorAirQualityTracker | None:
-    return (
+def get_air_quality_tracker(hass: HomeAssistant, entry: ConfigEntry) -> OutdoorAirQualityTracker | None:
+    return hass.data.get(DOMAIN, {}).get(DATA_AIR_QUALITY_TRACKERS, {}).get(entry.entry_id)
+
+
+async def async_stop_air_quality_tracker(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    tracker = (
         hass.data.get(DOMAIN, {})
         .get(DATA_AIR_QUALITY_TRACKERS, {})
-        .get(entry.entry_id)
+        .pop(entry.entry_id, None)
     )
-
-
-def async_stop_air_quality_tracker(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    hass.data.get(DOMAIN, {}).get(DATA_AIR_QUALITY_TRACKERS, {}).pop(entry.entry_id, None)
+    if tracker is not None:
+        await tracker.async_shutdown()

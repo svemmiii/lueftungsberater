@@ -57,6 +57,7 @@ const LB_I18N = {
     "co2.open": "CO₂-Sensor öffnen",
     "warning.open": "Warn-/Quelldaten öffnen",
     "why": "Warum diese Empfehlung?",
+    "night.title": "Nachtlüften",
     "duration": "⏱️ Empfohlene Lüftungsdauer:",
     "hint": "Messwerte antippen für Verlauf · farbigen Statusbereich antippen für Details",
     "picker.room.name": "Lüftungsberater – Raum",
@@ -144,6 +145,7 @@ const LB_I18N = {
     "co2.open": "Open CO₂ sensor",
     "warning.open": "Open warning / source data",
     "why": "Why this recommendation?",
+    "night.title": "Night ventilation",
     "duration": "⏱️ Recommended window-opening time:",
     "hint": "Tap a value for its history · tap the colored status area for details",
     "picker.room.name": "Ventilation Advisor – Room",
@@ -231,6 +233,7 @@ const LB_I18N = {
     "co2.open": "CO₂ sensörünü aç",
     "warning.open": "Uyarı / kaynak verisini aç",
     "why": "Bu önerinin nedeni ne?",
+    "night.title": "Gece havalandırması",
     "duration": "⏱️ Önerilen pencere açık kalma süresi:",
     "hint": "Geçmiş için bir değere dokun · ayrıntılar için renkli durum alanına dokun",
     "picker.room.name": "Havalandırma Danışmanı – Oda",
@@ -302,6 +305,7 @@ class LueftungsberaterCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._renderSignature = null;
   }
 
   setConfig(config) {
@@ -309,12 +313,27 @@ class LueftungsberaterCard extends HTMLElement {
       tap_action: { action: "more-info" },
       ...config,
     };
+    this._renderSignature = null;
     this._render();
   }
 
+  _signature(hass) {
+    if (!hass || !this._config) return "none";
+    if (this._isRemoteSnapshot()) {
+      const snap = this._config.remote_snapshot || {};
+      return `${lbLanguage(hass)}|remote|${JSON.stringify([snap.state, snap.attributes || {}])}`;
+    }
+    const stateObj = this._config.entity ? hass.states?.[this._config.entity] : null;
+    return `${lbLanguage(hass)}|${hass.config?.unit_system?.temperature || ""}|${this._config.entity || ""}|${stateObj?.state || ""}|${stateObj?.last_updated || ""}`;
+  }
+
   set hass(hass) {
+    const signature = this._signature(hass);
     this._hass = hass;
-    this._render();
+    if (signature !== this._renderSignature) {
+      this._renderSignature = signature;
+      this._render();
+    }
   }
 
   getCardSize() {
@@ -642,25 +661,24 @@ class LueftungsberaterCard extends HTMLElement {
       }
     }
 
-    if (nightText && a.night_ventilation_status && a.night_ventilation_status !== "unavailable") {
-      rows.push({
-        icon: "mdi:weather-night",
-        cls: `night-${a.night_ventilation_status}`,
-        html: this._escape(nightText),
-      });
-    }
-
+    const showNight = Boolean(nightText) && a.night_ventilation_status && a.night_ventilation_status !== "unavailable";
+    const nightHtml = showNight ? this._escape(nightText) : "";
     const showDuration = Boolean(durationText) && a.duration_key !== "not_needed";
     const reasonHtml = reason ? this._escape(reason) : "";
 
     this.shadowRoot.innerHTML = `
       <style>
-        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); --lb-lock: #546e7a; display: block; }
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); --lb-lock: #111; display: block; }
         ha-card { overflow: hidden; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
         .header { display: flex; align-items: center; gap: 14px; padding: 16px; color: var(--primary-text-color); border-left: 6px solid var(--lb-accent); background: color-mix(in srgb, var(--lb-accent) 14%, var(--ha-card-background, var(--card-background-color))); }
         .header.main-tap { cursor: pointer; }
         .header.main-tap:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
-        .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.orange { --lb-accent: var(--lb-orange); } .header.red { --lb-accent: var(--lb-red); } .header.locked { --lb-accent: var(--lb-lock); }
+        .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.orange { --lb-accent: var(--lb-orange); } .header.red { --lb-accent: var(--lb-red); } .header.locked { --lb-accent: var(--lb-lock); background: #fff; color: #111; }
+        .locked-card { background: #fff; color: #111; border: 2px solid #111; box-shadow: 0 0 0 2px color-mix(in srgb, #fff 70%, transparent); }
+        .locked-card .body, .locked-card .why, .locked-card .reason, .locked-card .duration, .locked-card .facts, .locked-card .fact, .locked-card .hint { color: #111; }
+        .locked-card .title { color: #424242; }
+        .locked-card .icon-wrap { background: #f2f2f2; }
+        .locked-card .facts { border-top-color: #bdbdbd; }
         .icon-wrap { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--lb-accent) 20%, transparent); color: var(--lb-accent); }
         .main-icon { --mdc-icon-size: 31px; color: var(--lb-accent); }
         .head-text { min-width: 0; flex: 1; }
@@ -669,6 +687,13 @@ class LueftungsberaterCard extends HTMLElement {
         .body { padding: 14px 16px 16px; }
         .why { font-size: 15px; font-weight: 700; color: var(--primary-text-color); margin-bottom: 6px; }
         .reason { line-height: 1.45; overflow-wrap: anywhere; }
+        .night-advice { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 9px; align-items: start; margin-top: 13px; padding: 11px 12px; border-radius: 10px; background: color-mix(in srgb, var(--primary-color) 8%, transparent); line-height: 1.4; }
+        .night-advice ha-icon { --mdc-icon-size: 21px; color: var(--primary-color); margin-top: 1px; }
+        .night-copy { display: grid; gap: 2px; min-width: 0; }
+        .night-title { font-size: 13px; font-weight: 700; color: var(--primary-text-color); }
+        .night-text { overflow-wrap: anywhere; }
+        .locked-card .night-advice { background: #f2f2f2; }
+        .locked-card .night-title, .locked-card .night-text { color: #111; }
         .duration { display: grid; gap: 2px; margin-top: 12px; line-height: 1.4; }
         .duration-label { font-weight: 700; }
         .facts { display: grid; gap: 8px; padding-top: 13px; margin-top: 13px; border-top: 1px solid var(--divider-color); color: var(--secondary-text-color); font-size: 12.5px; }
@@ -683,13 +708,14 @@ class LueftungsberaterCard extends HTMLElement {
         .hint { margin-top: 12px; color: var(--secondary-text-color); font-size: 11px; opacity: 0.8; }
         .error { padding: 16px; color: var(--error-color); }
       </style>
-      <ha-card aria-label="${this._escape(title)}">
+      <ha-card class="${status === "locked" ? "locked-card" : ""}" aria-label="${this._escape(title)}">
         <div class="header ${meta.cls}${remote ? "" : " main-tap"}" ${remote ? "" : 'tabindex="0" role="button"'}>
           <div class="icon-wrap"><ha-icon class="main-icon" icon="${meta.icon}"></ha-icon></div>
           <div class="head-text"><div class="title">${this._escape(title)}</div><div class="recommendation">${this._escape(recommendation)}</div></div>
         </div>
         <div class="body">
           ${reason ? `<div class="why">${lbT(this._hass, "why")}</div><div class="reason">${reasonHtml}</div>` : ""}
+          ${showNight ? `<div class="night-advice"><ha-icon icon="mdi:weather-night"></ha-icon><div class="night-copy"><span class="night-title">${lbT(this._hass, "night.title")}</span><span class="night-text">${nightHtml}</span></div></div>` : ""}
           ${showDuration ? `<div class="duration"><span class="duration-label">${lbT(this._hass, "duration")}</span><span>${this._escape(durationText)}</span></div>` : ""}
           ${rows.length ? `<div class="facts">${rows.map((row) => `<div class="fact ${row.cls || ""}"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : ""}
           ${remote ? "" : `<div class="hint">${lbT(this._hass, "hint")}</div>`}
@@ -753,6 +779,9 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     this._openRoomRef = null;
     this._popupCard = null;
     this._dialogLocation = null;
+    this._localRenderSignature = null;
+    this._localAdvisorIds = null;
+    this._lastStateCount = -1;
     this._handleNavigation = () => this._destroyDialog();
   }
 
@@ -779,22 +808,47 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     this._renderOverview();
   }
 
+  _localSignatureFor(hass) {
+    if (!hass) return "none";
+    const states = hass.states || {};
+    const stateCount = Object.keys(states).length;
+    // Discover advisor entities only when the state registry size changes.
+    // Normal HA state updates can then compare a tiny known entity list instead
+    // of scanning every light/sensor/switch on every frontend update.
+    if (!this._localAdvisorIds || stateCount !== this._lastStateCount) {
+      this._localAdvisorIds = Object.values(states)
+        .filter((stateObj) => this._isAdvisorEntity(stateObj))
+        .map((stateObj) => stateObj.entity_id)
+        .sort();
+      this._lastStateCount = stateCount;
+    }
+    const advisors = this._localAdvisorIds.map((entityId) => {
+      const stateObj = states[entityId];
+      return `${entityId}:${stateObj?.state || ""}:${stateObj?.last_updated || ""}`;
+    });
+    return `${lbLanguage(hass)}|${advisors.join("|")}`;
+  }
+
   set hass(hass) {
     if (this._dialog && this._dialogLocation && window.location.pathname !== this._dialogLocation) {
       this._destroyDialog();
     }
     const first = !this._hass;
     const previousLanguage = this._hass ? lbLanguage(this._hass) : null;
+    const signature = this._localSignatureFor(hass);
     this._hass = hass;
     this._ensureShell();
-    this._renderOverview();
+    if (signature !== this._localRenderSignature) {
+      this._localRenderSignature = signature;
+      this._renderOverview();
+      if (this._dialogMode === "instance") {
+        const group = this._findGroup(this._dialogGroupId);
+        if (group && !group.remote) this._renderInstanceDialog(group);
+      }
+    }
 
     if (this._popupCard && !this._openRoomRef?.remote) {
       this._popupCard.hass = hass;
-    }
-    if (this._dialogMode === "instance") {
-      const group = this._findGroup(this._dialogGroupId);
-      if (group && !group.remote) this._renderInstanceDialog(group);
     }
 
     if (first || previousLanguage !== lbLanguage(hass)) this._fetchRemote();
@@ -817,7 +871,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
 
   _ensureRemoteTimer() {
     if (this._remoteTimer || !this.isConnected) return;
-    this._remoteTimer = setInterval(() => this._fetchRemote(), 10000);
+    this._remoteTimer = setInterval(() => this._fetchRemote(), 30000);
     if (this._hass) this._fetchRemote();
   }
 
@@ -1074,7 +1128,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     if (!this.shadowRoot || this.shadowRoot.querySelector("#overview")) return;
     this.shadowRoot.innerHTML = `
       <style>
-        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); --lb-lock: #546e7a; display: block; }
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); --lb-lock: #111; display: block; }
         ha-card { overflow: hidden; padding: 0; }
         .overview-title { padding: 12px 16px 9px; color: var(--primary-text-color); font-size: 17px; font-weight: 700; border-bottom: 1px solid var(--divider-color); }
         .room-row, .group-row { --row-accent: var(--lb-green); appearance: none; width: 100%; min-width: 0; border: 0; border-top: 1px solid var(--divider-color); border-left: 4px solid var(--row-accent); background: transparent; color: var(--primary-text-color); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1082,7 +1136,8 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         .room-row.yellow, .group-row.yellow { --row-accent: var(--lb-yellow); }
         .room-row.orange, .group-row.orange { --row-accent: var(--lb-orange); }
         .room-row.red, .group-row.red { --row-accent: var(--lb-red); }
-        .room-row.locked, .group-row.locked { --row-accent: var(--lb-lock); }
+        .room-row.locked, .group-row.locked { --row-accent: var(--lb-lock); background: #fff; color: #111; box-shadow: inset 0 0 0 1px #111; }
+        .room-row.locked .room-line, .room-row.locked .room-line strong, .group-row.locked .group-copy, .group-row.locked .group-copy strong, .group-row.locked .group-copy small { color: #111; }
         .group-row.unavailable { --row-accent: var(--secondary-text-color); opacity: .75; cursor: default; }
         .room-row { display: grid; grid-template-columns: 27px minmax(0, 1fr) auto 22px; gap: 8px; align-items: center; min-height: 48px; padding: 9px 10px 9px 12px; }
         .group-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 22px; gap: 9px; align-items: center; min-height: 56px; padding: 10px 12px; }
@@ -1440,7 +1495,7 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
 
   _ensureRemoteTimer() {
     if (this._remoteTimer || !this.isConnected) return;
-    this._remoteTimer = setInterval(() => this._fetchRemote(), 10000);
+    this._remoteTimer = setInterval(() => this._fetchRemote(), 30000);
     if (this._hass) this._fetchRemote();
   }
 

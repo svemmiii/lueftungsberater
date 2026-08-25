@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.const import MATCH_ALL
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 
@@ -98,11 +99,16 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
     _attr_translation_key = "advisor"
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = RECOMMENDATION_STATES
+    # The recommendation state itself is worth keeping in Recorder history.
+    # The large dynamic attribute bundle exists for the custom card and would
+    # otherwise create a recorder row whenever a presentation-only value changes.
+    _unrecorded_attributes = frozenset({MATCH_ALL})
 
     def __init__(self, entry, subentry, coordinator):
         super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_advisor"
         self._attr_name = None
+        self._derived_entity_cache: dict[str, str | None] | None = None
 
     @property
     def native_value(self):
@@ -141,36 +147,35 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         last_airing = values["last_confirmed_airing"]
 
         registry = er.async_get(self.hass)
-        airing_entity = registry.async_get_entity_id(
-            "sensor",
-            DOMAIN,
-            f"{self.subentry.subentry_id}_airing_status",
-        )
-        last_airing_entity = registry.async_get_entity_id(
-            "sensor",
-            DOMAIN,
-            f"{self.subentry.subentry_id}_last_airing",
-        )
-        absolute_humidity_entity = registry.async_get_entity_id(
-            "sensor",
-            DOMAIN,
-            f"{self.subentry.subentry_id}_absolute_humidity",
-        )
-        outdoor_absolute_humidity_entity = registry.async_get_entity_id(
-            "sensor",
-            DOMAIN,
-            f"{self.subentry.subentry_id}_absolute_humidity_outside",
-        )
-        absolute_humidity_difference_entity = registry.async_get_entity_id(
-            "sensor",
-            DOMAIN,
-            f"{self.subentry.subentry_id}_absolute_humidity_difference",
-        )
-        co2_status_entity = registry.async_get_entity_id(
-            "sensor",
-            DOMAIN,
-            f"{self.subentry.subentry_id}_co2_status",
-        )
+        unique_ids = {
+            "airing": f"{self.subentry.subentry_id}_airing_status",
+            "last_airing": f"{self.subentry.subentry_id}_last_airing",
+            "absolute_humidity": f"{self.subentry.subentry_id}_absolute_humidity",
+            "absolute_humidity_outside": f"{self.subentry.subentry_id}_absolute_humidity_outside",
+            "absolute_humidity_difference": f"{self.subentry.subentry_id}_absolute_humidity_difference",
+            "co2_status": f"{self.subentry.subentry_id}_co2_status",
+        }
+        if self._derived_entity_cache is None:
+            self._derived_entity_cache = {
+                key: registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+                for key, unique_id in unique_ids.items()
+            }
+        else:
+            # User renames are rare, but do not keep a stale cached entity id.
+            # A first render can also happen before the sibling entities have
+            # finished registering, so retry entries which were initially None.
+            for key, entity_id in tuple(self._derived_entity_cache.items()):
+                if entity_id is None or registry.async_get(entity_id) is None:
+                    self._derived_entity_cache[key] = registry.async_get_entity_id(
+                        "sensor", DOMAIN, unique_ids[key]
+                    )
+
+        airing_entity = self._derived_entity_cache["airing"]
+        last_airing_entity = self._derived_entity_cache["last_airing"]
+        absolute_humidity_entity = self._derived_entity_cache["absolute_humidity"]
+        outdoor_absolute_humidity_entity = self._derived_entity_cache["absolute_humidity_outside"]
+        absolute_humidity_difference_entity = self._derived_entity_cache["absolute_humidity_difference"]
+        co2_status_entity = self._derived_entity_cache["co2_status"]
 
         language = self.hass.config.language
         temperature_unit = str(self.hass.config.units.temperature_unit)

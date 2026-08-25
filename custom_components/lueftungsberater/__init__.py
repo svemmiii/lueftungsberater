@@ -14,6 +14,7 @@ from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air
 from .api import async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
+from .outside import async_get_or_create_outside_coordinator, async_stop_outside_coordinator
 from .coordinator import (
     async_get_or_create_room_coordinator,
     async_stop_entry_coordinators,
@@ -21,6 +22,9 @@ from .coordinator import (
 from .const import (
     CONF_ENTRY_KIND,
     CONF_REMOTE_HOST,
+    CONF_NIGHT_START_HOUR,
+    CONF_NIGHT_START_TIME,
+    DEFAULT_NIGHT_START_HOUR,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     LEGACY_NOTIFY_KEYS,
@@ -32,13 +36,14 @@ from .remote import (
     async_get_or_create_remote_coordinator,
     async_stop_remote_coordinator,
 )
-from .remote_devices import async_sync_remote_room_devices
+from .remote_devices import async_clear_remote_device_sync_cache, async_sync_remote_room_devices
+from .providers import async_clear_nina_details_cache
 
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.23"
+FRONTEND_VERSION = "0.6.24"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -94,6 +99,20 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         )
 
 
+def _pin_subentry_capabilities(entry: ConfigEntry) -> None:
+    """Keep read-only remote entries out of Home Assistant's room parent picker.
+
+    Home Assistant caches supported subentry types on each ConfigEntry. Older
+    remote entries may have cached the room type before they were marked
+    read-only, so clear/pin the cache whenever the entry is migrated or set up.
+    """
+    if not hasattr(entry, "_supported_subentry_types"):
+        return
+    remote = entry_kind(entry) == ENTRY_KIND_REMOTE or bool(entry.data.get(CONF_REMOTE_HOST))
+    object.__setattr__(entry, "_supported_subentry_types", {} if remote else None)
+    entry.clear_state_cache()
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate Lüftungsberater config entries without guessing replacements."""
     updates: dict[str, object] = {}
@@ -130,20 +149,34 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             updates["data"] = cleaned_data
         updates["minor_version"] = 4
 
+    if entry.version == 1 and entry.minor_version < 5:
+        # v0.6.24 uses a real time selector for the per-room night hint. Keep
+        # existing hour choices without changing behaviour.
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
+                continue
+            data = dict(subentry.data)
+            if CONF_NIGHT_START_TIME not in data:
+                try:
+                    hour = int(data.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR))
+                except (TypeError, ValueError):
+                    hour = DEFAULT_NIGHT_START_HOUR
+                data[CONF_NIGHT_START_TIME] = f"{max(0, min(23, hour)):02d}:00"
+                data.pop(CONF_NIGHT_START_HOUR, None)
+                hass.config_entries.async_update_subentry(entry, subentry, data=data)
+        updates["minor_version"] = 5
+
     if updates:
         hass.config_entries.async_update_entry(entry, **updates)
+    _pin_subentry_capabilities(entry)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one local or Tailscale-remote Lüftungsberater entry."""
-    # Home Assistant caches supported_subentry_types on the ConfigEntry object.
-    # Custom integration reloads keep that object alive, so a remote entry may
-    # otherwise keep the old "Add room" capability until a full HA restart.
-    # There is currently no public invalidation method for this cache.
-    if hasattr(entry, "_supported_subentry_types"):
-        object.__setattr__(entry, "_supported_subentry_types", None)
-        entry.clear_state_cache()
+    # Keep Home Assistant's per-entry subentry capability cache in sync with
+    # our local-vs-remote model. Remote/Tailscale peers are read-only.
+    _pin_subentry_capabilities(entry)
 
     await _async_register_frontend(hass)
     async_register_api(hass)
@@ -169,6 +202,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return True
 
     await async_get_or_create_air_quality_tracker(hass, entry)
+    await async_get_or_create_outside_coordinator(hass, entry)
 
     for subentry in entry.subentries.values():
         if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
@@ -191,13 +225,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload local platforms/trackers or a remote coordinator."""
     if entry_kind(entry) == ENTRY_KIND_REMOTE:
         await async_stop_remote_coordinator(hass, entry)
+        async_clear_remote_device_sync_cache(hass, entry)
+        async_clear_nina_details_cache(hass, entry)
         return True
 
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        async_stop_air_quality_tracker(hass, entry)
         await async_stop_entry_coordinators(hass, entry)
+        await async_stop_outside_coordinator(hass, entry)
+        await async_stop_air_quality_tracker(hass, entry)
         await async_stop_entry_trackers(hass, entry)
         await async_stop_entry_co2_trackers(hass, entry)
         await async_stop_entry_mold_trackers(hass, entry)
+        async_clear_nina_details_cache(hass, entry)
     return unloaded

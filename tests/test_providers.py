@@ -480,3 +480,48 @@ def test_wind_thresholds_split_orange_disadvantage_from_red_hazard():
     assert ordinary.weather_caution is False and ordinary.weather_danger is False
     assert disadvantage.weather_caution is True and disadvantage.weather_danger is False
     assert hazard.weather_danger is True
+
+
+async def test_nina_get_details_is_cached_by_warning_id(hass, enable_custom_integrations):
+    """Full NINA actions are fetched once and reused until the warning id changes."""
+    from unittest.mock import AsyncMock, patch
+
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.lueftungsberater.const import CONF_WARNING_SOURCE
+    from custom_components.lueftungsberater.providers import (
+        _evaluate_nina_like_entities,
+        async_refresh_nina_details,
+    )
+
+    nina = MockConfigEntry(domain="nina", title="NINA", data={})
+    nina.add_to_hass(hass)
+    advisor = SimpleNamespace(entry_id="advisor-entry", data={CONF_WARNING_SOURCE: nina.entry_id})
+    warning = "binary_sensor.nina_warning_1"
+    hass.states.async_set(warning, "on", {"id": "warning-123"})
+
+    response = {
+        warning: {
+            "headline": "Gefahrstoffaustritt",
+            "description": "Gefahrstoffe befinden sich in der Außenluft.",
+            "recommended_actions": "Fenster und Türen geschlossen halten.",
+            "severity": "Moderate",
+            "id": "warning-123",
+        }
+    }
+    call = AsyncMock(return_value=response)
+
+    with (
+        patch(
+            "custom_components.lueftungsberater.providers._config_entry_entities",
+            return_value=[warning],
+        ),
+        patch.object(hass.services, "has_service", return_value=True),
+        patch.object(hass.services, "async_call", call),
+    ):
+        await async_refresh_nina_details(hass, advisor)
+        await async_refresh_nina_details(hass, advisor)
+        result = _evaluate_nina_like_entities(hass, advisor, [warning])
+
+    assert call.await_count == 1
+    assert result.nina_status == "danger"

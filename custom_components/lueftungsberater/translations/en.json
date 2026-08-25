@@ -26,6 +26,44 @@
           "notify_triggers": "Notify me about (optional)",
           "display_mode": "Traffic-light view",
           "outdoor_co2": "Outdoor CO₂ (optional)"
+        },
+        "data_description": {
+          "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒.",
+          "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
+        },
+        "sections": {
+          "general": {
+            "name": "🎛️ Basics",
+            "description": "Weather, warnings and how the advisor is displayed.",
+            "data": {
+              "weather_entity": "Weather provider",
+              "warning_source": "Warning service (optional)",
+              "display_mode": "Traffic-light view"
+            },
+            "data_description": {
+              "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒."
+            }
+          },
+          "outdoor": {
+            "name": "🌤️ Personal outdoor sensors",
+            "description": "Optional. Use your own outdoor readings when they better represent the air at your location.",
+            "data": {
+              "outdoor_temperature": "Override outdoor temperature",
+              "outdoor_humidity": "Override outdoor humidity",
+              "outdoor_co2": "Outdoor CO₂ (optional)"
+            },
+            "data_description": {
+              "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
+            }
+          },
+          "notifications": {
+            "name": "🔔 Notifications",
+            "description": "Choose where and for which events the advisor may send a short message.",
+            "data": {
+              "notify_target": "Notification target (optional)",
+              "notify_triggers": "Notify me about (optional)"
+            }
+          }
         }
       },
       "remote": {
@@ -56,6 +94,44 @@
           "notify_triggers": "Notify me about (optional)",
           "display_mode": "Traffic-light view",
           "outdoor_co2": "Outdoor CO₂ (optional)"
+        },
+        "data_description": {
+          "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒.",
+          "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
+        },
+        "sections": {
+          "general": {
+            "name": "🎛️ Basics",
+            "description": "Weather, warnings and how the advisor is displayed.",
+            "data": {
+              "weather_entity": "Weather provider",
+              "warning_source": "Warning service (optional)",
+              "display_mode": "Traffic-light view"
+            },
+            "data_description": {
+              "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒."
+            }
+          },
+          "outdoor": {
+            "name": "🌤️ Personal outdoor sensors",
+            "description": "Optional. Use your own outdoor readings when they better represent the air at your location.",
+            "data": {
+              "outdoor_temperature": "Override outdoor temperature",
+              "outdoor_humidity": "Override outdoor humidity",
+              "outdoor_co2": "Outdoor CO₂ (optional)"
+            },
+            "data_description": {
+              "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
+            }
+          },
+          "notifications": {
+            "name": "🔔 Notifications",
+            "description": "Choose where and for which events the advisor may send a short message.",
+            "data": {
+              "notify_target": "Notification target (optional)",
+              "notify_triggers": "Notify me about (optional)"
+            }
+          }
         }
       },
       "remote_confirm": {
@@ -102,9 +178,53 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
-            "target_temperature": "Fallback target temperature",
+            "target_temperature": "🌡️ Fallback target temperature",
             "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
-            "night_advice_start_hour": "Show night advice from"
+            "night_advice_start_time": "🌙 Show night advice from"
+          },
+          "data_description": {
+            "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
+            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+          },
+          "sections": {
+            "room_climate": {
+              "name": "🌡️ Room climate",
+              "description": "Required readings and your personal target temperature.",
+              "data": {
+                "indoor_temperature": "Indoor temperature",
+                "indoor_humidity": "Indoor humidity",
+                "climate_entity": "Climate entity for target temperature (optional)",
+                "target_temperature": "🌡️ Fallback target temperature"
+              },
+              "data_description": {
+                "target_temperature": "Used when no suitable target temperature is available from a climate entity."
+              }
+            },
+            "room_night": {
+              "name": "🌙 Night ventilation",
+              "description": "Only controls when advice for the coming night may start appearing.",
+              "data": {
+                "night_advice_start_time": "🌙 Show night advice from"
+              },
+              "data_description": {
+                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+              }
+            },
+            "room_sensors": {
+              "name": "🧪 Extra sensors",
+              "description": "Optional. CO₂ and surface temperature give the advisor more context.",
+              "data": {
+                "co2_entity": "CO₂ (optional)",
+                "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)"
+              }
+            },
+            "room_openings": {
+              "name": "🪟 Windows & doors",
+              "description": "Optional. Lets the advisor track an airing session and continue it after a restart.",
+              "data": {
+                "window_entities": "Windows / doors (optional)"
+              }
+            }
           }
         },
         "reconfigure": {
@@ -116,11 +236,55 @@
             "co2_entity": "CO₂ (optional)",
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
-            "target_temperature": "Fallback target temperature",
+            "target_temperature": "🌡️ Fallback target temperature",
             "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
-            "night_advice_start_hour": "Show night advice from"
+            "night_advice_start_time": "🌙 Show night advice from"
           },
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated."
+          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated.",
+          "data_description": {
+            "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
+            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+          },
+          "sections": {
+            "room_climate": {
+              "name": "🌡️ Room climate",
+              "description": "Required readings and your personal target temperature.",
+              "data": {
+                "indoor_temperature": "Indoor temperature",
+                "indoor_humidity": "Indoor humidity",
+                "climate_entity": "Climate entity for target temperature (optional)",
+                "target_temperature": "🌡️ Fallback target temperature"
+              },
+              "data_description": {
+                "target_temperature": "Used when no suitable target temperature is available from a climate entity."
+              }
+            },
+            "room_night": {
+              "name": "🌙 Night ventilation",
+              "description": "Only controls when advice for the coming night may start appearing.",
+              "data": {
+                "night_advice_start_time": "🌙 Show night advice from"
+              },
+              "data_description": {
+                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+              }
+            },
+            "room_sensors": {
+              "name": "🧪 Extra sensors",
+              "description": "Optional. CO₂ and surface temperature give the advisor more context.",
+              "data": {
+                "co2_entity": "CO₂ (optional)",
+                "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)"
+              }
+            },
+            "room_openings": {
+              "name": "🪟 Windows & doors",
+              "description": "Optional. Lets the advisor track an airing session and continue it after a restart.",
+              "data": {
+                "window_entities": "Windows / doors (optional)"
+              }
+            }
+          }
         }
       },
       "abort": {
@@ -203,8 +367,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Ventilation light – green = ventilate",
-        "room_air": "Room-air status – green = all good"
+        "ventilation": "Ventilation light · 🟢 = ventilate · 🔴 = keep closed",
+        "room_air": "Room-air status · 🟢 = good · 🔴 = ventilation needed"
       }
     }
   }

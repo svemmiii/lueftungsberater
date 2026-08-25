@@ -31,7 +31,7 @@ CONF_NOTIFY_TRIGGERS = "notify_triggers"
 CONF_DISPLAY_MODE = "display_mode"
 DISPLAY_MODE_VENTILATION = "ventilation"
 DISPLAY_MODE_ROOM_AIR = "room_air"
-DEFAULT_DISPLAY_MODE = DISPLAY_MODE_VENTILATION
+DEFAULT_DISPLAY_MODE = DISPLAY_MODE_ROOM_AIR
 
 # Removed with v0.6.20. Kept as one private migration list only so existing
 # config entries can be cleaned without breaking setup after the update.
@@ -61,7 +61,7 @@ DEFAULT_REMOTE_PORT = 8123
 REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
 REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
 REMOTE_PROTOCOL_VERSION = 1
-FORECAST_REFRESH_INTERVAL = timedelta(minutes=15)
+FORECAST_REFRESH_INTERVAL = timedelta(minutes=45)
 
 CONF_ROOM_NAME = "room_name"
 CONF_INDOOR_TEMP = "indoor_temperature"
@@ -71,8 +71,10 @@ CONF_WINDOWS = "window_entities"
 CONF_CLIMATE = "climate_entity"
 CONF_TARGET_TEMP = "target_temperature"
 CONF_SURFACE_TEMP = "surface_temperature"
-CONF_NIGHT_START_HOUR = "night_advice_start_hour"
+CONF_NIGHT_START_HOUR = "night_advice_start_hour"  # legacy v0.6.22/v0.6.23
+CONF_NIGHT_START_TIME = "night_advice_start_time"
 DEFAULT_NIGHT_START_HOUR = 22
+DEFAULT_NIGHT_START_TIME = "22:00"
 
 # Kept only so old v0.1/v0.2 config subentries remain readable.
 # v0.3 no longer asks for or uses this external helper.
@@ -83,26 +85,33 @@ MIN_CONFIRMED_AIRING = timedelta(minutes=5)
 CO2_GRACE_PERIOD = timedelta(seconds=60)
 
 # The mould tracker is optional and only exists when a surface-temperature
-# sensor is configured. A 50% time-of-wetness-style signal over the last 24 h
-# is used only as a conservative product-side escalation helper; it is not a
-# medical diagnosis, a DIN threshold or proof of mould growth.
+# sensor is configured. It keeps only compact measured critical intervals and
+# escalates softly for long current exposure or repeated affected days; these
+# are product-side hints, not medical/DIN thresholds or proof of mould growth.
 MOLD_SAMPLE_INTERVAL = timedelta(minutes=5)
 MOLD_HISTORY_WINDOW = timedelta(hours=24)
-MOLD_HISTORY_RETENTION = timedelta(hours=48)
-MOLD_PERSISTENT_24H = timedelta(hours=12)
+MOLD_HISTORY_RETENTION = timedelta(days=7)
+# Product-side persistence hints only; not medical/DIN thresholds.
+MOLD_CURRENT_LONG = timedelta(hours=6)
+MOLD_REPEATED_DAY_MIN = timedelta(hours=1)
+MOLD_REPEATED_DAYS = 3
 
 DATA_TRACKERS = "airing_trackers"
 DATA_CO2_TRACKERS = "co2_trackers"
 DATA_MOLD_TRACKERS = "mold_trackers"
 DATA_COORDINATORS = "room_coordinators"
+DATA_OUTSIDE_COORDINATORS = "outside_coordinators"
 DATA_REMOTE_COORDINATORS = "remote_coordinators"
 DATA_API_REGISTERED = "api_registered"
 DATA_NOTIFICATION_STATE = "notification_state"
 DATA_FORECAST_CACHE = "hourly_forecast_cache"
 DATA_AIR_QUALITY_TRACKERS = "air_quality_trackers"
-AIR_QUALITY_HISTORY_RETENTION = timedelta(days=14)
 AIR_QUALITY_HISTORY_MIN_SAMPLES = 24
 AIR_QUALITY_SAMPLE_MIN_INTERVAL = timedelta(minutes=30)
+AIR_QUALITY_RECENT_SAMPLES = 12
+AIR_QUALITY_MAX_LOCATIONS = 8
+AIR_QUALITY_BASELINE_ALPHA = 0.0025
+DECISION_MEMORY_TTL = timedelta(hours=3)
 STORAGE_VERSION = 1
 
 

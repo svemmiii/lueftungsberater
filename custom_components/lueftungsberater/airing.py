@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
+    async_track_point_in_utc_time,
     async_track_state_change_event,
     async_track_time_interval,
 )
@@ -22,9 +23,10 @@ from .const import (
     STORAGE_VERSION,
 )
 
+_UNKNOWN = {"unknown", "unavailable", "none", ""}
+
 
 def tracker_signal(entry_id: str, subentry_id: str) -> str:
-    """Return dispatcher signal for one room tracker."""
     return f"{DOMAIN}_{entry_id}_{subentry_id}_airing_update"
 
 
@@ -40,14 +42,9 @@ def _parse_dt(value: Any) -> datetime | None:
 
 
 class RoomAiringTracker:
-    """Track real airing sessions from configured window/door contacts."""
+    """Track real airing sessions while doing no idle minute polling."""
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        subentry: ConfigSubentry,
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubentry) -> None:
         self.hass = hass
         self.entry = entry
         self.subentry = subentry
@@ -56,110 +53,144 @@ class RoomAiringTracker:
         self.last_confirmed_airing: datetime | None = None
         self._unsub_state = None
         self._unsub_tick = None
+        self._unsub_fallback = None
         self._store: Store[dict[str, Any]] = Store(
-            hass,
-            STORAGE_VERSION,
-            f"{DOMAIN}.airing.{entry.entry_id}.{subentry.subentry_id}",
+            hass, STORAGE_VERSION, f"{DOMAIN}.airing.{entry.entry_id}.{subentry.subentry_id}"
         )
+
+    def _contact_state(self) -> tuple[bool, bool]:
+        """Return (any_open, all_contacts_known)."""
+        if not self.windows:
+            return False, True
+        any_open = False
+        all_known = True
+        for entity_id in self.windows:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in _UNKNOWN:
+                all_known = False
+                continue
+            if state.state == "on":
+                any_open = True
+        return any_open, all_known
 
     @property
     def is_open(self) -> bool:
-        """Return true if at least one configured contact is open."""
-        return any(self.hass.states.is_state(entity_id, "on") for entity_id in self.windows)
+        return self._contact_state()[0]
 
     @property
     def current_open_minutes(self) -> float | None:
-        """Return current airing-session duration."""
-        if not self.is_open or self.open_since is None:
+        if self.open_since is None or not self.is_open:
             return None
-        seconds = (dt_util.utcnow() - self.open_since).total_seconds()
-        return max(0.0, seconds / 60.0)
+        return max(0.0, (dt_util.utcnow() - self.open_since).total_seconds() / 60.0)
 
     @property
     def hours_since_last_airing(self) -> float | None:
-        """Return hours since last confirmed airing session."""
         if self.last_confirmed_airing is None:
             return None
-        seconds = (dt_util.utcnow() - self.last_confirmed_airing).total_seconds()
-        return max(0.0, seconds / 3600.0)
+        return max(0.0, (dt_util.utcnow() - self.last_confirmed_airing).total_seconds() / 3600.0)
 
     async def async_initialize(self) -> None:
-        """Restore state and start tracking."""
         stored = await self._store.async_load() or {}
         self.last_confirmed_airing = _parse_dt(stored.get("last_confirmed_airing"))
         stored_open_since = _parse_dt(stored.get("open_since"))
 
-        if self.is_open:
-            # Preserve an already-running session across an HA restart.
+        any_open, all_known = self._contact_state()
+        if any_open:
             self.open_since = stored_open_since or dt_util.utcnow()
+        elif not all_known:
+            # Startup often exposes contacts as unknown for a moment. Preserve a
+            # running session until the contacts give a definitive answer.
+            self.open_since = stored_open_since
         else:
-            # We cannot safely infer a completed airing while HA was offline.
             self.open_since = None
-
-        await self._async_save()
 
         if self.windows:
             self._unsub_state = async_track_state_change_event(
-                self.hass,
-                self.windows,
-                self._async_window_changed,
+                self.hass, self.windows, self._async_window_changed
             )
-
-        # Update "x hours since" and current open duration without polling entities.
-        self._unsub_tick = async_track_time_interval(
-            self.hass,
-            self._async_tick,
-            timedelta(minutes=1),
-        )
+        self._sync_timers()
+        await self._async_save()
 
     async def async_stop(self) -> None:
-        """Stop listeners and persist current state."""
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None
+        self._cancel_tick()
+        self._cancel_fallback()
+        await self._async_save()
+
+    def _cancel_tick(self) -> None:
         if self._unsub_tick:
             self._unsub_tick()
             self._unsub_tick = None
-        await self._async_save()
+
+    def _cancel_fallback(self) -> None:
+        if self._unsub_fallback:
+            self._unsub_fallback()
+            self._unsub_fallback = None
+
+    def _sync_timers(self) -> None:
+        """Tick only while open; when closed wake exactly at the 24h fallback."""
+        any_open, _all_known = self._contact_state()
+        if any_open and self.open_since is not None:
+            self._cancel_fallback()
+            if self._unsub_tick is None:
+                self._unsub_tick = async_track_time_interval(
+                    self.hass, self._async_tick, timedelta(minutes=1)
+                )
+            return
+
+        self._cancel_tick()
+        self._cancel_fallback()
+        if self.last_confirmed_airing is None:
+            return
+        target = self.last_confirmed_airing + timedelta(hours=24)
+        now = dt_util.utcnow()
+        if target > now:
+            self._unsub_fallback = async_track_point_in_utc_time(
+                self.hass, self._async_fallback_due, target
+            )
 
     @callback
     def _async_tick(self, _now: datetime) -> None:
         async_dispatcher_send(
-            self.hass,
-            tracker_signal(self.entry.entry_id, self.subentry.subentry_id),
+            self.hass, tracker_signal(self.entry.entry_id, self.subentry.subentry_id)
+        )
+
+    @callback
+    def _async_fallback_due(self, _now: datetime) -> None:
+        self._unsub_fallback = None
+        async_dispatcher_send(
+            self.hass, tracker_signal(self.entry.entry_id, self.subentry.subentry_id)
         )
 
     @callback
     def _async_window_changed(self, _event: Event) -> None:
-        """Handle any configured contact changing state."""
         now = dt_util.utcnow()
-        currently_open = self.is_open
+        any_open, all_known = self._contact_state()
 
-        if currently_open and self.open_since is None:
+        if any_open and self.open_since is None:
             self.open_since = now
             self.hass.async_create_task(self._async_save())
-
-        elif not currently_open and self.open_since is not None:
+        elif not any_open and all_known and self.open_since is not None:
             duration = now - self.open_since
             if duration >= MIN_CONFIRMED_AIRING:
                 self.last_confirmed_airing = now
             self.open_since = None
             self.hass.async_create_task(self._async_save())
+        # If no contact is open but one is unknown/unavailable, deliberately
+        # keep open_since. Unknown is not proof that the window was closed.
 
+        self._sync_timers()
         async_dispatcher_send(
-            self.hass,
-            tracker_signal(self.entry.entry_id, self.subentry.subentry_id),
+            self.hass, tracker_signal(self.entry.entry_id, self.subentry.subentry_id)
         )
 
     async def _async_save(self) -> None:
         await self._store.async_save(
             {
                 "open_since": self.open_since.isoformat() if self.open_since else None,
-                "last_confirmed_airing": (
-                    self.last_confirmed_airing.isoformat()
-                    if self.last_confirmed_airing
-                    else None
-                ),
+                "last_confirmed_airing": self.last_confirmed_airing.isoformat() if self.last_confirmed_airing else None,
             }
         )
 
@@ -170,48 +201,32 @@ def _tracker_bucket(hass: HomeAssistant, entry_id: str) -> dict[str, RoomAiringT
     return entry_data.setdefault(DATA_TRACKERS, {})
 
 
-async def async_get_or_create_tracker(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    subentry: ConfigSubentry,
-) -> RoomAiringTracker | None:
-    """Return/create a tracker for a room with window contacts."""
+async def async_get_or_create_tracker(hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubentry) -> RoomAiringTracker | None:
     windows = subentry.data.get(CONF_WINDOWS, []) or []
     if not windows:
         return None
-
     bucket = _tracker_bucket(hass, entry.entry_id)
     tracker = bucket.get(subentry.subentry_id)
     if tracker is not None:
         return tracker
-
     tracker = RoomAiringTracker(hass, entry, subentry)
     bucket[subentry.subentry_id] = tracker
     await tracker.async_initialize()
     return tracker
 
 
-def get_tracker(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    subentry: ConfigSubentry,
-) -> RoomAiringTracker | None:
-    """Return an initialized room tracker if present."""
+def get_tracker(hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubentry) -> RoomAiringTracker | None:
     try:
-        return hass.data[DOMAIN][entry.entry_id][DATA_TRACKERS].get(
-            subentry.subentry_id
-        )
+        return hass.data[DOMAIN][entry.entry_id][DATA_TRACKERS].get(subentry.subentry_id)
     except KeyError:
         return None
 
 
 async def async_stop_entry_trackers(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Stop all trackers belonging to a config entry."""
     try:
         bucket = hass.data[DOMAIN][entry.entry_id].get(DATA_TRACKERS, {})
     except KeyError:
         return
-
     for tracker in list(bucket.values()):
         await tracker.async_stop()
     bucket.clear()
