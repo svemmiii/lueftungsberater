@@ -384,9 +384,9 @@ async def test_remote_supported_subentry_cache_is_pinned_read_only(
         {SUBENTRY_TYPE_ROOM: {"supports_reconfigure": True}},
     )
     entry.clear_state_cache()
-    assert SUBENTRY_TYPE_ROOM in entry.as_json_fragment["supported_subentry_types"]
+    assert SUBENTRY_TYPE_ROOM in entry.supported_subentry_types
 
     _pin_subentry_capabilities(entry)
 
     assert entry.supported_subentry_types == {}
-    assert entry.as_json_fragment["supported_subentry_types"] == {}
+    assert entry.supported_subentry_types == {}

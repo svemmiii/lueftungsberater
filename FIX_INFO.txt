@@ -1,0 +1,29 @@
+LUEFTUNGSBERATER v0.6.24 - PYTEST FIX v3
+========================================
+
+Fixes the failing Home Assistant 2026.6.1 test in tests/test_config_flow.py.
+
+Cause:
+ConfigEntry.as_json_fragment is an orjson.Fragment in Home Assistant 2026.6.1,
+not a Python dict. Therefore code such as:
+
+    entry.as_json_fragment["supported_subentry_types"]
+
+raises:
+
+    TypeError: 'orjson.Fragment' object is not subscriptable
+
+The test now checks the public-ish ConfigEntry property used to build that JSON:
+
+    entry.supported_subentry_types
+
+No Lüftungsberater production/runtime logic is changed by this patch.
+
+UPLOAD:
+Open the GitHub repository folder tests/ and replace test_config_flow.py with the
+file from this ZIP's tests/ directory.
+
+REPOSITORY LAYOUT WARNING:
+The CI warning about the repository-root manifest.json is separate from Pytest.
+Delete the accidental manifest.json from the repository ROOT permanently.
+Keep custom_components/lueftungsberater/manifest.json.
