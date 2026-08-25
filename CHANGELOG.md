@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.23 - Alpha
+
+- Hauptberatung weiter auf die vierstufige Gesamtabwägung abgestimmt. Die vereinbarten Grenzfälle für CO₂, Temperatur, Feuchte, Regen und Wind sind als Regressionstests festgehalten; starke Innenraumgründe können moderate Außennachteile überwiegen, ohne echte Schutzlagen zu ignorieren.
+- Neuer **Sperrzustand** außerhalb der normalen Ampel: konkrete Fenster-schließen-Warnungen und schwere Wettergefahren werden in der Karte mit Schloss dargestellt. Dadurch behält jede normale Ampelfarbe ihre Bedeutung und wird nie für zwei gegensätzliche Handlungen verwendet.
+- Neue wählbare **Ampeldarstellung**: Standard bleibt die Lüftungsampel (Grün = Lüften sinnvoll). Alternativ zeigt der Raumluftstatus die Dringlichkeit im Raum (Grün = alles gut, Rot = Lüften dringend sinnvoll). Der Sperrzustand übersteuert beide Darstellungen eindeutig.
+- Temperaturbewertung weiter verbessert: Richtung zum persönlichen Sollwert, Stärke der Temperaturwirkung und andere Raum-/Außenwerte werden gemeinsam betrachtet. Große Temperaturunterschiede wirken stärker, lösen aber nicht allein pauschal eine Farbe aus.
+- Plausibilitätsfilter absichtlich großzügig gehalten: extreme, aber mögliche Raumwerte bleiben gültig. Offensichtlich unbrauchbare Daten werden ignoriert statt durch erfundene Werte ersetzt. Unplausible Climate-Sollwerte fallen auf den gespeicherten Lüftungsberater-Sollwert zurück.
+- CO₂-Lüftungen besitzen eine klarere Rücklaufhysterese: während einer sinnvollen Lüftung bleibt die Empfehlung stabil, geht nahe am Ziel in Gelb über und bewertet erst nach dem Schließen wieder die verbleibenden Außennachteile.
+- Optionaler **Außen-CO₂-Sensor** ergänzt. Ein plausibler lokaler Wert zeigt, wie groß das tatsächliche CO₂-Senkungspotenzial durchs Lüften ist; er wird nicht mit regionalen Daten gemittelt und macht hohe Innenwerte niemals künstlich gut.
+- Außenluftqualität erhält lokalen Kontext und Trend: Der UBA-LQI bleibt die absolute gesundheitliche Klasse. Zusätzlich merkt sich Lüftungsberater pro Standort einen rollierenden typischen Bereich und erkennt ungewöhnliche bzw. steigende Belastungen, ohne dauerhaft schlechte Luft gesundzurechnen.
+- Standortbezogene Luftqualitäts-Historie verhindert, dass ein gelernter Normalbereich blind auf einen deutlich anderen Standort übertragen wird. Ohne brauchbare Standortinformation bleibt nur die absolute Bewertung.
+- Nachtlüftung überarbeitet: Die Startzeit der Anzeige ist pro Raum einstellbar (Standard 22 Uhr), aber keine feste Startanweisung. Lüftungsberater sucht in der Stundenprognose nach einem passenden Zeitfenster und kann z. B. „Später lüften – ab etwa 01:00 Uhr wird es draußen deutlich kühler“ anzeigen. Wenn nachts nichts Sinnvolles zu melden ist, bleibt die Zusatzzeile verborgen.
+- Nachtbewertung nutzt nur tatsächlich vorhandene Forecastfelder und berücksichtigt soweit verfügbar Temperatur, Feuchte, Regen, Wind, Warnungen und Außenluftqualität. Die aktuelle Hauptampel bleibt davon getrennt.
+- Remote-/Tailscale-Einträge werden robuster als read-only erkannt, einschließlich älterer Einträge ohne explizites `entry_kind`. Der gecachte Home-Assistant-Subentry-Status wird beim Setup aktualisiert, damit Remote-Verbindungen nicht mehr als Ziel beim Anlegen lokaler Räume angeboten werden.
+- Remote-Messwerte bleiben unverändert flüchtige Snapshots: keine gespiegelten Entities, keine Recorder-Historie und keine dauerhafte Messwertkopie auf dem empfangenden Home Assistant.
+- Sichtbare Texte in Karte, Konfiguration und Nachtberatung weiter auf kurze, natürliche Formulierungen umgestellt. Deutsch, Englisch und Türkisch wurden gemeinsam aktualisiert.
+
 ## 0.6.22 - Alpha
 
 - Vierstufige Ampel eingeführt: Grün = klar sinnvoll, Gelb = optional/nahe Abwägung, Orange = eher nachteilig bzw. besser geschlossen lassen, Rot = deutlicher Schutz-/Gefahrengrund zum Geschlossenhalten.

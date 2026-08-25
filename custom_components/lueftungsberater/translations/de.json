@@ -23,7 +23,9 @@
           "outdoor_temperature": "Außentemperatur überschreiben",
           "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben",
           "notify_target": "Benachrichtigungsziel (optional)",
-          "notify_triggers": "Benachrichtigen bei (optional)"
+          "notify_triggers": "Benachrichtigen bei (optional)",
+          "display_mode": "Ampeldarstellung",
+          "outdoor_co2": "CO₂ außen (optional)"
         }
       },
       "remote": {
@@ -51,7 +53,9 @@
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "HTTPS verwenden",
           "notify_target": "Benachrichtigungsziel (optional)",
-          "notify_triggers": "Benachrichtigen bei (optional)"
+          "notify_triggers": "Benachrichtigen bei (optional)",
+          "display_mode": "Ampeldarstellung",
+          "outdoor_co2": "CO₂ außen (optional)"
         }
       },
       "remote_confirm": {
@@ -90,7 +94,7 @@
       "step": {
         "user": {
           "title": "Raum hinzufügen",
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und eine kalte bzw. kritische Oberflächentemperatur sind optional. Mit einem echten Oberflächentemperatursensor kann der Lüftungsberater zusätzlich die berechnete Feuchte an dieser Stelle und deren Verlauf berücksichtigen; ohne Sensor werden keine Oberflächenwerte geschätzt. Fenster-/Türkontakte erkennen Lüftungen ab 5 Minuten automatisch und führen den Lüftungsverlauf.",
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeit legt nur fest, ab wann ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data": {
             "room_name": "Raumname",
             "indoor_temperature": "Innentemperatur",
@@ -99,7 +103,8 @@
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
             "target_temperature": "Fallback-Solltemperatur",
-            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)"
+            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
+            "night_advice_start_hour": "Nacht-Hinweis anzeigen ab"
           }
         },
         "reconfigure": {
@@ -112,9 +117,10 @@
             "window_entities": "Fenster / Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
             "target_temperature": "Fallback-Solltemperatur",
-            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)"
+            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
+            "night_advice_start_hour": "Nacht-Hinweis anzeigen ab"
           },
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und eine kalte bzw. kritische Oberflächentemperatur sind optional. Mit einem echten Oberflächentemperatursensor kann der Lüftungsberater zusätzlich die berechnete Feuchte an dieser Stelle und deren Verlauf berücksichtigen; ohne Sensor werden keine Oberflächenwerte geschätzt. Fenster-/Türkontakte erkennen Lüftungen ab 5 Minuten automatisch und führen den Lüftungsverlauf."
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeit legt nur fest, ab wann ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt."
         }
       },
       "abort": {
@@ -193,6 +199,12 @@
         "air_caution": "Außenluft-Vorsicht / mäßige Luftqualität",
         "weather_danger": "Unwetter / schwere Wetterwarnungen",
         "weather_caution": "Wetterwarnungen / Vorsichtshinweise"
+      }
+    },
+    "display_mode": {
+      "options": {
+        "ventilation": "Lüftungsampel – Grün = lüften",
+        "room_air": "Raumluftstatus – Grün = alles gut"
       }
     }
   }

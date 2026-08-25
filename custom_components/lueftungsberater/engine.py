@@ -79,7 +79,7 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
         return "brief_observation"
     if mode == "co2_kritisch":
         return "co2_recheck"
-    if mode == "co2_lueften":
+    if mode in {"co2_lueften", "co2_lueften_mit_nachteil"}:
         return "co2_until_good"
     if mode == "kuehlen":
         return "cooling"
@@ -116,6 +116,7 @@ def _color(mode: str) -> str:
     if mode in {
         "co2_kritisch",
         "co2_lueften",
+        "co2_lueften_mit_nachteil",
         "weiter_lueften",
         "feuchte_lueften",
         "schimmel_lueften",
@@ -140,6 +141,7 @@ def _color(mode: str) -> str:
         "wetter_vorsicht",
         "luftqualitaet_maessig",
         "luftqualitaet_schlecht",
+        "luftqualitaet_sehr_schlecht_typisch",
         "co2_warten",
         "schimmel_warten",
         "feuchte_warten",
@@ -284,14 +286,108 @@ def _primary_need(
     return "none", 0
 
 
-def _outdoor_soft_caution(data: RoomInput) -> str | None:
+def _air_quality_penalty(data: RoomInput) -> int:
+    """Return an outdoor-air disadvantage without changing the UBA class.
+
+    0 = none, 1 = mild, 2 = strong, 3 = unusually/severely strong. A location
+    where poor air is unfortunately typical stays medically "poor"; local
+    history only prevents every ordinary day there from looking like an acute
+    exceptional event.
+    """
+    if data.air_quality in {"unknown", "very_good", "good"}:
+        return 0
     if data.air_quality == "moderate":
+        return 1
+    if data.air_quality == "poor":
+        if data.air_quality_unusual or data.air_quality_trend == "rising":
+            return 3
+        return 2
+    if data.air_quality == "very_poor":
+        if data.air_quality_typical is True and not data.air_quality_unusual and data.air_quality_trend != "rising":
+            return 2
+        return 3
+    return 0
+
+
+def _outdoor_soft_caution(data: RoomInput) -> str | None:
+    if _air_quality_penalty(data) > 0:
         return "air_quality"
     if data.nina_status == "caution":
         return "air_warning"
     if data.weather_caution:
         return "weather"
     return None
+
+
+def _co2_outdoor_limited(data: RoomInput) -> bool:
+    """Return whether measured outdoor CO2 offers very little reduction.
+
+    The 100 ppm band is only a technical sensor/noise guard. It is not a health
+    threshold and it never turns an extreme indoor value into "good".
+    """
+    if data.co2 is None or data.outdoor_co2 is None:
+        return False
+    return data.outdoor_co2 >= data.co2 - 100.0
+
+
+def _room_status_color(urgency: int, ventilation_color: str) -> str:
+    """Return the optional room-status colour without creating unsafe meanings.
+
+    In room-status mode red must *always* mean that airing is urgently useful.
+    If the normal ventilation decision is a trade-off or recommends keeping the
+    window closed, an indoor problem is therefore capped at orange/yellow. A
+    true outside protection reason is rendered separately as ``locked`` by the
+    UI and never reuses red for the opposite action.
+    """
+    if ventilation_color == "green":
+        if urgency >= 3:
+            return "red"
+        if urgency >= 2:
+            return "orange"
+        if urgency >= 1:
+            return "yellow"
+        return "green"
+
+    if ventilation_color == "yellow":
+        if urgency >= 2:
+            return "orange"
+        if urgency >= 1:
+            return "yellow"
+        return "green"
+
+    # When airing is currently disadvantageous, never show red in room-status
+    # mode: a user who chose this view learns red as "air now".
+    if urgency >= 2:
+        return "orange"
+    if urgency >= 1:
+        return "yellow"
+    return "green"
+
+
+def _temperature_drawback(ti: float, ta: float, target: float) -> float:
+    if not _temperature_moves_away(ti, ta, target):
+        return 0.0
+    return abs(ta - ti)
+
+
+def _strong_no_need_disadvantage(
+    *, ti: float, hi: float, ta: float, target: float, diff: float
+) -> bool:
+    """Detect a clearly bad combination, never from temperature alone at 10 K.
+
+    This keeps the user's agreed behaviour: a 5 K mismatch is normally orange;
+    around 10 K can become red only when another meaningful disadvantage points
+    the same way. An extreme ~18 K move away from an already good target is
+    strong enough on its own.
+    """
+    gap = _temperature_drawback(ti, ta, target)
+    if gap >= 18.0:
+        return True
+    if gap < 10.0:
+        return False
+    wetter_when_not_needed = diff <= -1.5 and hi >= 45.0
+    drier_when_not_needed = diff >= 1.5 and hi <= 45.0
+    return wetter_when_not_needed or drier_when_not_needed
 
 
 def evaluate_room(data: RoomInput) -> VentilationResult:
@@ -341,80 +437,96 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         window_open=data.window_open,
     )
 
-    # True external hazards beat ordinary ventilation goals. Poor UBA-LQI air
-    # also remains closed: typical indoor CO₂ levels are a ventilation-quality
-    # indicator, not a reason to deliberately import substantially polluted air.
+    # A true protection instruction is outside the normal four-colour scale.
+    # The result still carries red for backwards compatibility, while
+    # safety_lock lets the UI render a separate lock state in either display
+    # mode. Poor measured air quality is a strong disadvantage, not by itself a
+    # hard lock instruction.
     hard_mode: str | None = None
     if data.nina_status == "danger":
         hard_mode = "nina_aussenluftgefahr"
     elif data.weather_danger:
         hard_mode = "wettergefahr"
-    elif data.air_quality == "very_poor":
-        hard_mode = "luftqualitaet_sehr_schlecht"
-    elif data.air_quality == "poor":
-        # Poor outdoor air is a strong reason not to open the window, but with
-        # the four-stage UI it is intentionally orange rather than a hard red
-        # emergency unless the provider reaches "very poor" or a warning says so.
-        hard_mode = "luftqualitaet_schlecht"
 
     mode: str
     caution_kind = _outdoor_soft_caution(data)
+    air_penalty = _air_quality_penalty(data)
+    temp_drawback = _temperature_drawback(ti, ta, target)
+    humidity_drawback = diff < -AH_NEUTRAL
+    humidity_drawback_strong = diff <= -1.5
+    outdoor_co2_limited = _co2_outdoor_limited(data)
 
     if hard_mode is not None:
         mode = hard_mode
 
     elif need == "co2_critical":
-        # Critical CO₂ may justify accepting modest humidity/temperature costs,
-        # but official/advisory outdoor hazards keep the recommendation cautious.
-        if caution_kind is not None:
+        # Critical indoor CO2 justifies accepting ordinary heat/moisture costs,
+        # but not a protection warning. Strong wind/moderate pollution stays a
+        # visible trade-off. Extremely bad combinations also remain cautious.
+        if air_penalty >= 2 or data.nina_status == "caution" or data.weather_caution:
             mode = "co2_kritisch_vorsicht"
-        elif hi >= 65 and diff <= -2.0:
+            caution_kind = caution_kind or "conditions"
+        elif outdoor_co2_limited:
+            mode = "co2_kritisch_vorsicht"
+            caution_kind = "outdoor_co2"
+        elif humidity_drawback and diff <= -3.0 and hi >= 65:
             mode = "co2_kritisch_vorsicht"
             caution_kind = "humidity"
-        elif (
-            (ti >= target + 1 and ta >= ti + 5)
-            or (ti <= target - 1 and ta <= ti - 8)
-        ):
+        elif temp_drawback >= 15.0:
             mode = "co2_kritisch_vorsicht"
             caution_kind = "temperature"
         else:
             mode = "co2_kritisch"
 
     elif need == "co2_high":
-        if caution_kind is not None:
+        if air_penalty >= 2 or data.nina_status == "caution" or data.weather_caution:
             mode = "co2_abwaegung"
-        elif mold_persistent and diff <= -AH_NEUTRAL:
+            caution_kind = caution_kind or "conditions"
+        elif outdoor_co2_limited:
             mode = "co2_warten"
-        elif hi >= 65 and diff <= -1.5:
+            caution_kind = "outdoor_co2"
+        elif mold_persistent and humidity_drawback:
             mode = "co2_warten"
-        elif hi >= 60 and diff < -AH_NEUTRAL:
+        elif co2 is not None and co2 >= 1700:
+            # Agreed test behaviour: around 1800 ppm the indoor-air benefit can
+            # outweigh a ~9 K and ~1 g/m³ outdoor disadvantage. The reason still
+            # mentions that trade-off instead of pretending outside is ideal.
+            if temp_drawback >= 15.0 or (humidity_drawback_strong and hi >= 65):
+                mode = "co2_abwaegung"
+                caution_kind = "temperature" if temp_drawback >= 15.0 else "humidity"
+            elif temp_drawback >= 3.0 or humidity_drawback:
+                mode = "co2_lueften_mit_nachteil"
+                caution_kind = "temperature" if temp_drawback >= 3.0 else "humidity"
+            else:
+                mode = "co2_lueften"
+        elif hi >= 65 and humidity_drawback_strong:
+            mode = "co2_warten"
+        elif (hi >= 60 and humidity_drawback) or temp_drawback >= 5.0:
             mode = "co2_abwaegung"
-            caution_kind = "humidity"
-        elif (
-            (ti >= target + 1 and ta >= ti + 5)
-            or (ti <= target - 1 and ta <= ti - 8)
-        ):
-            mode = "co2_abwaegung"
-            caution_kind = "temperature"
+            caution_kind = "humidity" if hi >= 60 and humidity_drawback else "temperature"
         else:
             mode = "co2_lueften"
 
     elif need == "co2_elevated":
-        if caution_kind is not None:
-            mode = "co2_abwaegung"
-        elif mold_persistent and diff <= -AH_NEUTRAL:
+        if air_penalty >= 2 or data.nina_status == "caution" or data.weather_caution:
+            mode = "co2_warten" if air_penalty >= 2 else "co2_abwaegung"
+            caution_kind = caution_kind or "conditions"
+        elif outdoor_co2_limited:
             mode = "co2_warten"
+            caution_kind = "outdoor_co2"
+        elif mold_persistent and humidity_drawback:
+            mode = "co2_warten"
+        elif temp_drawback >= 6.0 and humidity_drawback:
+            # Agreed case: ~1250 ppm does not justify importing markedly hotter
+            # and wetter air when the room is otherwise comfortable.
+            mode = "co2_warten"
+            caution_kind = "combined"
         elif hi >= 60 and diff <= -1.0:
             mode = "co2_warten"
-        elif diff < -AH_NEUTRAL and hi >= 55:
-            mode = "co2_abwaegung"
             caution_kind = "humidity"
-        elif (
-            (ti >= target + 1 and ta >= ti + 3)
-            or (ti <= target - 1 and ta <= ti - 6)
-        ):
+        elif humidity_drawback or temp_drawback >= 3.0:
             mode = "co2_abwaegung"
-            caution_kind = "temperature"
+            caution_kind = "humidity" if humidity_drawback else "temperature"
         else:
             mode = "co2_lueften"
 
@@ -479,14 +591,26 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mode = "routine_warten" if routine_bad else "routine_lueften"
 
     else:
-        # No ventilation need: only show yellow when opening would be essentially
-        # neutral. Any meaningful downside makes red exactly as the UI defines it.
-        if data.air_quality == "moderate":
+        # No ventilation need: yellow is genuinely neutral, orange means a
+        # meaningful downside, and red is reserved for a clearly strong
+        # combination. UBA-LQI stays absolute; local history only distinguishes
+        # ordinary local pollution from an unusually bad episode.
+        if data.air_quality == "very_poor":
+            mode = (
+                "luftqualitaet_sehr_schlecht_typisch"
+                if air_penalty == 2
+                else "luftqualitaet_sehr_schlecht"
+            )
+        elif data.air_quality == "poor":
+            mode = "luftqualitaet_schlecht"
+        elif data.air_quality == "moderate":
             mode = "luftqualitaet_maessig"
         elif data.nina_status == "caution":
             mode = "nina_vorsicht"
         elif data.weather_caution:
             mode = "wetter_vorsicht"
+        elif _strong_no_need_disadvantage(ti=ti, hi=hi, ta=ta, target=target, diff=diff):
+            mode = "aussen_stark_unpassend"
         elif (hi < 40 and diff > AH_NEUTRAL) or (
             previous_mode == "innen_zu_trocken"
             and hi < 42
@@ -499,6 +623,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             mode = "aussen_zu_warm" if ta > ti else "aussen_zu_kalt"
         else:
             mode = "normal"
+
 
     # Rain is a practical window-opening disadvantage, never a proxy for
     # moisture physics. Only near-term rain that can overlap the actual airing
@@ -519,6 +644,35 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 caution_kind = "rain"
         elif mode == "normal":
             mode = "regen" if data.rain_now else "regen_bald"
+
+    # CO₂-driven airing gets its own closing hysteresis. If a session started
+    # because indoor CO₂ was clearly high, ordinary heat/moisture drawbacks do
+    # not suddenly flip the card to orange halfway through. As CO₂ approaches
+    # the good range we move through yellow, then after the window is closed the
+    # normal outdoor disadvantages can become orange again.
+    co2_airing_modes = {
+        "co2_kritisch",
+        "co2_lueften",
+        "co2_lueften_mit_nachteil",
+        "weiter_lueften",
+    }
+    if (
+        data.window_open
+        and hard_mode is None
+        and previous_mode in co2_airing_modes
+        and co2 is not None
+        and air_penalty < 2
+        and data.nina_status != "caution"
+        and not data.weather_caution
+        and not outdoor_co2_limited
+    ):
+        if co2 < 950:
+            mode = "lueftung_fertig"
+        elif co2 < 1100:
+            mode = "co2_abwaegung"
+            caution_kind = "near_target"
+        elif co2 >= 1100:
+            mode = "weiter_lueften"
 
     # If a window is already open, keep green goals going, mark a finished
     # neutral session as done, and preserve red/yellow trade-off modes so the
@@ -590,16 +744,22 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key = data.weather_reason_key or "weather_caution"
         reason_args = dict(data.weather_reason_args)
         original_reason = data.weather_original_reason
-    elif mode in {"luftqualitaet_maessig", "luftqualitaet_schlecht", "luftqualitaet_sehr_schlecht"}:
+    elif mode in {"luftqualitaet_maessig", "luftqualitaet_schlecht", "luftqualitaet_sehr_schlecht", "luftqualitaet_sehr_schlecht_typisch"}:
         reason_key = {
             "luftqualitaet_maessig": "air_quality_moderate",
             "luftqualitaet_schlecht": "air_quality_poor",
             "luftqualitaet_sehr_schlecht": "air_quality_very_poor",
+            "luftqualitaet_sehr_schlecht_typisch": "air_quality_very_poor",
         }[mode]
         reason_args = {
             "pollutant": data.air_quality_pollutant,
             "value": data.air_quality_value,
             "co2": co2,
+            "baseline": data.air_quality_baseline_value,
+            "typical": data.air_quality_typical,
+            "unusual": data.air_quality_unusual,
+            "trend": data.air_quality_trend,
+            "history_samples": data.air_quality_history_samples,
         }
     elif mode == "weiter_lueften":
         reason_key = "continue_airing"
@@ -633,11 +793,36 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             "ti": ti,
             "ta": ta,
             "air_quality": data.air_quality,
+            "outdoor_co2": data.outdoor_co2,
+            "air_quality_baseline": data.air_quality_baseline_value,
+            "air_quality_typical": data.air_quality_typical,
+            "air_quality_unusual": data.air_quality_unusual,
+            "air_quality_trend": data.air_quality_trend,
+        }
+    elif mode == "co2_lueften_mit_nachteil":
+        reason_key = "co2_ventilate_tradeoff"
+        reason_args = {
+            "co2": co2,
+            "caution": caution_kind or "conditions",
+            "diff": diff,
+            "ti": ti,
+            "ta": ta,
+            "outdoor_co2": data.outdoor_co2,
         }
     elif mode == "co2_lueften":
-        reason_key, reason_args = "co2_ventilate", {"co2": co2}
+        reason_key, reason_args = "co2_ventilate", {
+            "co2": co2,
+            "outdoor_co2": data.outdoor_co2,
+        }
     elif mode == "co2_warten":
-        reason_key, reason_args = "co2_wait", {"co2": co2, "diff": diff}
+        reason_key, reason_args = "co2_wait", {
+            "co2": co2,
+            "diff": diff,
+            "caution": caution_kind,
+            "outdoor_co2": data.outdoor_co2,
+            "ti": ti,
+            "ta": ta,
+        }
     elif mode == "schimmel_langzeit_lueften":
         reason_key = "surface_moisture_persistent_ventilate"
         reason_args = {
@@ -698,6 +883,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key, reason_args = "outside_too_cold", {"ti": ti, "ta": ta, "target": target}
     elif mode == "aussen_deutlich_feuchter":
         reason_key, reason_args = "outside_more_humid", {"amount": abs(diff)}
+    elif mode == "aussen_stark_unpassend":
+        reason_key, reason_args = "outside_strongly_unhelpful", {
+            "ti": ti, "ta": ta, "target": target, "diff": diff, "humidity": hi
+        }
     elif mode == "innen_zu_trocken":
         reason_key, reason_args = "inside_too_dry", {"humidity": hi, "diff": diff}
     elif mode == "regen":
@@ -722,6 +911,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         outdoor_absolute_humidity=round(aha, 2),
         absolute_humidity_difference=round(diff, 2),
         co2_status=co2_status(co2),
+        room_status_color=_room_status_color(urgency, color),
+        safety_lock=hard_mode is not None,
         surface_relative_humidity=(round(surface_rh, 1) if surface_rh is not None else None),
         mold_risk=mold_risk,
         mold_persistent=mold_persistent,
@@ -738,4 +929,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         air_quality=data.air_quality,
         air_quality_pollutant=data.air_quality_pollutant,
         air_quality_value=data.air_quality_value,
+        outdoor_co2=data.outdoor_co2,
+        co2_difference=(round(co2 - data.outdoor_co2, 0) if co2 is not None and data.outdoor_co2 is not None else None),
+        air_quality_baseline_value=data.air_quality_baseline_value,
+        air_quality_typical=data.air_quality_typical,
+        air_quality_unusual=data.air_quality_unusual,
+        air_quality_trend=data.air_quality_trend,
+        air_quality_history_samples=data.air_quality_history_samples,
     )

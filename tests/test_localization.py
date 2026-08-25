@@ -64,16 +64,18 @@ def test_night_advice_text_is_localized() -> None:
     from custom_components.lueftungsberater.localization import night_advice_text
 
     expected_fragments = {
-        "de": "Nachtlüftung",
-        "en": "Night airing",
-        "tr": "Gece havalandırması",
+        "de": "Heute Nacht lüften",
+        "en": "Air tonight",
+        "tr": "Bu gece havalandır",
+    }
+    args = {
+        "start_time": "2026-08-25T22:00:00+02:00",
+        "end_time": "2026-08-26T03:00:00+02:00",
+        "thermal_need": True,
+        "humidity_need": False,
+        "humidity_advantage": False,
     }
     for language, fragment in expected_fragments.items():
-        text = night_advice_text(
-            "night_recommended",
-            {"indoor_temp": 24.0, "minimum_temp": 17.0, "target_temp": 22.0},
-            language,
-            "°C",
-        )
+        text = night_advice_text("night_now", args, language, "°C")
         assert fragment in text
-        assert "17" in text
+        assert "03:00" in text

@@ -13,6 +13,7 @@ CONF_INSTANCE_NAME = "instance_name"
 
 CONF_OUTDOOR_TEMP = "outdoor_temperature"
 CONF_OUTDOOR_HUMIDITY = "outdoor_humidity"
+CONF_OUTDOOR_CO2 = "outdoor_co2"
 CONF_WEATHER = "weather_entity"
 CONF_WEATHER_DANGER = "weather_danger_entity"
 CONF_WEATHER_REASON = "weather_reason_entity"
@@ -26,6 +27,11 @@ WARNING_SOURCE_NONE = "none"
 
 CONF_NOTIFY_TARGET = "notify_target"
 CONF_NOTIFY_TRIGGERS = "notify_triggers"
+
+CONF_DISPLAY_MODE = "display_mode"
+DISPLAY_MODE_VENTILATION = "ventilation"
+DISPLAY_MODE_ROOM_AIR = "room_air"
+DEFAULT_DISPLAY_MODE = DISPLAY_MODE_VENTILATION
 
 # Removed with v0.6.20. Kept as one private migration list only so existing
 # config entries can be cleaned without breaking setup after the update.
@@ -55,7 +61,7 @@ DEFAULT_REMOTE_PORT = 8123
 REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
 REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
 REMOTE_PROTOCOL_VERSION = 1
-FORECAST_REFRESH_INTERVAL = timedelta(hours=1)
+FORECAST_REFRESH_INTERVAL = timedelta(minutes=15)
 
 CONF_ROOM_NAME = "room_name"
 CONF_INDOOR_TEMP = "indoor_temperature"
@@ -65,6 +71,8 @@ CONF_WINDOWS = "window_entities"
 CONF_CLIMATE = "climate_entity"
 CONF_TARGET_TEMP = "target_temperature"
 CONF_SURFACE_TEMP = "surface_temperature"
+CONF_NIGHT_START_HOUR = "night_advice_start_hour"
+DEFAULT_NIGHT_START_HOUR = 22
 
 # Kept only so old v0.1/v0.2 config subentries remain readable.
 # v0.3 no longer asks for or uses this external helper.
@@ -91,9 +99,23 @@ DATA_REMOTE_COORDINATORS = "remote_coordinators"
 DATA_API_REGISTERED = "api_registered"
 DATA_NOTIFICATION_STATE = "notification_state"
 DATA_FORECAST_CACHE = "hourly_forecast_cache"
+DATA_AIR_QUALITY_TRACKERS = "air_quality_trackers"
+AIR_QUALITY_HISTORY_RETENTION = timedelta(days=14)
+AIR_QUALITY_HISTORY_MIN_SAMPLES = 24
+AIR_QUALITY_SAMPLE_MIN_INTERVAL = timedelta(minutes=30)
 STORAGE_VERSION = 1
 
 
 def entry_kind(entry) -> str:
-    """Return the config-entry kind while keeping pre-v0.6.10 entries local."""
-    return entry.data.get(CONF_ENTRY_KIND, ENTRY_KIND_LOCAL)
+    """Return the config-entry kind, including legacy remote entries.
+
+    Remote entries created before the explicit ``entry_kind`` marker can still
+    be identified safely by their required remote host. Treating those as
+    remote keeps their topology read-only without changing any snapshot data.
+    """
+    kind = entry.data.get(CONF_ENTRY_KIND)
+    if kind in {ENTRY_KIND_LOCAL, ENTRY_KIND_REMOTE}:
+        return kind
+    if entry.data.get(CONF_REMOTE_HOST):
+        return ENTRY_KIND_REMOTE
+    return ENTRY_KIND_LOCAL

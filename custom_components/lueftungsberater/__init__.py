@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
+from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air_quality_tracker
 from .api import async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
@@ -18,6 +19,8 @@ from .coordinator import (
     async_stop_entry_coordinators,
 )
 from .const import (
+    CONF_ENTRY_KIND,
+    CONF_REMOTE_HOST,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     LEGACY_NOTIFY_KEYS,
@@ -35,7 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.22"
+FRONTEND_VERSION = "0.6.23"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -117,6 +120,16 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             updates["data"] = cleaned_data
         updates["minor_version"] = 3
 
+    if entry.version == 1 and entry.minor_version < 4:
+        # v0.6.23 changes which config-entry kinds support room subentries.
+        # Persist the kind for older Tailscale entries which predate the marker
+        # so Home Assistant can always expose them as read-only afterwards.
+        cleaned_data = dict(updates.get("data", entry.data))
+        if cleaned_data.get(CONF_REMOTE_HOST) and not cleaned_data.get(CONF_ENTRY_KIND):
+            cleaned_data[CONF_ENTRY_KIND] = ENTRY_KIND_REMOTE
+            updates["data"] = cleaned_data
+        updates["minor_version"] = 4
+
     if updates:
         hass.config_entries.async_update_entry(entry, **updates)
     return True
@@ -124,6 +137,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one local or Tailscale-remote Lüftungsberater entry."""
+    # Home Assistant caches supported_subentry_types on the ConfigEntry object.
+    # Custom integration reloads keep that object alive, so a remote entry may
+    # otherwise keep the old "Add room" capability until a full HA restart.
+    # There is currently no public invalidation method for this cache.
+    if hasattr(entry, "_supported_subentry_types"):
+        object.__setattr__(entry, "_supported_subentry_types", None)
+        entry.clear_state_cache()
+
     await _async_register_frontend(hass)
     async_register_api(hass)
 
@@ -146,6 +167,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
+
+    await async_get_or_create_air_quality_tracker(hass, entry)
 
     for subentry in entry.subentries.values():
         if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
@@ -172,6 +195,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        async_stop_air_quality_tracker(hass, entry)
         await async_stop_entry_coordinators(hass, entry)
         await async_stop_entry_trackers(hass, entry)
         await async_stop_entry_co2_trackers(hass, entry)

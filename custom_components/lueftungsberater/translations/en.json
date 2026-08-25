@@ -23,7 +23,9 @@
           "outdoor_temperature": "Override outdoor temperature",
           "outdoor_humidity": "Override outdoor humidity",
           "notify_target": "Notification target (optional)",
-          "notify_triggers": "Notify me about (optional)"
+          "notify_triggers": "Notify me about (optional)",
+          "display_mode": "Traffic-light view",
+          "outdoor_co2": "Outdoor CO₂ (optional)"
         }
       },
       "remote": {
@@ -51,7 +53,9 @@
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "Use HTTPS",
           "notify_target": "Notification target (optional)",
-          "notify_triggers": "Notify me about (optional)"
+          "notify_triggers": "Notify me about (optional)",
+          "display_mode": "Traffic-light view",
+          "outdoor_co2": "Outdoor CO₂ (optional)"
         }
       },
       "remote_confirm": {
@@ -90,7 +94,7 @@
       "step": {
         "user": {
           "title": "Add room",
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts, and a cold or critical surface-temperature sensor are optional. With a real surface-temperature sensor, the advisor can additionally evaluate calculated humidity at that spot and its history; without one, no surface values are estimated. Window/door contacts automatically recognize airing sessions from 5 minutes onward and track the airing history.",
+          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated.",
           "data": {
             "room_name": "Room name",
             "indoor_temperature": "Indoor temperature",
@@ -99,7 +103,8 @@
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
             "target_temperature": "Fallback target temperature",
-            "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)"
+            "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
+            "night_advice_start_hour": "Show night advice from"
           }
         },
         "reconfigure": {
@@ -112,9 +117,10 @@
             "window_entities": "Windows / doors (optional)",
             "climate_entity": "Climate entity for target temperature (optional)",
             "target_temperature": "Fallback target temperature",
-            "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)"
+            "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
+            "night_advice_start_hour": "Show night advice from"
           },
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts, and a cold or critical surface-temperature sensor are optional. With a real surface-temperature sensor, the advisor can additionally evaluate calculated humidity at that spot and its history; without one, no surface values are estimated. Window/door contacts automatically recognize airing sessions from 5 minutes onward and track the airing history."
+          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated."
         }
       },
       "abort": {
@@ -193,6 +199,12 @@
         "air_caution": "Outdoor-air advisories / moderate air quality",
         "weather_danger": "Severe weather warnings",
         "weather_caution": "Weather warnings / caution advisories"
+      }
+    },
+    "display_mode": {
+      "options": {
+        "ventilation": "Ventilation light – green = ventilate",
+        "room_air": "Room-air status – green = all good"
       }
     }
   }

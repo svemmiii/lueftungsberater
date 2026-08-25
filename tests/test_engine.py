@@ -269,10 +269,10 @@ def test_air_quality_moderate_is_a_disadvantage_not_a_hard_hazard():
     no_need = evaluate_room(base(air_quality="moderate", air_quality_pollutant="o3", air_quality_value=100))
     high_co2 = evaluate_room(base(co2=2500, air_quality="moderate", air_quality_pollutant="o3", air_quality_value=100))
     assert no_need.color == "orange" and no_need.mode == "luftqualitaet_maessig"
-    assert high_co2.color == "yellow" and high_co2.mode == "co2_kritisch_vorsicht"
+    assert high_co2.color == "green" and high_co2.mode == "co2_kritisch"
 
 
-def test_poor_air_quality_is_orange_even_with_critical_co2():
+def test_poor_air_quality_creates_a_cautious_tradeoff_with_critical_co2():
     r = evaluate_room(
         base(
             co2=2500,
@@ -281,8 +281,9 @@ def test_poor_air_quality_is_orange_even_with_critical_co2():
             air_quality_value=35,
         )
     )
-    assert r.color == "orange"
-    assert r.mode == "luftqualitaet_schlecht"
+    assert r.color == "yellow"
+    assert r.mode == "co2_kritisch_vorsicht"
+    assert r.safety_lock is False
 
 
 def test_24_hour_routine_fallback_is_kept():
@@ -353,14 +354,16 @@ def test_humidity_hysteresis_keeps_active_drying_advice_stable():
     assert fresh.mode != "feuchte_lueften"
 
 
-def test_open_window_co2_hysteresis_avoids_flapping_at_1000_ppm():
-    kept = evaluate_room(
+def test_open_window_co2_hysteresis_uses_a_yellow_finish_band():
+    transition = evaluate_room(
         base(co2=980, window_open=True, previous_mode="weiter_lueften")
     )
     released = evaluate_room(
         base(co2=940, window_open=True, previous_mode="weiter_lueften")
     )
-    assert kept.mode == "weiter_lueften"
+    assert transition.color == "yellow"
+    assert transition.mode == "co2_abwaegung"
+    assert transition.reason_args["caution"] == "near_target"
     assert released.mode == "lueftung_fertig"
 
 
@@ -423,3 +426,125 @@ def test_temperature_airing_finishes_cleanly_at_target_instead_of_turning_red():
     assert r.color == "yellow"
     assert r.mode == "lueftung_fertig"
     assert r.recommendation_key == "can_close"
+
+
+# Agreed real-world colour matrix for the four-stage advisor. These tests are
+# intentionally scenario-based: no single sensor is allowed to choose a colour
+# without the rest of the room/outdoor context.
+def test_agreed_matrix_1_neutral_conditions_are_yellow():
+    r = evaluate_room(base(outdoor_temp=21, outdoor_humidity=50, co2=700))
+    assert r.color == "yellow"
+
+
+def test_agreed_matrix_2_cooler_outside_without_need_is_orange():
+    r = evaluate_room(base(outdoor_temp=17, outdoor_humidity=50, co2=700))
+    assert r.color == "orange"
+
+
+def test_agreed_matrix_3_strong_cooling_and_drying_without_need_can_be_red():
+    r = evaluate_room(base(indoor_humidity=45, outdoor_temp=8, outdoor_humidity=40, co2=700))
+    assert r.color == "red"
+    assert r.safety_lock is False
+
+
+def test_agreed_matrix_4_cooling_toward_target_is_green():
+    r = evaluate_room(base(indoor_temp=25, target_temp=22, outdoor_temp=14, outdoor_humidity=45, co2=700))
+    assert r.color == "green"
+
+
+def test_agreed_matrix_5_mild_co2_does_not_justify_hotter_wetter_air():
+    r = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=1250))
+    assert r.color == "orange"
+
+
+def test_agreed_matrix_6_high_co2_can_outweigh_hotter_wetter_air():
+    r = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=1800))
+    assert r.color == "green"
+
+
+def test_agreed_matrix_7_critical_co2_can_outweigh_hotter_wetter_air():
+    r = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=2600))
+    assert r.color == "green"
+
+
+def test_co2_session_transitions_green_to_yellow_then_outdoor_disadvantage_after_close():
+    green = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=1300, window_open=True, previous_mode="weiter_lueften"))
+    yellow = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=1000, window_open=True, previous_mode="weiter_lueften"))
+    orange = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=900, window_open=False, previous_mode="lueftung_fertig"))
+    assert green.color == "green"
+    assert yellow.color == "yellow"
+    assert orange.color == "orange"
+
+
+def test_agreed_matrix_9_high_humidity_with_drier_outdoor_air_is_green():
+    r = evaluate_room(base(indoor_humidity=66, outdoor_temp=18, outdoor_humidity=40, co2=800))
+    assert r.color == "green"
+
+
+def test_agreed_matrix_10_high_humidity_with_wetter_outdoor_air_is_orange():
+    r = evaluate_room(base(indoor_humidity=66, outdoor_temp=24, outdoor_humidity=80, co2=800))
+    assert r.color == "orange"
+
+
+def test_agreed_matrix_11_critical_co2_with_light_rain_stays_green():
+    r = evaluate_room(base(co2=2300, rain_now=True))
+    assert r.color == "green"
+
+
+def test_agreed_matrix_13_critical_co2_with_wind_caution_is_yellow():
+    r = evaluate_room(base(co2=2600, weather_caution=True, weather_reason_key="weather_wind_caution"))
+    assert r.color == "yellow"
+    assert r.safety_lock is False
+
+
+def test_agreed_matrix_14_severe_weather_uses_the_separate_safety_lock():
+    r = evaluate_room(base(co2=2600, weather_danger=True, weather_reason_key="weather_wind_danger"))
+    assert r.safety_lock is True
+    assert r.color == "red"
+
+
+def test_very_poor_air_quality_keeps_absolute_health_class_but_local_context_changes_urgency():
+    typical = evaluate_room(base(air_quality="very_poor", air_quality_typical=True, air_quality_unusual=False, air_quality_trend="stable"))
+    episode = evaluate_room(base(air_quality="very_poor", air_quality_typical=False, air_quality_unusual=True, air_quality_trend="rising"))
+    assert typical.air_quality == "very_poor" and episode.air_quality == "very_poor"
+    assert typical.color == "orange"
+    assert episode.color == "red"
+    assert episode.safety_lock is False
+
+
+def test_outdoor_co2_is_context_not_a_fake_good_indoor_value():
+    r = evaluate_room(base(co2=2500, outdoor_co2=2450))
+    assert r.co2_status == "critical"
+    assert r.color == "yellow"
+    assert r.reason_args["caution"] == "outdoor_co2"
+    assert r.co2_difference == 50
+
+
+def test_room_status_colour_is_independent_from_ventilation_colour():
+    good_room_bad_outside = evaluate_room(base(co2=700, outdoor_temp=17))
+    bad_room_good_outside = evaluate_room(base(co2=2600))
+    assert good_room_bad_outside.room_status_color == "green"
+    assert good_room_bad_outside.color == "orange"
+    assert bad_room_good_outside.room_status_color == "red"
+    assert bad_room_good_outside.color == "green"
+
+
+def test_room_status_never_uses_red_when_ventilation_is_not_recommended():
+    tradeoff = evaluate_room(
+        base(
+            co2=2600,
+            outdoor_temp=31,
+            outdoor_humidity=34,
+            weather_caution=True,
+            weather_reason_key="weather_wind_caution",
+        )
+    )
+    assert tradeoff.color == "yellow"
+    assert tradeoff.room_status_color != "red"
+
+
+def test_room_status_keeps_external_disadvantage_green_when_indoor_air_is_good():
+    result = evaluate_room(base(co2=700, outdoor_temp=8, outdoor_humidity=40))
+    assert result.color in {"orange", "red"}
+    assert result.safety_lock is False
+    assert result.room_status_color == "green"

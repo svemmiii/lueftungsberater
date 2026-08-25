@@ -23,7 +23,9 @@
           "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
           "outdoor_humidity": "Dış nemi geçersiz kıl",
           "notify_target": "Bildirim hedefi (isteğe bağlı)",
-          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
+          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
+          "display_mode": "Gösterge biçimi",
+          "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
         }
       },
       "remote": {
@@ -51,7 +53,9 @@
           "remote_access_token": "Long-Lived Access Token",
           "remote_use_ssl": "HTTPS kullan",
           "notify_target": "Bildirim hedefi (isteğe bağlı)",
-          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
+          "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
+          "display_mode": "Gösterge biçimi",
+          "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
         }
       },
       "remote_confirm": {
@@ -90,7 +94,7 @@
       "step": {
         "user": {
           "title": "Oda ekle",
-          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve soğuk ya da kritik bir yüzey sıcaklığı sensörü isteğe bağlıdır. Gerçek bir yüzey sıcaklığı sensörü varsa danışman o noktadaki hesaplanan nemi ve zaman içindeki seyrini de değerlendirebilir; sensör yoksa yüzey değerleri tahmin edilmez. Pencere/kapı kontakları 5 dakikadan uzun havalandırmaları otomatik olarak algılar ve havalandırma geçmişini takip eder.",
+          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Saat yalnızca anlamlı bir gece önerisinin ne zamandan itibaren gösterilebileceğini belirler. Eksik isteğe bağlı sensörler için değer tahmin edilmez.",
           "data": {
             "room_name": "Oda adı",
             "indoor_temperature": "İç sıcaklık",
@@ -99,7 +103,8 @@
             "window_entities": "Pencereler / kapılar (isteğe bağlı)",
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
             "target_temperature": "Yedek hedef sıcaklık",
-            "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
+            "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
+            "night_advice_start_hour": "Gece önerisini şu saatten sonra göster"
           }
         },
         "reconfigure": {
@@ -112,9 +117,10 @@
             "window_entities": "Pencereler / kapılar (isteğe bağlı)",
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
             "target_temperature": "Yedek hedef sıcaklık",
-            "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
+            "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
+            "night_advice_start_hour": "Gece önerisini şu saatten sonra göster"
           },
-          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve soğuk ya da kritik bir yüzey sıcaklığı sensörü isteğe bağlıdır. Gerçek bir yüzey sıcaklığı sensörü varsa danışman o noktadaki hesaplanan nemi ve zaman içindeki seyrini de değerlendirebilir; sensör yoksa yüzey değerleri tahmin edilmez. Pencere/kapı kontakları 5 dakikadan uzun havalandırmaları otomatik olarak algılar ve havalandırma geçmişini takip eder."
+          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Saat yalnızca anlamlı bir gece önerisinin ne zamandan itibaren gösterilebileceğini belirler. Eksik isteğe bağlı sensörler için değer tahmin edilmez."
         }
       },
       "abort": {
@@ -193,6 +199,12 @@
         "air_caution": "Dış hava dikkat uyarıları / orta hava kalitesi",
         "weather_danger": "Şiddetli hava durumu uyarıları",
         "weather_caution": "Hava durumu uyarıları / dikkat bildirimleri"
+      }
+    },
+    "display_mode": {
+      "options": {
+        "ventilation": "Havalandırma göstergesi – yeşil = havalandır",
+        "room_air": "Oda havası durumu – yeşil = her şey iyi"
       }
     }
   }

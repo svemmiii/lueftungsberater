@@ -352,7 +352,16 @@ class LueftungsberaterCard extends HTMLElement {
     return lbT(this._hass, `co2.${status}`);
   }
 
-  _statusMeta(status) {
+  _statusMeta(status, displayMode = "ventilation") {
+    if (status === "locked") {
+      return { cls: "locked", icon: "mdi:lock" };
+    }
+    if (displayMode === "room_air") {
+      if (status === "green") return { cls: "green", icon: "mdi:check-circle-outline" };
+      if (status === "red") return { cls: "red", icon: "mdi:alert-circle-outline" };
+      if (status === "orange") return { cls: "orange", icon: "mdi:alert-outline" };
+      return { cls: "yellow", icon: "mdi:information-outline" };
+    }
     if (status === "green") {
       return { cls: "green", icon: "mdi:window-open-variant" };
     }
@@ -484,7 +493,7 @@ class LueftungsberaterCard extends HTMLElement {
     const remote = this._isRemoteSnapshot();
     const a = st.attributes || {};
     const status = a.status || "yellow";
-    const meta = this._statusMeta(status);
+    const meta = this._statusMeta(status, a.display_mode || "ventilation");
     const incompleteData = ["unknown", "unavailable", "none", ""].includes(String(st.state ?? "").toLowerCase());
     const recommendation = lbLocalizedEntityText(
       this._hass,
@@ -646,12 +655,12 @@ class LueftungsberaterCard extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <style>
-        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); display: block; }
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); --lb-lock: #546e7a; display: block; }
         ha-card { overflow: hidden; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
         .header { display: flex; align-items: center; gap: 14px; padding: 16px; color: var(--primary-text-color); border-left: 6px solid var(--lb-accent); background: color-mix(in srgb, var(--lb-accent) 14%, var(--ha-card-background, var(--card-background-color))); }
         .header.main-tap { cursor: pointer; }
         .header.main-tap:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
-        .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.orange { --lb-accent: var(--lb-orange); } .header.red { --lb-accent: var(--lb-red); }
+        .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.orange { --lb-accent: var(--lb-orange); } .header.red { --lb-accent: var(--lb-red); } .header.locked { --lb-accent: var(--lb-lock); }
         .icon-wrap { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--lb-accent) 20%, transparent); color: var(--lb-accent); }
         .main-icon { --mdc-icon-size: 31px; color: var(--lb-accent); }
         .head-text { min-width: 0; flex: 1; }
@@ -862,8 +871,16 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     return String(friendly).replace(/^Lüftungsberater\s*/i, "").replace(/\s*Lüftungsberater$/i, "").trim() || friendly;
   }
 
-  _statusMeta(status) {
-    if (status === "red") return { rank: 3, cls: "red", icon: "mdi:window-closed-variant" };
+  _statusMeta(status, displayMode = "ventilation") {
+    if (status === "locked") return { rank: 5, cls: "locked", icon: "mdi:lock" };
+    if (displayMode === "room_air") {
+      if (status === "red") return { rank: 4, cls: "red", icon: "mdi:alert-circle-outline" };
+      if (status === "orange") return { rank: 3, cls: "orange", icon: "mdi:alert-outline" };
+      if (status === "yellow") return { rank: 2, cls: "yellow", icon: "mdi:information-outline" };
+      return { rank: 1, cls: "green", icon: "mdi:check-circle-outline" };
+    }
+    if (status === "red") return { rank: 4, cls: "red", icon: "mdi:window-closed-variant" };
+    if (status === "orange") return { rank: 3, cls: "orange", icon: "mdi:window-closed-variant" };
     if (status === "yellow") return { rank: 2, cls: "yellow", icon: "mdi:window-open" };
     return { rank: 1, cls: "green", icon: "mdi:window-open-variant" };
   }
@@ -892,7 +909,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
 
   _roomFromLocal(stateObj, index) {
     const a = stateObj.attributes || {};
-    const meta = this._statusMeta(a.status || "yellow");
+    const meta = this._statusMeta(a.status || "yellow", a.display_mode || "ventilation");
     const state = String(stateObj.state || "unknown");
     return {
       key: stateObj.entity_id,
@@ -962,7 +979,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     const attrs = room?.attributes && typeof room.attributes === "object" ? room.attributes : {};
     const state = String(room?.state || "unknown");
     const status = String(attrs.status || "yellow");
-    const meta = this._statusMeta(status);
+    const meta = this._statusMeta(status, attrs.display_mode || "ventilation");
     const name = String(room?.name || attrs.room_name || attrs.friendly_name || `${lbT(this._hass, "overview.room")} ${index + 1}`);
     return {
       key: this._remoteRoomKey(group, room, index),
@@ -1018,6 +1035,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
 
   _groupClass(group) {
     if (!group.available) return "unavailable";
+    if (group.rooms.some((room) => room.status === "locked")) return "locked";
     if (group.rooms.some((room) => room.status === "red")) return "red";
     if (group.rooms.some((room) => room.status === "orange")) return "orange";
     if (group.rooms.some((room) => room.status === "yellow")) return "yellow";
@@ -1056,7 +1074,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     if (!this.shadowRoot || this.shadowRoot.querySelector("#overview")) return;
     this.shadowRoot.innerHTML = `
       <style>
-        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); display: block; }
+        :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); --lb-lock: #546e7a; display: block; }
         ha-card { overflow: hidden; padding: 0; }
         .overview-title { padding: 12px 16px 9px; color: var(--primary-text-color); font-size: 17px; font-weight: 700; border-bottom: 1px solid var(--divider-color); }
         .room-row, .group-row { --row-accent: var(--lb-green); appearance: none; width: 100%; min-width: 0; border: 0; border-top: 1px solid var(--divider-color); border-left: 4px solid var(--row-accent); background: transparent; color: var(--primary-text-color); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1064,6 +1082,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         .room-row.yellow, .group-row.yellow { --row-accent: var(--lb-yellow); }
         .room-row.orange, .group-row.orange { --row-accent: var(--lb-orange); }
         .room-row.red, .group-row.red { --row-accent: var(--lb-red); }
+        .room-row.locked, .group-row.locked { --row-accent: var(--lb-lock); }
         .group-row.unavailable { --row-accent: var(--secondary-text-color); opacity: .75; cursor: default; }
         .room-row { display: grid; grid-template-columns: 27px minmax(0, 1fr) auto 22px; gap: 8px; align-items: center; min-height: 48px; padding: 9px 10px 9px 12px; }
         .group-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 22px; gap: 9px; align-items: center; min-height: 56px; padding: 10px 12px; }

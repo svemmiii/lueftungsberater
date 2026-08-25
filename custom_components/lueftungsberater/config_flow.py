@@ -34,6 +34,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     CONF_CLIMATE,
+    CONF_DISPLAY_MODE,
     CONF_CO2,
     CONF_ENTRY_KIND,
     CONF_INDOOR_HUMIDITY,
@@ -43,6 +44,7 @@ from .const import (
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_TRIGGERS,
     CONF_OUTDOOR_HUMIDITY,
+    CONF_OUTDOOR_CO2,
     CONF_OUTDOOR_TEMP,
     CONF_REMOTE_HOST,
     CONF_REMOTE_PORT,
@@ -51,13 +53,18 @@ from .const import (
     CONF_ROOM_NAME,
     CONF_TARGET_TEMP,
     CONF_SURFACE_TEMP,
+    CONF_NIGHT_START_HOUR,
     CONF_WARNING_SOURCE,
     CONF_WEATHER,
     CONF_WINDOWS,
     DEFAULT_REMOTE_PORT,
+    DEFAULT_DISPLAY_MODE,
+    DEFAULT_NIGHT_START_HOUR,
     DEFAULT_NOTIFY_TRIGGERS,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
+    DISPLAY_MODE_ROOM_AIR,
+    DISPLAY_MODE_VENTILATION,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     SUBENTRY_TYPE_ROOM,
@@ -164,6 +171,13 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                 translation_key="warning_source",
             )
         ),
+        vol.Optional(CONF_DISPLAY_MODE, default=DEFAULT_DISPLAY_MODE): SelectSelector(
+            SelectSelectorConfig(
+                options=[DISPLAY_MODE_VENTILATION, DISPLAY_MODE_ROOM_AIR],
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="display_mode",
+            )
+        ),
         vol.Optional(CONF_MANUAL_OUTDOOR): section(
             vol.Schema(
                 {
@@ -172,6 +186,9 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                     ),
                     vol.Optional(CONF_OUTDOOR_HUMIDITY): _entity(
                         "sensor", device_class=SensorDeviceClass.HUMIDITY
+                    ),
+                    vol.Optional(CONF_OUTDOOR_CO2): _entity(
+                        "sensor", device_class=SensorDeviceClass.CO2
                     ),
                 }
             ),
@@ -288,6 +305,15 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
                 "sensor", device_class=SensorDeviceClass.TEMPERATURE
             ),
             vol.Optional(CONF_CLIMATE): _entity("climate"),
+            vol.Optional(CONF_NIGHT_START_HOUR, default=DEFAULT_NIGHT_START_HOUR): NumberSelector(
+                NumberSelectorConfig(
+                    min=0,
+                    max=23,
+                    step=1,
+                    mode=NumberSelectorMode.BOX,
+                    unit_of_measurement="h",
+                )
+            ),
             vol.Optional(CONF_TARGET_TEMP, default=default_value): NumberSelector(
                 NumberSelectorConfig(
                     min=min_value,
@@ -382,7 +408,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 3
+    MINOR_VERSION = 4
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
@@ -548,10 +574,16 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if isinstance(old, str) and old:
                 manual[CONF_OUTDOOR_HUMIDITY] = old
 
+        if not manual.get(CONF_OUTDOOR_CO2):
+            old = entry.data.get(CONF_OUTDOOR_CO2)
+            if isinstance(old, str) and old:
+                manual[CONF_OUTDOOR_CO2] = old
+
         defaults: dict[str, Any] = {
             CONF_INSTANCE_NAME: entry.title,
             CONF_WEATHER: entry.data.get(CONF_WEATHER),
             CONF_WARNING_SOURCE: entry.data.get(CONF_WARNING_SOURCE, WARNING_SOURCE_NONE),
+            CONF_DISPLAY_MODE: entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
             CONF_NOTIFY_TARGET: entry.data.get(CONF_NOTIFY_TARGET),
             CONF_NOTIFY_TRIGGERS: entry.data.get(
                 CONF_NOTIFY_TRIGGERS, DEFAULT_NOTIFY_TRIGGERS

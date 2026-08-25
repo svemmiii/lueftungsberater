@@ -58,10 +58,7 @@ class RoomDangerBinarySensor(LueftungsberaterRoomEntity, BinarySensorEntity):
     @property
     def is_on(self):
         result = self.snapshot.result if self.snapshot else None
-        return result is not None and result.mode in {
-            "nina_aussenluftgefahr",
-            "wettergefahr",
-        }
+        return result is not None and result.safety_lock
 
     @property
     def extra_state_attributes(self):

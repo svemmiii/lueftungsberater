@@ -10,17 +10,22 @@ from homeassistant.helpers import entity_registry as er
 from .airing import get_tracker
 from .const import (
     CONF_CLIMATE,
+    CONF_DISPLAY_MODE,
     CONF_CO2,
     CONF_INDOOR_HUMIDITY,
     CONF_INDOOR_TEMP,
+    CONF_MANUAL_OUTDOOR,
     CONF_SURFACE_TEMP,
     CONF_NINA_STATUS,
     CONF_OUTDOOR_HUMIDITY,
+    CONF_OUTDOOR_CO2,
     CONF_OUTDOOR_TEMP,
     CONF_WEATHER_DANGER,
     CONF_WEATHER_REASON,
     CONF_WINDOWS,
     DOMAIN,
+    DEFAULT_DISPLAY_MODE,
+    DISPLAY_MODE_ROOM_AIR,
     SUBENTRY_TYPE_ROOM,
 )
 from .coordinator import async_get_or_create_room_coordinator
@@ -111,11 +116,17 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         result = self.snapshot.result if self.snapshot else None
         if result is None:
             return "mdi:window-closed-variant"
+        if result.safety_lock:
+            return "mdi:lock"
+        display_mode = self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
+        if display_mode == DISPLAY_MODE_ROOM_AIR:
+            return "mdi:air-filter"
         if result.color == "green":
             return "mdi:window-open-variant"
         if result.color in {"orange", "red"}:
             return "mdi:window-closed-variant"
         return "mdi:window-open"
+
 
     @property
     def extra_state_attributes(self):
@@ -163,6 +174,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
         language = self.hass.config.language
         temperature_unit = str(self.hass.config.units.temperature_unit)
+        display_mode = self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
 
         if r is None:
             recommendation_key = "unknown"
@@ -181,7 +193,12 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             reason_key = r.reason_key
             reason_args = dict(r.reason_args)
             duration_key = r.duration_key
-            status = r.color
+            display_mode = self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
+            status = (
+                "locked"
+                if r.safety_lock
+                else (r.room_status_color if display_mode == DISPLAY_MODE_ROOM_AIR else r.color)
+            )
             mode = r.mode
             original_reason = r.original_reason
             indoor_absolute_humidity = r.indoor_absolute_humidity
@@ -206,6 +223,10 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "instance_name": self.entry.title,
             "room_name": self.subentry.title,
             "status": status,
+            "display_mode": display_mode,
+            "safety_lock": bool(r.safety_lock) if r is not None else False,
+            "ventilation_status": r.color if r is not None else "yellow",
+            "room_status": r.room_status_color if r is not None else "yellow",
             "recommendation": recommendation_text(recommendation_key, language),
             "recommendation_key": recommendation_key,
             "mode": mode,
@@ -225,6 +246,12 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 if values["co2_ppm"] is not None
                 else None
             ),
+            "outdoor_co2_ppm": (
+                round(values["outdoor_co2_ppm"])
+                if values.get("outdoor_co2_ppm") is not None
+                else None
+            ),
+            "co2_difference": (r.co2_difference if r is not None else None),
             "temperature_inside": values["temperature_inside"],
             "temperature_outside": values["temperature_outside"],
             "target_temperature": values["target_temperature"],
@@ -255,6 +282,11 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 r.air_quality_value if r is not None else weather.air_quality_value
             ),
             "air_quality_values": dict(weather.air_quality_values),
+            "air_quality_baseline_value": values.get("air_quality_baseline_value"),
+            "air_quality_typical": values.get("air_quality_typical"),
+            "air_quality_unusual": values.get("air_quality_unusual", False),
+            "air_quality_trend": values.get("air_quality_trend", "unknown"),
+            "air_quality_history_samples": values.get("air_quality_history_samples", 0),
             "wind_speed_kmh": weather.wind_speed_kmh,
             "wind_gust_kmh": weather.wind_gust_kmh,
             "rain_minutes_until": weather.rain_minutes_until,
@@ -296,6 +328,11 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "source_absolute_humidity_outside": outdoor_absolute_humidity_entity,
             "source_absolute_humidity_difference": absolute_humidity_difference_entity,
             "source_co2": self.subentry.data.get(CONF_CO2),
+            "source_outdoor_co2": (
+                (self.entry.data.get(CONF_MANUAL_OUTDOOR) or {}).get(CONF_OUTDOOR_CO2)
+                if isinstance(self.entry.data.get(CONF_MANUAL_OUTDOOR), dict)
+                else self.entry.data.get(CONF_OUTDOOR_CO2)
+            ),
             "source_surface_temperature": self.subentry.data.get(CONF_SURFACE_TEMP),
             "source_co2_status": co2_status_entity,
             "source_airing": airing_entity,

@@ -13,6 +13,7 @@ class RoomInput:
     outdoor_humidity: float
     target_temp: float = 21.0
     co2: float | None = None
+    outdoor_co2: float | None = None
     window_open: bool = False
     hours_since_airing: float | None = None
     rain_now: bool = False
@@ -34,6 +35,11 @@ class RoomInput:
     air_quality: str = "unknown"
     air_quality_pollutant: str | None = None
     air_quality_value: float | None = None
+    air_quality_baseline_value: float | None = None
+    air_quality_typical: bool | None = None
+    air_quality_unusual: bool = False
+    air_quality_trend: str = "unknown"
+    air_quality_history_samples: int = 0
     previous_mode: str | None = None
 
 
@@ -51,6 +57,8 @@ class VentilationResult:
     outdoor_absolute_humidity: float
     absolute_humidity_difference: float
     co2_status: str
+    room_status_color: str = "green"
+    safety_lock: bool = False
     surface_relative_humidity: float | None = None
     mold_risk: bool = False
     mold_persistent: bool = False
@@ -59,3 +67,10 @@ class VentilationResult:
     air_quality: str = "unknown"
     air_quality_pollutant: str | None = None
     air_quality_value: float | None = None
+    outdoor_co2: float | None = None
+    co2_difference: float | None = None
+    air_quality_baseline_value: float | None = None
+    air_quality_typical: bool | None = None
+    air_quality_unusual: bool = False
+    air_quality_trend: str = "unknown"
+    air_quality_history_samples: int = 0

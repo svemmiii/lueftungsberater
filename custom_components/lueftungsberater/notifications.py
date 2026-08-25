@@ -26,12 +26,14 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _trigger_for_mode(mode: str) -> str | None:
-    if mode in {
-        "nina_aussenluftgefahr",
-        "luftqualitaet_sehr_schlecht",
-    }:
+    if mode in {"nina_aussenluftgefahr", "luftqualitaet_sehr_schlecht"}:
         return NOTIFY_TRIGGER_AIR_DANGER
-    if mode in {"nina_vorsicht", "luftqualitaet_maessig", "luftqualitaet_schlecht"}:
+    if mode in {
+        "nina_vorsicht",
+        "luftqualitaet_maessig",
+        "luftqualitaet_schlecht",
+        "luftqualitaet_sehr_schlecht_typisch",
+    }:
         return NOTIFY_TRIGGER_AIR_CAUTION
     if mode == "wettergefahr":
         return NOTIFY_TRIGGER_WEATHER_DANGER
@@ -71,7 +73,7 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
         "de": {
             NOTIFY_TRIGGER_AIRING_RECOMMENDED: f"In {room} ist Lüften jetzt wieder sinnvoll.",
             NOTIFY_TRIGGER_AIRING_FINISHED: f"In {room} kannst du die Lüftung jetzt beenden und die Fenster wieder schließen.",
-            NOTIFY_TRIGGER_AIR_DANGER: f"In {room} ist noch ein Fenster oder eine Tür offen, obwohl eine ernste Außenluftwarnung aktiv ist. Bitte schließe sie.",
+            NOTIFY_TRIGGER_AIR_DANGER: f"In {room} ist noch ein Fenster oder eine Tür offen, obwohl die Außenluft gerade stark belastet ist oder eine ernste Warnung vorliegt. Bitte schließe bei einer Schutzwarnung sofort und prüfe bei hoher Luftbelastung die aktuelle Empfehlung.",
             NOTIFY_TRIGGER_AIR_CAUTION: f"In {room} ist noch ein Fenster oder eine Tür offen, während ein Außenluft-Hinweis aktiv ist. Prüfe bitte, ob du schließen solltest.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"In {room} ist noch ein Fenster oder eine Tür offen, obwohl eine ernste Wetterlage aktiv ist. Bitte prüfen und bei Bedarf schließen.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"In {room} ist noch ein Fenster oder eine Tür offen, während ein Wetterhinweis aktiv ist. Behalte die Lage im Blick.",
@@ -79,7 +81,7 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
         "en": {
             NOTIFY_TRIGGER_AIRING_RECOMMENDED: f"Opening the windows in {room} is useful again now.",
             NOTIFY_TRIGGER_AIRING_FINISHED: f"You can finish airing {room} now and close the windows again.",
-            NOTIFY_TRIGGER_AIR_DANGER: f"A window or door in {room} is still open while a serious outdoor-air warning is active. Please close it.",
+            NOTIFY_TRIGGER_AIR_DANGER: f"A window or door in {room} is still open while outdoor air is heavily polluted or a serious warning is active. Please close it immediately for a protection warning and check the current advice when pollution is high.",
             NOTIFY_TRIGGER_AIR_CAUTION: f"A window or door in {room} is still open while an outdoor-air advisory is active. Please check whether it should be closed.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"A window or door in {room} is still open while severe weather is active. Please check it and close it if needed.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"A window or door in {room} is still open while a weather advisory is active. Please keep an eye on the situation.",
@@ -87,7 +89,7 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
         "tr": {
             NOTIFY_TRIGGER_AIRING_RECOMMENDED: f"{room} odasını havalandırmak yeniden uygun.",
             NOTIFY_TRIGGER_AIRING_FINISHED: f"{room} odasını havalandırmayı şimdi bitirip pencereleri yeniden kapatabilirsin.",
-            NOTIFY_TRIGGER_AIR_DANGER: f"{room} odasında bir pencere veya kapı hâlâ açıkken ciddi bir dış hava uyarısı aktif. Lütfen kapat.",
+            NOTIFY_TRIGGER_AIR_DANGER: f"{room} odasında bir pencere veya kapı hâlâ açıkken dış hava ciddi şekilde kirli ya da önemli bir uyarı aktif. Lütfen koruyucu bir uyarı varsa hemen kapat; hava kirliliği yüksekse güncel öneriyi kontrol et.",
             NOTIFY_TRIGGER_AIR_CAUTION: f"{room} odasında bir pencere veya kapı hâlâ açıkken dış hava uyarısı aktif. Kapatmanın gerekip gerekmediğini kontrol et.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"{room} odasında bir pencere veya kapı hâlâ açıkken ciddi hava koşulları aktif. Lütfen kontrol edip gerekirse kapat.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"{room} odasında bir pencere veya kapı hâlâ açıkken hava durumu uyarısı aktif. Lütfen durumu takip et.",

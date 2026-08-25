@@ -13,11 +13,10 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 ## Funktionen
 
 - Eigene Lüftungsempfehlung pro Raum
-- Grün/Gelb/Orange/Rot-Status mit konkreter Begründung
-  - **Grün:** Lüften bringt aktuell einen klaren Gesamtvorteil
-  - **Gelb:** Lüften ist optional oder Nutzen und Nachteile liegen nah beieinander
-  - **Orange:** Lüften ist aktuell eher nachteilig; geschlossen lassen ist sinnvoller, aber es besteht keine harte Sperre
-  - **Rot:** Fenster geschlossen halten; es besteht ein starker Sicherheits-, Gesundheits- oder Wetterschutzgrund
+- Vierstufige, konfigurierbare Ampeldarstellung mit kurzer Begründung
+  - **Lüftungsampel (Standard):** Grün = Lüften sinnvoll, Gelb = optional/Übergang, Orange = eher geschlossen lassen, Rot = Lüften deutlich nachteilig
+  - **Raumluftstatus (optional):** Grün = Raumluft unauffällig, Rot = Lüften dringend sinnvoll
+  - Echte Schutzlagen liegen außerhalb der normalen Ampel und werden eindeutig mit **🔒 Fenster geschlossen halten** dargestellt
 - Absolute Feuchtigkeit innen/außen
 - Optionaler CO₂-Sensor pro Raum
 - Automatischer Lüftungsverlauf mit Fenster-/Türkontakt
@@ -34,7 +33,9 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 - Unterstützung für Celsius- und Fahrenheit-Setups
 - Ruhigere Empfehlungen durch Hysterese an normalen CO₂-/Feuchte-/Temperaturgrenzen
 - Optionaler Feuchte-/Schimmelschutz über einen realen kalten/kritischen Oberflächentemperatursensor mit zeitlichem Kontext
-- Plausibilitätsgeprüfte Außenluftqualität über passende Ozon-, PM2.5-, PM10-, NO₂- und SO₂-Sensoren des Wetter-Providers
+- Plausibilitätsgeprüfte Außenluftqualität über passende Ozon-, PM2.5-, PM10-, NO₂- und SO₂-Sensoren des Wetter-Providers, ergänzt um lokalen Verlauf und Trend
+- Optionaler eigener Außen-CO₂-Sensor für die lokale Lüftungsbewertung
+- Optionale, forecastbasierte Nachtlüftungsstrategie mit einstellbarer Anzeigezeit
 - Frei konfigurierbare Benachrichtigungen für Lüftungsstatus und Gefahren über eine normale Home-Assistant-`notify`-Entity
 
 ## Voraussetzungen
@@ -53,6 +54,7 @@ Optional:
 - Temperatur-Sensor an einer kalten/kritischen Oberfläche für zusätzlichen Schimmelschutz
 - Warnintegration wie NINA oder DWD Weather Warnings
 - `notify`-Entity für Benachrichtigungen
+- eigener CO₂-Außensensor
 
 ## Installation über HACS – Custom Repository
 
@@ -75,6 +77,8 @@ Beim ersten Einrichten wählst du:
 
 - **Wetterdienst**
 - optional **Warn-App / Warndienst**
+- die gewünschte **Ampeldarstellung**
+- optional eigene Außensensoren, darunter auch **CO₂ außen**
 - optional ein **Benachrichtigungsziel** und die Ereignisse, über die du informiert werden möchtest
 
 Standardmäßig lösen weiterhin nur **ernste Außenluftgefahren** (z. B. Brandrauch/Gefahrstoffe) und **schwere Wettergefahren** eine Benachrichtigung aus, wenn tatsächlich ein konfiguriertes Fenster oder eine Tür offen ist. Zusätzlich kannst du vorsorgliche Luft-/Wetterhinweise sowie zwei reine Lüftungsstatus-Hinweise aktivieren: **„Lüften ist wieder sinnvoll“** und **„Lüften kann beendet werden“**. Eine rote Empfehlung allein ist ausdrücklich kein Benachrichtigungsauslöser.
@@ -96,6 +100,7 @@ Für jeden Raum können konfiguriert werden:
 - optional Thermostat / Climate
 - optional Temperatur einer kalten/kritischen Oberfläche
 - Solltemperatur
+- Uhrzeit, ab der eine mögliche Nachtlüftungsstrategie angezeigt werden darf (Standard 22 Uhr)
 
 Ohne Fensterkontakt arbeitet der Raum rein beobachtend. Mit Fensterkontakt erkennt Lüftungsberater automatisch, wann tatsächlich gelüftet wurde.
 
@@ -111,13 +116,19 @@ Ab ungefähr **80 % relativer Oberflächenfeuchte** wird die Situation im Hinter
 
 Regen ist kein Ersatz für eine Feuchtebewertung: Ob Lüften trocknet, entscheidet die absolute Feuchtedifferenz innen/außen. Aktueller bzw. unmittelbar bevorstehender Niederschlag wird nur als praktischer Nachteil für ein geöffnetes Fenster gewertet. Ein Radarereignis beeinflusst die Empfehlung nur noch dann, wenn es während der erwarteten Lüftungsdauer beziehungsweise kurz danach beginnen kann; ein Niederschlag in deutlich späterer Zukunft blockiert keine kurze Lüftung.
 
-Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als angebliche amtliche DWD-Warnfarbe. Ab ungefähr Bft 6 wird vorsichtiger bewertet; ab etwa **50 km/h anhaltendem Wind** oder **65 km/h Böen** kann Lüften insgesamt nachteilig und damit Orange sein. Erst deutlich extremere Rohwerte bzw. echte Warnlagen werden als Rot behandelt. Offizielle DWD-Warnungen werden weiterhin separat nach ihrer konkreten Warnstufe und Handlungsempfehlung berücksichtigt.
+Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als angebliche amtliche DWD-Warnfarbe. Ab ungefähr Bft 6 wird vorsichtiger bewertet; ab etwa **50 km/h anhaltendem Wind** oder **65 km/h Böen** kann Lüften insgesamt nachteilig und damit Orange sein. Deutlich extremere Bedingungen können in der normalen Lüftungsampel Rot werden; echte Warnlagen mit klarem Schutzgrund werden zusätzlich eindeutig mit dem separaten **🔒-Sperrzustand** dargestellt. Offizielle DWD-Warnungen werden weiterhin separat nach ihrer konkreten Warnstufe und Handlungsempfehlung berücksichtigt.
 
 ### Nachtlüftung
 
-Am späten Abend kann Lüftungsberater zusätzlich eine kompakte Nachtlüftungs-Empfehlung anzeigen. Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die stündliche Home-Assistant-Wettervorhersage ausgewertet. Die persönliche Solltemperatur bleibt der Ausgangspunkt; vorhandene Prognosen für Regen, Wind und Luftfeuchte sowie aktuelle Warn-/Luftqualitätslagen können die Empfehlung einschränken. Fehlende Forecast-Felder werden nicht geschätzt. Die Nachtbewertung ist eine Zusatzinformation und verändert die normale aktuelle Ampel zunächst nicht.
+Ab einer pro Raum einstellbaren Uhrzeit (Standard **22 Uhr**) kann Lüftungsberater eine kurze Nachtstrategie anzeigen. Die Uhrzeit ist nur der Beginn der Anzeige – nicht die Aufforderung, genau dann das Fenster zu öffnen. Wenn es abends noch zu warm ist, die Stundenprognose aber später bessere Bedingungen zeigt, kann die Karte zum Beispiel **„Später lüften – ab etwa 01:00 Uhr wird es draußen deutlich kühler“** anzeigen. Bringt die Nacht voraussichtlich keinen nennenswerten Vorteil, bleibt die Zeile einfach verborgen.
 
-Wenn der ausgewählte Wetter-Provider passende Ozon-, PM2.5-, PM10-, NO₂- oder SO₂-Sensoren bereitstellt, nutzt Lüftungsberater plausible und aktuelle Einzelwerte nach den Klassen des Umweltbundesamt-Luftqualitätsindex. Der jeweils schlechteste verfügbare gültige Schadstoff bestimmt die Außenluftbewertung. Fehlende Schadstoffe sind erlaubt; `unknown`, `unavailable`, veraltete, negative oder offensichtlich unplausible Providerwerte werden dagegen ignoriert. Fehlende Daten werden niemals als gute Luft interpretiert.
+Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die stündliche Home-Assistant-Wettervorhersage bis zum Morgen ausgewertet. Persönliche Solltemperatur sowie vorhandene Prognosen für Feuchte, Regen und Wind und aktuelle Warn-/Luftqualitätslagen können die Empfehlung beeinflussen. Fehlende Forecast-Felder werden nicht geschätzt. Die Nachtbewertung bleibt eine Zusatzinformation und verändert die normale aktuelle Ampel nicht.
+
+### Außenluftqualität und lokaler Kontext
+
+Wenn der ausgewählte Wetter-Provider passende Ozon-, PM2.5-, PM10-, NO₂- oder SO₂-Sensoren bereitstellt, nutzt Lüftungsberater plausible und aktuelle Einzelwerte nach den Klassen des Umweltbundesamt-Luftqualitätsindex. Der jeweils schlechteste verfügbare gültige Schadstoff bestimmt die absolute Außenluftbewertung. Fehlende Schadstoffe sind erlaubt; `unknown`, `unavailable`, veraltete, negative oder offensichtlich unplausible Providerwerte werden ignoriert. Fehlende Daten werden niemals als gute Luft interpretiert.
+
+Zusätzlich kann Lüftungsberater pro Standort einen rollierenden typischen Bereich und den jüngsten Trend aufbauen. Dieser Verlauf dient ausschließlich als Kontext: dauerhaft schlechte Luft bleibt schlecht, der Berater erkennt aber zusätzlich, ob die aktuelle Belastung für den Standort üblich oder außergewöhnlich hoch ist. Bei einem deutlichen Standortwechsel wird ein anderer Verlaufsbereich verwendet. Ein optionaler eigener Außen-CO₂-Sensor ergänzt diese Bewertung für den konkreten Luftaustausch am Gebäude; er ersetzt keine Schadstoffmessung und wird nicht mit regionalen CO₂-Werten gemittelt.
 
 ## Wie die Empfehlung entschieden und stabil gehalten wird
 
