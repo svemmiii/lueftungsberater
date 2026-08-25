@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.24 - Alpha
+
+- **Raumluftstatus ist jetzt die Standarddarstellung** für neue lokale Lüftungsberater: Grün = unauffällig, Gelb = leichte Abweichung, Orange = Lüften sinnvoll, Rot = deutlicher Lüftungsbedarf. Die bisherige Lüftungsampel bleibt vollständig auswählbar. Bestehende Installationen behalten ihre bereits gewählte Darstellung.
+- Der separate **🔒-Sperrzustand** wurde optisch deutlich hervorgehoben: heller/weißer Kartenbereich mit dunklem Schloss und klarer Kontur statt eines unauffälligen grauen Zustands. Er bleibt außerhalb beider Ampelskalen.
+- **Nachtlüftung** wird in der Raumkarte direkt unter „Warum?“ als eigener, breiter Hinweis angezeigt. Die pro Raum einstellbare Startzeit verwendet einen echten Uhrzeit-Selector und bleibt klar von Temperaturwerten getrennt.
+- Die Einstellungsdialoge sind übersichtlicher gruppiert: Grundlage/Darstellung, eigene Außensensoren und Benachrichtigungen sowie pro Raum Raumklima, Nachtlüftung, Zusatzsensoren und Fenster/Türen stehen in klar getrennten Abschnitten.
+- NINA an die aktuelle Home-Assistant-Schnittstelle angepasst: aktive Warnungen können über `nina.get_details` um Beschreibung und offizielle Handlungsempfehlungen ergänzt werden. Details werden pro Warnungs-ID gecacht und nicht bei jedem Sensorupdate erneut abgefragt.
+- Remote-/Tailscale-Einträge werden beim Setup/Migration zusätzlich direkt in Home Assistants gecachtem `supported_subentry_types`-Status als read-only markiert, damit sie nicht als Ziel für „Raum hinzufügen“ angeboten werden. Der eigentliche Remote-Datenweg bleibt unverändert flüchtig und entity-frei.
+- Laufende Lüftungen und die letzte bestätigte Lüftung sind robuster **neustartsicher**. `unknown`/`unavailable`-Fensterkontakte direkt nach einem Neustart löschen eine laufende Session nicht mehr.
+- Der aktuelle Hysterese-/Entscheidungsmodus wird kompakt und zeitlich begrenzt gespeichert, damit ein normaler Home-Assistant-Neustart eine laufende Beratung nicht unnötig bei null beginnen lässt.
+- Oberflächen-/Schimmelkontext bleibt optional und wird kompakt bis etwa sieben Tage gehalten. Eine starre „12 von 24 Stunden“-Schwelle wurde durch eine weichere Bewertung aus langer aktueller Belastung bzw. wiederholten auffälligen Tagen ersetzt.
+- Lokaler Außenluft-Kontext wurde von einer wachsenden Rohpunkthistorie auf eine **feste, größenbegrenzte Statistik** umgestellt. Bestehende v0.6.23-Historie wird beim ersten Laden in die kompakte Struktur überführt. Standort-Buckets und Kurzzeitpunkte besitzen feste Obergrenzen.
+- Keine zusätzliche Langzeitdatenbank für Raumtemperatur, Raumfeuchte oder CO₂: Home Assistants vorhandene Sensorhistorie wird nicht dupliziert.
+- Performance: Der 1-Minuten-Takt des Lüftungstrackers läuft nur noch bei tatsächlich geöffnetem Fenster. Bei geschlossenem Fenster wird der 24-Stunden-Fallback exakt terminiert.
+- Performance: Wetter, Warnungen, NINA und Außenluft werden einmal pro Lüftungsberater aufbereitet und von allen Räumen gemeinsam genutzt, statt pro Raum dieselben Providerdaten erneut zu zerlegen.
+- Performance: Stunden-Forecasts werden gemeinsam gecacht und nur während eines relevanten Nachtfensters regelmäßig nachgeladen.
+- Performance: Lokale Karten rendern nur noch bei für den Lüftungsberater relevanten Entity-Änderungen neu. Remote-Frontend-Polling wurde an den 30-Sekunden-Backend-Takt angepasst.
+- Performance: Große dynamische Attribute des Hauptsensors bleiben für die Karte verfügbar, werden aber vom Recorder ausgeschlossen; der eigentliche Empfehlungszustand bleibt historisierbar.
+- Performance: Remote-Geräte-Registry wird nur noch bei einer echten Änderung der Remote-Raumtopologie synchronisiert und nicht bei jedem neuen Messwert. Wiederholt benötigte abgeleitete Entity-IDs werden gecacht.
+- Sichtbare Texte und Einstellungsbeschreibungen in Deutsch, Englisch und Türkisch weiter auf kurze, natürliche Formulierungen ausgerichtet.
+
 ## 0.6.23 - Alpha
 
 - Hauptberatung weiter auf die vierstufige Gesamtabwägung abgestimmt. Die vereinbarten Grenzfälle für CO₂, Temperatur, Feuchte, Regen und Wind sind als Regressionstests festgehalten; starke Innenraumgründe können moderate Außennachteile überwiegen, ohne echte Schutzlagen zu ignorieren.

@@ -14,8 +14,8 @@ Lüftungsberater bewertet Innen- und Außenbedingungen und gibt für jeden Raum 
 
 - Eigene Lüftungsempfehlung pro Raum
 - Vierstufige, konfigurierbare Ampeldarstellung mit kurzer Begründung
-  - **Lüftungsampel (Standard):** Grün = Lüften sinnvoll, Gelb = optional/Übergang, Orange = eher geschlossen lassen, Rot = Lüften deutlich nachteilig
-  - **Raumluftstatus (optional):** Grün = Raumluft unauffällig, Rot = Lüften dringend sinnvoll
+  - **Raumluftstatus (Standard):** Grün = Raumluft unauffällig, Gelb = leichte Abweichung, Orange = Lüften sinnvoll, Rot = deutlicher Lüftungsbedarf
+  - **Lüftungsampel (optional):** Grün = Lüften sinnvoll, Gelb = optional/Übergang, Orange = eher geschlossen lassen, Rot = Lüften deutlich nachteilig
   - Echte Schutzlagen liegen außerhalb der normalen Ampel und werden eindeutig mit **🔒 Fenster geschlossen halten** dargestellt
 - Absolute Feuchtigkeit innen/außen
 - Optionaler CO₂-Sensor pro Raum
@@ -102,7 +102,9 @@ Für jeden Raum können konfiguriert werden:
 - Solltemperatur
 - Uhrzeit, ab der eine mögliche Nachtlüftungsstrategie angezeigt werden darf (Standard 22 Uhr)
 
-Ohne Fensterkontakt arbeitet der Raum rein beobachtend. Mit Fensterkontakt erkennt Lüftungsberater automatisch, wann tatsächlich gelüftet wurde.
+Die Raum-Einstellungen sind dafür in klare Bereiche aufgeteilt: **Raumklima**, **Nachtlüftung**, **Zusatzsensoren** und **Fenster & Türen**. Die Nachtzeit verwendet einen echten Uhrzeit-Selector, damit z. B. 21:00 nicht wie eine 21-°C-Temperaturvorgabe wirkt.
+
+Ohne Fensterkontakt arbeitet der Raum rein beobachtend. Mit Fensterkontakt erkennt Lüftungsberater automatisch, wann tatsächlich gelüftet wurde. Laufende Lüftungen und die letzte bestätigte Lüftung werden kompakt gespeichert und überstehen einen Home-Assistant-Neustart. Ein beim Start kurz `unknown`/`unavailable` gemeldeter Fensterkontakt beendet eine laufende Lüftung nicht fälschlich.
 
 Die Sensor-Auswahl wird nach Home-Assistant-Geräteklassen gefiltert: Temperatur, Luftfeuchtigkeit und CO₂ werden nur in den jeweils passenden Sensorfeldern angeboten; bei Fenster-/Türkontakten erscheinen passende Öffnungs-, Fenster-, Tür- und Garagentor-Binary-Sensoren.
 
@@ -128,7 +130,7 @@ Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die st
 
 Wenn der ausgewählte Wetter-Provider passende Ozon-, PM2.5-, PM10-, NO₂- oder SO₂-Sensoren bereitstellt, nutzt Lüftungsberater plausible und aktuelle Einzelwerte nach den Klassen des Umweltbundesamt-Luftqualitätsindex. Der jeweils schlechteste verfügbare gültige Schadstoff bestimmt die absolute Außenluftbewertung. Fehlende Schadstoffe sind erlaubt; `unknown`, `unavailable`, veraltete, negative oder offensichtlich unplausible Providerwerte werden ignoriert. Fehlende Daten werden niemals als gute Luft interpretiert.
 
-Zusätzlich kann Lüftungsberater pro Standort einen rollierenden typischen Bereich und den jüngsten Trend aufbauen. Dieser Verlauf dient ausschließlich als Kontext: dauerhaft schlechte Luft bleibt schlecht, der Berater erkennt aber zusätzlich, ob die aktuelle Belastung für den Standort üblich oder außergewöhnlich hoch ist. Bei einem deutlichen Standortwechsel wird ein anderer Verlaufsbereich verwendet. Ein optionaler eigener Außen-CO₂-Sensor ergänzt diese Bewertung für den konkreten Luftaustausch am Gebäude; er ersetzt keine Schadstoffmessung und wird nicht mit regionalen CO₂-Werten gemittelt.
+Zusätzlich kann Lüftungsberater pro Standort einen rollierenden typischen Bereich und den jüngsten Trend aufbauen. Dieser Verlauf dient ausschließlich als Kontext: dauerhaft schlechte Luft bleibt schlecht, der Berater erkennt aber zusätzlich, ob die aktuelle Belastung für den Standort üblich oder außergewöhnlich hoch ist. Bei einem deutlichen Standortwechsel wird ein anderer Verlaufsbereich verwendet. Die lokale Statistik ist bewusst größenbegrenzt und speichert keine zweite 30-Tage-Rohdatenbank. Ein optionaler eigener Außen-CO₂-Sensor ergänzt diese Bewertung für den konkreten Luftaustausch am Gebäude; er ersetzt keine Schadstoffmessung und wird nicht mit regionalen CO₂-Werten gemittelt.
 
 ## Wie die Empfehlung entschieden und stabil gehalten wird
 
@@ -139,6 +141,12 @@ Für die absolute Feuchtedifferenz wird um **±0,5 g/m³** eine kleine technisch
 Auch an normalen CO₂-/Feuchte-/Temperaturgrenzen werden Hysteresen verwendet, damit die Karte nicht bei jedem kleinen Sensorschritt umspringt. Kritisches CO₂ sowie echte Außenluft- und Unwettergefahren wirken dagegen unmittelbar. Die Routinelüftung nach 24 Stunden bleibt bewusst nur ein Fallback für Situationen ohne früheren echten Lüftungsgrund.
 
 Der Hauptsensor bleibt bewusst die zentrale Automation-Schnittstelle. Eine zusätzliche Binary-Entity „Lüften empfohlen“ wird nicht erzeugt, weil die Zustände des Hauptsensors (`open_now`, `keep_open`, `close_now`, `wait` usw.) bereits gezieltere Automationen erlauben.
+
+## Neustartsicherheit und Ressourcen
+
+Lüftungsberater hält sein internes Gedächtnis bewusst klein. Gespeichert werden nur Zustände, die sich nach einem Neustart nicht zuverlässig aus den aktuellen Home-Assistant-Entities rekonstruieren lassen: laufende bzw. letzte bestätigte Lüftung, ein kurzlebiger Hysteresezustand, kompakter Oberflächen-Feuchtekontext und eine begrenzte lokale Außenluft-Statistik. Temperatur-, Feuchte- und CO₂-Rohverläufe werden nicht zusätzlich zum Home-Assistant-Recorder dupliziert.
+
+Im Leerlauf laufen keine minutenweisen Komplettauswertungen pro Raum nur für den 24-Stunden-Fallback. Der Minutentakt für „Fenster geöffnet seit“ ist nur während einer tatsächlichen Lüftung aktiv; der 24-Stunden-Fallback wird gezielt terminiert. Wetter, Warnungen und Außenluft werden einmal pro lokalem Lüftungsberater aufbereitet und von den Räumen gemeinsam genutzt. Große Kartenattribute bleiben für die Oberfläche verfügbar, werden aber nicht unnötig als eigener Recorder-Verlauf gespeichert.
 
 ## Sprache und Einheiten
 
