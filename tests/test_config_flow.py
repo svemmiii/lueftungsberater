@@ -94,6 +94,7 @@ async def test_remote_success_progress_reaches_confirmation(hass, enable_custom_
         CONF_INSTANCE_NAME,
         CONF_REMOTE_HOST,
         CONF_REMOTE_PORT,
+        CONF_REMOTE_SELECTED_ROOMS,
         CONF_REMOTE_TOKEN,
         CONF_REMOTE_USE_SSL,
         DOMAIN,
@@ -161,13 +162,15 @@ async def test_remote_success_progress_reaches_confirmation(hass, enable_custom_
             assert result["description_placeholders"]["remote_name"] == "Raspberry Wohnmobil"
             assert result["description_placeholders"]["rooms"] == "1"
             result = await hass.config_entries.flow.async_configure(
-                result["flow_id"], user_input={}
+                result["flow_id"],
+                user_input={CONF_REMOTE_SELECTED_ROOMS: ["advisor-1:room-1"]},
             )
 
         assert result["type"] is FlowResultType.CREATE_ENTRY
         assert result["title"] == "Wohnmobil"
         assert result["data"][CONF_REMOTE_HOST] == "100.86.162.62"
         assert result["data"][CONF_REMOTE_PORT] == 8123
+        assert result["data"][CONF_REMOTE_SELECTED_ROOMS] == ["advisor-1:room-1"]
 
         # CREATE_ENTRY schedules config-entry setup. Keep the setup mock active
         # until those tasks have finished so the test never opens a real socket.
@@ -353,7 +356,9 @@ def test_room_schema_uses_a_real_night_time_field(hass, enable_custom_integratio
     from custom_components.lueftungsberater.const import (
         CONF_INDOOR_HUMIDITY,
         CONF_INDOOR_TEMP,
+        CONF_NIGHT_END_TIME,
         CONF_NIGHT_START_TIME,
+        CONF_REMOTE_ROOM_SHARE,
         CONF_ROOM_NAME,
     )
 
@@ -368,6 +373,8 @@ def test_room_schema_uses_a_real_night_time_field(hass, enable_custom_integratio
         }
     )
     assert str(validated[SECTION_ROOM_NIGHT][CONF_NIGHT_START_TIME]).startswith("22:00")
+    assert str(validated[SECTION_ROOM_NIGHT][CONF_NIGHT_END_TIME]).startswith("07:00")
+    assert validated.get("room_remote", {}).get(CONF_REMOTE_ROOM_SHARE, False) is False
 
 
 async def test_remote_supported_subentry_cache_is_pinned_read_only(

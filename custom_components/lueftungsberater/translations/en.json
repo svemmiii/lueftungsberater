@@ -1,19 +1,20 @@
 {
+  "title": "Fresh Air Assistant",
   "config": {
     "step": {
       "user": {
-        "title": "Add Ventilation Advisor",
+        "title": "Add Fresh Air Assistant",
         "menu_options": {
-          "local": "Set up a local Ventilation Advisor",
-          "remote": "Connect a remote Ventilation Advisor through Tailscale"
+          "local": "Set up a local Fresh Air Assistant",
+          "remote": "Connect a remote Fresh Air Assistant through Tailscale"
         },
         "menu_option_descriptions": {
           "local": "Use rooms and sensors from this Home Assistant.",
-          "remote": "Show only the current state of another Ventilation Advisor installation."
+          "remote": "Show only the current state of another Fresh Air Assistant installation."
         }
       },
       "local": {
-        "title": "Set up a local Ventilation Advisor",
+        "title": "Set up a local Fresh Air Assistant",
         "description": "Give this installation a name, then select a weather provider and optionally a warning service. Rooms can be added afterwards.",
         "data": {
           "instance_name": "Installation name",
@@ -67,8 +68,8 @@
         }
       },
       "remote": {
-        "title": "Connect a remote Ventilation Advisor",
-        "description": "Remote connections are deliberately limited to Tailscale addresses. Only current Ventilation Advisor snapshots are transferred; remote sensors and their history are not created in this Home Assistant. Continue first tests the connection only; it is saved after the following success confirmation.",
+        "title": "Connect a remote Fresh Air Assistant",
+        "description": "Remote connections are deliberately limited to Tailscale addresses. Only current Fresh Air Assistant snapshots are transferred; remote sensors and their history are not created in this Home Assistant. Continue first tests the connection only; it is saved after the following success confirmation.",
         "data": {
           "instance_name": "Display name",
           "remote_host": "Tailscale IP or MagicDNS name",
@@ -78,7 +79,7 @@
         }
       },
       "reconfigure": {
-        "title": "Reconfigure Ventilation Advisor",
+        "title": "Reconfigure Fresh Air Assistant",
         "data": {
           "instance_name": "Installation name",
           "weather_entity": "Weather provider",
@@ -136,11 +137,17 @@
       },
       "remote_confirm": {
         "title": "Connection successful",
-        "description": "**✓ Connection successful**\n\n**{remote_name}** is reachable through Tailscale.\n\n**Found**\n- Lüftungsberater instances: **{instances}**\n- Rooms: **{rooms}**\n\n**Available rooms**\n{details}\n\nSelect “Submit” to save this connection."
+        "description": "**✓ Connection successful**\n\n**{remote_name}** is reachable through Tailscale.\n\n**Found**\n- Fresh Air Assistant instances: **{instances}**\n- Rooms: **{rooms}**\n\n**Available rooms**\n{details}\n\nSelect “Submit” to save this connection.\n\nNow choose the shared rooms that should be shown on this instance. New rooms will only become available for selection later and will not be added automatically.",
+        "data": {
+          "remote_selected_rooms": "Remote rooms to show"
+        }
       },
       "reconfigure_confirm": {
         "title": "Connection successful",
-        "description": "**✓ Connection successful**\n\nThe updated connection details work.\n\n- Lüftungsberater instances: **{instances}**\n- Rooms: **{rooms}**\n\n{details}\n\nSelect “Submit” to save the changes."
+        "description": "**✓ Connection successful**\n\nThe updated connection details work.\n\n- Fresh Air Assistant instances: **{instances}**\n- Rooms: **{rooms}**\n\n{details}\n\nSelect “Submit” to save the changes.\n\nNow choose the shared rooms that should be shown on this instance. New rooms will only become available for selection later and will not be added automatically.",
+        "data": {
+          "remote_selected_rooms": "Remote rooms to show"
+        }
       },
       "remote_progress": {
         "title": "Checking connection",
@@ -150,14 +157,15 @@
     "error": {
       "not_tailscale": "This address does not resolve to a recognized Tailscale connection.",
       "invalid_auth": "The remote Home Assistant rejected the access token.",
-      "cannot_connect": "The remote Home Assistant cannot be reached through this Tailscale address."
+      "cannot_connect": "The remote Home Assistant cannot be reached through this Tailscale address.",
+      "select_room": "Select at least one shared room."
     },
     "abort": {
       "already_configured": "This remote Home Assistant is already connected.",
       "reconfigure_successful": "The settings have been saved."
     },
     "progress": {
-      "testing_remote": "Checking the Tailscale connection and reading the current Ventilation Advisor state …"
+      "testing_remote": "Checking the Tailscale connection and reading the current Fresh Air Assistant state …"
     }
   },
   "config_subentries": {
@@ -180,11 +188,14 @@
             "climate_entity": "Climate entity for target temperature (optional)",
             "target_temperature": "🌡️ Fallback target temperature",
             "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
-            "night_advice_start_time": "🌙 Show night advice from"
+            "night_advice_start_time": "🌙 Show night advice from",
+            "night_advice_end_time": "🌙 Show night advice until",
+            "remote_share": "Allow this room to be queried remotely"
           },
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
-            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+            "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
           },
           "sections": {
             "room_climate": {
@@ -202,12 +213,14 @@
             },
             "room_night": {
               "name": "🌙 Night ventilation",
-              "description": "Only controls when advice for the coming night may start appearing.",
+              "description": "Choose the time window in which the additional night advice may be shown.",
               "data": {
-                "night_advice_start_time": "🌙 Show night advice from"
+                "night_advice_start_time": "🌙 Show night advice from",
+                "night_advice_end_time": "🌙 Show night advice until"
               },
               "data_description": {
-                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+                "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
               }
             },
             "room_sensors": {
@@ -223,6 +236,13 @@
               "description": "Optional. Lets the advisor track an airing session and continue it after a restart.",
               "data": {
                 "window_entities": "Windows / doors (optional)"
+              }
+            },
+            "room_remote": {
+              "name": "🔗 Remote sharing",
+              "description": "Optional. Only shared rooms can be selected and queried by a connected instance.",
+              "data": {
+                "remote_share": "Allow this room to be queried remotely"
               }
             }
           }
@@ -238,12 +258,15 @@
             "climate_entity": "Climate entity for target temperature (optional)",
             "target_temperature": "🌡️ Fallback target temperature",
             "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
-            "night_advice_start_time": "🌙 Show night advice from"
+            "night_advice_start_time": "🌙 Show night advice from",
+            "night_advice_end_time": "🌙 Show night advice until",
+            "remote_share": "Allow this room to be queried remotely"
           },
           "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated.",
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
-            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+            "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
           },
           "sections": {
             "room_climate": {
@@ -261,12 +284,14 @@
             },
             "room_night": {
               "name": "🌙 Night ventilation",
-              "description": "Only controls when advice for the coming night may start appearing.",
+              "description": "Choose the time window in which the additional night advice may be shown.",
               "data": {
-                "night_advice_start_time": "🌙 Show night advice from"
+                "night_advice_start_time": "🌙 Show night advice from",
+                "night_advice_end_time": "🌙 Show night advice until"
               },
               "data_description": {
-                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”."
+                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+                "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
               }
             },
             "room_sensors": {
@@ -283,13 +308,20 @@
               "data": {
                 "window_entities": "Windows / doors (optional)"
               }
+            },
+            "room_remote": {
+              "name": "🔗 Remote sharing",
+              "description": "Optional. Only shared rooms can be selected and queried by a connected instance.",
+              "data": {
+                "remote_share": "Allow this room to be queried remotely"
+              }
             }
           }
         }
       },
       "abort": {
         "already_configured": "A room with this name already exists.",
-        "remote_read_only": "Remote/Tailscale connections are read-only. Rooms can only be added to a local Ventilation Advisor."
+        "remote_read_only": "Remote/Tailscale connections are read-only. Rooms can only be added to a local Fresh Air Assistant."
       }
     }
   },
@@ -362,7 +394,9 @@
         "air_danger": "Serious outdoor-air warnings / poor air quality",
         "air_caution": "Outdoor-air advisories / moderate air quality",
         "weather_danger": "Severe weather warnings",
-        "weather_caution": "Weather warnings / caution advisories"
+        "weather_caution": "Weather warnings / caution advisories",
+        "official_warning_closed": "Serious official protection warning even with windows closed",
+        "all_clear": "All-clear after a protection warning"
       }
     },
     "display_mode": {

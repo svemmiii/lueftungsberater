@@ -1,45 +1,11 @@
-Lüftungsberater v0.6.24 – vollständiger CI/Test-Audit vor CLEAN_COMPLETE_v3
+Lüftungsassistent v0.7.0 – Patch ab v0.6.24
 
-Aktueller GitHub-Fehler
-=======================
-tests/test_config_flow.py::test_room_schema_accepts_required_room_inputs_with_filtered_selectors
+Diese ZIP enthält nur neue/geänderte Dateien gegenüber dem letzten grünen v0.6.24-CLEAN-COMPLETE-v3 Stand.
+Die Ordnerstruktur muss beim Upload beibehalten werden.
 
-voluptuous.error.MultipleInvalid:
-required key not provided @ data['room_night']
-
-Ursache
-=======
-custom_components/lueftungsberater/config_flow.py definiert in _room_schema():
-
-  vol.Required(SECTION_ROOM_CLIMATE)
-  vol.Required(SECTION_ROOM_NIGHT)
-
-Der betroffene Test übergab SECTION_ROOM_CLIMATE, aber SECTION_ROOM_NIGHT nicht.
-Der produktive Config-Flow wurde dafür NICHT geändert; der Test bildet jetzt ein
-gültiges Home-Assistant-Formular ab und sendet SECTION_ROOM_NIGHT: {} mit.
-
-Vollständige Prüfungen vor dem Packen
-=====================================
-- 118 Testfunktionen gefunden.
-- Keine doppelten Testfunktionsnamen.
-- Alle direkten _global_schema()-Aufrufe geprüft:
-  erforderliche SECTION_GENERAL vorhanden.
-- Alle direkten _room_schema()-Aufrufe geprüft:
-  erforderliche SECTION_ROOM_CLIMATE und SECTION_ROOM_NIGHT vorhanden.
-- Kein Zugriff mehr auf ConfigEntry.as_json_fragment als Dictionary.
-- Kein patch.object(...) mehr auf hass.services.has_service/async_call.
-- NINA-Test verwendet echten temporären Response-Service.
-- Remote-Config-Flow-Test mockt async_setup_entry bis nach hass.async_block_till_done().
-- Keine Integration-Dateien im Repository-Root.
-- Keine test_*.py-Duplikate im Repository-Root.
-- manifest.json: domain=lueftungsberater, version=0.6.24.
-- hacs.json: Mindestversion Home Assistant 2026.6.0.
-- GitHub Pytest-Workflow: Python 3.14, pytest nur gegen tests/.
-- Alle Python-Dateien syntaktisch kompiliert.
-- Alle JSON-Dateien geparst.
-- GitHub-YAML geparst.
-
-Produktionslogik
-================
-Für diesen Patch wurde keine Datei unter custom_components/lueftungsberater/
-verändert. Es wird ausschließlich tests/test_config_flow.py korrigiert.
+Wichtig:
+- technische Domain bleibt custom_components/lueftungsberater
+- keine Root-manifest.json oder Root-__init__.py anlegen
+- .github/workflows/validate.yml bleibt enthalten, falls sich der Workflow gegenüber der Basis unterscheidet
+- vollständige Release Notes: RELEASE_NOTES_v0.7.0.md
+- Audit: CI_AUDIT_v0.7.0.txt

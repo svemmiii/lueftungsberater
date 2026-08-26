@@ -380,6 +380,35 @@ def test_cold_outdoor_air_cools_warm_room_toward_personal_target():
     assert r.mode == "kuehlen"
 
 
+def test_closed_room_temperature_hysteresis_avoids_yellow_green_flicker():
+    kept = evaluate_room(
+        base(
+            indoor_temp=22.7,
+            target_temp=22.0,
+            outdoor_temp=16.0,
+            outdoor_humidity=50,
+            window_open=False,
+            previous_mode="aussen_deutlich_feuchter",
+            previous_need="temperature",
+        )
+    )
+    fresh = evaluate_room(
+        base(
+            indoor_temp=22.7,
+            target_temp=22.0,
+            outdoor_temp=16.0,
+            outdoor_humidity=50,
+            window_open=False,
+            previous_mode="aussen_deutlich_feuchter",
+            previous_need=None,
+        )
+    )
+    assert kept.primary_need == "temperature"
+    assert kept.room_status_color == "yellow"
+    assert fresh.primary_need != "temperature"
+    assert fresh.room_status_color == "green"
+
+
 def test_open_window_keeps_cooling_until_target_is_effectively_reached():
     r = evaluate_room(
         base(
@@ -406,8 +435,8 @@ def test_closed_window_does_not_reopen_for_small_temperature_deviation():
             window_open=False,
         )
     )
-    # Starting threshold remains 1 K; hysteresis only applies to an airing that
-    # is already in progress.
+    # A fresh recommendation still starts at 1 K; the lower band is only used
+    # after an existing temperature recommendation so sensor noise cannot start it.
     assert r.color == "orange"
     assert r.mode == "aussen_zu_kalt"
 

@@ -28,7 +28,7 @@ def _topology_signature(data: RemoteData) -> tuple[tuple[str, str, tuple[tuple[s
         if not isinstance(instance, dict):
             continue
         instance_id = str(instance.get("id") or f"instance-{instance_index}")
-        instance_name = str(instance.get("name") or "Lüftungsberater")
+        instance_name = str(instance.get("name") or "Lüftungsassistent")
         rooms_raw = instance.get("rooms", [])
         rooms: list[tuple[str, str]] = []
         if isinstance(rooms_raw, list):
@@ -89,7 +89,7 @@ def async_sync_remote_room_devices(
 
     for instance_index, instance in enumerate(instances, start=1):
         instance_id = str(instance.get("id") or f"instance-{instance_index}")
-        instance_name = str(instance.get("name") or "Lüftungsberater")
+        instance_name = str(instance.get("name") or "Lüftungsassistent")
         rooms = instance.get("rooms", [])
         if not isinstance(rooms, list):
             continue
@@ -104,10 +104,10 @@ def async_sync_remote_room_devices(
             registry.async_get_or_create(
                 config_entry_id=entry.entry_id,
                 identifiers={identifier},
-                manufacturer="Lüftungsberater",
+                manufacturer="Lüftungsassistent",
                 model="Tailscale Remote-Raum",
                 name=(f"{instance_name} · {room_name}" if multiple_instances else room_name),
-                sw_version="0.6.24",
+                sw_version="0.7.0",
             )
 
     # Remove remote room cards only when an available peer confirms that the

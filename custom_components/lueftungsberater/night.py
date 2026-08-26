@@ -8,7 +8,6 @@ from typing import Any
 
 from .engine import AH_NEUTRAL, absolute_humidity
 
-NIGHT_WINDOW_END_HOUR = 7
 _RAINY_CONDITIONS = {
     "rainy",
     "pouring",
@@ -28,18 +27,27 @@ class NightAdvice:
     reason_args: dict[str, Any] = field(default_factory=dict)
 
 
-def _display_interval(now: datetime, start_minute: int) -> tuple[datetime, datetime] | None:
-    """Return the configured evening-to-morning interval containing ``now``."""
+def _display_interval(
+    now: datetime,
+    start_minute: int,
+    end_minute: int = 7 * 60,
+) -> tuple[datetime, datetime] | None:
+    """Return the configured daily interval containing ``now``.
+
+    Both bounds are configurable and may cross midnight. Equal start/end is
+    treated as a 24-hour window, which is useful for unusual shift schedules.
+    """
     start_minute = max(0, min(1439, int(start_minute)))
+    end_minute = max(0, min(1439, int(end_minute)))
     start_hour, start_min = divmod(start_minute, 60)
+    end_hour, end_min = divmod(end_minute, 60)
+
     for offset in (-1, 0):
         day = now + timedelta(days=offset)
         start = day.replace(hour=start_hour, minute=start_min, second=0, microsecond=0)
-        if start_hour < NIGHT_WINDOW_END_HOUR:
-            end = day.replace(hour=NIGHT_WINDOW_END_HOUR, minute=0, second=0, microsecond=0)
-        else:
-            tomorrow = day + timedelta(days=1)
-            end = tomorrow.replace(hour=NIGHT_WINDOW_END_HOUR, minute=0, second=0, microsecond=0)
+        end = day.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
+        if end_minute <= start_minute:
+            end += timedelta(days=1)
         if start <= now <= end:
             return start, end
     return None
@@ -98,6 +106,7 @@ def evaluate_night_ventilation(
     hourly_forecast: list[dict[str, Any]],
     start_minute: int = 22 * 60,
     start_hour: int | None = None,
+    end_minute: int = 7 * 60,
     indoor_co2: float | None = None,
     outdoor_co2: float | None = None,
     outdoor_temp: float | None = None,
@@ -122,7 +131,7 @@ def evaluate_night_ventilation(
     """
     if start_hour is not None:
         start_minute = max(0, min(23, int(start_hour))) * 60
-    interval = _display_interval(now, start_minute)
+    interval = _display_interval(now, start_minute, end_minute)
     if interval is None:
         return NightAdvice()
     if indoor_temp is None or indoor_humidity is None or target_temp is None:

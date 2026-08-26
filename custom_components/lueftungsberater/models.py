@@ -41,6 +41,7 @@ class RoomInput:
     air_quality_trend: str = "unknown"
     air_quality_history_samples: int = 0
     previous_mode: str | None = None
+    previous_need: str | None = None
 
 
 @dataclass(slots=True)
@@ -58,6 +59,7 @@ class VentilationResult:
     absolute_humidity_difference: float
     co2_status: str
     room_status_color: str = "green"
+    primary_need: str = "none"
     safety_lock: bool = False
     surface_relative_humidity: float | None = None
     mold_risk: bool = False

@@ -504,6 +504,7 @@ def reason_text(
 
     if lang == "de":
         texts = {
+            "official_close_instruction": "Eine offizielle Warnquelle weist ausdrücklich an, Fenster und Türen geschlossen zu halten oder die Außenluftzufuhr abzuschalten. Diese Schutzanweisung hat Vorrang vor der normalen Lüftungsbewertung.",
             "nina_air_danger": "Für die Außenluft liegt aktuell eine relevante Warnung vor. Lass Fenster und Türen deshalb besser geschlossen.",
             "nina_air_caution": "Für die Außenluft gilt aktuell ein Vorsichtshinweis. Lüfte im Moment besser nur, wenn es wirklich nötig ist.",
             "air_smoke_danger": "In der Umgebung wird Rauch oder Brandrauch gemeldet. Lass Fenster und Türen besser geschlossen, damit möglichst wenig davon hereinkommt.",
@@ -550,6 +551,7 @@ def reason_text(
         }
     elif lang == "tr":
         texts = {
+            "official_close_instruction": "Resmî bir uyarı kaynağı pencerelerin ve kapıların kapalı tutulmasını veya dış hava girişinin kapatılmasını açıkça istiyor. Bu koruma talimatı normal havalandırma değerlendirmesinden önceliklidir.",
             "nina_air_danger": "Dış havayı etkileyen önemli bir uyarı var. Bu yüzden pencereleri ve kapıları şimdilik kapalı tutman daha iyi.",
             "nina_air_caution": "Dış havayla ilgili bir dikkat uyarısı var. Gerçekten gerekmedikçe şimdilik pencereleri açmamak daha iyi.",
             "air_smoke_danger": "Yakın çevrede duman veya yangın dumanı bildiriliyor. İçeri mümkün olduğunca az girmesi için pencereleri ve kapıları kapalı tut.",
@@ -596,6 +598,7 @@ def reason_text(
         }
     else:
         texts = {
+            "official_close_instruction": "An official warning source explicitly instructs you to keep windows and doors closed or switch off the outdoor-air supply. This protection instruction takes priority over the normal ventilation assessment.",
             "nina_air_danger": "There is an active warning affecting the outdoor air. It is better to keep windows and doors closed for now.",
             "nina_air_caution": "There is currently an advisory affecting the outdoor air. Unless you really need fresh air, it is better to keep the windows closed for now.",
             "air_smoke_danger": "Smoke or fire smoke has been reported nearby. Keep windows and doors closed to reduce how much of it gets indoors.",

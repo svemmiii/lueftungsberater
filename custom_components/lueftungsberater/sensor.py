@@ -9,6 +9,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 
 from .airing import get_tracker
+from .api import remote_access_info
 from .const import (
     CONF_CLIMATE,
     CONF_DISPLAY_MODE,
@@ -24,6 +25,7 @@ from .const import (
     CONF_WEATHER_DANGER,
     CONF_WEATHER_REASON,
     CONF_WINDOWS,
+    CONF_REMOTE_ROOM_SHARE,
     DOMAIN,
     DEFAULT_DISPLAY_MODE,
     DISPLAY_MODE_ROOM_AIR,
@@ -222,14 +224,22 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             night_key,
             night_args,
         )
+        remote_active, remote_clients = remote_access_info(
+            self.hass, self.entry.entry_id, self.subentry.subentry_id
+        )
 
         return {
             "instance_id": self.entry.entry_id,
             "instance_name": self.entry.title,
             "room_name": self.subentry.title,
+            "remote_shared": bool(self.subentry.data.get(CONF_REMOTE_ROOM_SHARE, True)),
+            "remote_access_active": remote_active,
+            "remote_access_count": len(remote_clients),
+            "remote_access_clients": remote_clients,
             "status": status,
             "display_mode": display_mode,
             "safety_lock": bool(r.safety_lock) if r is not None else False,
+            "primary_need": r.primary_need if r is not None else "none",
             "ventilation_status": r.color if r is not None else "yellow",
             "room_status": r.room_status_color if r is not None else "yellow",
             "recommendation": recommendation_text(recommendation_key, language),
@@ -244,6 +254,9 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "duration_key": duration_key,
             "localized_texts": texts,
             "original_warning_text": original_reason,
+            "warning_notice_kind": warnings.warning_notice_kind,
+            "warning_notice_text": warnings.warning_notice_text,
+            "official_close_instruction": warnings.official_close_instruction,
             "co2_status": current_co2_status,
             "co2_data_status": values.get("co2_data_status", "not_configured"),
             "co2_ppm": (

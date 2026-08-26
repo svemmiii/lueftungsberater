@@ -19,6 +19,8 @@ from .const import (
     NOTIFY_TRIGGER_AIR_DANGER,
     NOTIFY_TRIGGER_WEATHER_CAUTION,
     NOTIFY_TRIGGER_WEATHER_DANGER,
+    NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
+    NOTIFY_TRIGGER_ALL_CLEAR,
 )
 from .runtime import RoomSnapshot
 
@@ -65,9 +67,9 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
         lang = "en"
 
     titles = {
-        "de": f"Lüftungsberater · {room}",
-        "en": f"Ventilation Advisor · {room}",
-        "tr": f"Havalandırma Danışmanı · {room}",
+        "de": f"Lüftungsassistent · {room}",
+        "en": f"Fresh Air Assistant · {room}",
+        "tr": f"Fresh Air Assistant · {room}",
     }
     messages = {
         "de": {
@@ -77,6 +79,8 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
             NOTIFY_TRIGGER_AIR_CAUTION: f"In {room} ist noch ein Fenster oder eine Tür offen, während ein Außenluft-Hinweis aktiv ist. Prüfe bitte, ob du schließen solltest.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"In {room} ist noch ein Fenster oder eine Tür offen, obwohl eine ernste Wetterlage aktiv ist. Bitte prüfen und bei Bedarf schließen.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"In {room} ist noch ein Fenster oder eine Tür offen, während ein Wetterhinweis aktiv ist. Behalte die Lage im Blick.",
+            NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED: f"Für {room} ist eine offizielle Schutzanweisung aktiv. Die überwachten Fenster und Türen sind aktuell geschlossen – bitte geschlossen halten und die amtlichen Hinweise beachten.",
+            NOTIFY_TRIGGER_ALL_CLEAR: f"Für {room} ist eine Entwarnung eingegangen. Die harte Schutzsperre wurde aufgehoben; der Lüftungsassistent bewertet die aktuellen Raum- und Außenbedingungen wieder normal.",
         },
         "en": {
             NOTIFY_TRIGGER_AIRING_RECOMMENDED: f"Opening the windows in {room} is useful again now.",
@@ -85,6 +89,8 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
             NOTIFY_TRIGGER_AIR_CAUTION: f"A window or door in {room} is still open while an outdoor-air advisory is active. Please check whether it should be closed.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"A window or door in {room} is still open while severe weather is active. Please check it and close it if needed.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"A window or door in {room} is still open while a weather advisory is active. Please keep an eye on the situation.",
+            NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED: f"An official protection instruction is active for {room}. The monitored windows and doors are currently closed – keep them closed and follow the official advice.",
+            NOTIFY_TRIGGER_ALL_CLEAR: f"An all-clear has been issued for {room}. The hard protection lock has been removed and Fresh Air Assistant is evaluating the current indoor and outdoor conditions normally again.",
         },
         "tr": {
             NOTIFY_TRIGGER_AIRING_RECOMMENDED: f"{room} odasını havalandırmak yeniden uygun.",
@@ -93,6 +99,8 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
             NOTIFY_TRIGGER_AIR_CAUTION: f"{room} odasında bir pencere veya kapı hâlâ açıkken dış hava uyarısı aktif. Kapatmanın gerekip gerekmediğini kontrol et.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"{room} odasında bir pencere veya kapı hâlâ açıkken ciddi hava koşulları aktif. Lütfen kontrol edip gerekirse kapat.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"{room} odasında bir pencere veya kapı hâlâ açıkken hava durumu uyarısı aktif. Lütfen durumu takip et.",
+            NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED: f"{room} için resmî bir koruma talimatı aktif. İzlenen pencere ve kapılar şu anda kapalı; kapalı tut ve resmî talimatları takip et.",
+            NOTIFY_TRIGGER_ALL_CLEAR: f"{room} için tehlikenin geçtiğine dair resmî bildirim geldi. Sert koruma kilidi kaldırıldı ve Fresh Air Assistant mevcut iç ve dış koşulları yeniden normal şekilde değerlendiriyor.",
         },
     }
     return titles[lang], messages[lang][trigger]
@@ -154,6 +162,7 @@ async def async_handle_room_notification(
     mode = result.mode if result is not None else None
     recommendation_key = result.recommendation_key if result is not None else None
     hazard_trigger = _trigger_for_mode(mode or "")
+    all_clear = snapshot.warnings.warning_notice_kind == "all_clear"
 
     key = f"{entry.entry_id}:{subentry.subentry_id}"
     store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_NOTIFICATION_STATE, {})
@@ -182,6 +191,40 @@ async def async_handle_room_notification(
         state["hazard_fingerprint"] = fingerprint
     else:
         state.pop("hazard_fingerprint", None)
+
+    # Optional awareness notification for users who explicitly want serious
+    # official warnings even while everything is already closed. The wording
+    # must make the closed state explicit to avoid implying an open window.
+    closed_official_active = (
+        not window_open
+        and snapshot.warnings.official_close_instruction
+        and result is not None
+        and result.safety_lock
+        and NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED in enabled
+    )
+    if closed_official_active:
+        closed_fp = (result.reason_key, result.original_reason or "")
+        if state.get("closed_official_fingerprint") != closed_fp:
+            if not await _async_send(
+                hass, entry, subentry, NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED
+            ):
+                return
+        state["closed_official_fingerprint"] = closed_fp
+    else:
+        state.pop("closed_official_fingerprint", None)
+
+    if (
+        initialized
+        and all_clear
+        and NOTIFY_TRIGGER_ALL_CLEAR in enabled
+        and state.get("mode") == "nina_aussenluftgefahr"
+        and not state.get("all_clear_sent")
+    ):
+        if not await _async_send(hass, entry, subentry, NOTIFY_TRIGGER_ALL_CLEAR):
+            return
+        state["all_clear_sent"] = True
+    elif not all_clear:
+        state.pop("all_clear_sent", None)
 
     if initialized and result is not None:
         transition_trigger = _transition_trigger(

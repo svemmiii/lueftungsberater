@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
+import re
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -54,71 +55,95 @@ WEATHER_WARNING_WORDS = (
     "continuous rain",
 )
 
-AIR_WORDS = (
-    "brandrauch",
-    "rauchentwicklung",
-    "rauchgas",
-    "rauchwolke",
-    "rauchbelastung",
-    "ausbreitung von rauch",
-    "ausbreitung von brandrauch",
-    "gefahrstoff",
-    "schadstoff",
-    "luftverunreinigung",
-    "gasaustritt",
-    "gaswolke",
-    "chemieunfall",
-    "chemikal",
-    "giftige dämpfe",
-    "giftige daempfe",
-    "toxisch",
-    "reizgas",
-    "smoke",
-    "hazardous substance",
-    "toxic",
-    "gas leak",
-)
-
-NO_DANGER_WORDS = (
-    "keine gesundheitsgefahr",
-    "keine gesundheitliche gefahr",
-    "keine gefahr für die gesundheit",
-    "keine gefahr fuer die gesundheit",
-    "es besteht keine gefahr",
-    "keine gefährdung",
-    "keine gefaehrdung",
-    "no health risk",
-    "no danger",
-)
-
 CLEAR_WORDS = (
     "entwarnung",
     "warnung ist aufgehoben",
     "warnung wurde aufgehoben",
     "die warnung ist aufgehoben",
+    "gefahr ist vorüber",
+    "gefahr ist vorueber",
     "all-clear",
+    "all clear",
     "warning has been lifted",
+    "warning lifted",
 )
 
-PRECAUTION_WORDS = (
-    "vorsorglich fenster",
-    "vorsorglich die fenster",
-    "vorsorglich türen",
-    "vorsorglich tueren",
-    "close windows as a precaution",
+CLEAR_NEGATIONS = (
+    "noch keine entwarnung",
+    "keine entwarnung",
+    "entwarnung liegt nicht vor",
+    "entwarnung liegt noch nicht vor",
+    "entwarnung wurde nicht",
+    "entwarnung wurde noch nicht",
+    "noch nicht entwarnt",
+    "not an all-clear",
+    "no all-clear",
+    "warning has not been lifted",
 )
 
-HARD_CLOSE_WORDS = (
+# Official instructions are authoritative. The integration does not second-guess
+# why an authority orders windows/doors closed or ventilation switched off.
+OFFICIAL_CLOSE_ACTIONS = (
+    "fenster und türen schließen",
+    "fenster und tueren schliessen",
     "fenster und türen geschlossen halten",
     "fenster und tueren geschlossen halten",
     "halten sie fenster und türen geschlossen",
     "halten sie fenster und tueren geschlossen",
+    "schließen sie fenster und türen",
+    "schliessen sie fenster und tueren",
+    "schließen sie vorsorglich fenster",
+    "schliessen sie vorsorglich fenster",
+    "vorsorglich fenster",
     "fenster geschlossen halten",
+    "fenster geschlossen lassen",
+    "fenster und türen geschlossen lassen",
+    "fenster und tueren geschlossen lassen",
+    "fenster schließen",
+    "fenster schliessen",
+    "türen und fenster schließen",
+    "tueren und fenster schliessen",
+    "dachfenster schließen",
+    "dachfenster schliessen",
+    "close skylights",
+    "lüftungs- und klimaanlagen ab",
+    "luftungs- und klimaanlagen ab",
+    "lüftungsanlage abschalten",
+    "luftungsanlage abschalten",
+    "lüftungsanlagen abschalten",
+    "lüftungsanlage ausschalten",
+    "luftungsanlage ausschalten",
+    "lüftungsanlagen ausschalten",
+    "luftungsanlagen ausschalten",
+    "lüftung ausschalten",
+    "luftung ausschalten",
+    "klimaanlage ausschalten",
+    "klimaanlagen ausschalten",
+    "frischluftzufuhr vermeiden",
+    "frischluftzufuhr abschalten",
+    "außenluftzufuhr abschalten",
+    "aussenluftzufuhr abschalten",
+    "luftungsanlagen abschalten",
+    "lüftung abschalten",
+    "luftung abschalten",
+    "klimaanlage abschalten",
+    "klimaanlagen abschalten",
+    "außenluftzufuhr vermeiden",
+    "aussenluftzufuhr vermeiden",
     "keep windows and doors closed",
     "keep windows closed",
+    "keep doors and windows closed",
+    "shut windows",
+    "shut the windows",
+    "close windows and doors",
+    "close the windows",
+    "turn off ventilation",
+    "switch off ventilation",
+    "turn off air conditioning",
+    "switch off air conditioning",
+    "avoid outdoor air intake",
 )
 
-SEVERITY_DANGER = {"severe", "extreme"}
 
 _LOGGER = logging.getLogger(__name__)
 HOURLY_FORECAST_CACHE_MAX_AGE = timedelta(minutes=45)
@@ -169,6 +194,9 @@ class WarningAssessment:
     nina_reason_key: str | None = None
     nina_reason_args: dict[str, Any] = field(default_factory=dict)
     nina_original_reason: str | None = None
+    warning_notice_kind: str | None = None
+    warning_notice_text: str | None = None
+    official_close_instruction: bool = False
     source_entities: set[str] = field(default_factory=set)
     provider_domain: str | None = None
 
@@ -762,7 +790,17 @@ def _contains_any(text: str, words: tuple[str, ...]) -> bool:
 
 
 def _is_clear_warning(text: str) -> bool:
-    return _contains_any(text, CLEAR_WORDS)
+    low = " ".join(str(text).lower().split())
+    if any(word in low for word in CLEAR_NEGATIONS):
+        return False
+    # Catch natural negations around the word "Entwarnung" without requiring
+    # an exhaustive list of sentence variants. Examples: "Entwarnung noch
+    # nicht möglich", "keine vollständige Entwarnung".
+    if re.search(r"(?:keine|keinerlei|noch keine|nicht|noch nicht)[^.!?]{0,50}entwarnung", low):
+        return False
+    if re.search(r"entwarnung[^.!?]{0,50}(?:noch nicht|nicht möglich|nicht erfolgt)", low):
+        return False
+    return any(word in low for word in CLEAR_WORDS)
 
 
 def _weather_warning_kind(text: str) -> str:
@@ -814,38 +852,24 @@ def _evaluate_air_warning(
     actions: str,
     severity: str,
 ) -> str:
-    """Return none/caution/danger for an environmental-air warning."""
+    """Return none/caution/danger/clear from official action instructions.
+
+    v0.7 deliberately stops judging the event type or CAP severity itself. An
+    authority has already assessed the incident. We only consume instructions
+    that directly affect ventilation in the protected room/building.
+    """
     alltext = " ".join((headline, description, actions)).lower()
 
     if _is_clear_warning(alltext):
-        return "none"
+        return "clear"
 
-    air = _contains_any(alltext, AIR_WORDS)
-    if not air:
-        return "none"
-
-    no_danger = _contains_any(alltext, NO_DANGER_WORDS)
-    precaution = _contains_any(actions, PRECAUTION_WORDS)
-    hard_close = _contains_any(actions, HARD_CLOSE_WORDS)
-    severity_low = severity.lower()
-
-    if no_danger:
-        # A warning text explicitly saying that there is no danger must not be
-        # kept yellow merely because it also mentions smoke/fire. Only an actual
-        # precautionary/close-windows instruction still warrants caution.
-        return "caution" if (precaution or hard_close) else "none"
-
-    if (
-        severity_low in SEVERITY_DANGER
-        or (hard_close and not precaution)
-        or "gesundheitsgefahr" in alltext
-        or "gesundheitliche gefahr" in alltext
-        or "giftig" in alltext
-        or "toxisch" in alltext
-    ):
+    if _contains_any(f"{actions} {description}", OFFICIAL_CLOSE_ACTIONS):
         return "danger"
 
-    return "caution"
+    # No direct close/outdoor-air instruction means the official warning is
+    # outside this integration's remit. Weather and measured air quality are
+    # still evaluated independently by their dedicated paths.
+    return "none"
 
 
 
@@ -993,7 +1017,7 @@ def _evaluate_nina_like_entities(
         advisor_entry = entry if not isinstance(entry, list) else None
 
     result = WarningAssessment()
-    air_rank = {"none": 0, "caution": 1, "danger": 2}
+    air_rank = {"none": 0, "clear": 1, "caution": 2, "danger": 3}
     slot_details = _nina_slot_sensor_values(hass, entity_ids)
     registry = _optional_entity_registry(hass) if slot_details else None
 
@@ -1012,34 +1036,42 @@ def _evaluate_nina_like_entities(
         full = _cached_nina_details(hass, advisor_entry, entity_id) if advisor_entry is not None else {}
         headline = _text(state, "headline") or detail.get("headline", "") or str(full.get("headline") or "")
         description = _text(state, "description") or str(full.get("description") or "")
-        actions = (
-            _text(state, "recommended_actions")
-            or _text(state, "instruction")
-            or str(full.get("recommended_actions") or "")
+        actions = " ".join(
+            part
+            for part in (
+                _text(state, "recommended_actions"),
+                _text(state, "recommended_action"),
+                _text(state, "instruction"),
+                _text(state, "instructions"),
+                _text(state, "recommendation"),
+                _text(state, "recommendations"),
+                _text(state, "advice"),
+                str(full.get("recommended_actions") or ""),
+                str(full.get("recommended_action") or ""),
+                str(full.get("instruction") or ""),
+                str(full.get("instructions") or ""),
+                str(full.get("recommendation") or ""),
+                str(full.get("recommendations") or ""),
+                str(full.get("advice") or ""),
+            )
+            if part
         )
         severity = _text(state, "severity") or detail.get("severity", "") or str(full.get("severity") or "") or "Unknown"
         alltext = " ".join((headline, description, actions))
 
         if _is_clear_warning(alltext):
+            # Keep the all-clear visible while the provider still exposes the
+            # warning slot. Once the slot disappears/goes off, normal engine
+            # operation resumes with no artificial after-run.
+            if result.nina_status != "danger":
+                result.nina_status = "clear"
+                result.warning_notice_kind = "all_clear"
+                result.warning_notice_text = headline or description or actions or None
             continue
 
-        if _contains_any(alltext, WEATHER_WARNING_WORDS):
-            severity_low = severity.lower()
-            reason = headline or description
-            if severity_low in {"severe", "extreme"}:
-                result.weather_danger = True
-                result.weather_caution = False
-                if result.weather_reason_key is None:
-                    result.weather_reason_key = _weather_reason_key(alltext, True)
-                    result.weather_original_reason = reason or None
-            elif not result.weather_danger:
-                # Moderate, minor or providers without a usable CAP severity are
-                # treated as caution. This prevents ordinary/markant rain
-                # warnings from turning the whole advisor red.
-                result.weather_caution = True
-                if result.weather_reason_key is None:
-                    result.weather_reason_key = _weather_reason_key(alltext, False)
-                    result.weather_original_reason = reason or None
+        # Non-DWD warning providers are not reinterpreted by event type or CAP
+        # severity. Only their explicit protection instructions below may alter
+        # ventilation. DWD keeps its dedicated official warning-level path.
 
         air_state = _evaluate_air_warning(
             headline,
@@ -1048,10 +1080,16 @@ def _evaluate_nina_like_entities(
             severity,
         )
 
+        if air_state == "danger":
+            result.official_close_instruction = True
         if air_rank[air_state] > air_rank[result.nina_status]:
             result.nina_status = air_state
-            result.nina_reason_key = _air_reason_key(alltext, air_state)
-            result.nina_original_reason = headline or description or None
+            result.nina_reason_key = (
+                "official_close_instruction"
+                if air_state == "danger"
+                else _air_reason_key(alltext, air_state)
+            )
+            result.nina_original_reason = headline or description or actions or None
 
     return result
 
@@ -1089,7 +1127,24 @@ def _evaluate_dwd_warning_entities(
                 state.attributes.get(f"warning_{index}_headline", "")
                 or ""
             )
-            text = f"{name} {headline}"
+            instruction = str(
+                state.attributes.get(f"warning_{index}_instruction", "") or ""
+            )
+            description = str(
+                state.attributes.get(f"warning_{index}_description", "") or ""
+            )
+            text = f"{name} {headline} {description} {instruction}"
+
+            # If DWD itself gives a window/ventilation protection instruction,
+            # that instruction is authoritative regardless of the numeric level.
+            if _contains_any(instruction, OFFICIAL_CLOSE_ACTIONS):
+                result.official_close_instruction = True
+                result.weather_danger = True
+                result.weather_caution = False
+                if result.weather_reason_key is None:
+                    result.weather_reason_key = "official_close_instruction"
+                    result.weather_original_reason = headline or instruction or name or None
+                continue
 
             if not _contains_any(text, WEATHER_WARNING_WORDS):
                 continue
@@ -1151,22 +1206,12 @@ def warning_assessment(
     if source_entry.domain == "dwd_weather_warnings":
         assessed = _evaluate_dwd_warning_entities(hass, entity_ids)
     else:
+        # Generic warning integrations are action-driven. Do not reinterpret a
+        # foreign provider's event type/severity as DWD weather semantics. If an
+        # authority tells the user to close windows or stop ventilation, the
+        # instruction is authoritative; otherwise the warning does not override
+        # the ventilation engine.
         assessed = _evaluate_nina_like_entities(hass, entry, entity_ids)
-        dwd_like = _evaluate_dwd_warning_entities(hass, entity_ids)
-
-        if dwd_like.weather_danger:
-            assessed.weather_danger = True
-            assessed.weather_caution = False
-            if assessed.weather_reason_key is None:
-                assessed.weather_reason_key = dwd_like.weather_reason_key
-                assessed.weather_reason_args = dict(dwd_like.weather_reason_args)
-                assessed.weather_original_reason = dwd_like.weather_original_reason
-        elif dwd_like.weather_caution and not assessed.weather_danger:
-            assessed.weather_caution = True
-            if assessed.weather_reason_key is None:
-                assessed.weather_reason_key = dwd_like.weather_reason_key
-                assessed.weather_reason_args = dict(dwd_like.weather_reason_args)
-                assessed.weather_original_reason = dwd_like.weather_original_reason
 
     result.weather_caution = assessed.weather_caution and not assessed.weather_danger
     result.weather_danger = assessed.weather_danger
@@ -1177,4 +1222,7 @@ def warning_assessment(
     result.nina_reason_key = assessed.nina_reason_key
     result.nina_reason_args = dict(assessed.nina_reason_args)
     result.nina_original_reason = assessed.nina_original_reason
+    result.warning_notice_kind = assessed.warning_notice_kind
+    result.warning_notice_text = assessed.warning_notice_text
+    result.official_close_instruction = assessed.official_close_instruction
     return result

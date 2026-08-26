@@ -48,6 +48,8 @@ NOTIFY_TRIGGER_AIR_DANGER = "air_danger"
 NOTIFY_TRIGGER_AIR_CAUTION = "air_caution"
 NOTIFY_TRIGGER_WEATHER_DANGER = "weather_danger"
 NOTIFY_TRIGGER_WEATHER_CAUTION = "weather_caution"
+NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED = "official_warning_closed"
+NOTIFY_TRIGGER_ALL_CLEAR = "all_clear"
 DEFAULT_NOTIFY_TRIGGERS = [
     NOTIFY_TRIGGER_AIR_DANGER,
     NOTIFY_TRIGGER_WEATHER_DANGER,
@@ -57,10 +59,13 @@ CONF_REMOTE_HOST = "remote_host"
 CONF_REMOTE_PORT = "remote_port"
 CONF_REMOTE_TOKEN = "remote_access_token"
 CONF_REMOTE_USE_SSL = "remote_use_ssl"
+CONF_REMOTE_SELECTED_ROOMS = "remote_selected_rooms"
+CONF_REMOTE_CLIENT_ID = "remote_client_id"
+CONF_REMOTE_ROOM_SHARE = "remote_share"
 DEFAULT_REMOTE_PORT = 8123
 REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
 REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
-REMOTE_PROTOCOL_VERSION = 1
+REMOTE_PROTOCOL_VERSION = 2
 FORECAST_REFRESH_INTERVAL = timedelta(minutes=45)
 
 CONF_ROOM_NAME = "room_name"
@@ -73,8 +78,10 @@ CONF_TARGET_TEMP = "target_temperature"
 CONF_SURFACE_TEMP = "surface_temperature"
 CONF_NIGHT_START_HOUR = "night_advice_start_hour"  # legacy v0.6.22/v0.6.23
 CONF_NIGHT_START_TIME = "night_advice_start_time"
+CONF_NIGHT_END_TIME = "night_advice_end_time"
 DEFAULT_NIGHT_START_HOUR = 22
 DEFAULT_NIGHT_START_TIME = "22:00"
+DEFAULT_NIGHT_END_TIME = "07:00"
 
 # Kept only so old v0.1/v0.2 config subentries remain readable.
 # v0.3 no longer asks for or uses this external helper.
@@ -106,6 +113,7 @@ DATA_API_REGISTERED = "api_registered"
 DATA_NOTIFICATION_STATE = "notification_state"
 DATA_FORECAST_CACHE = "hourly_forecast_cache"
 DATA_AIR_QUALITY_TRACKERS = "air_quality_trackers"
+DATA_REMOTE_ACCESS = "remote_access"
 AIR_QUALITY_HISTORY_MIN_SAMPLES = 24
 AIR_QUALITY_SAMPLE_MIN_INTERVAL = timedelta(minutes=30)
 AIR_QUALITY_RECENT_SAMPLES = 12

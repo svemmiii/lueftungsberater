@@ -5,6 +5,8 @@ from custom_components.lueftungsberater.const import (
     NOTIFY_TRIGGER_AIRING_RECOMMENDED,
     NOTIFY_TRIGGER_WEATHER_CAUTION,
     NOTIFY_TRIGGER_WEATHER_DANGER,
+    NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
+    NOTIFY_TRIGGER_ALL_CLEAR,
 )
 from custom_components.lueftungsberater.notifications import (
     _message,
@@ -60,3 +62,15 @@ def test_notification_text_is_natural_in_supported_languages():
     assert "Kitchen" in en_title and "Please close" in en_message
     assert "Mutfak" in tr_title and "Lütfen kapat" in tr_message
     assert "Küche" in de_info_title and "wieder sinnvoll" in de_info
+
+
+def test_optional_closed_warning_text_explicitly_says_windows_are_closed():
+    title, message = _message("de", "Wohnung", NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED)
+    assert "Lüftungsassistent" in title
+    assert "aktuell geschlossen" in message
+
+
+def test_all_clear_notification_text_is_available():
+    title, message = _message("en", "Office", NOTIFY_TRIGGER_ALL_CLEAR)
+    assert "Fresh Air Assistant" in title
+    assert "all-clear" in message.lower() or "all clear" in message.lower()

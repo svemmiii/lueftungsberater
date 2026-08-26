@@ -20,6 +20,8 @@ from .const import (
     CONF_REMOTE_HOST,
     CONF_REMOTE_PORT,
     CONF_REMOTE_TOKEN,
+    CONF_REMOTE_SELECTED_ROOMS,
+    CONF_REMOTE_CLIENT_ID,
     CONF_REMOTE_USE_SSL,
     DATA_REMOTE_COORDINATORS,
     DEFAULT_REMOTE_PORT,
@@ -107,8 +109,10 @@ def remote_base_url(config: dict[str, Any]) -> str:
 async def async_fetch_remote_snapshot(
     hass: HomeAssistant,
     config: dict[str, Any],
+    *,
+    discovery: bool = False,
 ) -> dict[str, Any]:
-    """Fetch only the Lüftungsberater snapshot endpoint from a remote HA."""
+    """Fetch the remote snapshot, optionally as unfiltered room discovery."""
     host = str(config[CONF_REMOTE_HOST])
     port = int(config.get(CONF_REMOTE_PORT, DEFAULT_REMOTE_PORT))
     if not await async_host_is_tailscale(hass, host, port):
@@ -120,7 +124,16 @@ async def async_fetch_remote_snapshot(
         "Authorization": f"Bearer {config[CONF_REMOTE_TOKEN]}",
         "Accept": "application/json",
     }
-    params = {"temperature_unit": str(hass.config.units.temperature_unit)}
+    params = {
+        "temperature_unit": str(hass.config.units.temperature_unit),
+        "client_id": str(config.get(CONF_REMOTE_CLIENT_ID) or "legacy"),
+        "client_name": str(hass.config.location_name or "Home Assistant"),
+    }
+    if discovery:
+        params["discovery"] = "1"
+    elif CONF_REMOTE_SELECTED_ROOMS in config:
+        selected = [str(item) for item in config.get(CONF_REMOTE_SELECTED_ROOMS, []) or []]
+        params["rooms"] = ",".join(selected)
 
     try:
         async with asyncio.timeout(10):
@@ -144,11 +157,41 @@ async def async_fetch_remote_snapshot(
 
     if not isinstance(payload, dict):
         raise RemoteConnectionError("Remote response is not an object")
-    if payload.get("protocol") != REMOTE_PROTOCOL_VERSION:
+    protocol = payload.get("protocol")
+    if protocol not in {1, REMOTE_PROTOCOL_VERSION}:
         raise RemoteConnectionError("Unsupported remote snapshot protocol")
     instances = payload.get("instances")
     if not isinstance(instances, list):
         raise RemoteConnectionError("Remote response contains no instance list")
+
+    # Protocol 1 peers predate server-side room filtering. Keep rolling upgrades
+    # working, but still enforce the local selection before the snapshot reaches
+    # the card. Protocol 2 peers already filter at the source as well.
+    if not discovery and CONF_REMOTE_SELECTED_ROOMS in config:
+        selected = {
+            str(item) for item in config.get(CONF_REMOTE_SELECTED_ROOMS, []) or []
+        }
+        filtered_instances: list[dict[str, Any]] = []
+        for instance in instances:
+            if not isinstance(instance, dict):
+                continue
+            instance_id = str(instance.get("id") or "")
+            rooms = instance.get("rooms", [])
+            if not isinstance(rooms, list):
+                rooms = []
+            kept_rooms = [
+                room
+                for room in rooms
+                if isinstance(room, dict)
+                and f"{instance_id}:{room.get('id')}" in selected
+            ]
+            if kept_rooms:
+                filtered = dict(instance)
+                filtered["rooms"] = kept_rooms
+                filtered_instances.append(filtered)
+        payload = dict(payload)
+        payload["instances"] = filtered_instances
+
     return payload
 
 

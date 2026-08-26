@@ -1,19 +1,20 @@
 {
+  "title": "Fresh Air Assistant",
   "config": {
     "step": {
       "user": {
-        "title": "Havalandırma Danışmanı ekle",
+        "title": "Fresh Air Assistant ekle",
         "menu_options": {
-          "local": "Yerel Havalandırma Danışmanı kur",
-          "remote": "Tailscale üzerinden uzaktaki Havalandırma Danışmanına bağlan"
+          "local": "Yerel Fresh Air Assistant kur",
+          "remote": "Tailscale üzerinden uzaktaki Fresh Air Assistantna bağlan"
         },
         "menu_option_descriptions": {
           "local": "Bu Home Assistant'taki odaları ve sensörleri kullan.",
-          "remote": "Başka bir Havalandırma Danışmanı kurulumunun yalnızca güncel durumunu göster."
+          "remote": "Başka bir Fresh Air Assistant kurulumunun yalnızca güncel durumunu göster."
         }
       },
       "local": {
-        "title": "Yerel Havalandırma Danışmanı kur",
+        "title": "Yerel Fresh Air Assistant kur",
         "description": "Bu kuruluma bir ad ver, ardından hava durumu hizmetini ve istersen bir uyarı hizmetini seç. Odaları daha sonra ayrı ayrı ekleyebilirsin.",
         "data": {
           "instance_name": "Kurulum adı",
@@ -67,8 +68,8 @@
         }
       },
       "remote": {
-        "title": "Uzaktaki Havalandırma Danışmanına bağlan",
-        "description": "Uzak bağlantılar özellikle Tailscale adresleriyle sınırlandırılmıştır. Yalnızca güncel Havalandırma Danışmanı anlık görüntüleri aktarılır; uzaktaki sensörler ve geçmişleri bu Home Assistant'ta oluşturulmaz. Devam ettiğinde önce yalnızca bağlantı test edilir; bağlantı sonraki başarı onayından sonra kaydedilir.",
+        "title": "Uzaktaki Fresh Air Assistantna bağlan",
+        "description": "Uzak bağlantılar özellikle Tailscale adresleriyle sınırlandırılmıştır. Yalnızca güncel Fresh Air Assistant anlık görüntüleri aktarılır; uzaktaki sensörler ve geçmişleri bu Home Assistant'ta oluşturulmaz. Devam ettiğinde önce yalnızca bağlantı test edilir; bağlantı sonraki başarı onayından sonra kaydedilir.",
         "data": {
           "instance_name": "Görünen ad",
           "remote_host": "Tailscale IP veya MagicDNS adı",
@@ -78,7 +79,7 @@
         }
       },
       "reconfigure": {
-        "title": "Havalandırma Danışmanını yeniden yapılandır",
+        "title": "Fresh Air Assistantnı yeniden yapılandır",
         "data": {
           "instance_name": "Kurulum adı",
           "weather_entity": "Hava durumu hizmeti",
@@ -136,11 +137,17 @@
       },
       "remote_confirm": {
         "title": "Bağlantı başarılı",
-        "description": "**✓ Bağlantı başarılı**\n\n**{remote_name}** Tailscale üzerinden erişilebilir.\n\n**Bulunanlar**\n- Lüftungsberater kurulumu: **{instances}**\n- Oda: **{rooms}**\n\n**Erişilebilir odalar**\n{details}\n\nBağlantıyı kaydetmek için “Gönder” seçeneğine dokunun."
+        "description": "**✓ Bağlantı başarılı**\n\n**{remote_name}** Tailscale üzerinden erişilebilir.\n\n**Bulunanlar**\n- Fresh Air Assistant kurulumu: **{instances}**\n- Oda: **{rooms}**\n\n**Erişilebilir odalar**\n{details}\n\nBağlantıyı kaydetmek için “Gönder” seçeneğine dokunun.\n\nBu örnekte gösterilecek paylaşılmış odaları seç. Daha sonra eklenen odalar yalnızca seçilebilir hâle gelir ve otomatik eklenmez.",
+        "data": {
+          "remote_selected_rooms": "Gösterilecek uzak odalar"
+        }
       },
       "reconfigure_confirm": {
         "title": "Bağlantı başarılı",
-        "description": "**✓ Bağlantı başarılı**\n\nGüncellenen bağlantı bilgileri çalışıyor.\n\n- Lüftungsberater kurulumu: **{instances}**\n- Oda: **{rooms}**\n\n{details}\n\nDeğişiklikleri kaydetmek için “Gönder” seçeneğine dokunun."
+        "description": "**✓ Bağlantı başarılı**\n\nGüncellenen bağlantı bilgileri çalışıyor.\n\n- Fresh Air Assistant kurulumu: **{instances}**\n- Oda: **{rooms}**\n\n{details}\n\nDeğişiklikleri kaydetmek için “Gönder” seçeneğine dokunun.\n\nBu örnekte gösterilecek paylaşılmış odaları seç. Daha sonra eklenen odalar yalnızca seçilebilir hâle gelir ve otomatik eklenmez.",
+        "data": {
+          "remote_selected_rooms": "Gösterilecek uzak odalar"
+        }
       },
       "remote_progress": {
         "title": "Bağlantı kontrol ediliyor",
@@ -150,14 +157,15 @@
     "error": {
       "not_tailscale": "Bu adres tanınan bir Tailscale bağlantısına çözülmüyor.",
       "invalid_auth": "Uzaktaki Home Assistant erişim belirtecini kabul etmedi.",
-      "cannot_connect": "Uzaktaki Home Assistant'a bu Tailscale adresi üzerinden ulaşılamıyor."
+      "cannot_connect": "Uzaktaki Home Assistant'a bu Tailscale adresi üzerinden ulaşılamıyor.",
+      "select_room": "En az bir paylaşılan oda seç."
     },
     "abort": {
       "already_configured": "Bu uzak Home Assistant zaten bağlı.",
       "reconfigure_successful": "Ayarlar kaydedildi."
     },
     "progress": {
-      "testing_remote": "Tailscale bağlantısı kontrol ediliyor ve güncel Havalandırma Danışmanı durumu okunuyor …"
+      "testing_remote": "Tailscale bağlantısı kontrol ediliyor ve güncel Fresh Air Assistant durumu okunuyor …"
     }
   },
   "config_subentries": {
@@ -180,11 +188,14 @@
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
             "target_temperature": "🌡️ Yedek hedef sıcaklık",
             "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
-            "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
+            "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
+            "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
+            "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
           },
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
-            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+            "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında herhangi bir zorunlu işlem olmadan normal gündüz değerlendirmesi devam eder."
           },
           "sections": {
             "room_climate": {
@@ -202,12 +213,14 @@
             },
             "room_night": {
               "name": "🌙 Gece havalandırması",
-              "description": "Yalnızca gelecek geceye ait önerinin ne zamandan itibaren gösterilebileceğini belirler.",
+              "description": "Ek gece önerisinin hangi zaman aralığında gösterilebileceğini seç.",
               "data": {
-                "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
+                "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
+                "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster"
               },
               "data_description": {
-                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+                "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında herhangi bir zorunlu işlem olmadan normal gündüz değerlendirmesi devam eder."
               }
             },
             "room_sensors": {
@@ -223,6 +236,13 @@
               "description": "İsteğe bağlı. Danışmanın havalandırma süresini izlemesini ve yeniden başlatmadan sonra sürdürmesini sağlar.",
               "data": {
                 "window_entities": "Pencereler / kapılar (isteğe bağlı)"
+              }
+            },
+            "room_remote": {
+              "name": "🔗 Uzak paylaşım",
+              "description": "İsteğe bağlı. Yalnızca paylaşılan odalar bağlı bir örnek tarafından seçilip sorgulanabilir.",
+              "data": {
+                "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
               }
             }
           }
@@ -238,12 +258,15 @@
             "climate_entity": "Hedef sıcaklık için climate entity (isteğe bağlı)",
             "target_temperature": "🌡️ Yedek hedef sıcaklık",
             "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
-            "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
+            "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
+            "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
+            "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
           },
           "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Saat yalnızca anlamlı bir gece önerisinin ne zamandan itibaren gösterilebileceğini belirler. Eksik isteğe bağlı sensörler için değer tahmin edilmez.",
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
-            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+            "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında herhangi bir zorunlu işlem olmadan normal gündüz değerlendirmesi devam eder."
           },
           "sections": {
             "room_climate": {
@@ -261,12 +284,14 @@
             },
             "room_night": {
               "name": "🌙 Gece havalandırması",
-              "description": "Yalnızca gelecek geceye ait önerinin ne zamandan itibaren gösterilebileceğini belirler.",
+              "description": "Ek gece önerisinin hangi zaman aralığında gösterilebileceğini seç.",
               "data": {
-                "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster"
+                "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
+                "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster"
               },
               "data_description": {
-                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez."
+                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+                "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında herhangi bir zorunlu işlem olmadan normal gündüz değerlendirmesi devam eder."
               }
             },
             "room_sensors": {
@@ -283,13 +308,20 @@
               "data": {
                 "window_entities": "Pencereler / kapılar (isteğe bağlı)"
               }
+            },
+            "room_remote": {
+              "name": "🔗 Uzak paylaşım",
+              "description": "İsteğe bağlı. Yalnızca paylaşılan odalar bağlı bir örnek tarafından seçilip sorgulanabilir.",
+              "data": {
+                "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
+              }
             }
           }
         }
       },
       "abort": {
         "already_configured": "Bu ada sahip bir oda zaten var.",
-        "remote_read_only": "Uzak/Tailscale bağlantıları salt okunurdur. Odalar yalnızca yerel bir Havalandırma Danışmanına eklenebilir."
+        "remote_read_only": "Uzak/Tailscale bağlantıları salt okunurdur. Odalar yalnızca yerel bir Fresh Air Assistantna eklenebilir."
       }
     }
   },
@@ -362,7 +394,9 @@
         "air_danger": "Ciddi dış hava uyarıları / kötü hava kalitesi",
         "air_caution": "Dış hava dikkat uyarıları / orta hava kalitesi",
         "weather_danger": "Şiddetli hava durumu uyarıları",
-        "weather_caution": "Hava durumu uyarıları / dikkat bildirimleri"
+        "weather_caution": "Hava durumu uyarıları / dikkat bildirimleri",
+        "official_warning_closed": "Pencereler kapalı olsa da ciddi resmî koruma uyarısı",
+        "all_clear": "Koruma uyarısından sonra tehlikenin geçtiği bildirimi"
       }
     },
     "display_mode": {

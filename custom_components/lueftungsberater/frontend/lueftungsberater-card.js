@@ -24,7 +24,7 @@ const LB_I18N = {
     "weather_service": "Wetterdienst",
     "history_open": "Verlauf öffnen",
     "setup.title": "Raum auswählen",
-    "setup.description": "Wähle im visuellen Editor einen Lüftungsberater-Raum aus.",
+    "setup.description": "Wähle im visuellen Editor einen Lüftungsassistent-Raum aus.",
     "entity_missing": "Entity {entity} nicht gefunden.",
     "window.open_since": "Fenster / Tür gerade offen · seit {duration}",
     "window.open": "Fenster / Tür gerade offen",
@@ -60,20 +60,23 @@ const LB_I18N = {
     "night.title": "Nachtlüften",
     "duration": "⏱️ Empfohlene Lüftungsdauer:",
     "hint": "Messwerte antippen für Verlauf · farbigen Statusbereich antippen für Details",
-    "picker.room.name": "Lüftungsberater – Raum",
+    "picker.room.name": "Lüftungsassistent – Raum",
     "picker.room.description": "Detaillierte Lüftungsempfehlung für einen einzelnen Raum.",
     "overview.invalid_entities": "entities muss eine Liste von Entity-IDs sein.",
     "overview.open": "offen",
+    "overview.remote_used": "wird remote abgefragt",
+    "overview.remote_rooms": "{count} Raum/Räume werden von einer anderen Instanz abgefragt",
+    "warning.all_clear": "Entwarnung eingegangen",
     "overview.not_reachable": "Nicht erreichbar",
-    "overview.empty_title": "Keine Lüftungsberater-Räume gefunden.",
+    "overview.empty_title": "Keine Lüftungsassistent-Räume gefunden.",
     "overview.empty_description": "Räume werden automatisch erkannt oder können per entities: angegeben werden.",
     "overview.no_remote_rooms": "Keine Räume verfügbar",
     "overview.room": "Raum",
     "overview.rooms": "Räume",
     "overview.back": "Zurück",
     "overview.close": "Schließen",
-    "picker.overview.name": "Lüftungsberater – Übersicht",
-    "picker.overview.description": "Kompakte Übersicht über lokale und entfernte Lüftungsberater.",
+    "picker.overview.name": "Lüftungsassistent – Übersicht",
+    "picker.overview.description": "Kompakte Übersicht über lokale und entfernte Lüftungsassistent.",
     "editor.room": "Raum",
     "editor.select_room": "Raum auswählen …",
     "editor.card_name": "Kartenname (optional)",
@@ -87,7 +90,7 @@ const LB_I18N = {
     "editor.unavailable": "nicht erreichbar",
     "editor.move_up": "Nach oben",
     "editor.move_down": "Nach unten",
-    "editor.rooms_hint": "Installationen und Räume können einzeln ein- oder ausgeblendet und mit den Pfeilen sortiert werden. Neue Räume werden standardmäßig automatisch aufgenommen."
+    "editor.rooms_hint": "Installationen und Räume können einzeln ein- oder ausgeblendet und mit den Pfeilen sortiert werden. Neue lokale Räume werden automatisch erkannt; neue Remote-Räume werden erst nach Auswahl in der Remote-Verbindung übernommen."
   },
   en: {
     "recommendation.open_now": "Open the windows now",
@@ -112,7 +115,7 @@ const LB_I18N = {
     "weather_service": "weather service",
     "history_open": "Open history",
     "setup.title": "Select a room",
-    "setup.description": "Choose a Ventilation Advisor room in the visual editor.",
+    "setup.description": "Choose a Fresh Air Assistant room in the visual editor.",
     "entity_missing": "Entity {entity} was not found.",
     "window.open_since": "Window / door is open · for {duration}",
     "window.open": "Window / door is open",
@@ -148,20 +151,23 @@ const LB_I18N = {
     "night.title": "Night ventilation",
     "duration": "⏱️ Recommended window-opening time:",
     "hint": "Tap a value for its history · tap the colored status area for details",
-    "picker.room.name": "Ventilation Advisor – Room",
+    "picker.room.name": "Fresh Air Assistant – Room",
     "picker.room.description": "Detailed ventilation recommendation for a single room.",
     "overview.invalid_entities": "entities must be a list of entity IDs.",
     "overview.open": "open",
+    "overview.remote_used": "queried remotely",
+    "overview.remote_rooms": "{count} room(s) are being queried by another instance",
+    "warning.all_clear": "All-clear received",
     "overview.not_reachable": "Not reachable",
-    "overview.empty_title": "No Ventilation Advisor rooms found.",
+    "overview.empty_title": "No Fresh Air Assistant rooms found.",
     "overview.empty_description": "Rooms are discovered automatically or can be specified with entities:.",
     "overview.no_remote_rooms": "No rooms available",
     "overview.room": "room",
     "overview.rooms": "rooms",
     "overview.back": "Back",
     "overview.close": "Close",
-    "picker.overview.name": "Ventilation Advisor – Overview",
-    "picker.overview.description": "Compact overview of local and remote Ventilation Advisors.",
+    "picker.overview.name": "Fresh Air Assistant – Overview",
+    "picker.overview.description": "Compact overview of local and remote Fresh Air Assistants.",
     "editor.room": "Room",
     "editor.select_room": "Select a room …",
     "editor.card_name": "Card name (optional)",
@@ -175,7 +181,7 @@ const LB_I18N = {
     "editor.unavailable": "not reachable",
     "editor.move_up": "Move up",
     "editor.move_down": "Move down",
-    "editor.rooms_hint": "Installations and rooms can be shown or hidden individually and reordered with the arrow buttons. New rooms are included automatically by default."
+    "editor.rooms_hint": "Installations and rooms can be shown or hidden individually and reordered with the arrow buttons. New local rooms are discovered automatically; new remote rooms appear only after they are selected in the remote connection."
   },
   tr: {
     "recommendation.open_now": "Şimdi pencereleri aç",
@@ -200,7 +206,7 @@ const LB_I18N = {
     "weather_service": "hava durumu hizmeti",
     "history_open": "Geçmişi aç",
     "setup.title": "Oda seç",
-    "setup.description": "Görsel düzenleyiciden bir Havalandırma Danışmanı odası seç.",
+    "setup.description": "Görsel düzenleyiciden bir Fresh Air Assistant odası seç.",
     "entity_missing": "{entity} entity'si bulunamadı.",
     "window.open_since": "Pencere / kapı açık · {duration}dır",
     "window.open": "Pencere / kapı açık",
@@ -236,19 +242,22 @@ const LB_I18N = {
     "night.title": "Gece havalandırması",
     "duration": "⏱️ Önerilen pencere açık kalma süresi:",
     "hint": "Geçmiş için bir değere dokun · ayrıntılar için renkli durum alanına dokun",
-    "picker.room.name": "Havalandırma Danışmanı – Oda",
+    "picker.room.name": "Fresh Air Assistant – Oda",
     "picker.room.description": "Tek bir oda için ayrıntılı havalandırma önerisi.",
     "overview.invalid_entities": "entities bir entity ID listesi olmalıdır.",
     "overview.open": "açık",
+    "overview.remote_used": "uzaktan sorgulanıyor",
+    "overview.remote_rooms": "{count} oda başka bir örnek tarafından uzaktan sorgulanıyor",
+    "warning.all_clear": "Tehlikenin geçtiğine dair bildirim geldi",
     "overview.not_reachable": "Ulaşılamıyor",
-    "overview.empty_title": "Havalandırma Danışmanı odası bulunamadı.",
+    "overview.empty_title": "Fresh Air Assistant odası bulunamadı.",
     "overview.empty_description": "Odalar otomatik bulunur veya entities: ile belirtilebilir.",
     "overview.no_remote_rooms": "Kullanılabilir oda yok",
     "overview.room": "oda",
     "overview.rooms": "oda",
     "overview.back": "Geri",
     "overview.close": "Kapat",
-    "picker.overview.name": "Havalandırma Danışmanı – Genel Bakış",
+    "picker.overview.name": "Fresh Air Assistant – Genel Bakış",
     "picker.overview.description": "Yerel ve uzak Havalandırma Danışmanlarının kompakt görünümü.",
     "editor.room": "Oda",
     "editor.select_room": "Oda seç …",
@@ -263,7 +272,7 @@ const LB_I18N = {
     "editor.unavailable": "ulaşılamıyor",
     "editor.move_up": "Yukarı taşı",
     "editor.move_down": "Aşağı taşı",
-    "editor.rooms_hint": "Kurulumlar ve odalar ayrı ayrı gösterilip gizlenebilir ve ok düğmeleriyle sıralanabilir. Yeni odalar varsayılan olarak otomatik eklenir."
+    "editor.rooms_hint": "Kurulumlar ve odalar ayrı ayrı gösterilip gizlenebilir ve ok düğmeleriyle sıralanabilir. Yeni yerel odalar otomatik bulunur; yeni uzak odalar yalnızca uzak bağlantıda seçildikten sonra görünür."
   }
 };
 
@@ -538,7 +547,10 @@ class LueftungsberaterCard extends HTMLElement {
       "night",
       a.night_ventilation || ""
     );
-    const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsberater";
+    const warningNotice = a.warning_notice_kind === "all_clear"
+      ? [lbT(this._hass, "warning.all_clear"), a.warning_notice_text].filter(Boolean).join(": ")
+      : "";
+    const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsassistent";
 
     const tempUnit = a.temperature_display_unit || this._temperatureUnit();
     const ti = this._fmt(this._displayTemperature(a.temperature_inside, tempUnit));
@@ -705,6 +717,7 @@ class LueftungsberaterCard extends HTMLElement {
         .fact.data-warning ha-icon { color: var(--warning-color); }
         .metric-link { appearance: none; background: none; border: 0; padding: 0; margin: 0; color: inherit; font: inherit; line-height: inherit; cursor: pointer; text-decoration-line: underline; text-decoration-style: dotted; text-decoration-thickness: 1px; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-align: inherit; }
         .metric-link:hover, .metric-link:focus-visible { color: var(--primary-color); text-decoration-style: solid; outline: none; }
+        .warning-notice { margin: 10px 0; padding: 9px 10px; border-radius: 8px; background: color-mix(in srgb, var(--info-color, #039be5) 10%, transparent); border-left: 3px solid var(--info-color, #039be5); line-height: 1.35; font-size: 12px; }
         .hint { margin-top: 12px; color: var(--secondary-text-color); font-size: 11px; opacity: 0.8; }
         .error { padding: 16px; color: var(--error-color); }
       </style>
@@ -715,6 +728,7 @@ class LueftungsberaterCard extends HTMLElement {
         </div>
         <div class="body">
           ${reason ? `<div class="why">${lbT(this._hass, "why")}</div><div class="reason">${reasonHtml}</div>` : ""}
+          ${warningNotice ? `<div class="warning-notice">${this._escape(warningNotice)}</div>` : ""}
           ${showNight ? `<div class="night-advice"><ha-icon icon="mdi:weather-night"></ha-icon><div class="night-copy"><span class="night-title">${lbT(this._hass, "night.title")}</span><span class="night-text">${nightHtml}</span></div></div>` : ""}
           ${showDuration ? `<div class="duration"><span class="duration-label">${lbT(this._hass, "duration")}</span><span>${this._escape(durationText)}</span></div>` : ""}
           ${rows.length ? `<div class="facts">${rows.map((row) => `<div class="fact ${row.cls || ""}"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : ""}
@@ -922,7 +936,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     const a = stateObj.attributes || {};
     if (a.room_name) return String(a.room_name);
     const friendly = a.friendly_name || stateObj.entity_id;
-    return String(friendly).replace(/^Lüftungsberater\s*/i, "").replace(/\s*Lüftungsberater$/i, "").trim() || friendly;
+    return String(friendly).replace(/^Lüftungsassistent\s*/i, "").replace(/\s*Lüftungsassistent$/i, "").trim() || friendly;
   }
 
   _statusMeta(status, displayMode = "ventilation") {
@@ -982,6 +996,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         a.recommendation || lbT(this._hass, `recommendation.${state}`)
       ),
       windowOpen: a.window_open === true,
+      remoteAccess: a.remote_access_active === true,
       remote: false,
       index,
     };
@@ -997,7 +1012,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       if (explicit && !explicit.has(stateObj.entity_id)) continue;
       const a = stateObj.attributes || {};
       const instanceId = String(a.instance_id || "legacy-local");
-      const instanceName = String(a.instance_name || "Lüftungsberater");
+      const instanceName = String(a.instance_name || "Lüftungsassistent");
       const groupId = `local:${instanceId}`;
       if (this._hiddenRooms(groupId).has(stateObj.entity_id)) continue;
       if (!groups.has(instanceId)) {
@@ -1018,6 +1033,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         this._config?.room_order?.[group.id],
         (room) => room.key
       );
+      group.remoteAccessCount = group.rooms.filter((room) => room.remoteAccess).length;
     }
     return [...groups.values()];
   }
@@ -1051,6 +1067,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         attrs.recommendation || lbT(this._hass, `recommendation.${state}`)
       ),
       windowOpen: attrs.window_open === true,
+      remoteAccess: false,
       remote: true,
       index,
     };
@@ -1060,7 +1077,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     return (this._remoteGroups || []).map((rawGroup) => {
       const group = {
         id: String(rawGroup.id),
-        name: String(rawGroup.name || "Lüftungsberater"),
+        name: String(rawGroup.name || "Lüftungsassistent"),
         available: rawGroup.available !== false,
         remote: true,
         rooms: [],
@@ -1097,9 +1114,14 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   _roomRow(room, groupId) {
-    const badge = room.windowOpen
-      ? `<span class="badge"><ha-icon icon="mdi:window-open-variant"></ha-icon>${lbT(this._hass, "overview.open")}</span>`
-      : "";
+    const badges = [];
+    if (room.windowOpen) {
+      badges.push(`<span class="badge"><ha-icon icon="mdi:window-open-variant"></ha-icon>${lbT(this._hass, "overview.open")}</span>`);
+    }
+    if (room.remoteAccess) {
+      badges.push(`<span class="badge remote"><ha-icon icon="mdi:lan-connect"></ha-icon>${lbT(this._hass, "overview.remote_used")}</span>`);
+    }
+    const badge = badges.join("");
     return `
       <button type="button" class="room-row ${room.cls}" data-room-key="${this._escape(room.key)}" data-group-id="${this._escape(groupId)}">
         <ha-icon class="status-icon" icon="${room.icon}"></ha-icon>
@@ -1112,9 +1134,12 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   _groupRow(group) {
     const cls = this._groupClass(group);
     const count = group.rooms.length;
-    const secondary = !group.available
+    let secondary = !group.available
       ? lbT(this._hass, "overview.not_reachable")
       : `${count} ${lbT(this._hass, count === 1 ? "overview.room" : "overview.rooms")}`;
+    if (!group.remote && group.remoteAccessCount > 0) {
+      secondary += ` · ${lbT(this._hass, "overview.remote_rooms", { count: group.remoteAccessCount })}`;
+    }
     const disabled = !group.available || !count;
     return `
       <button type="button" class="group-row ${cls}" data-group-open="${this._escape(group.id)}" ${disabled ? "disabled" : ""}>
@@ -1147,12 +1172,15 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         .room-line { min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
         .room-line strong { font-weight: 700; }
         .separator { color: var(--secondary-text-color); }
-        .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-text-color); font-size: 10px; font-weight: 600; white-space: nowrap; }
+        .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; margin-left: 4px; border-radius: 999px; background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-text-color); font-size: 10px; font-weight: 600; white-space: nowrap; }
+        .badge.remote { background: color-mix(in srgb, var(--info-color, #039be5) 12%, transparent); }
         .badge ha-icon { --mdc-icon-size: 13px; color: var(--primary-color); }
         .chevron { --mdc-icon-size: 21px; color: var(--secondary-text-color); }
         .group-copy { display: grid; min-width: 0; gap: 2px; }
         .group-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
         .group-copy small { color: var(--secondary-text-color); font-size: 11px; }
+        .remote-note { display:flex; gap:7px; align-items:center; padding:8px 12px; font-size:11px; color:var(--secondary-text-color); border-bottom:1px solid var(--divider-color); }
+        .remote-note ha-icon { --mdc-icon-size:17px; color:var(--info-color, #039be5); }
         .empty { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 16px; color: var(--secondary-text-color); }
         .empty strong { display: block; color: var(--primary-text-color); margin-bottom: 3px; }
         .empty span { display: block; line-height: 1.4; font-size: 12px; }
@@ -1183,7 +1211,11 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     if (!groups.length) {
       content = `<div class="empty"><ha-icon icon="mdi:home-search-outline"></ha-icon><div><strong>${lbT(this._hass, "overview.empty_title")}</strong><span>${lbT(this._hass, "overview.empty_description")}</span></div></div>`;
     } else if (groups.length === 1 && groups[0].available && groups[0].rooms.length) {
-      content = groups[0].rooms.map((room) => this._roomRow(room, groups[0].id)).join("");
+      const group = groups[0];
+      const remoteNote = (!group.remote && group.remoteAccessCount > 0)
+        ? `<div class="remote-note"><ha-icon icon="mdi:lan-connect"></ha-icon><span>${this._escape(lbT(this._hass, "overview.remote_rooms", { count: group.remoteAccessCount }))}</span></div>`
+        : "";
+      content = remoteNote + group.rooms.map((room) => this._roomRow(room, group.id)).join("");
     } else {
       content = groups.map((group) => this._groupRow(group)).join("");
     }
@@ -1587,7 +1619,7 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
       if (!groups.has(groupId)) {
         groups.set(groupId, {
           id: groupId,
-          name: String(a.instance_name || "Lüftungsberater"),
+          name: String(a.instance_name || "Lüftungsassistent"),
           remote: false,
           available: true,
           rooms: [],
@@ -1614,7 +1646,7 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
     return (this._remoteGroups || []).map((rawGroup) => {
       const group = {
         id: String(rawGroup.id),
-        name: String(rawGroup.name || "Lüftungsberater"),
+        name: String(rawGroup.name || "Lüftungsassistent"),
         remote: true,
         available: rawGroup.available !== false,
         rooms: [],

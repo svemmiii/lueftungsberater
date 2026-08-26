@@ -134,6 +134,38 @@ def test_night_advice_does_not_say_now_when_current_outdoor_air_is_still_too_war
     assert result.reason_args["start_time"].startswith("2026-08-25T01:00")
 
 
+def test_night_advice_stops_at_configured_end_time():
+    after_end = NOW.replace(hour=8)
+    result = evaluate_night_ventilation(
+        now=after_end,
+        indoor_temp=26,
+        indoor_humidity=50,
+        target_temp=22,
+        outdoor_temp=18,
+        outdoor_humidity=50,
+        start_hour=22,
+        end_minute=7 * 60,
+        hourly_forecast=forecast(temps=[18, 17, 16, 16], start=after_end),
+    )
+    assert result.status == "unavailable"
+
+
+def test_night_window_can_use_shift_worker_hours():
+    morning = NOW.replace(hour=8)
+    result = evaluate_night_ventilation(
+        now=morning,
+        indoor_temp=26,
+        indoor_humidity=50,
+        target_temp=22,
+        outdoor_temp=18,
+        outdoor_humidity=50,
+        start_hour=2,
+        end_minute=10 * 60,
+        hourly_forecast=forecast(temps=[18, 17, 16, 16], start=morning),
+    )
+    assert result.status == "now"
+
+
 def test_high_co2_alone_does_not_create_an_all_night_instruction():
     result = evaluate_night_ventilation(
         now=NOW,

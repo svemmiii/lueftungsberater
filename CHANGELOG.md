@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.7.0
+
+### Lüftungsassistent / Fresh Air Assistant
+- Sichtbarer deutscher Produktname von **Lüftungsberater** auf **Lüftungsassistent** umgestellt. Die technische Domain `lueftungsberater` und bestehende Entity-/Config-IDs bleiben unverändert.
+- Englische und internationale Oberfläche verwendet **Fresh Air Assistant**; nicht unterstützte UI-Sprachen fallen weiterhin auf Englisch zurück.
+
+### Amtliche Warnungen und Entwarnungen
+- Allgemeine Warnintegrationen werden jetzt **handlungsorientiert** ausgewertet. Der Assistent entscheidet nicht mehr selbst anhand von Ereignisname oder `severity`, wie gefährlich eine Meldung ist.
+- Gibt die Behörde ausdrücklich vor, Fenster/Türen geschlossen zu halten, Lüftung/Klima abzuschalten oder Außenluftzufuhr zu vermeiden, wird diese Schutzmaßnahme unmittelbar als harter Safety-Lock übernommen.
+- Warnungen ohne lüftungsrelevante Schutzanweisung beeinflussen diesen allgemeinen Warnpfad nicht. DWD behält seine eigenständige Wetterwarnungslogik; eine explizite DWD-Schließanweisung hat unabhängig von der Warnstufe Vorrang.
+- Entwarnungen werden als eigener Kontext erkannt. Formulierungen wie **„noch keine Entwarnung“** oder **„Entwarnung liegt nicht vor“** lösen keine Entwarnung aus.
+- Eine echte Entwarnung hebt nur die amtliche harte Sperre auf und setzt keine eigene Ampelfarbe. Solange der Warneintrag noch vorhanden ist, bleibt die Entwarnung als Hinweis sichtbar; danach übernimmt wieder vollständig die normale Engine.
+- Benachrichtigungen bleiben standardmäßig handlungsbezogen: Gefahr bei offenem Fenster bzw. Öffnen während einer Gefahr. Optional können zusätzlich amtliche Schutzwarnungen bei bereits geschlossenen Fenstern und Entwarnungen aktiviert werden; der Text weist dann ausdrücklich auf den geschlossenen Fensterzustand hin.
+
+### Nachtlüftung
+- Nacht-Hinweise besitzen jetzt ein frei konfigurierbares **Von–Bis-Zeitfenster** pro Raum. Standard bleibt **22:00–07:00**.
+- Zeitfenster über Mitternacht und ungewöhnliche Schichtzeiten werden unterstützt. Nach Ablauf übernimmt ohne Zwangsaktion wieder die normale Tagesbewertung.
+- Bestehende Räume werden migrationssicher mit der bisherigen Endzeit 07:00 ergänzt.
+
+### Stabilere Raumstatus-Hysterese
+- Temperaturbedingte Gelb/Grün-Wechsel erhalten eine echte Hysterese: ein Temperaturbedarf beginnt weiterhin erst bei ungefähr 1,0 K Sollabweichung und endet erst unter ungefähr 0,6 K.
+- Der Hysteresezustand merkt sich jetzt den **eigentlichen Raumbedarf** getrennt vom Lüftungsmodus. Dadurch bleibt er auch stabil, wenn gleichzeitig z. B. feuchtere Außenluft gegen das Lüften spricht.
+- CO₂-, Feuchte- und Oberflächen-Hysteresen bleiben erhalten.
+
+### Tailscale / Remote
+- Remote-/Tailscale-Einträge werden konsequent aus **„Raum hinzufügen“** ausgeschlossen; auch ältere Remote-Einträge mit gecachten Subentry-Fähigkeiten werden beim Setup/Migrationslauf read-only festgeschrieben.
+- Die Quellinstallation kann jetzt pro Raum festlegen, ob dieser für Remote-Abfragen freigegeben ist. Bestehende v0.6-Räume bleiben beim Upgrade freigegeben, neue v0.7-Räume sind standardmäßig nicht automatisch freigegeben.
+- Beim Einrichten oder Rekonfigurieren einer Remote-Verbindung werden nur freigegebene Räume angeboten. Die empfangende Instanz wählt ausdrücklich aus, welche Assistenten/Räume angezeigt werden sollen.
+- Später neu angelegte Räume werden **nicht automatisch** übernommen; sie erscheinen lediglich als neue Auswahl.
+- Remote-Snapshot-Protokoll auf **v2** erweitert. Protokoll-v1-Gegenstellen bleiben für Rolling Upgrades lesbar; die lokale Auswahl wird auch bei alten Gegenstellen angewendet.
+- Remote-Abfragen senden eine stabile Client-Kennung und den Home-Assistant-Standortnamen. Die Quellübersicht kann dadurch anzeigen, wenn mindestens ein Raum aktuell von einer anderen Instanz abgefragt wird; betroffene Räume erhalten ein kleines Remote-Symbol.
+- Remote-Messwerte bleiben weiterhin vollständig flüchtig: keine gespiegelten Home-Assistant-Entities und keine Recorder-Historien auf der empfangenden Instanz.
+
+### Datenmodell und Performance
+- Der bestehende Kartenumfang bleibt erhalten; v0.7.0 entfernt keine für die aktuelle Darstellung benötigten Attribute.
+- Der große Advisor-Attributsatz bleibt über `_unrecorded_attributes = MATCH_ALL` vom Recorder ausgeschlossen. Dadurch werden die sichtbaren Diagnose-/Kartendaten nicht bei jeder Aktualisierung als eigener Attributverlauf gespeichert.
+- Remote-Exporte bleiben auf eine explizite Allowlist der tatsächlich für die Karte benötigten aktuellen Werte begrenzt; lokale Entity-IDs und vollständige Originalwarnpayloads werden nicht gespiegelt.
+- Mehrsprachige Kartentexte bleiben in v0.7.0 bewusst kompatibel erhalten, damit lokale und Remote-Karten weiterhin dieselben Inhalte in Deutsch, Englisch und Türkisch anzeigen können.
+
+### Tests / Migration
+- Config-Entry-Minor-Version auf 6 angehoben und Migrationen für Nacht-Endzeit, Remote-Freigaben und Remote-Client-ID ergänzt.
+- Neue Regressionstests für amtliche Schließanweisungen, negierte Entwarnungen, DWD-Schutzanweisungen, Nacht-Endzeiten/Schichtfenster und Temperatur-Hysterese ergänzt.
+
 ## 0.6.24 - Alpha
 
 - **Raumluftstatus ist jetzt die Standarddarstellung** für neue lokale Lüftungsberater: Grün = unauffällig, Gelb = leichte Abweichung, Orange = Lüften sinnvoll, Rot = deutlicher Lüftungsbedarf. Die bisherige Lüftungsampel bleibt vollständig auswählbar. Bestehende Installationen behalten ihre bereits gewählte Darstellung.

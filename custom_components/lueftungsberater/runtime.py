@@ -363,11 +363,28 @@ def _night_start_minutes(subentry: ConfigSubentry) -> int:
     return max(0, min(23, hour)) * 60
 
 
+def _time_minutes(value: object, default: str) -> int:
+    raw = value if isinstance(value, str) else default
+    parts = str(raw).split(":")
+    try:
+        hour = max(0, min(23, int(parts[0])))
+        minute = max(0, min(59, int(parts[1]) if len(parts) > 1 else 0))
+    except (TypeError, ValueError):
+        hour, minute = (int(part) for part in default.split(":"))
+    return hour * 60 + minute
+
+
+def _night_end_minutes(subentry: ConfigSubentry) -> int:
+    """Return configured local display end as minutes after midnight."""
+    return _time_minutes(subentry.data.get(CONF_NIGHT_END_TIME), DEFAULT_NIGHT_END_TIME)
+
+
 def build_room_snapshot(
     hass: HomeAssistant,
     entry: ConfigEntry,
     subentry: ConfigSubentry,
     previous_mode: str | None = None,
+    previous_need: str | None = None,
     weather: WeatherAssessment | None = None,
     warnings: WarningAssessment | None = None,
 ) -> RoomSnapshot:
@@ -493,6 +510,7 @@ def build_room_snapshot(
         wind_speed_kmh=weather.wind_speed_kmh,
         wind_gust_kmh=weather.wind_gust_kmh,
         start_minute=_night_start_minutes(subentry),
+        end_minute=_night_end_minutes(subentry),
         hourly_forecast=weather.hourly_forecast,
         air_quality=weather.air_quality_index,
         nina_status=normalized_nina,
@@ -542,6 +560,7 @@ def build_room_snapshot(
             air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
             air_quality_history_samples=int(values.get("air_quality_history_samples") or 0),
             previous_mode=previous_mode,
+            previous_need=previous_need,
         )
     )
 

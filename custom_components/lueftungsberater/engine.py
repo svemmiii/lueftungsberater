@@ -16,6 +16,8 @@ from .models import RoomInput, VentilationResult
 # noise and tiny practical differences as a strong reason for/against airing.
 AH_NEUTRAL = 0.5
 AH_CONTINUE = 0.3
+TEMP_NEED_ON = 1.0
+TEMP_NEED_OFF = 0.6
 
 
 def absolute_humidity(temp_c: float, rh: float) -> float:
@@ -229,6 +231,7 @@ def _primary_need(
     mold_persistent: bool,
     hours: float,
     previous_mode: str,
+    previous_need: str,
     window_open: bool,
 ) -> tuple[str, int]:
     """Return the strongest current reason and a small ordinal urgency level."""
@@ -267,8 +270,10 @@ def _primary_need(
     # heat-protection layer, but only use ventilation when outdoor air helps.
     if ti >= 26 and hi >= 65 and ta <= ti - 1 and diff >= -AH_NEUTRAL:
         return "humid_heat", 1
+    temperature_delta = abs(ti - target)
+    temperature_hysteresis = previous_need == "temperature"
     temperature_start = (
-        abs(ti - target) >= 1
+        temperature_delta >= (TEMP_NEED_OFF if temperature_hysteresis else TEMP_NEED_ON)
         and _temperature_moves_toward_target(ti, ta, target)
     )
     temperature_continue = window_open and previous_mode in {
@@ -434,6 +439,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mold_persistent=mold_persistent,
         hours=hours,
         previous_mode=previous_mode,
+        previous_need=data.previous_need or "",
         window_open=data.window_open,
     )
 
@@ -912,6 +918,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         absolute_humidity_difference=round(diff, 2),
         co2_status=co2_status(co2),
         room_status_color=_room_status_color(urgency, color),
+        primary_need=need,
         safety_lock=hard_mode is not None,
         surface_relative_humidity=(round(surface_rh, 1) if surface_rh is not None else None),
         mold_risk=mold_risk,

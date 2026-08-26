@@ -1,19 +1,20 @@
 {
+  "title": "Lüftungsassistent",
   "config": {
     "step": {
       "user": {
-        "title": "Lüftungsberater hinzufügen",
+        "title": "Lüftungsassistent hinzufügen",
         "menu_options": {
-          "local": "Lokalen Lüftungsberater einrichten",
-          "remote": "Entfernten Lüftungsberater über Tailscale verbinden"
+          "local": "Lokalen Lüftungsassistent einrichten",
+          "remote": "Entfernten Lüftungsassistent über Tailscale verbinden"
         },
         "menu_option_descriptions": {
           "local": "Räume und Sensoren dieses Home Assistants verwenden.",
-          "remote": "Nur den aktuellen Stand einer anderen Lüftungsberater-Installation anzeigen."
+          "remote": "Nur den aktuellen Stand einer anderen Lüftungsassistent-Installation anzeigen."
         }
       },
       "local": {
-        "title": "Lokalen Lüftungsberater einrichten",
+        "title": "Lokalen Lüftungsassistent einrichten",
         "description": "Gib der Installation einen Namen und wähle Wetterdienst sowie optional einen Warndienst. Räume werden anschließend separat hinzugefügt.",
         "data": {
           "instance_name": "Name dieser Installation",
@@ -67,8 +68,8 @@
         }
       },
       "remote": {
-        "title": "Entfernten Lüftungsberater verbinden",
-        "description": "Die Verbindung ist absichtlich auf Tailscale-Adressen beschränkt. Es werden nur aktuelle Lüftungsberater-Snapshots übertragen; entfernte Sensoren und deren Verlauf werden nicht in diesem Home Assistant angelegt. Mit „Weiter“ wird die Verbindung zunächst nur getestet. Gespeichert wird sie erst nach der anschließenden Erfolgsbestätigung.",
+        "title": "Entfernten Lüftungsassistent verbinden",
+        "description": "Die Verbindung ist absichtlich auf Tailscale-Adressen beschränkt. Es werden nur aktuelle Lüftungsassistent-Snapshots übertragen; entfernte Sensoren und deren Verlauf werden nicht in diesem Home Assistant angelegt. Mit „Weiter“ wird die Verbindung zunächst nur getestet. Gespeichert wird sie erst nach der anschließenden Erfolgsbestätigung.",
         "data": {
           "instance_name": "Anzeigename",
           "remote_host": "Tailscale-IP oder MagicDNS-Name",
@@ -78,7 +79,7 @@
         }
       },
       "reconfigure": {
-        "title": "Lüftungsberater ändern",
+        "title": "Lüftungsassistent ändern",
         "data": {
           "instance_name": "Name dieser Installation",
           "weather_entity": "Wetterdienst",
@@ -136,11 +137,17 @@
       },
       "remote_confirm": {
         "title": "Verbindung erfolgreich",
-        "description": "**✓ Verbindung erfolgreich**\n\n**{remote_name}** ist über Tailscale erreichbar.\n\n**Gefunden**\n- Lüftungsberater: **{instances}**\n- Räume: **{rooms}**\n\n**Verfügbare Räume**\n{details}\n\nMit „Absenden“ wird die Verbindung gespeichert."
+        "description": "**✓ Verbindung erfolgreich**\n\n**{remote_name}** ist über Tailscale erreichbar.\n\n**Gefunden**\n- Lüftungsassistent: **{instances}**\n- Räume: **{rooms}**\n\n**Verfügbare Räume**\n{details}\n\nMit „Absenden“ wird die Verbindung gespeichert.\n\nWähle jetzt die freigegebenen Räume aus, die auf dieser Instanz angezeigt werden sollen. Neue Räume werden später nur angeboten und nicht automatisch übernommen.",
+        "data": {
+          "remote_selected_rooms": "Anzuzeigende Remote-Räume"
+        }
       },
       "reconfigure_confirm": {
         "title": "Verbindung erfolgreich",
-        "description": "**✓ Verbindung erfolgreich**\n\nDie geänderten Zugangsdaten funktionieren.\n\n- Lüftungsberater: **{instances}**\n- Räume: **{rooms}**\n\n{details}\n\nMit „Absenden“ werden die Änderungen übernommen."
+        "description": "**✓ Verbindung erfolgreich**\n\nDie geänderten Zugangsdaten funktionieren.\n\n- Lüftungsassistent: **{instances}**\n- Räume: **{rooms}**\n\n{details}\n\nMit „Absenden“ werden die Änderungen übernommen.\n\nWähle jetzt die freigegebenen Räume aus, die auf dieser Instanz angezeigt werden sollen. Neue Räume werden später nur angeboten und nicht automatisch übernommen.",
+        "data": {
+          "remote_selected_rooms": "Anzuzeigende Remote-Räume"
+        }
       },
       "remote_progress": {
         "title": "Verbindung wird geprüft",
@@ -150,14 +157,15 @@
     "error": {
       "not_tailscale": "Die Adresse gehört nicht zu einer erkannten Tailscale-Verbindung.",
       "invalid_auth": "Der Access Token wurde vom entfernten Home Assistant abgelehnt.",
-      "cannot_connect": "Der entfernte Home Assistant ist über diese Tailscale-Adresse nicht erreichbar."
+      "cannot_connect": "Der entfernte Home Assistant ist über diese Tailscale-Adresse nicht erreichbar.",
+      "select_room": "Wähle mindestens einen freigegebenen Raum aus."
     },
     "abort": {
       "already_configured": "Dieser entfernte Home Assistant ist bereits verbunden.",
       "reconfigure_successful": "Die Einstellungen wurden gespeichert."
     },
     "progress": {
-      "testing_remote": "Tailscale-Verbindung wird geprüft und der aktuelle Lüftungsberater-Stand wird eingelesen …"
+      "testing_remote": "Tailscale-Verbindung wird geprüft und der aktuelle Lüftungsassistent-Stand wird eingelesen …"
     }
   },
   "config_subentries": {
@@ -180,11 +188,14 @@
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
             "target_temperature": "🌡️ Fallback-Solltemperatur",
             "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
-            "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab"
+            "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
+            "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
+            "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
           },
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
-            "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“."
+            "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
           },
           "sections": {
             "room_climate": {
@@ -202,12 +213,14 @@
             },
             "room_night": {
               "name": "🌙 Nachtlüftung",
-              "description": "Lege nur fest, ab wann der Hinweis für die kommende Nacht sichtbar werden darf.",
+              "description": "Lege fest, in welchem Zeitfenster der zusätzliche Nacht-Hinweis sichtbar sein darf.",
               "data": {
-                "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab"
+                "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
+                "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis"
               },
               "data_description": {
-                "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“."
+                "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+                "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
               }
             },
             "room_sensors": {
@@ -223,6 +236,13 @@
               "description": "Optional. Damit erkennt der Berater laufende Lüftungen und kann sie nach einem Neustart fortführen.",
               "data": {
                 "window_entities": "Fenster / Türen (optional)"
+              }
+            },
+            "room_remote": {
+              "name": "🔗 Remote-Freigabe",
+              "description": "Optional. Nur freigegebene Räume können von einer verbundenen Instanz ausgewählt und abgefragt werden.",
+              "data": {
+                "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
               }
             }
           }
@@ -238,12 +258,15 @@
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
             "target_temperature": "🌡️ Fallback-Solltemperatur",
             "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
-            "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab"
+            "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
+            "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
+            "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
           },
           "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeit legt nur fest, ab wann ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
-            "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“."
+            "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
           },
           "sections": {
             "room_climate": {
@@ -261,12 +284,14 @@
             },
             "room_night": {
               "name": "🌙 Nachtlüftung",
-              "description": "Lege nur fest, ab wann der Hinweis für die kommende Nacht sichtbar werden darf.",
+              "description": "Lege fest, in welchem Zeitfenster der zusätzliche Nacht-Hinweis sichtbar sein darf.",
               "data": {
-                "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab"
+                "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
+                "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis"
               },
               "data_description": {
-                "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“."
+                "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+                "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
               }
             },
             "room_sensors": {
@@ -283,13 +308,20 @@
               "data": {
                 "window_entities": "Fenster / Türen (optional)"
               }
+            },
+            "room_remote": {
+              "name": "🔗 Remote-Freigabe",
+              "description": "Optional. Nur freigegebene Räume können von einer verbundenen Instanz ausgewählt und abgefragt werden.",
+              "data": {
+                "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
+              }
             }
           }
         }
       },
       "abort": {
         "already_configured": "Ein Raum mit diesem Namen existiert bereits.",
-        "remote_read_only": "Remote-/Tailscale-Verbindungen sind schreibgeschützt. Räume können nur zu einem lokalen Lüftungsberater hinzugefügt werden."
+        "remote_read_only": "Remote-/Tailscale-Verbindungen sind schreibgeschützt. Räume können nur zu einem lokalen Lüftungsassistent hinzugefügt werden."
       }
     }
   },
@@ -362,7 +394,9 @@
         "air_danger": "Ernste Außenluftwarnungen / schlechte Luftqualität",
         "air_caution": "Außenluft-Vorsicht / mäßige Luftqualität",
         "weather_danger": "Unwetter / schwere Wetterwarnungen",
-        "weather_caution": "Wetterwarnungen / Vorsichtshinweise"
+        "weather_caution": "Wetterwarnungen / Vorsichtshinweise",
+        "official_warning_closed": "Ernste amtliche Schutzwarnung auch bei geschlossenen Fenstern",
+        "all_clear": "Entwarnungen nach einer Schutzwarnung"
       }
     },
     "display_mode": {

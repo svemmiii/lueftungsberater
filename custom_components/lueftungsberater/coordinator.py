@@ -79,6 +79,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._unsubs: list[Callable[[], None]] = []
         self._started = False
         self._previous_mode: str | None = None
+        self._previous_need: str | None = None
         self._previous_mode_at: datetime | None = None
         self._memory_store: Store[dict[str, Any]] = Store(
             hass,
@@ -89,14 +90,17 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
     async def _restore_memory(self) -> None:
         stored = await self._memory_store.async_load() or {}
         mode = stored.get("mode")
+        need = stored.get("primary_need")
         stamp = _parse_dt(stored.get("updated_at"))
         if isinstance(mode, str) and mode and stamp is not None and dt_util.utcnow() - stamp <= DECISION_MEMORY_TTL:
             self._previous_mode = mode
+            self._previous_need = need if isinstance(need, str) and need else None
             self._previous_mode_at = stamp
 
     def _memory_payload(self) -> dict[str, Any]:
         return {
             "mode": self._previous_mode,
+            "primary_need": self._previous_need,
             "updated_at": self._previous_mode_at.isoformat() if self._previous_mode_at else None,
         }
 
@@ -104,9 +108,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if snapshot.result is None:
             return
         mode = snapshot.result.mode
-        if mode == self._previous_mode:
+        need = snapshot.result.primary_need
+        if mode == self._previous_mode and need == self._previous_need:
             return
         self._previous_mode = mode
+        self._previous_need = need
         self._previous_mode_at = dt_util.utcnow()
         self._memory_store.async_delay_save(self._memory_payload, 10)
 
@@ -119,11 +125,17 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             if self.data is not None and self.data.result is not None
             else self._previous_mode
         )
+        previous_need = (
+            self.data.result.primary_need
+            if self.data is not None and self.data.result is not None
+            else self._previous_need
+        )
         return build_room_snapshot(
             self.hass,
             self.entry,
             self.subentry,
             previous_mode=previous_mode,
+            previous_need=previous_need,
             weather=weather,
             warnings=warnings,
         )
@@ -228,6 +240,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         # stale decisions from being resurrected.
         if self.data is not None and self.data.result is not None:
             self._previous_mode = self.data.result.mode
+            self._previous_need = self.data.result.primary_need
             self._previous_mode_at = dt_util.utcnow()
         await self._memory_store.async_save(self._memory_payload())
         await super().async_shutdown()

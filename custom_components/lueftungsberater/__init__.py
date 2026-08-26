@@ -24,7 +24,11 @@ from .const import (
     CONF_REMOTE_HOST,
     CONF_NIGHT_START_HOUR,
     CONF_NIGHT_START_TIME,
+    CONF_NIGHT_END_TIME,
+    CONF_REMOTE_CLIENT_ID,
+    CONF_REMOTE_ROOM_SHARE,
     DEFAULT_NIGHT_START_HOUR,
+    DEFAULT_NIGHT_END_TIME,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     LEGACY_NOTIFY_KEYS,
@@ -43,7 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.6.24"
+FRONTEND_VERSION = "0.7.0"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -85,7 +89,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 
     if existing is None:
         await resources.async_create_item({"res_type": "module", "url": wanted_url})
-        _LOGGER.info("Registered Lüftungsberater dashboard cards")
+        _LOGGER.info("Registered Lüftungsassistent dashboard cards")
         return
 
     if existing.get("url") != wanted_url or existing.get("type") != "module":
@@ -94,7 +98,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
             {"res_type": "module", "url": wanted_url},
         )
         _LOGGER.info(
-            "Updated Lüftungsberater dashboard cards to frontend %s",
+            "Updated Lüftungsassistent dashboard cards to frontend %s",
             FRONTEND_VERSION,
         )
 
@@ -165,6 +169,31 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 data.pop(CONF_NIGHT_START_HOUR, None)
                 hass.config_entries.async_update_subentry(entry, subentry, data=data)
         updates["minor_version"] = 5
+
+
+    if entry.version == 1 and entry.minor_version < 6:
+        # v0.7.0 adds a configurable end time for night advice and explicit
+        # per-room remote sharing. Existing rooms stay shared so active remote
+        # setups do not silently lose access; newly created rooms default off.
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
+                continue
+            data = dict(subentry.data)
+            changed = False
+            if CONF_NIGHT_END_TIME not in data:
+                data[CONF_NIGHT_END_TIME] = DEFAULT_NIGHT_END_TIME
+                changed = True
+            if CONF_REMOTE_ROOM_SHARE not in data:
+                data[CONF_REMOTE_ROOM_SHARE] = True
+                changed = True
+            if changed:
+                hass.config_entries.async_update_subentry(entry, subentry, data=data)
+        cleaned_data = dict(updates.get("data", entry.data))
+        if entry_kind(entry) == ENTRY_KIND_REMOTE or cleaned_data.get(CONF_REMOTE_HOST):
+            cleaned_data[CONF_ENTRY_KIND] = ENTRY_KIND_REMOTE
+            cleaned_data.setdefault(CONF_REMOTE_CLIENT_ID, entry.entry_id)
+            updates["data"] = cleaned_data
+        updates["minor_version"] = 6
 
     if updates:
         hass.config_entries.async_update_entry(entry, **updates)

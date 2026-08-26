@@ -232,28 +232,7 @@ def test_dwd_uses_level_of_relevant_warning_not_sensor_maximum():
     assert result.weather_danger is False
     assert result.weather_reason_key == "weather_heavy_rain_caution"
 
-def test_generic_moderate_weather_warning_is_caution():
-    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
-
-    entity = "binary_sensor.warning"
-    hass = FakeHass(
-        {
-            entity: FakeState(
-                "on",
-                {
-                    "headline": "Warnung vor Starkregen",
-                    "severity": "Moderate",
-                },
-            )
-        }
-    )
-    result = _evaluate_nina_like_entities(hass, [entity])
-    assert result.weather_caution is True
-    assert result.weather_danger is False
-    assert result.weather_reason_key == "weather_heavy_rain_caution"
-
-
-def test_generic_severe_weather_warning_is_danger():
+def test_generic_warning_is_not_reinterpreted_by_event_type_or_severity():
     from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
 
     entity = "binary_sensor.warning"
@@ -269,9 +248,9 @@ def test_generic_severe_weather_warning_is_danger():
         }
     )
     result = _evaluate_nina_like_entities(hass, [entity])
-    assert result.weather_danger is True
+    assert result.weather_danger is False
     assert result.weather_caution is False
-    assert result.weather_reason_key == "weather_heavy_rain_danger"
+    assert result.nina_status == "none"
 
 
 def test_nina_new_detail_sensors_are_used_when_legacy_attributes_are_missing():
@@ -298,12 +277,12 @@ def test_nina_new_detail_sensors_are_used_when_legacy_attributes_are_missing():
     with patch("custom_components.lueftungsberater.providers.er.async_get", return_value=registry):
         result = _evaluate_nina_like_entities(hass, [warning, headline, severity])
 
-    assert result.weather_caution is True
+    assert result.weather_caution is False
     assert result.weather_danger is False
-    assert result.weather_reason_key == "weather_heavy_rain_caution"
+    assert result.nina_status == "none"
 
 
-def test_nina_new_severity_sensor_can_mark_warning_as_danger():
+def test_nina_new_severity_sensor_does_not_override_missing_protection_instruction():
     from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
 
     warning = "binary_sensor.nina_warning_1"
@@ -327,9 +306,9 @@ def test_nina_new_severity_sensor_can_mark_warning_as_danger():
     with patch("custom_components.lueftungsberater.providers.er.async_get", return_value=registry):
         result = _evaluate_nina_like_entities(hass, [warning, headline, severity])
 
-    assert result.weather_danger is True
+    assert result.weather_danger is False
     assert result.weather_caution is False
-    assert result.weather_reason_key == "weather_heavy_rain_danger"
+    assert result.nina_status == "none"
 
 
 
@@ -347,7 +326,7 @@ def test_air_warning_with_explicit_no_danger_is_none_without_close_instruction()
     )
 
 
-def test_moderate_air_warning_is_caution_unless_actions_make_it_dangerous():
+def test_warning_without_air_protection_instruction_is_ignored_but_close_instruction_locks():
     from custom_components.lueftungsberater.providers import _evaluate_air_warning
 
     assert (
@@ -357,7 +336,7 @@ def test_moderate_air_warning_is_caution_unless_actions_make_it_dangerous():
             "Meiden Sie den Bereich.",
             "Moderate",
         )
-        == "caution"
+        == "none"
     )
     assert (
         _evaluate_air_warning(
@@ -369,6 +348,93 @@ def test_moderate_air_warning_is_caution_unless_actions_make_it_dangerous():
         == "danger"
     )
 
+
+
+def test_precautionary_close_windows_instruction_is_authoritative():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Chemischer Unfall - mögliche Gefahrstofffreisetzung",
+            "Eine Freisetzung kann derzeit nicht ausgeschlossen werden.",
+            "Schließen Sie vorsorglich Fenster und Türen. Schalten Sie Lüftungs- und Klimaanlagen ab.",
+            "Moderate",
+        )
+        == "danger"
+    )
+
+
+def test_nina_like_close_instruction_marks_official_lock():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    entity = "binary_sensor.warning"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "on",
+                {
+                    "headline": "Evakuierungsmaßnahme",
+                    "recommended_actions": "Fenster und Türen geschlossen halten.",
+                    "severity": "Minor",
+                },
+            )
+        }
+    )
+    result = _evaluate_nina_like_entities(hass, [entity])
+    assert result.nina_status == "danger"
+    assert result.official_close_instruction is True
+
+
+def test_all_clear_is_context_not_a_hard_lock():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Entwarnung",
+            "Die Warnung wird aufgehoben.",
+            "",
+            "Minor",
+        )
+        == "clear"
+    )
+
+
+def test_negated_all_clear_does_not_clear_warning():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Lageupdate",
+            "Eine Entwarnung liegt noch nicht vor.",
+            "Fenster und Türen geschlossen halten.",
+            "Moderate",
+        )
+        == "danger"
+    )
+
+
+def test_dwd_explicit_close_instruction_overrides_warning_level():
+    from custom_components.lueftungsberater.providers import _evaluate_dwd_warning_entities
+
+    entity = "sensor.dwd_weather_warnings_current_warning_level"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "1",
+                {
+                    "warning_count": 1,
+                    "warning_1_name": "GEWITTER",
+                    "warning_1_level": 1,
+                    "warning_1_headline": "Amtliche Warnung vor Gewitter",
+                    "warning_1_instruction": "Fenster und Türen geschlossen halten.",
+                },
+            )
+        }
+    )
+    result = _evaluate_dwd_warning_entities(hass, [entity])
+    assert result.weather_danger is True
+    assert result.weather_reason_key == "official_close_instruction"
+    assert result.official_close_instruction is True
 
 def test_uba_air_quality_classes_use_worst_available_pollutant():
     from custom_components.lueftungsberater.providers import (

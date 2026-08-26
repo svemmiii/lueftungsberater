@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
+import time
 
 import voluptuous as vol
 
@@ -11,9 +12,12 @@ from homeassistant.components import websocket_api
 from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_call_later
 
 from .const import (
     DATA_API_REGISTERED,
+    DATA_REMOTE_ACCESS,
+    CONF_REMOTE_ROOM_SHARE,
     DOMAIN,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
@@ -35,7 +39,6 @@ REMOTE_ATTRIBUTE_KEYS = {
     "reason_args",
     "duration",
     "duration_key",
-    "localized_texts",
     "co2_status",
     "co2_data_status",
     "co2_ppm",
@@ -65,6 +68,11 @@ REMOTE_ATTRIBUTE_KEYS = {
     "night_ventilation_status",
     "night_ventilation_key",
     "night_ventilation_args",
+    "localized_texts",
+    "warning_notice_kind",
+    "warning_notice_text",
+    "official_close_instruction",
+    "primary_need",
     "has_co2",
     "has_window_contacts",
     "window_open",
@@ -100,13 +108,138 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
         )
         if requested_unit not in {"°C", "°F"}:
             requested_unit = str(hass.config.units.temperature_unit)
+        discovery = request.query.get("discovery") == "1"
+        selected_param = request.query.get("rooms")
+        selected_room_keys: set[str] | None
+        if discovery or selected_param is None:
+            selected_room_keys = None
+        else:
+            selected_room_keys = {
+                item for item in str(selected_param).split(",") if item
+            }
+
+        instances = _local_instances(
+            hass,
+            requested_unit,
+            remote_export=True,
+            selected_room_keys=selected_room_keys,
+        )
+
+        if not discovery:
+            client_id = str(request.query.get("client_id") or "legacy")
+            client_name = str(request.query.get("client_name") or "Remote Home Assistant")
+            _record_remote_access(hass, instances, client_id, client_name)
+
         return self.json(
             {
                 "protocol": REMOTE_PROTOCOL_VERSION,
                 "home_assistant_name": hass.config.location_name,
-                "instances": _local_instances(hass, requested_unit, remote_export=True),
+                "instances": instances,
             }
         )
+
+
+def _record_remote_access(
+    hass: HomeAssistant,
+    instances: list[dict[str, Any]],
+    client_id: str,
+    client_name: str,
+) -> None:
+    """Remember which rooms were actually requested by a remote client."""
+    store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_REMOTE_ACCESS, {})
+    now = time.monotonic()
+    for instance in instances:
+        instance_id = str(instance.get("id") or "")
+        rooms = instance.get("rooms", [])
+        if not instance_id or not isinstance(rooms, list):
+            continue
+        for room in rooms:
+            if not isinstance(room, dict):
+                continue
+            room_id = str(room.get("id") or "")
+            if not room_id:
+                continue
+            key = f"{instance_id}:{room_id}"
+            clients = store.setdefault(key, {})
+            previous = clients.get(client_id)
+            if isinstance(previous, dict):
+                cancel = previous.get("cancel_expiry")
+                if callable(cancel):
+                    cancel()
+
+            def _expire(_now, *, _key=key, _client_id=client_id, _instance_id=instance_id, _room_id=room_id):
+                current_store = hass.data.get(DOMAIN, {}).get(DATA_REMOTE_ACCESS, {})
+                current_clients = current_store.get(_key, {})
+                if isinstance(current_clients, dict):
+                    current_clients.pop(_client_id, None)
+                    if not current_clients:
+                        current_store.pop(_key, None)
+                _refresh_remote_access_entity(hass, _instance_id, _room_id)
+
+            cancel_expiry = async_call_later(hass, 95, _expire)
+            clients[client_id] = {
+                "name": client_name,
+                "last_seen": now,
+                "cancel_expiry": cancel_expiry,
+            }
+            _refresh_remote_access_entity(hass, instance_id, room_id)
+
+
+def _refresh_remote_access_entity(
+    hass: HomeAssistant,
+    instance_id: str,
+    room_id: str,
+) -> None:
+    """Refresh only the room entity metadata after remote access changes."""
+    entry = hass.config_entries.async_get_entry(instance_id)
+    if entry is None:
+        return
+    subentry = entry.subentries.get(room_id)
+    if subentry is None:
+        return
+    # Lazy import avoids making the API module part of the coordinator's import
+    # graph during Home Assistant startup.
+    from .coordinator import get_room_coordinator
+
+    coordinator = get_room_coordinator(hass, entry, subentry)
+    if coordinator is not None and coordinator.data is not None:
+        coordinator.async_set_updated_data(coordinator.data)
+
+
+def remote_access_info(
+    hass: HomeAssistant,
+    instance_id: str,
+    room_id: str,
+    *,
+    max_age_seconds: float = 90.0,
+) -> tuple[bool, list[str]]:
+    """Return active remote access and client names for one room."""
+    store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_REMOTE_ACCESS, {})
+    key = f"{instance_id}:{room_id}"
+    clients = store.get(key)
+    if not isinstance(clients, dict):
+        return False, []
+    now = time.monotonic()
+    active: list[str] = []
+    stale: list[str] = []
+    for client_id, info in clients.items():
+        if not isinstance(info, dict):
+            stale.append(client_id)
+            continue
+        try:
+            age = now - float(info.get("last_seen", 0))
+        except (TypeError, ValueError):
+            stale.append(client_id)
+            continue
+        if age <= max_age_seconds:
+            active.append(str(info.get("name") or client_id))
+        else:
+            stale.append(client_id)
+    for client_id in stale:
+        clients.pop(client_id, None)
+    if not clients:
+        store.pop(key, None)
+    return bool(active), sorted(set(active))
 
 
 def _advisor_entity_id(
@@ -169,6 +302,7 @@ def _local_instances(
     temperature_unit: str,
     *,
     remote_export: bool,
+    selected_room_keys: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     instances: list[dict[str, Any]] = []
 
@@ -180,6 +314,15 @@ def _local_instances(
         for subentry in entry.subentries.values():
             if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
                 continue
+            room_key = f"{entry.entry_id}:{subentry.subentry_id}"
+            if remote_export:
+                # v0.6.x rooms had no explicit flag; keep them shared for
+                # backwards compatibility. Newly created v0.7 rooms store False
+                # unless the user explicitly enables remote sharing.
+                if subentry.data.get(CONF_REMOTE_ROOM_SHARE, True) is not True:
+                    continue
+                if selected_room_keys is not None and room_key not in selected_room_keys:
+                    continue
             entity_id = _advisor_entity_id(hass, subentry.subentry_id)
             state = hass.states.get(entity_id) if entity_id else None
             if state is None and not remote_export:
@@ -271,7 +414,7 @@ def _remote_instances(hass: HomeAssistant) -> list[dict[str, Any]]:
             continue
 
         for remote_instance in upstream:
-            source_name = str(remote_instance.get("name") or "Lüftungsberater")
+            source_name = str(remote_instance.get("name") or "Lüftungsassistent")
             display_name = (
                 entry.title
                 if len(upstream) == 1
