@@ -266,6 +266,13 @@ async def test_global_schema_uses_only_notify_entity_target(
     assert not any("vibration" in str(key).lower() for key in schema.schema)
 
 
+def test_notification_trigger_selector_has_no_duplicate_values() -> None:
+    """Each notification choice must appear only once in the dropdown."""
+    from custom_components.lueftungsberater.config_flow import NOTIFY_TRIGGER_OPTIONS
+
+    assert len(NOTIFY_TRIGGER_OPTIONS) == len(set(NOTIFY_TRIGGER_OPTIONS))
+
+
 def test_room_schema_accepts_required_room_inputs_with_filtered_selectors(
     hass, enable_custom_integrations
 ) -> None:
@@ -416,3 +423,10 @@ async def test_remote_supported_subentry_cache_is_pinned_read_only(
 
     assert entry.supported_subentry_types == {}
     assert entry.supported_subentry_types == {}
+
+
+def test_v071_config_flow_minor_version_republishes_remote_capabilities() -> None:
+    """v0.7.1 must run its migration on entries created by v0.7.0."""
+    from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
+
+    assert LueftungsberaterConfigFlow.MINOR_VERSION == 7

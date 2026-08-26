@@ -103,6 +103,17 @@ SECTION_ROOM_SENSORS = "room_sensors"
 SECTION_ROOM_OPENINGS = "room_openings"
 SECTION_ROOM_REMOTE = "room_remote"
 
+NOTIFY_TRIGGER_OPTIONS = [
+    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+    NOTIFY_TRIGGER_AIRING_FINISHED,
+    NOTIFY_TRIGGER_AIR_DANGER,
+    NOTIFY_TRIGGER_AIR_CAUTION,
+    NOTIFY_TRIGGER_WEATHER_DANGER,
+    NOTIFY_TRIGGER_WEATHER_CAUTION,
+    NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
+    NOTIFY_TRIGGER_ALL_CLEAR,
+]
+
 
 from .remote import (
     RemoteAuthError,
@@ -238,18 +249,7 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                             CONF_NOTIFY_TRIGGERS, default=DEFAULT_NOTIFY_TRIGGERS
                         ): SelectSelector(
                             SelectSelectorConfig(
-                                options=[
-                                    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
-                                    NOTIFY_TRIGGER_AIRING_FINISHED,
-                                    NOTIFY_TRIGGER_AIR_DANGER,
-                                    NOTIFY_TRIGGER_AIR_CAUTION,
-                                    NOTIFY_TRIGGER_WEATHER_DANGER,
-                                    NOTIFY_TRIGGER_WEATHER_CAUTION,
-                                    NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
-                                    NOTIFY_TRIGGER_ALL_CLEAR,
-    NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
-    NOTIFY_TRIGGER_ALL_CLEAR,
-                                ],
+                                options=NOTIFY_TRIGGER_OPTIONS,
                                 multiple=True,
                                 mode=SelectSelectorMode.DROPDOWN,
                                 translation_key="notify_triggers",
@@ -696,7 +696,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 6
+    MINOR_VERSION = 7
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(

@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.7.1
+
+### Bugfixes
+- Doppelte Einträge für **amtliche Schutzwarnung bei geschlossenen Fenstern** und **Entwarnung** aus der Benachrichtigungsauswahl entfernt.
+- Warn- und Entwarnungsbenachrichtigungen werden jetzt **einmal pro Lüftungsassistent** statt einmal pro Raum geführt. Normale Lüftungsstatus-Meldungen bleiben weiterhin raumbezogen.
+- Die Nachtlüftung verwendet jetzt an allen Stellen die konfigurierte Endzeit. Der gemeinsame Außen-/Forecast-Pfad berücksichtigt nicht mehr fest 07:00 Uhr.
+- Jeder Raum erhält zusätzlich einen Timer auf das Ende seines Nachtfensters, damit der Nachthinweis exakt zur eingestellten Bis-Zeit verschwindet.
+- `display_mode` wird wieder im Remote-Snapshot übertragen, damit entfernte Karten dieselbe Ampelinterpretation wie die Quellinstanz verwenden.
+- Bestehende Remote-/Tailscale-Einträge werden beim Update erneut mit **keinen unterstützten Raum-Subentries** veröffentlicht. Die Config-Flow-Minor-Version wurde dafür korrekt auf 7 angehoben, damit die Migration von v0.7.0 tatsächlich ausgeführt wird.
+- CI bereinigt keine versehentlichen Root-Dateien mehr vor Hassfest/Pytest. Ein falsches Repository-Layout schlägt dadurch künftig sichtbar fehl statt im Workflow verdeckt zu werden.
+
+### Karten / Remote
+- Beim weißen Safety-Lock wird in der detaillierten Raumkarte nur noch der farbige Statuskopf weiß dargestellt; der restliche Kartenkörper behält das Home-Assistant-Theme.
+- Lokal remote abgefragte Räume zeigen in der detaillierten Raumkarte ein kleines `lan-connect`-Symbol. Die Übersicht behält zusätzlich den Hinweis auf Assistenten-Ebene und das Badge am betroffenen Raum.
+- `remote_access_*`-Attribute werden nur noch gesetzt, solange tatsächlich eine Remote-Instanz den Raum aktiv abfragt; `remote_shared` bleibt davon getrennt und bedeutet lediglich, dass der Raum freigegeben ist.
+
+### Zustandsattribute / Sprache
+- Das vollständige `localized_texts`-Paket mit Deutsch, Englisch und Türkisch wird nicht mehr in jeder Raum-Entity mitgeführt.
+- Die Karte lässt Empfehlung, Grund, Dauer und Nachttext bei Bedarf über einen kleinen WebSocket-Befehl in der Sprache des aktuell angemeldeten Home-Assistant-Benutzers rendern und cached das Ergebnis. Nicht unterstützte Sprachen fallen weiterhin auf Englisch zurück.
+- Die bisherigen aktuell gerenderten Texte bleiben als sofortiger Fallback erhalten; die sichtbare Kartenfunktion geht dadurch nicht verloren.
+- Seltene Warn-/Remote-Metadaten werden nur noch als Attribute ergänzt, wenn sie tatsächlich aktiv bzw. vorhanden sind.
+
+### Tests
+- Regressionstests für doppelte Benachrichtigungsoptionen, Nacht-Endzeit, Remote-`display_mode`, v0.7.1-Migrationsversion und raumunabhängige Warn-Fingerprints ergänzt.
+
 ## v0.7.0
 
 ### Lüftungsassistent / Fresh Air Assistant

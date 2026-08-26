@@ -47,7 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.7.0"
+FRONTEND_VERSION = "0.7.1"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -195,9 +195,17 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             updates["data"] = cleaned_data
         updates["minor_version"] = 6
 
+    if entry.version == 1 and entry.minor_version < 7:
+        # v0.7.1 republishes per-entry subentry capabilities after pinning them.
+        # This makes Home Assistant's parent picker immediately see remote peers
+        # as read-only instead of retaining a stale cached room capability.
+        updates["minor_version"] = 7
+
+    # Pin before async_update_entry: the update event serializes the ConfigEntry
+    # for the frontend, so its supported_subentry_types must already be correct.
+    _pin_subentry_capabilities(entry)
     if updates:
         hass.config_entries.async_update_entry(entry, **updates)
-    _pin_subentry_capabilities(entry)
     return True
 
 

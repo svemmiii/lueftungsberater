@@ -150,6 +150,22 @@ def test_night_advice_stops_at_configured_end_time():
     assert result.status == "unavailable"
 
 
+def test_night_advice_is_hidden_exactly_at_configured_end_time():
+    exact_end = NOW.replace(hour=7) + timedelta(days=1)
+    result = evaluate_night_ventilation(
+        now=exact_end,
+        indoor_temp=26,
+        indoor_humidity=50,
+        target_temp=22,
+        outdoor_temp=18,
+        outdoor_humidity=50,
+        start_hour=22,
+        end_minute=7 * 60,
+        hourly_forecast=forecast(temps=[18, 17, 16, 16], start=exact_end),
+    )
+    assert result.status == "unavailable"
+
+
 def test_night_window_can_use_shift_worker_hours():
     morning = NOW.replace(hour=8)
     result = evaluate_night_ventilation(

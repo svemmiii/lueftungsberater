@@ -67,6 +67,8 @@ const LB_I18N = {
     "overview.remote_used": "wird remote abgefragt",
     "overview.remote_rooms": "{count} Raum/Räume werden von einer anderen Instanz abgefragt",
     "warning.all_clear": "Entwarnung eingegangen",
+    "remote.active": "Wird remote abgefragt",
+    "remote.active_by": "Wird remote abgefragt von {clients}",
     "overview.not_reachable": "Nicht erreichbar",
     "overview.empty_title": "Keine Lüftungsassistent-Räume gefunden.",
     "overview.empty_description": "Räume werden automatisch erkannt oder können per entities: angegeben werden.",
@@ -158,6 +160,8 @@ const LB_I18N = {
     "overview.remote_used": "queried remotely",
     "overview.remote_rooms": "{count} room(s) are being queried by another instance",
     "warning.all_clear": "All-clear received",
+    "remote.active": "Queried remotely",
+    "remote.active_by": "Queried remotely by {clients}",
     "overview.not_reachable": "Not reachable",
     "overview.empty_title": "No Fresh Air Assistant rooms found.",
     "overview.empty_description": "Rooms are discovered automatically or can be specified with entities:.",
@@ -249,6 +253,8 @@ const LB_I18N = {
     "overview.remote_used": "uzaktan sorgulanıyor",
     "overview.remote_rooms": "{count} oda başka bir örnek tarafından uzaktan sorgulanıyor",
     "warning.all_clear": "Tehlikenin geçtiğine dair bildirim geldi",
+    "remote.active": "Uzaktan sorgulanıyor",
+    "remote.active_by": "{clients} tarafından uzaktan sorgulanıyor",
     "overview.not_reachable": "Ulaşılamıyor",
     "overview.empty_title": "Fresh Air Assistant odası bulunamadı.",
     "overview.empty_description": "Odalar otomatik bulunur veya entities: ile belirtilebilir.",
@@ -304,9 +310,50 @@ function lbT(hass, key, values = {}) {
   return text;
 }
 
-function lbLocalizedEntityText(hass, attributes, field, fallback = "") {
-  const lang = lbLanguage(hass);
-  return attributes?.localized_texts?.[lang]?.[field] || fallback;
+const LB_TEXT_CACHE = new Map();
+const LB_TEXT_PENDING = new Map();
+
+function lbTextCacheKey(hass, attributes) {
+  return JSON.stringify([
+    lbLanguage(hass),
+    attributes?.temperature_display_unit || "°C",
+    attributes?.recommendation_key || "unknown",
+    attributes?.reason_key || "incomplete_data",
+    attributes?.reason_args || {},
+    attributes?.duration_key || "incomplete_data",
+    attributes?.night_ventilation_key || null,
+    attributes?.night_ventilation_args || {},
+  ]);
+}
+
+function lbLocalizedEntityTexts(hass, attributes, onReady) {
+  if (!hass || !attributes) return null;
+  const key = lbTextCacheKey(hass, attributes);
+  const cached = LB_TEXT_CACHE.get(key);
+  if (cached) return cached;
+  if (!LB_TEXT_PENDING.has(key) && typeof hass.callWS === "function") {
+    const request = hass.callWS({
+      type: "lueftungsberater/localize",
+      language: lbLanguage(hass),
+      temperature_unit: attributes.temperature_display_unit || "°C",
+      recommendation_key: attributes.recommendation_key || "unknown",
+      reason_key: attributes.reason_key || "incomplete_data",
+      reason_args: attributes.reason_args || {},
+      duration_key: attributes.duration_key || "incomplete_data",
+      night_ventilation_key: attributes.night_ventilation_key || null,
+      night_ventilation_args: attributes.night_ventilation_args || {},
+    })
+      .then((bundle) => {
+        if (bundle && typeof bundle === "object") LB_TEXT_CACHE.set(key, bundle);
+        LB_TEXT_PENDING.delete(key);
+        if (typeof onReady === "function") onReady();
+      })
+      .catch(() => {
+        LB_TEXT_PENDING.delete(key);
+      });
+    LB_TEXT_PENDING.set(key, request);
+  }
+  return null;
 }
 
 
@@ -523,34 +570,29 @@ class LueftungsberaterCard extends HTMLElement {
     const status = a.status || "yellow";
     const meta = this._statusMeta(status, a.display_mode || "ventilation");
     const incompleteData = ["unknown", "unavailable", "none", ""].includes(String(st.state ?? "").toLowerCase());
-    const recommendation = lbLocalizedEntityText(
-      this._hass,
-      a,
-      "recommendation",
-      a.recommendation || (incompleteData ? lbT(this._hass, "recommendation.unknown") : this._localizeState(st.state))
-    );
-    const reason = lbLocalizedEntityText(
-      this._hass,
-      a,
-      "reason",
-      a.reason || (incompleteData ? lbT(this._hass, "reason.incomplete_data") : "")
-    );
-    const durationText = lbLocalizedEntityText(
-      this._hass,
-      a,
-      "duration",
-      a.duration || (incompleteData ? lbT(this._hass, "duration.incomplete_data") : "")
-    );
-    const nightText = lbLocalizedEntityText(
-      this._hass,
-      a,
-      "night",
-      a.night_ventilation || ""
-    );
+    const localizedTexts = lbLocalizedEntityTexts(this._hass, a, () => {
+      this._renderSignature = null;
+      this._render();
+    });
+    const recommendation = localizedTexts?.recommendation
+      || a.recommendation
+      || (incompleteData ? lbT(this._hass, "recommendation.unknown") : this._localizeState(st.state));
+    const reason = localizedTexts?.reason
+      || a.reason
+      || (incompleteData ? lbT(this._hass, "reason.incomplete_data") : "");
+    const durationText = localizedTexts?.duration
+      || a.duration
+      || (incompleteData ? lbT(this._hass, "duration.incomplete_data") : "");
+    const nightText = localizedTexts?.night || a.night_ventilation || "";
     const warningNotice = a.warning_notice_kind === "all_clear"
       ? [lbT(this._hass, "warning.all_clear"), a.warning_notice_text].filter(Boolean).join(": ")
       : "";
     const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsassistent";
+    const remoteAccess = !remote && a.remote_access_active === true;
+    const remoteClients = Array.isArray(a.remote_access_clients) ? a.remote_access_clients.filter(Boolean) : [];
+    const remoteAccessTitle = remoteClients.length
+      ? lbT(this._hass, "remote.active_by", { clients: remoteClients.join(", ") })
+      : lbT(this._hass, "remote.active");
 
     const tempUnit = a.temperature_display_unit || this._temperatureUnit();
     const ti = this._fmt(this._displayTemperature(a.temperature_inside, tempUnit));
@@ -686,14 +728,13 @@ class LueftungsberaterCard extends HTMLElement {
         .header.main-tap { cursor: pointer; }
         .header.main-tap:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
         .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.orange { --lb-accent: var(--lb-orange); } .header.red { --lb-accent: var(--lb-red); } .header.locked { --lb-accent: var(--lb-lock); background: #fff; color: #111; }
-        .locked-card { background: #fff; color: #111; border: 2px solid #111; box-shadow: 0 0 0 2px color-mix(in srgb, #fff 70%, transparent); }
-        .locked-card .body, .locked-card .why, .locked-card .reason, .locked-card .duration, .locked-card .facts, .locked-card .fact, .locked-card .hint { color: #111; }
-        .locked-card .title { color: #424242; }
-        .locked-card .icon-wrap { background: #f2f2f2; }
-        .locked-card .facts { border-top-color: #bdbdbd; }
+        .header.locked .title { color: #424242; }
+        .header.locked .icon-wrap { background: #f2f2f2; }
         .icon-wrap { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--lb-accent) 20%, transparent); color: var(--lb-accent); }
         .main-icon { --mdc-icon-size: 31px; color: var(--lb-accent); }
         .head-text { min-width: 0; flex: 1; }
+        .remote-access-icon { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; color: var(--info-color, #039be5); background: color-mix(in srgb, var(--info-color, #039be5) 12%, transparent); }
+        .remote-access-icon ha-icon { --mdc-icon-size: 19px; }
         .title { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 3px; }
         .recommendation { font-size: 20px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
         .body { padding: 14px 16px 16px; }
@@ -704,8 +745,6 @@ class LueftungsberaterCard extends HTMLElement {
         .night-copy { display: grid; gap: 2px; min-width: 0; }
         .night-title { font-size: 13px; font-weight: 700; color: var(--primary-text-color); }
         .night-text { overflow-wrap: anywhere; }
-        .locked-card .night-advice { background: #f2f2f2; }
-        .locked-card .night-title, .locked-card .night-text { color: #111; }
         .duration { display: grid; gap: 2px; margin-top: 12px; line-height: 1.4; }
         .duration-label { font-weight: 700; }
         .facts { display: grid; gap: 8px; padding-top: 13px; margin-top: 13px; border-top: 1px solid var(--divider-color); color: var(--secondary-text-color); font-size: 12.5px; }
@@ -721,10 +760,11 @@ class LueftungsberaterCard extends HTMLElement {
         .hint { margin-top: 12px; color: var(--secondary-text-color); font-size: 11px; opacity: 0.8; }
         .error { padding: 16px; color: var(--error-color); }
       </style>
-      <ha-card class="${status === "locked" ? "locked-card" : ""}" aria-label="${this._escape(title)}">
+      <ha-card aria-label="${this._escape(title)}">
         <div class="header ${meta.cls}${remote ? "" : " main-tap"}" ${remote ? "" : 'tabindex="0" role="button"'}>
           <div class="icon-wrap"><ha-icon class="main-icon" icon="${meta.icon}"></ha-icon></div>
           <div class="head-text"><div class="title">${this._escape(title)}</div><div class="recommendation">${this._escape(recommendation)}</div></div>
+          ${remoteAccess ? `<span class="remote-access-icon" title="${this._escape(remoteAccessTitle)}" aria-label="${this._escape(remoteAccessTitle)}"><ha-icon icon="mdi:lan-connect"></ha-icon></span>` : ""}
         </div>
         <div class="body">
           ${reason ? `<div class="why">${lbT(this._hass, "why")}</div><div class="reason">${reasonHtml}</div>` : ""}
@@ -989,12 +1029,10 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       cls: meta.cls,
       icon: meta.icon,
       rank: meta.rank,
-      recommendation: lbLocalizedEntityText(
-        this._hass,
-        a,
-        "recommendation",
-        a.recommendation || lbT(this._hass, `recommendation.${state}`)
-      ),
+      recommendation: (lbLocalizedEntityTexts(this._hass, a, () => {
+        this._renderSignature = null;
+        this._render();
+      })?.recommendation) || a.recommendation || lbT(this._hass, `recommendation.${state}`),
       windowOpen: a.window_open === true,
       remoteAccess: a.remote_access_active === true,
       remote: false,
@@ -1060,12 +1098,10 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       cls: meta.cls,
       icon: meta.icon,
       rank: meta.rank,
-      recommendation: lbLocalizedEntityText(
-        this._hass,
-        attrs,
-        "recommendation",
-        attrs.recommendation || lbT(this._hass, `recommendation.${state}`)
-      ),
+      recommendation: (lbLocalizedEntityTexts(this._hass, attrs, () => {
+        this._renderSignature = null;
+        this._render();
+      })?.recommendation) || attrs.recommendation || lbT(this._hass, `recommendation.${state}`),
       windowOpen: attrs.window_open === true,
       remoteAccess: false,
       remote: true,

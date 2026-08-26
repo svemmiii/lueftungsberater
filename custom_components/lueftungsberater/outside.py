@@ -16,6 +16,7 @@ from .const import (
     CONF_MANUAL_OUTDOOR,
     CONF_NIGHT_START_HOUR,
     CONF_NIGHT_START_TIME,
+    CONF_NIGHT_END_TIME,
     CONF_OUTDOOR_CO2,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
@@ -26,6 +27,7 @@ from .const import (
     CONF_NINA_STATUS,
     DATA_OUTSIDE_COORDINATORS,
     DEFAULT_NIGHT_START_HOUR,
+    DEFAULT_NIGHT_END_TIME,
     DOMAIN,
     FORECAST_REFRESH_INTERVAL,
     SUBENTRY_TYPE_ROOM,
@@ -65,6 +67,35 @@ def _night_start_minutes(subentry) -> int:
     return max(0, min(23, hour)) * 60
 
 
+def _night_end_minutes(subentry) -> int:
+    raw = subentry.data.get(CONF_NIGHT_END_TIME, DEFAULT_NIGHT_END_TIME)
+    if isinstance(raw, str):
+        parts = raw.split(":")
+        try:
+            hour = max(0, min(23, int(parts[0])))
+            minute = max(0, min(59, int(parts[1]) if len(parts) > 1 else 0))
+            return hour * 60 + minute
+        except (TypeError, ValueError):
+            pass
+    try:
+        hour, minute = str(DEFAULT_NIGHT_END_TIME).split(":", 1)
+        return int(hour) * 60 + int(minute)
+    except (TypeError, ValueError):
+        return 7 * 60
+
+
+def _minute_in_night_window(now_minute: int, start: int, end: int) -> bool:
+    """Return whether a minute belongs to the configured daily night window."""
+    start = max(0, min(1439, int(start)))
+    end = max(0, min(1439, int(end)))
+    now_minute = max(0, min(1439, int(now_minute)))
+    if start == end:
+        return True
+    if start < end:
+        return start <= now_minute < end
+    return now_minute >= start or now_minute < end
+
+
 def _night_forecast_relevant(entry: ConfigEntry) -> bool:
     """Return whether at least one room may currently show night advice."""
     now = dt_util.now()
@@ -72,14 +103,11 @@ def _night_forecast_relevant(entry: ConfigEntry) -> bool:
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
             continue
-        start = _night_start_minutes(subentry)
-        # The display window runs from its configured start through 07:00.
-        # Starts after 07:00 cross midnight; starts before 07:00 apply only
-        # during that early-morning interval.
-        if start >= 7 * 60:
-            if now_minute >= start or now_minute <= 7 * 60:
-                return True
-        elif start <= now_minute <= 7 * 60:
+        if _minute_in_night_window(
+            now_minute,
+            _night_start_minutes(subentry),
+            _night_end_minutes(subentry),
+        ):
             return True
     return False
 

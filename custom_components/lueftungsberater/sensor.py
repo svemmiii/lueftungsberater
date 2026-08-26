@@ -36,7 +36,6 @@ from .entity import LueftungsberaterRoomEntity
 from .engine import co2_status
 from .localization import (
     duration_text,
-    localized_bundle,
     night_advice_text,
     reason_text,
     recommendation_text,
@@ -215,31 +214,18 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
         night_key = values.get("night_ventilation_key")
         night_args = dict(values.get("night_ventilation_args") or {})
-        texts = localized_bundle(
-            recommendation_key,
-            reason_key,
-            reason_args,
-            duration_key,
-            temperature_unit,
-            night_key,
-            night_args,
-        )
         remote_active, remote_clients = remote_access_info(
             self.hass, self.entry.entry_id, self.subentry.subentry_id
         )
 
-        return {
+        attrs = {
             "instance_id": self.entry.entry_id,
             "instance_name": self.entry.title,
             "room_name": self.subentry.title,
             "remote_shared": bool(self.subentry.data.get(CONF_REMOTE_ROOM_SHARE, True)),
-            "remote_access_active": remote_active,
-            "remote_access_count": len(remote_clients),
-            "remote_access_clients": remote_clients,
             "status": status,
             "display_mode": display_mode,
             "safety_lock": bool(r.safety_lock) if r is not None else False,
-            "primary_need": r.primary_need if r is not None else "none",
             "ventilation_status": r.color if r is not None else "yellow",
             "room_status": r.room_status_color if r is not None else "yellow",
             "recommendation": recommendation_text(recommendation_key, language),
@@ -252,11 +238,6 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "reason_args": reason_args,
             "duration": duration_text(duration_key, language),
             "duration_key": duration_key,
-            "localized_texts": texts,
-            "original_warning_text": original_reason,
-            "warning_notice_kind": warnings.warning_notice_kind,
-            "warning_notice_text": warnings.warning_notice_text,
-            "official_close_instruction": warnings.official_close_instruction,
             "co2_status": current_co2_status,
             "co2_data_status": values.get("co2_data_status", "not_configured"),
             "co2_ppm": (
@@ -273,7 +254,6 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "temperature_inside": values["temperature_inside"],
             "temperature_outside": values["temperature_outside"],
             "target_temperature": values["target_temperature"],
-            "temperature_unit_internal": "°C",
             "temperature_display_unit": temperature_unit,
             "humidity_inside": values["humidity_inside"],
             "humidity_outside": values["humidity_outside"],
@@ -375,6 +355,22 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "radar_current_entity": weather.radar_current_entity,
             "radar_next_entity": weather.radar_next_entity,
         }
+        # Keep rarely used transient metadata out of the normal attribute list.
+        # The custom card treats missing values as false/empty, so nothing visible
+        # is lost while the state inspector stays significantly smaller.
+        if remote_active:
+            attrs["remote_access_active"] = True
+            attrs["remote_access_count"] = len(remote_clients)
+            attrs["remote_access_clients"] = remote_clients
+        if original_reason:
+            attrs["original_warning_text"] = original_reason
+        if warnings.warning_notice_kind:
+            attrs["warning_notice_kind"] = warnings.warning_notice_kind
+        if warnings.warning_notice_text:
+            attrs["warning_notice_text"] = warnings.warning_notice_text
+        if warnings.official_close_instruction:
+            attrs["official_close_instruction"] = True
+        return attrs
 
 
 class RoomAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity):

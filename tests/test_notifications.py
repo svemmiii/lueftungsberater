@@ -9,6 +9,7 @@ from custom_components.lueftungsberater.const import (
     NOTIFY_TRIGGER_ALL_CLEAR,
 )
 from custom_components.lueftungsberater.notifications import (
+    _assistant_warning_fingerprint,
     _message,
     _transition_trigger,
     _trigger_for_mode,
@@ -74,3 +75,36 @@ def test_all_clear_notification_text_is_available():
     title, message = _message("en", "Office", NOTIFY_TRIGGER_ALL_CLEAR)
     assert "Fresh Air Assistant" in title
     assert "all-clear" in message.lower() or "all clear" in message.lower()
+
+
+def test_assistant_warning_fingerprint_is_room_independent():
+    from types import SimpleNamespace
+
+    warnings = SimpleNamespace(
+        provider_domain="nina",
+        nina_status="danger",
+        nina_reason_key="official_close_instruction",
+        nina_original_reason="Fenster und Türen schließen",
+        weather_reason_key=None,
+        weather_original_reason=None,
+        official_close_instruction=True,
+    )
+    weather = SimpleNamespace(
+        air_quality_index="unknown",
+        air_quality_pollutant=None,
+        air_quality_value=None,
+    )
+    room_a = SimpleNamespace(
+        warnings=warnings,
+        weather=weather,
+        result=SimpleNamespace(reason_key="room_a_reason"),
+    )
+    room_b = SimpleNamespace(
+        warnings=warnings,
+        weather=weather,
+        result=SimpleNamespace(reason_key="room_b_reason"),
+    )
+
+    assert _assistant_warning_fingerprint(room_a, NOTIFY_TRIGGER_AIR_DANGER) == (
+        _assistant_warning_fingerprint(room_b, NOTIFY_TRIGGER_AIR_DANGER)
+    )

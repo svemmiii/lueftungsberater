@@ -1,6 +1,7 @@
 """Optional Home Assistant notifications for Lüftungsberater."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -11,6 +12,7 @@ from .const import (
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_TRIGGERS,
     DATA_NOTIFICATION_STATE,
+    DATA_NOTIFICATION_LOCKS,
     DEFAULT_NOTIFY_TRIGGERS,
     DOMAIN,
     NOTIFY_TRIGGER_AIRING_FINISHED,
@@ -21,6 +23,7 @@ from .const import (
     NOTIFY_TRIGGER_WEATHER_DANGER,
     NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
     NOTIFY_TRIGGER_ALL_CLEAR,
+    SUBENTRY_TYPE_ROOM,
 )
 from .runtime import RoomSnapshot
 
@@ -106,18 +109,25 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
     return titles[lang], messages[lang][trigger]
 
 
+
 async def _async_send(
     hass: HomeAssistant,
     entry: ConfigEntry,
     subentry: ConfigSubentry,
     trigger: str,
+    *,
+    display_name: str | None = None,
 ) -> bool:
     """Send through Home Assistant's notify entity action."""
     target = entry.data.get(CONF_NOTIFY_TARGET)
     if not isinstance(target, str) or not target:
         return False
 
-    title, message = _message(hass.config.language, subentry.title, trigger)
+    title, message = _message(
+        hass.config.language,
+        display_name or subentry.title,
+        trigger,
+    )
     try:
         await hass.services.async_call(
             "notify",
@@ -128,17 +138,187 @@ async def _async_send(
         )
         return True
     except Exception:  # noqa: BLE001 - a notification target must not break advice
-        _LOGGER.exception("Unable to send Lüftungsberater notification to %s", target)
+        _LOGGER.exception("Unable to send Lüftungsassistent notification to %s", target)
         return False
+
+
+def _assistant_warning_fingerprint(
+    snapshot: RoomSnapshot,
+    trigger: str | None,
+) -> tuple[Any, ...]:
+    """Build one warning identity shared by every room of an assistant."""
+    warnings = snapshot.warnings
+    weather = snapshot.weather
+    return (
+        trigger,
+        warnings.provider_domain,
+        warnings.nina_status,
+        warnings.nina_reason_key,
+        warnings.nina_original_reason or "",
+        warnings.weather_reason_key,
+        warnings.weather_original_reason or "",
+        bool(warnings.official_close_instruction),
+        weather.air_quality_index,
+        weather.air_quality_pollutant,
+        weather.air_quality_value,
+    )
+
+
+def _room_window_state(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    current_subentry: ConfigSubentry,
+    current_snapshot: RoomSnapshot,
+) -> list[str]:
+    """Return titles of currently open rooms in one local assistant."""
+    # Lazy import avoids notifications.py <-> coordinator.py import recursion.
+    from .coordinator import get_room_coordinator
+
+    open_rooms: list[str] = []
+    for candidate in entry.subentries.values():
+        if candidate.subentry_type != SUBENTRY_TYPE_ROOM:
+            continue
+        if candidate.subentry_id == current_subentry.subentry_id:
+            snapshot = current_snapshot
+        else:
+            coordinator = get_room_coordinator(hass, entry, candidate)
+            snapshot = coordinator.data if coordinator is not None else None
+        if snapshot is not None and snapshot.values.get("window_open") is True:
+            open_rooms.append(candidate.title)
+    return open_rooms
 
 
 def clear_room_notification_state(
     hass: HomeAssistant, entry_id: str, subentry_id: str
 ) -> None:
-    """Forget the transient notification fingerprint for one room."""
+    """Forget transient room-level notification state."""
     domain_data = hass.data.get(DOMAIN, {})
     store = domain_data.get(DATA_NOTIFICATION_STATE, {})
+    store.pop(f"room:{entry_id}:{subentry_id}", None)
+    # Also clean the old pre-v0.7.1 key shape after an in-place update.
     store.pop(f"{entry_id}:{subentry_id}", None)
+
+
+def clear_assistant_notification_state(hass: HomeAssistant, entry_id: str) -> None:
+    """Forget assistant-level warning state and its transient lock."""
+    domain_data = hass.data.get(DOMAIN, {})
+    store = domain_data.get(DATA_NOTIFICATION_STATE, {})
+    store.pop(f"assistant:{entry_id}", None)
+    locks = domain_data.get(DATA_NOTIFICATION_LOCKS, {})
+    locks.pop(entry_id, None)
+
+
+async def _async_handle_assistant_warning_notification(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+    snapshot: RoomSnapshot,
+    enabled: set[str],
+) -> None:
+    """Handle hazard/all-clear notifications once per assistant, not per room."""
+    result = snapshot.result
+    if result is None:
+        return
+
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    store = domain_data.setdefault(DATA_NOTIFICATION_STATE, {})
+    locks = domain_data.setdefault(DATA_NOTIFICATION_LOCKS, {})
+    lock = locks.setdefault(entry.entry_id, asyncio.Lock())
+
+    async with lock:
+        key = f"assistant:{entry.entry_id}"
+        stored = store.get(key)
+        state: dict[str, Any] = dict(stored) if isinstance(stored, dict) else {}
+        initialized = bool(state.get("initialized"))
+
+        open_rooms = _room_window_state(hass, entry, subentry, snapshot)
+        any_window_open = bool(open_rooms)
+        mode = result.mode
+        hazard_trigger = _trigger_for_mode(mode or "")
+        all_clear = snapshot.warnings.warning_notice_kind == "all_clear"
+        official_active = bool(snapshot.warnings.official_close_instruction and result.safety_lock)
+
+        # Track whether this assistant actually carried the official warning so
+        # an all-clear is not emitted for an unrelated/stale notice.
+        previously_official = bool(state.get("official_warning_seen"))
+        if official_active:
+            state["official_warning_seen"] = True
+
+        # One warning per assistant. While any room remains open, additional
+        # rooms do not create duplicate messages. Once every room is closed, a
+        # later reopening may warn again during the same ongoing hazard.
+        hazard_active = (
+            any_window_open
+            and hazard_trigger is not None
+            and hazard_trigger in enabled
+        )
+        if hazard_active:
+            fingerprint = _assistant_warning_fingerprint(snapshot, hazard_trigger)
+            if state.get("hazard_fingerprint") != fingerprint:
+                if not await _async_send(
+                    hass,
+                    entry,
+                    subentry,
+                    hazard_trigger,
+                    display_name=entry.title,
+                ):
+                    return
+            state["hazard_fingerprint"] = fingerprint
+            if official_active:
+                state["closed_official_fingerprint"] = _assistant_warning_fingerprint(
+                    snapshot, NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED
+                )
+        elif not any_window_open:
+            state.pop("hazard_fingerprint", None)
+
+        # Optional awareness message while everything is already closed. Send
+        # this once per official warning, not once per room.
+        if (
+            official_active
+            and not any_window_open
+            and NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED in enabled
+        ):
+            closed_fp = _assistant_warning_fingerprint(
+                snapshot, NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED
+            )
+            if state.get("closed_official_fingerprint") != closed_fp:
+                if not await _async_send(
+                    hass,
+                    entry,
+                    subentry,
+                    NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
+                    display_name=entry.title,
+                ):
+                    return
+                state["closed_official_fingerprint"] = closed_fp
+        elif not official_active and not all_clear:
+            state.pop("closed_official_fingerprint", None)
+
+        # Entwarnung is an assistant/source event and is therefore also emitted
+        # only once, regardless of the number of rooms configured below it.
+        if (
+            initialized
+            and all_clear
+            and NOTIFY_TRIGGER_ALL_CLEAR in enabled
+            and previously_official
+            and not state.get("all_clear_sent")
+        ):
+            if not await _async_send(
+                hass,
+                entry,
+                subentry,
+                NOTIFY_TRIGGER_ALL_CLEAR,
+                display_name=entry.title,
+            ):
+                return
+            state["all_clear_sent"] = True
+        elif not all_clear:
+            state.pop("all_clear_sent", None)
+            if not official_active:
+                state.pop("official_warning_seen", None)
+
+        state["initialized"] = True
+        store[key] = state
 
 
 async def async_handle_room_notification(
@@ -147,7 +327,7 @@ async def async_handle_room_notification(
     subentry: ConfigSubentry,
     snapshot: RoomSnapshot,
 ) -> None:
-    """Send selected status transitions and hazards without notification flapping."""
+    """Send selected notifications without warning duplication across rooms."""
     target = entry.data.get(CONF_NOTIFY_TARGET)
     if not isinstance(target, str) or not target:
         return
@@ -157,74 +337,19 @@ async def async_handle_room_notification(
         configured = [configured]
     enabled = {str(item) for item in (configured or [])}
 
+    await _async_handle_assistant_warning_notification(
+        hass, entry, subentry, snapshot, enabled
+    )
+
+    # Ordinary ventilation transitions remain room-specific by design.
     result = snapshot.result
-    window_open = snapshot.values.get("window_open") is True
     mode = result.mode if result is not None else None
     recommendation_key = result.recommendation_key if result is not None else None
-    hazard_trigger = _trigger_for_mode(mode or "")
-    all_clear = snapshot.warnings.warning_notice_kind == "all_clear"
-
-    key = f"{entry.entry_id}:{subentry.subentry_id}"
+    key = f"room:{entry.entry_id}:{subentry.subentry_id}"
     store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_NOTIFICATION_STATE, {})
     stored = store.get(key)
     state: dict[str, Any] = dict(stored) if isinstance(stored, dict) else {}
     initialized = bool(state.get("initialized"))
-
-    # Hazards may notify immediately after startup because an open window during
-    # an active warning is already actionable. Ordinary status hints are only
-    # transition-triggered and intentionally stay quiet on startup/reload.
-    hazard_active = (
-        window_open
-        and hazard_trigger is not None
-        and hazard_trigger in enabled
-        and result is not None
-    )
-    if hazard_active:
-        fingerprint = (
-            hazard_trigger,
-            result.reason_key,
-            result.original_reason or "",
-        )
-        if state.get("hazard_fingerprint") != fingerprint:
-            if not await _async_send(hass, entry, subentry, hazard_trigger):
-                return
-        state["hazard_fingerprint"] = fingerprint
-    else:
-        state.pop("hazard_fingerprint", None)
-
-    # Optional awareness notification for users who explicitly want serious
-    # official warnings even while everything is already closed. The wording
-    # must make the closed state explicit to avoid implying an open window.
-    closed_official_active = (
-        not window_open
-        and snapshot.warnings.official_close_instruction
-        and result is not None
-        and result.safety_lock
-        and NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED in enabled
-    )
-    if closed_official_active:
-        closed_fp = (result.reason_key, result.original_reason or "")
-        if state.get("closed_official_fingerprint") != closed_fp:
-            if not await _async_send(
-                hass, entry, subentry, NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED
-            ):
-                return
-        state["closed_official_fingerprint"] = closed_fp
-    else:
-        state.pop("closed_official_fingerprint", None)
-
-    if (
-        initialized
-        and all_clear
-        and NOTIFY_TRIGGER_ALL_CLEAR in enabled
-        and state.get("mode") == "nina_aussenluftgefahr"
-        and not state.get("all_clear_sent")
-    ):
-        if not await _async_send(hass, entry, subentry, NOTIFY_TRIGGER_ALL_CLEAR):
-            return
-        state["all_clear_sent"] = True
-    elif not all_clear:
-        state.pop("all_clear_sent", None)
 
     if initialized and result is not None:
         transition_trigger = _transition_trigger(
@@ -240,5 +365,4 @@ async def async_handle_room_notification(
     state["initialized"] = True
     state["mode"] = mode
     state["recommendation_key"] = recommendation_key
-    state["window_open"] = window_open
     store[key] = state

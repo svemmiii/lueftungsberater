@@ -20,16 +20,22 @@ from .const import (
     CONF_CO2,
     CONF_NIGHT_START_HOUR,
     CONF_NIGHT_START_TIME,
+    CONF_NIGHT_END_TIME,
     CONF_SURFACE_TEMP,
     CONF_WINDOWS,
     DATA_COORDINATORS,
     DECISION_MEMORY_TTL,
     DEFAULT_NIGHT_START_HOUR,
+    DEFAULT_NIGHT_END_TIME,
     DOMAIN,
     MOLD_SAMPLE_INTERVAL,
     STORAGE_VERSION,
 )
-from .notifications import async_handle_room_notification, clear_room_notification_state
+from .notifications import (
+    async_handle_room_notification,
+    clear_assistant_notification_state,
+    clear_room_notification_state,
+)
 from .outside import async_get_or_create_outside_coordinator, get_outside_coordinator
 from .runtime import RoomSnapshot, build_room_snapshot, room_source_entities
 
@@ -47,19 +53,36 @@ def _parse_dt(value: Any) -> datetime | None:
     return parsed
 
 
-def _night_clock(subentry: ConfigSubentry) -> tuple[int, int]:
-    raw = subentry.data.get(CONF_NIGHT_START_TIME)
-    if isinstance(raw, str):
-        parts = raw.split(":")
+def _clock_from_value(value: Any, fallback: str) -> tuple[int, int]:
+    if isinstance(value, str):
+        parts = value.split(":")
         try:
             return max(0, min(23, int(parts[0]))), max(0, min(59, int(parts[1])))
         except (ValueError, IndexError):
             pass
     try:
+        hour, minute = str(fallback).split(":", 1)
+        return max(0, min(23, int(hour))), max(0, min(59, int(minute)))
+    except (TypeError, ValueError):
+        return 0, 0
+
+
+def _night_clock(subentry: ConfigSubentry) -> tuple[int, int]:
+    raw = subentry.data.get(CONF_NIGHT_START_TIME)
+    if raw is not None:
+        return _clock_from_value(raw, f"{DEFAULT_NIGHT_START_HOUR:02d}:00")
+    try:
         hour = int(subentry.data.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR))
     except (TypeError, ValueError):
         hour = DEFAULT_NIGHT_START_HOUR
     return max(0, min(23, hour)), 0
+
+
+def _night_end_clock(subentry: ConfigSubentry) -> tuple[int, int]:
+    return _clock_from_value(
+        subentry.data.get(CONF_NIGHT_END_TIME),
+        DEFAULT_NIGHT_END_TIME,
+    )
 
 
 class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
@@ -199,6 +222,16 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 second=0,
             )
         )
+        night_end_hour, night_end_minute = _night_end_clock(self.subentry)
+        self._unsubs.append(
+            async_track_time_change(
+                self.hass,
+                self._handle_night_end,
+                hour=night_end_hour,
+                minute=night_end_minute,
+                second=0,
+            )
+        )
 
     def _publish_snapshot(self, snapshot: RoomSnapshot) -> None:
         self._remember_snapshot(snapshot)
@@ -219,6 +252,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             outside.async_request_refresh(),
             f"Lüftungsberater night forecast {self.subentry.subentry_id}",
         )
+
+    @callback
+    def _handle_night_end(self, _now: datetime) -> None:
+        """Re-evaluate exactly when this room's night display window ends."""
+        self._handle_tracker_change()
 
     @callback
     def _handle_source_change(self, _event: Event) -> None:
@@ -272,3 +310,4 @@ async def async_stop_entry_coordinators(hass: HomeAssistant, entry: ConfigEntry)
         coordinator = store.pop(key, None)
         if coordinator is not None:
             await coordinator.async_shutdown()
+    clear_assistant_notification_state(hass, entry.entry_id)

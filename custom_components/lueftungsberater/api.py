@@ -25,12 +25,18 @@ from .const import (
     SUBENTRY_TYPE_ROOM,
     entry_kind,
 )
-from .localization import localized_bundle
+from .localization import (
+    duration_text,
+    night_advice_text,
+    reason_text,
+    recommendation_text,
+)
 from .remote import _ip_is_tailscale, get_remote_coordinator
 
 REMOTE_ATTRIBUTE_KEYS = {
     "room_name",
     "status",
+    "display_mode",
     "recommendation",
     "recommendation_key",
     "mode",
@@ -45,7 +51,6 @@ REMOTE_ATTRIBUTE_KEYS = {
     "temperature_inside",
     "temperature_outside",
     "target_temperature",
-    "temperature_unit_internal",
     "temperature_display_unit",
     "humidity_inside",
     "humidity_outside",
@@ -68,11 +73,9 @@ REMOTE_ATTRIBUTE_KEYS = {
     "night_ventilation_status",
     "night_ventilation_key",
     "night_ventilation_args",
-    "localized_texts",
     "warning_notice_kind",
     "warning_notice_text",
     "official_close_instruction",
-    "primary_need",
     "has_co2",
     "has_window_contacts",
     "window_open",
@@ -263,28 +266,6 @@ def _export_attributes(
     attrs = dict(attributes)
     attrs["temperature_display_unit"] = temperature_unit
 
-    recommendation_key = attrs.get("recommendation_key")
-    reason_key = attrs.get("reason_key")
-    duration_key = attrs.get("duration_key")
-    reason_args = attrs.get("reason_args")
-    if (
-        isinstance(recommendation_key, str)
-        and isinstance(reason_key, str)
-        and isinstance(duration_key, str)
-        and isinstance(reason_args, dict)
-    ):
-        attrs["localized_texts"] = localized_bundle(
-            recommendation_key,
-            reason_key,
-            reason_args,
-            duration_key,
-            temperature_unit,
-            attrs.get("night_ventilation_key"),
-            attrs.get("night_ventilation_args")
-            if isinstance(attrs.get("night_ventilation_args"), dict)
-            else {},
-        )
-
     if remote_export:
         # Remote cards are intentionally read-only and current-only. Export a
         # strict allow-list rather than leaking unrelated HA entity IDs, provider
@@ -437,6 +418,54 @@ def _remote_instances(hass: HomeAssistant) -> list[dict[str, Any]]:
 
 
 @websocket_api.websocket_command(
+    {
+        vol.Required("type"): "lueftungsberater/localize",
+        vol.Required("language"): str,
+        vol.Required("temperature_unit"): str,
+        vol.Required("recommendation_key"): str,
+        vol.Required("reason_key"): str,
+        vol.Optional("reason_args", default={}): dict,
+        vol.Required("duration_key"): str,
+        vol.Optional("night_ventilation_key"): vol.Any(str, None),
+        vol.Optional("night_ventilation_args", default={}): dict,
+    }
+)
+@callback
+def websocket_localize(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Render one semantic card-text bundle in the requesting UI language."""
+    language = str(msg["language"] or "en")
+    temperature_unit = str(msg["temperature_unit"] or hass.config.units.temperature_unit)
+    recommendation_key = str(msg["recommendation_key"])
+    reason_key = str(msg["reason_key"])
+    duration_key = str(msg["duration_key"])
+    reason_args = msg.get("reason_args") if isinstance(msg.get("reason_args"), dict) else {}
+    night_key = msg.get("night_ventilation_key")
+    night_args = (
+        msg.get("night_ventilation_args")
+        if isinstance(msg.get("night_ventilation_args"), dict)
+        else {}
+    )
+    connection.send_result(
+        msg["id"],
+        {
+            "recommendation": recommendation_text(recommendation_key, language),
+            "reason": reason_text(reason_key, reason_args, language, temperature_unit),
+            "duration": duration_text(duration_key, language),
+            "night": night_advice_text(
+                str(night_key) if isinstance(night_key, str) else None,
+                night_args,
+                language,
+                temperature_unit,
+            ),
+        },
+    )
+
+
+@websocket_api.websocket_command(
     {vol.Required("type"): "lueftungsberater/remote_overview"}
 )
 @callback
@@ -457,4 +486,5 @@ def async_register_api(hass: HomeAssistant) -> None:
         return
     domain_data[DATA_API_REGISTERED] = True
     hass.http.register_view(LueftungsberaterSnapshotView())
+    websocket_api.async_register_command(hass, websocket_localize)
     websocket_api.async_register_command(hass, websocket_remote_overview)

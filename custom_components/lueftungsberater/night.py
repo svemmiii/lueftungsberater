@@ -48,7 +48,7 @@ def _display_interval(
         end = day.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
         if end_minute <= start_minute:
             end += timedelta(days=1)
-        if start <= now <= end:
+        if start <= now < end:
             return start, end
     return None
 
