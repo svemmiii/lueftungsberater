@@ -190,7 +190,8 @@
             "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
             "night_advice_start_time": "🌙 Show night advice from",
             "night_advice_end_time": "🌙 Show night advice until",
-            "remote_share": "Allow this room to be queried remotely"
+            "remote_share": "Allow this room to be queried remotely",
+            "room_notify_triggers": "Notify for this room"
           },
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
@@ -244,6 +245,13 @@
               "data": {
                 "remote_share": "Allow this room to be queried remotely"
               }
+            },
+            "room_notifications": {
+              "name": "🔔 Room notifications",
+              "description": "Optional. These notifications apply only to this room. Enable them per room when you deliberately want separate ventilation messages.",
+              "data": {
+                "room_notify_triggers": "Notify for this room"
+              }
             }
           }
         },
@@ -260,7 +268,8 @@
             "surface_temperature": "Cold / critical surface temperature for moisture protection (optional)",
             "night_advice_start_time": "🌙 Show night advice from",
             "night_advice_end_time": "🌙 Show night advice until",
-            "remote_share": "Allow this room to be queried remotely"
+            "remote_share": "Allow this room to be queried remotely",
+            "room_notify_triggers": "Notify for this room"
           },
           "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated.",
           "data_description": {
@@ -314,6 +323,13 @@
               "description": "Optional. Only shared rooms can be selected and queried by a connected instance.",
               "data": {
                 "remote_share": "Allow this room to be queried remotely"
+              }
+            },
+            "room_notifications": {
+              "name": "🔔 Room notifications",
+              "description": "Optional. These notifications apply only to this room. Enable them per room when you deliberately want separate ventilation messages.",
+              "data": {
+                "room_notify_triggers": "Notify for this room"
               }
             }
           }
@@ -403,6 +419,12 @@
       "options": {
         "ventilation": "Ventilation light · 🟢 = ventilate · 🔴 = keep closed",
         "room_air": "Room-air status · 🟢 = good · 🔴 = ventilation needed"
+      }
+    },
+    "room_notify_triggers": {
+      "options": {
+        "airing_recommended": "Opening the windows is useful again",
+        "airing_finished": "Airing can be finished"
       }
     }
   }

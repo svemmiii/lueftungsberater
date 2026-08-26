@@ -34,6 +34,7 @@ from .const import (
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
 from .engine import co2_status
+from .history import get_room_history
 from .localization import (
     duration_text,
     night_advice_text,
@@ -358,6 +359,15 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         # Keep rarely used transient metadata out of the normal attribute list.
         # The custom card treats missing values as false/empty, so nothing visible
         # is lost while the state inspector stays significantly smaller.
+        history = get_room_history(self.hass, self.entry.entry_id, self.subentry.subentry_id)
+        if history is not None:
+            stats = history.stats
+            attrs["history_size_mb"] = round(stats["history_bytes"] / (1024 * 1024), 2)
+            attrs["history_limit_mb"] = round(stats["history_limit_bytes"] / (1024 * 1024), 0)
+            attrs["history_samples"] = stats["history_samples"]
+            if stats["history_oldest"]:
+                attrs["history_oldest"] = stats["history_oldest"]
+
         if remote_active:
             attrs["remote_access_active"] = True
             attrs["remote_access_count"] = len(remote_clients)
@@ -375,6 +385,8 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
 class RoomAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity):
     """Absolute indoor humidity."""
+
+    _unrecorded_attributes = frozenset({"outside", "difference"})
 
     _attr_icon = "mdi:water-percent"
     _attr_native_unit_of_measurement = "g/m³"
@@ -440,6 +452,8 @@ class RoomAbsoluteHumidityDifferenceSensor(LueftungsberaterRoomEntity, SensorEnt
 class RoomCo2StatusSensor(LueftungsberaterRoomEntity, SensorEntity):
     """Human-readable CO2 assessment for a configured CO2 sensor."""
 
+    _unrecorded_attributes = frozenset({"ppm", "data_status"})
+
     _attr_icon = "mdi:molecule-co2"
     _attr_translation_key = "co2_status"
 
@@ -464,6 +478,8 @@ class RoomCo2StatusSensor(LueftungsberaterRoomEntity, SensorEntity):
 
 class RoomAiringStatusSensor(LueftungsberaterRoomEntity, SensorEntity):
     """Current airing/window state."""
+
+    _unrecorded_attributes = frozenset({MATCH_ALL})
 
     _attr_translation_key = "airing_status"
 
@@ -556,4 +572,7 @@ class RoomHoursSinceAiringSensor(LueftungsberaterRoomEntity, SensorEntity):
         tracker = get_tracker(self.hass, self.entry, self.subentry)
         if tracker is None or tracker.hours_since_last_airing is None:
             return None
-        return round(tracker.hours_since_last_airing, 2)
+        # The UI already displays one decimal place. Recording hundredths of an
+        # hour would create a new Recorder state roughly every 36 seconds without
+        # adding useful historical precision.
+        return round(tracker.hours_since_last_airing, 1)

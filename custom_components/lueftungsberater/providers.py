@@ -199,6 +199,7 @@ class WarningAssessment:
     official_close_instruction: bool = False
     source_entities: set[str] = field(default_factory=set)
     provider_domain: str | None = None
+    warning_ids: set[str] = field(default_factory=set)
 
 
 def _float(value: Any) -> float | None:
@@ -1029,6 +1030,13 @@ def _evaluate_nina_like_entities(
         if not entity_id.startswith("binary_sensor.") or state.state != "on":
             continue
 
+        warning_id = state.attributes.get("id") or state.attributes.get("identifier")
+        if warning_id:
+            result.warning_ids.add(str(warning_id))
+        else:
+            # Stable fallback for providers without an explicit warning id.
+            result.warning_ids.add(entity_id)
+
         registry_entry = registry.async_get(entity_id) if registry is not None else None
         slot_id = registry_entry.unique_id if registry_entry else None
         detail = slot_details.get(slot_id, {}) if isinstance(slot_id, str) else {}
@@ -1119,6 +1127,13 @@ def _evaluate_dwd_warning_entities(
         sensor_level = _state_float(state) or 0.0
 
         for index in range(1, count + 1):
+            warning_id = (
+                state.attributes.get(f"warning_{index}_identifier")
+                or state.attributes.get(f"warning_{index}_id")
+                or state.attributes.get(f"warning_{index}_event_id")
+                or state.attributes.get(f"warning_{index}_sent")
+            )
+            result.warning_ids.add(str(warning_id) if warning_id else f"{entity_id}:{index}")
             name = str(
                 state.attributes.get(f"warning_{index}_name", "")
                 or ""
@@ -1225,4 +1240,5 @@ def warning_assessment(
     result.warning_notice_kind = assessed.warning_notice_kind
     result.warning_notice_text = assessed.warning_notice_text
     result.official_close_instruction = assessed.official_close_instruction
+    result.warning_ids = set(assessed.warning_ids)
     return result

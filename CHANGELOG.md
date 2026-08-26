@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.7.2
+
+### Benachrichtigungen
+- Benachrichtigungen sind jetzt sauber in **Assistenten-Ereignisse** und **Raum-Ereignisse** getrennt. Amtliche Warnungen, Wetter-/Außenluftgefahren, optionale Warnungen bei bereits geschlossenen Fenstern und Entwarnungen werden einmal pro Assistent verarbeitet.
+- **„Lüften jetzt sinnvoll“** und **„Lüftung beendet“** werden pro Raum konfiguriert. Beim Upgrade werden diese Raum-Meldungen bewusst nicht automatisch für alle Räume aktiviert.
+- Warn-Fingerprints verwenden stabile Warnungs-IDs und semantische Zustände statt veränderlicher Beschreibungstexte oder Rohmesswerte. Änderungen wie AQ 160 → 161 oder redaktionelle Textänderungen derselben Warnung erzwingen dadurch keine neue Nachricht.
+- Eine neue Warnungs-ID bzw. eine echte neue Warnlage kann weiterhin neu benachrichtigen. Werden während derselben Gefahr alle Fenster geschlossen und später erneut geöffnet, darf erneut gewarnt werden.
+
+### Verlauf / Recorder
+- Neue, integrationseigene **rollierende Raumhistorie**: maximal **30 Tage und 40 MiB pro Raum**. Neue Daten werden immer angenommen; bei Überschreitung werden ausschließlich die ältesten entbehrlichen Verlaufssamples bis ca. 38 MiB zurückgeschnitten.
+- Konfiguration, aktuelle Zustände, Hysterese-/Warnspeicher, letzte bestätigte Lüftung und andere betriebsnotwendige Daten liegen außerhalb dieses Budgets und werden niemals durch das 40-MiB-Limit gelöscht.
+- Die Verlaufssamples sind sprachneutral und speichern Mess-/Statusdaten statt gerenderter Texte oder Entity-Quellnamen.
+- Zusätzliche HA-Recorder-Entlastung: häufig wechselnde Hilfsattribute werden als `unrecorded` markiert; der Stunden-seit-Lüftung-Sensor wird nur noch mit der ohnehin dargestellten Zehntelstunden-Auflösung aufgezeichnet.
+- Die Hauptkarte zeigt Diagnosewerte für Größe, Limit, Sample-Anzahl und ältesten Verlaufspunkt der eigenen Raumhistorie.
+
+### Räume / Remote
+- Remote-Entries bleiben backendseitig strikt read-only; ein direkter Subentry-Flow gegen einen Remote-Hub wird weiterhin abgewiesen.
+- **Bekannte Home-Assistant-Frontend-Einschränkung:** Der globale HA-Dialog „Raum hinzufügen“ listet derzeit alle ConfigEntries derselben Integration und filtert den einzelnen Parent nicht nach seinen `supported_subentry_types`. Dadurch kann ein Remote-/Tailscale-Eintrag dort weiterhin sichtbar sein, obwohl Home Assistant/Core und Lüftungsassistent das tatsächliche Hinzufügen anschließend ablehnen. Das lässt sich nicht sauber aus einer HACS-Custom-Integration heraus aus dem nativen Picker entfernen.
+
+### Tests / Release
+- Regressionstests für stabile Warn-Fingerprints, getrennte Assistent-/Raum-Benachrichtigungsoptionen und den kompakten Historien-Snapshot ergänzt.
+
 ## v0.7.1
 
 ### Bugfixes
@@ -50,7 +72,7 @@
 - CO₂-, Feuchte- und Oberflächen-Hysteresen bleiben erhalten.
 
 ### Tailscale / Remote
-- Remote-/Tailscale-Einträge werden konsequent aus **„Raum hinzufügen“** ausgeschlossen; auch ältere Remote-Einträge mit gecachten Subentry-Fähigkeiten werden beim Setup/Migrationslauf read-only festgeschrieben.
+- Remote-/Tailscale-Einträge werden backendseitig konsequent read-only gehalten und direkte Raum-Subentry-Flows gegen Remote-Hubs abgewiesen. Der globale Home-Assistant-Parent-Picker kann Remote-Einträge aufgrund seiner eigenen Frontend-Filterlogik trotzdem anzeigen.
 - Die Quellinstallation kann jetzt pro Raum festlegen, ob dieser für Remote-Abfragen freigegeben ist. Bestehende v0.6-Räume bleiben beim Upgrade freigegeben, neue v0.7-Räume sind standardmäßig nicht automatisch freigegeben.
 - Beim Einrichten oder Rekonfigurieren einer Remote-Verbindung werden nur freigegebene Räume angeboten. Die empfangende Instanz wählt ausdrücklich aus, welche Assistenten/Räume angezeigt werden sollen.
 - Später neu angelegte Räume werden **nicht automatisch** übernommen; sie erscheinen lediglich als neue Auswahl.

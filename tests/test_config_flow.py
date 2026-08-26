@@ -430,3 +430,24 @@ def test_v071_config_flow_minor_version_republishes_remote_capabilities() -> Non
     from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
 
     assert LueftungsberaterConfigFlow.MINOR_VERSION == 7
+
+
+def test_v072_notification_choices_are_split_between_assistant_and_room():
+    """Global hazards belong to the assistant; ventilation transitions to rooms."""
+    from custom_components.lueftungsberater.config_flow import (
+        NOTIFY_TRIGGER_OPTIONS,
+        ROOM_NOTIFY_TRIGGER_OPTIONS,
+    )
+    from custom_components.lueftungsberater.const import (
+        NOTIFY_TRIGGER_AIR_DANGER,
+        NOTIFY_TRIGGER_AIRING_FINISHED,
+        NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+    )
+
+    assert NOTIFY_TRIGGER_AIR_DANGER in NOTIFY_TRIGGER_OPTIONS
+    assert NOTIFY_TRIGGER_AIRING_RECOMMENDED not in NOTIFY_TRIGGER_OPTIONS
+    assert NOTIFY_TRIGGER_AIRING_FINISHED not in NOTIFY_TRIGGER_OPTIONS
+    assert ROOM_NOTIFY_TRIGGER_OPTIONS == [
+        NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+        NOTIFY_TRIGGER_AIRING_FINISHED,
+    ]

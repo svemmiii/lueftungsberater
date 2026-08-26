@@ -36,7 +36,13 @@ Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Rau
 - Plausibilitätsgeprüfte Außenluftqualität über passende Ozon-, PM2.5-, PM10-, NO₂- und SO₂-Sensoren des Wetter-Providers, ergänzt um lokalen Verlauf und Trend
 - Optionaler eigener Außen-CO₂-Sensor für die lokale Lüftungsbewertung
 - Optionale, forecastbasierte Nachtlüftungsstrategie mit einstellbarer Anzeigezeit
-- Frei konfigurierbare Benachrichtigungen für Lüftungsstatus und Gefahren über eine normale Home-Assistant-`notify`-Entity
+- Assistentenweite Warn-/Entwarnungsbenachrichtigungen plus bewusst pro Raum aktivierbare Lüftungsstatus-Meldungen über eine normale Home-Assistant-`notify`-Entity
+- Rollierende, sprachneutrale Raumhistorie mit maximal 30 Tagen / 40 MiB pro Raum; neue Daten haben immer Vorrang vor den ältesten Verlaufspunkten
+
+
+## Bekannte Home-Assistant-Einschränkung bei „Raum hinzufügen“
+
+Remote-/Tailscale-Verbindungen unterstützen keine lokalen Räume und werden vom Backend strikt abgewiesen. Der globale Home-Assistant-Dialog zum Hinzufügen eines Subentries listet derzeit jedoch alle ConfigEntries derselben Integration als mögliche Eltern auf, ohne die unterstützten Subentry-Typen jedes einzelnen Entries zu filtern. Deshalb kann ein Remote-Hub dort sichtbar bleiben; ein tatsächlicher Raum kann ihm nicht hinzugefügt werden.
 
 ## Voraussetzungen
 

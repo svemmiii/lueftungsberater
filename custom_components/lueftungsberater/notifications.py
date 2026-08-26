@@ -11,9 +11,11 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_TRIGGERS,
+    CONF_ROOM_NOTIFY_TRIGGERS,
     DATA_NOTIFICATION_STATE,
     DATA_NOTIFICATION_LOCKS,
     DEFAULT_NOTIFY_TRIGGERS,
+    DEFAULT_ROOM_NOTIFY_TRIGGERS,
     DOMAIN,
     NOTIFY_TRIGGER_AIRING_FINISHED,
     NOTIFY_TRIGGER_AIRING_RECOMMENDED,
@@ -146,21 +148,28 @@ def _assistant_warning_fingerprint(
     snapshot: RoomSnapshot,
     trigger: str | None,
 ) -> tuple[Any, ...]:
-    """Build one warning identity shared by every room of an assistant."""
+    """Build a stable warning identity shared by every room of an assistant.
+
+    Raw sensor values and mutable human-readable warning text are intentionally
+    excluded. The same warning must not notify again merely because an AQ value
+    moves from 160 to 161 or an authority edits its description.
+    """
     warnings = snapshot.warnings
     weather = snapshot.weather
+    warning_ids = tuple(sorted(str(item) for item in warnings.warning_ids))
+    if trigger in {NOTIFY_TRIGGER_AIR_DANGER, NOTIFY_TRIGGER_AIR_CAUTION}:
+        air_identity = (weather.air_quality_index, weather.air_quality_pollutant)
+    else:
+        air_identity = (None, None)
     return (
         trigger,
         warnings.provider_domain,
+        warning_ids,
         warnings.nina_status,
         warnings.nina_reason_key,
-        warnings.nina_original_reason or "",
         warnings.weather_reason_key,
-        warnings.weather_original_reason or "",
         bool(warnings.official_close_instruction),
-        weather.air_quality_index,
-        weather.air_quality_pollutant,
-        weather.air_quality_value,
+        air_identity,
     )
 
 
@@ -341,7 +350,14 @@ async def async_handle_room_notification(
         hass, entry, subentry, snapshot, enabled
     )
 
-    # Ordinary ventilation transitions remain room-specific by design.
+    room_configured = subentry.data.get(
+        CONF_ROOM_NOTIFY_TRIGGERS, DEFAULT_ROOM_NOTIFY_TRIGGERS
+    )
+    if isinstance(room_configured, str):
+        room_configured = [room_configured]
+    room_enabled = {str(item) for item in (room_configured or [])}
+
+    # Ordinary ventilation transitions are explicitly opt-in per room.
     result = snapshot.result
     mode = result.mode if result is not None else None
     recommendation_key = result.recommendation_key if result is not None else None
@@ -358,7 +374,7 @@ async def async_handle_room_notification(
             mode,
             recommendation_key,
         )
-        if transition_trigger is not None and transition_trigger in enabled:
+        if transition_trigger is not None and transition_trigger in room_enabled:
             if not await _async_send(hass, entry, subentry, transition_trigger):
                 return
 

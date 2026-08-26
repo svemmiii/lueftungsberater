@@ -190,7 +190,8 @@
             "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
             "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
-            "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
+            "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
+            "room_notify_triggers": "Benachrichtigen für diesen Raum"
           },
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
@@ -244,6 +245,13 @@
               "data": {
                 "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
               }
+            },
+            "room_notifications": {
+              "name": "🔔 Raum-Benachrichtigungen",
+              "description": "Optional. Diese Meldungen gelten nur für diesen Raum. Aktiviere sie bewusst pro Raum, wenn du mehrere getrennte Lüftungshinweise möchtest.",
+              "data": {
+                "room_notify_triggers": "Benachrichtigen für diesen Raum"
+              }
             }
           }
         },
@@ -260,7 +268,8 @@
             "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
             "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
-            "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
+            "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
+            "room_notify_triggers": "Benachrichtigen für diesen Raum"
           },
           "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeit legt nur fest, ab wann ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data_description": {
@@ -314,6 +323,13 @@
               "description": "Optional. Nur freigegebene Räume können von einer verbundenen Instanz ausgewählt und abgefragt werden.",
               "data": {
                 "remote_share": "Diesen Raum für Remote-Abfragen freigeben"
+              }
+            },
+            "room_notifications": {
+              "name": "🔔 Raum-Benachrichtigungen",
+              "description": "Optional. Diese Meldungen gelten nur für diesen Raum. Aktiviere sie bewusst pro Raum, wenn du mehrere getrennte Lüftungshinweise möchtest.",
+              "data": {
+                "room_notify_triggers": "Benachrichtigen für diesen Raum"
               }
             }
           }
@@ -403,6 +419,12 @@
       "options": {
         "ventilation": "Lüftungsampel · 🟢 = lüften · 🔴 = geschlossen",
         "room_air": "Raumluftstatus · 🟢 = gut · 🔴 = lüften nötig"
+      }
+    },
+    "room_notify_triggers": {
+      "options": {
+        "airing_recommended": "Lüften ist wieder sinnvoll",
+        "airing_finished": "Lüften kann beendet werden"
       }
     }
   }

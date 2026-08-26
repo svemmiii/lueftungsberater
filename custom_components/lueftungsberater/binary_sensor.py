@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.const import MATCH_ALL
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
@@ -47,6 +48,8 @@ async def async_setup_entry(
 
 class RoomDangerBinarySensor(LueftungsberaterRoomEntity, BinarySensorEntity):
     """Critical ventilation danger for one room."""
+
+    _unrecorded_attributes = frozenset({MATCH_ALL})
 
     _attr_device_class = BinarySensorDeviceClass.SAFETY
     _attr_translation_key = "critical_danger"

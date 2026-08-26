@@ -88,6 +88,7 @@ def test_assistant_warning_fingerprint_is_room_independent():
         weather_reason_key=None,
         weather_original_reason=None,
         official_close_instruction=True,
+        warning_ids={"warning-123"},
     )
     weather = SimpleNamespace(
         air_quality_index="unknown",
@@ -107,4 +108,63 @@ def test_assistant_warning_fingerprint_is_room_independent():
 
     assert _assistant_warning_fingerprint(room_a, NOTIFY_TRIGGER_AIR_DANGER) == (
         _assistant_warning_fingerprint(room_b, NOTIFY_TRIGGER_AIR_DANGER)
+    )
+
+
+def test_warning_fingerprint_ignores_mutable_text_and_raw_air_value():
+    from types import SimpleNamespace
+
+    def snapshot(text: str, value: float):
+        return SimpleNamespace(
+            warnings=SimpleNamespace(
+                provider_domain="nina",
+                warning_ids={"warning-123"},
+                nina_status="danger",
+                nina_reason_key="official_close_instruction",
+                nina_original_reason=text,
+                weather_reason_key=None,
+                weather_original_reason=None,
+                official_close_instruction=True,
+            ),
+            weather=SimpleNamespace(
+                air_quality_index="very_poor",
+                air_quality_pollutant="pm25",
+                air_quality_value=value,
+            ),
+        )
+
+    assert _assistant_warning_fingerprint(
+        snapshot("Fenster schließen", 160.0), NOTIFY_TRIGGER_AIR_DANGER
+    ) == _assistant_warning_fingerprint(
+        snapshot("Fenster und Türen geschlossen halten", 161.0),
+        NOTIFY_TRIGGER_AIR_DANGER,
+    )
+
+
+def test_warning_fingerprint_changes_for_new_warning_id():
+    from types import SimpleNamespace
+
+    def snapshot(warning_id: str):
+        return SimpleNamespace(
+            warnings=SimpleNamespace(
+                provider_domain="nina",
+                warning_ids={warning_id},
+                nina_status="danger",
+                nina_reason_key="official_close_instruction",
+                nina_original_reason="same text",
+                weather_reason_key=None,
+                weather_original_reason=None,
+                official_close_instruction=True,
+            ),
+            weather=SimpleNamespace(
+                air_quality_index="unknown",
+                air_quality_pollutant=None,
+                air_quality_value=None,
+            ),
+        )
+
+    assert _assistant_warning_fingerprint(
+        snapshot("warning-1"), NOTIFY_TRIGGER_AIR_DANGER
+    ) != _assistant_warning_fingerprint(
+        snapshot("warning-2"), NOTIFY_TRIGGER_AIR_DANGER
     )

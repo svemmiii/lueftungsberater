@@ -190,7 +190,8 @@
             "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
             "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
             "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
-            "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
+            "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver",
+            "room_notify_triggers": "Bu oda için bildir"
           },
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
@@ -244,6 +245,13 @@
               "data": {
                 "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
               }
+            },
+            "room_notifications": {
+              "name": "🔔 Oda bildirimleri",
+              "description": "İsteğe bağlı. Bu bildirimler yalnızca bu oda için geçerlidir. Ayrı havalandırma mesajları istiyorsanız oda bazında etkinleştirin.",
+              "data": {
+                "room_notify_triggers": "Bu oda için bildir"
+              }
             }
           }
         },
@@ -260,7 +268,8 @@
             "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
             "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
             "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
-            "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
+            "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver",
+            "room_notify_triggers": "Bu oda için bildir"
           },
           "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Saat yalnızca anlamlı bir gece önerisinin ne zamandan itibaren gösterilebileceğini belirler. Eksik isteğe bağlı sensörler için değer tahmin edilmez.",
           "data_description": {
@@ -314,6 +323,13 @@
               "description": "İsteğe bağlı. Yalnızca paylaşılan odalar bağlı bir örnek tarafından seçilip sorgulanabilir.",
               "data": {
                 "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver"
+              }
+            },
+            "room_notifications": {
+              "name": "🔔 Oda bildirimleri",
+              "description": "İsteğe bağlı. Bu bildirimler yalnızca bu oda için geçerlidir. Ayrı havalandırma mesajları istiyorsanız oda bazında etkinleştirin.",
+              "data": {
+                "room_notify_triggers": "Bu oda için bildir"
               }
             }
           }
@@ -403,6 +419,12 @@
       "options": {
         "ventilation": "Havalandırma göstergesi · 🟢 = havalandır · 🔴 = kapalı tut",
         "room_air": "Oda havası durumu · 🟢 = iyi · 🔴 = havalandırma gerekli"
+      }
+    },
+    "room_notify_triggers": {
+      "options": {
+        "airing_recommended": "Havalandırmak yeniden uygun",
+        "airing_finished": "Havalandırma bitirilebilir"
       }
     }
   }

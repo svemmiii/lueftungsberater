@@ -38,6 +38,7 @@ from .notifications import (
 )
 from .outside import async_get_or_create_outside_coordinator, get_outside_coordinator
 from .runtime import RoomSnapshot, build_room_snapshot, room_source_entities
+from .history import async_get_or_create_room_history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_mode: str | None = None
         self._previous_need: str | None = None
         self._previous_mode_at: datetime | None = None
+        self._history = None
         self._memory_store: Store[dict[str, Any]] = Store(
             hass,
             STORAGE_VERSION,
@@ -166,6 +168,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
     async def _async_update_data(self) -> RoomSnapshot:
         snapshot = self._build_snapshot()
         self._remember_snapshot(snapshot)
+        if self._history is not None:
+            self._history.observe(snapshot)
         await async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot)
         return snapshot
 
@@ -174,6 +178,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             return
         self._started = True
         await self._restore_memory()
+        self._history = await async_get_or_create_room_history(self.hass, self.entry, self.subentry)
         outside = await async_get_or_create_outside_coordinator(self.hass, self.entry)
         await self.async_config_entry_first_refresh()
 
@@ -235,6 +240,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
 
     def _publish_snapshot(self, snapshot: RoomSnapshot) -> None:
         self._remember_snapshot(snapshot)
+        if self._history is not None:
+            self._history.observe(snapshot)
         self.async_set_updated_data(snapshot)
         self.hass.async_create_task(
             async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),

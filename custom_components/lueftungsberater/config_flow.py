@@ -45,6 +45,7 @@ from .const import (
     CONF_MANUAL_OUTDOOR,
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_TRIGGERS,
+    CONF_ROOM_NOTIFY_TRIGGERS,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_CO2,
     CONF_OUTDOOR_TEMP,
@@ -70,6 +71,7 @@ from .const import (
     DEFAULT_NIGHT_START_TIME,
     DEFAULT_NIGHT_END_TIME,
     DEFAULT_NOTIFY_TRIGGERS,
+    DEFAULT_ROOM_NOTIFY_TRIGGERS,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
     DISPLAY_MODE_ROOM_AIR,
@@ -102,10 +104,9 @@ SECTION_ROOM_NIGHT = "room_night"
 SECTION_ROOM_SENSORS = "room_sensors"
 SECTION_ROOM_OPENINGS = "room_openings"
 SECTION_ROOM_REMOTE = "room_remote"
+SECTION_ROOM_NOTIFICATIONS = "room_notifications"
 
 NOTIFY_TRIGGER_OPTIONS = [
-    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
-    NOTIFY_TRIGGER_AIRING_FINISHED,
     NOTIFY_TRIGGER_AIR_DANGER,
     NOTIFY_TRIGGER_AIR_CAUTION,
     NOTIFY_TRIGGER_WEATHER_DANGER,
@@ -113,6 +114,11 @@ NOTIFY_TRIGGER_OPTIONS = [
     NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED,
     NOTIFY_TRIGGER_ALL_CLEAR,
 ]
+ROOM_NOTIFY_TRIGGER_OPTIONS = [
+    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+    NOTIFY_TRIGGER_AIRING_FINISHED,
+]
+
 
 
 from .remote import (
@@ -453,6 +459,24 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
                 ),
                 SectionConfig(collapsed=True),
             ),
+            vol.Optional(SECTION_ROOM_NOTIFICATIONS): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_ROOM_NOTIFY_TRIGGERS,
+                            default=DEFAULT_ROOM_NOTIFY_TRIGGERS,
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=ROOM_NOTIFY_TRIGGER_OPTIONS,
+                                multiple=True,
+                                mode=SelectSelectorMode.DROPDOWN,
+                                translation_key="room_notify_triggers",
+                            )
+                        ),
+                    }
+                ),
+                SectionConfig(collapsed=True),
+            ),
             vol.Optional(SECTION_ROOM_REMOTE): section(
                 vol.Schema(
                     {
@@ -494,6 +518,7 @@ def _flatten_room_input(user_input: dict[str, Any]) -> dict[str, Any]:
         SECTION_ROOM_SENSORS,
         SECTION_ROOM_OPENINGS,
         SECTION_ROOM_REMOTE,
+        SECTION_ROOM_NOTIFICATIONS,
     ):
         values = user_input.get(section_key)
         if isinstance(values, dict):
@@ -561,6 +586,11 @@ def _room_form_defaults(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, 
     # to not shared until the user enables it.
     form[SECTION_ROOM_REMOTE] = {
         CONF_REMOTE_ROOM_SHARE: bool(flat.get(CONF_REMOTE_ROOM_SHARE, True))
+    }
+    form[SECTION_ROOM_NOTIFICATIONS] = {
+        CONF_ROOM_NOTIFY_TRIGGERS: flat.get(
+            CONF_ROOM_NOTIFY_TRIGGERS, DEFAULT_ROOM_NOTIFY_TRIGGERS
+        )
     }
     openings = flat.get(CONF_WINDOWS)
     if openings:
@@ -696,7 +726,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 7
+    MINOR_VERSION = 8
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(

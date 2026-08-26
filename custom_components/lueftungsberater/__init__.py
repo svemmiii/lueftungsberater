@@ -14,6 +14,7 @@ from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air
 from .api import async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
+from .history import async_stop_entry_histories
 from .outside import async_get_or_create_outside_coordinator, async_stop_outside_coordinator
 from .coordinator import (
     async_get_or_create_room_coordinator,
@@ -27,10 +28,14 @@ from .const import (
     CONF_NIGHT_END_TIME,
     CONF_REMOTE_CLIENT_ID,
     CONF_REMOTE_ROOM_SHARE,
+    CONF_NOTIFY_TRIGGERS,
+    CONF_ROOM_NOTIFY_TRIGGERS,
     DEFAULT_NIGHT_START_HOUR,
     DEFAULT_NIGHT_END_TIME,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
+    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+    NOTIFY_TRIGGER_AIRING_FINISHED,
     LEGACY_NOTIFY_KEYS,
     PLATFORMS,
     SUBENTRY_TYPE_ROOM,
@@ -47,7 +52,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.7.1"
+FRONTEND_VERSION = "0.7.2"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -201,6 +206,32 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # as read-only instead of retaining a stale cached room capability.
         updates["minor_version"] = 7
 
+    if entry.version == 1 and entry.minor_version < 8:
+        # v0.7.2 separates assistant-wide warnings from opt-in room ventilation
+        # notifications. Do not silently enable room messages for every room.
+        cleaned_data = dict(updates.get("data", entry.data))
+        configured = cleaned_data.get(CONF_NOTIFY_TRIGGERS)
+        if isinstance(configured, str):
+            configured = [configured]
+        if isinstance(configured, (list, tuple, set)):
+            cleaned_data[CONF_NOTIFY_TRIGGERS] = [
+                item
+                for item in configured
+                if item not in {
+                    NOTIFY_TRIGGER_AIRING_RECOMMENDED,
+                    NOTIFY_TRIGGER_AIRING_FINISHED,
+                }
+            ]
+            updates["data"] = cleaned_data
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
+                continue
+            data = dict(subentry.data)
+            if CONF_ROOM_NOTIFY_TRIGGERS not in data:
+                data[CONF_ROOM_NOTIFY_TRIGGERS] = []
+                hass.config_entries.async_update_subentry(entry, subentry, data=data)
+        updates["minor_version"] = 8
+
     # Pin before async_update_entry: the update event serializes the ConfigEntry
     # for the frontend, so its supported_subentry_types must already be correct.
     _pin_subentry_capabilities(entry)
@@ -269,6 +300,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         await async_stop_entry_coordinators(hass, entry)
+        await async_stop_entry_histories(hass, entry)
         await async_stop_outside_coordinator(hass, entry)
         await async_stop_air_quality_tracker(hass, entry)
         await async_stop_entry_trackers(hass, entry)
