@@ -148,28 +148,59 @@ def _assistant_warning_fingerprint(
     snapshot: RoomSnapshot,
     trigger: str | None,
 ) -> tuple[Any, ...]:
-    """Build a stable warning identity shared by every room of an assistant.
+    """Build a stable, source-specific warning identity.
 
-    Raw sensor values and mutable human-readable warning text are intentionally
-    excluded. The same warning must not notify again merely because an AQ value
-    moves from 160 to 161 or an authority edits its description.
+    Only data belonging to the source that currently owns the engine mode is
+    included. This prevents an unrelated air-quality change from making an
+    unchanged NINA warning look new (and vice versa). Raw values and mutable
+    human-readable warning text remain intentionally excluded.
     """
     warnings = snapshot.warnings
     weather = snapshot.weather
-    warning_ids = tuple(sorted(str(item) for item in warnings.warning_ids))
-    if trigger in {NOTIFY_TRIGGER_AIR_DANGER, NOTIFY_TRIGGER_AIR_CAUTION}:
-        air_identity = (weather.air_quality_index, weather.air_quality_pollutant)
-    else:
-        air_identity = (None, None)
+    result = snapshot.result
+    mode = result.mode if result is not None else ""
+
+    if mode.startswith("nina_"):
+        return (
+            trigger,
+            "official_warning",
+            warnings.provider_domain,
+            tuple(sorted(str(item) for item in warnings.warning_ids)),
+            warnings.nina_status,
+            warnings.nina_reason_key,
+            bool(warnings.official_close_instruction),
+        )
+
+    if mode.startswith("luftqualitaet_"):
+        return (
+            trigger,
+            "air_quality",
+            weather.air_quality_index,
+            weather.air_quality_pollutant,
+        )
+
+    if mode in {"wettergefahr", "wetter_vorsicht"}:
+        return (
+            trigger,
+            "weather_warning",
+            warnings.provider_domain,
+            tuple(sorted(str(item) for item in warnings.warning_ids)),
+            warnings.weather_reason_key,
+            bool(warnings.official_close_instruction),
+        )
+
+    # Defensive fallback for a future warning mode: keep the identity semantic
+    # and stable, but never mix unrelated live air-quality data into it.
     return (
         trigger,
+        "warning",
+        mode,
         warnings.provider_domain,
-        warning_ids,
+        tuple(sorted(str(item) for item in warnings.warning_ids)),
         warnings.nina_status,
         warnings.nina_reason_key,
         warnings.weather_reason_key,
         bool(warnings.official_close_instruction),
-        air_identity,
     )
 
 

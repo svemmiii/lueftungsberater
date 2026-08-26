@@ -37,7 +37,7 @@ Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Rau
 - Optionaler eigener Außen-CO₂-Sensor für die lokale Lüftungsbewertung
 - Optionale, forecastbasierte Nachtlüftungsstrategie mit einstellbarer Anzeigezeit
 - Assistentenweite Warn-/Entwarnungsbenachrichtigungen plus bewusst pro Raum aktivierbare Lüftungsstatus-Meldungen über eine normale Home-Assistant-`notify`-Entity
-- Rollierende, sprachneutrale Raumhistorie mit maximal 30 Tagen / 40 MiB pro Raum; neue Daten haben immer Vorrang vor den ältesten Verlaufspunkten
+- Recorder-schonende Entity-Historie; Lüftungsassistent-Entities werden gezielt auf maximal 20 Tage Recorder-Verlauf begrenzt (die globale Recorder-Konfiguration kann weniger behalten)
 
 
 ## Bekannte Home-Assistant-Einschränkung bei „Raum hinzufügen“

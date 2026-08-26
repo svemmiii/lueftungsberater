@@ -429,8 +429,6 @@ def test_v071_config_flow_minor_version_republishes_remote_capabilities() -> Non
     """The v0.7.1 remote-capability migration must remain reachable."""
     from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
 
-    # Later releases may add further minor migrations. Requiring exactly 7
-    # would make this regression test fail every time MINOR_VERSION advances.
     assert LueftungsberaterConfigFlow.MINOR_VERSION >= 7
 
 

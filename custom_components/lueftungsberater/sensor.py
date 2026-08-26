@@ -34,7 +34,6 @@ from .const import (
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
 from .engine import co2_status
-from .history import get_room_history
 from .localization import (
     duration_text,
     night_advice_text,
@@ -359,15 +358,6 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         # Keep rarely used transient metadata out of the normal attribute list.
         # The custom card treats missing values as false/empty, so nothing visible
         # is lost while the state inspector stays significantly smaller.
-        history = get_room_history(self.hass, self.entry.entry_id, self.subentry.subentry_id)
-        if history is not None:
-            stats = history.stats
-            attrs["history_size_mb"] = round(stats["history_bytes"] / (1024 * 1024), 2)
-            attrs["history_limit_mb"] = round(stats["history_limit_bytes"] / (1024 * 1024), 0)
-            attrs["history_samples"] = stats["history_samples"]
-            if stats["history_oldest"]:
-                attrs["history_oldest"] = stats["history_oldest"]
-
         if remote_active:
             attrs["remote_access_active"] = True
             attrs["remote_access_count"] = len(remote_clients)

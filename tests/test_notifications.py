@@ -98,12 +98,12 @@ def test_assistant_warning_fingerprint_is_room_independent():
     room_a = SimpleNamespace(
         warnings=warnings,
         weather=weather,
-        result=SimpleNamespace(reason_key="room_a_reason"),
+        result=SimpleNamespace(mode="nina_aussenluftgefahr", reason_key="room_a_reason"),
     )
     room_b = SimpleNamespace(
         warnings=warnings,
         weather=weather,
-        result=SimpleNamespace(reason_key="room_b_reason"),
+        result=SimpleNamespace(mode="nina_aussenluftgefahr", reason_key="room_b_reason"),
     )
 
     assert _assistant_warning_fingerprint(room_a, NOTIFY_TRIGGER_AIR_DANGER) == (
@@ -131,6 +131,7 @@ def test_warning_fingerprint_ignores_mutable_text_and_raw_air_value():
                 air_quality_pollutant="pm25",
                 air_quality_value=value,
             ),
+            result=SimpleNamespace(mode="nina_aussenluftgefahr"),
         )
 
     assert _assistant_warning_fingerprint(
@@ -161,10 +162,119 @@ def test_warning_fingerprint_changes_for_new_warning_id():
                 air_quality_pollutant=None,
                 air_quality_value=None,
             ),
+            result=SimpleNamespace(mode="nina_aussenluftgefahr"),
         )
 
     assert _assistant_warning_fingerprint(
         snapshot("warning-1"), NOTIFY_TRIGGER_AIR_DANGER
     ) != _assistant_warning_fingerprint(
         snapshot("warning-2"), NOTIFY_TRIGGER_AIR_DANGER
+    )
+
+
+def test_nina_fingerprint_ignores_unrelated_air_quality_class_changes():
+    from types import SimpleNamespace
+
+    def snapshot(aq_index: str, pollutant: str | None):
+        return SimpleNamespace(
+            warnings=SimpleNamespace(
+                provider_domain="nina",
+                warning_ids={"warning-123"},
+                nina_status="danger",
+                nina_reason_key="official_close_instruction",
+                weather_reason_key=None,
+                official_close_instruction=True,
+            ),
+            weather=SimpleNamespace(
+                air_quality_index=aq_index,
+                air_quality_pollutant=pollutant,
+            ),
+            result=SimpleNamespace(mode="nina_aussenluftgefahr"),
+        )
+
+    assert _assistant_warning_fingerprint(
+        snapshot("good", "pm25"), NOTIFY_TRIGGER_AIR_DANGER
+    ) == _assistant_warning_fingerprint(
+        snapshot("moderate", "ozone"), NOTIFY_TRIGGER_AIR_DANGER
+    )
+
+
+def test_air_quality_fingerprint_ignores_unrelated_nina_changes():
+    from types import SimpleNamespace
+
+    def snapshot(warning_id: str, nina_status: str):
+        return SimpleNamespace(
+            warnings=SimpleNamespace(
+                provider_domain="nina",
+                warning_ids={warning_id},
+                nina_status=nina_status,
+                nina_reason_key="official_close_instruction",
+                weather_reason_key=None,
+                official_close_instruction=True,
+            ),
+            weather=SimpleNamespace(
+                air_quality_index="very_poor",
+                air_quality_pollutant="pm25",
+            ),
+            result=SimpleNamespace(mode="luftqualitaet_sehr_schlecht"),
+        )
+
+    assert _assistant_warning_fingerprint(
+        snapshot("warning-1", "danger"), NOTIFY_TRIGGER_AIR_DANGER
+    ) == _assistant_warning_fingerprint(
+        snapshot("warning-2", "none"), NOTIFY_TRIGGER_AIR_DANGER
+    )
+
+
+def test_air_quality_fingerprint_changes_when_semantic_air_class_changes():
+    from types import SimpleNamespace
+
+    def snapshot(index: str, pollutant: str):
+        return SimpleNamespace(
+            warnings=SimpleNamespace(
+                provider_domain=None,
+                warning_ids=set(),
+                nina_status="none",
+                nina_reason_key=None,
+                weather_reason_key=None,
+                official_close_instruction=False,
+            ),
+            weather=SimpleNamespace(
+                air_quality_index=index,
+                air_quality_pollutant=pollutant,
+            ),
+            result=SimpleNamespace(mode="luftqualitaet_sehr_schlecht"),
+        )
+
+    assert _assistant_warning_fingerprint(
+        snapshot("very_poor", "pm25"), NOTIFY_TRIGGER_AIR_DANGER
+    ) != _assistant_warning_fingerprint(
+        snapshot("poor", "pm25"), NOTIFY_TRIGGER_AIR_DANGER
+    )
+
+
+def test_weather_fingerprint_ignores_air_quality_and_nina_fields():
+    from types import SimpleNamespace
+
+    def snapshot(aq_index: str, nina_status: str):
+        return SimpleNamespace(
+            warnings=SimpleNamespace(
+                provider_domain="dwd_weather_warnings",
+                warning_ids={"dwd-123"},
+                nina_status=nina_status,
+                nina_reason_key="unrelated",
+                weather_reason_key="weather_wind_danger",
+                official_close_instruction=False,
+            ),
+            weather=SimpleNamespace(
+                air_quality_index=aq_index,
+                air_quality_pollutant="pm25",
+            ),
+            result=SimpleNamespace(mode="wettergefahr"),
+        )
+
+    assert _assistant_warning_fingerprint(
+        snapshot("good", "none"), NOTIFY_TRIGGER_WEATHER_DANGER
+    ) == _assistant_warning_fingerprint(
+        snapshot("very_poor", "danger"), NOTIFY_TRIGGER_WEATHER_DANGER
     )
