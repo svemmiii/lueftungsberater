@@ -325,11 +325,20 @@ def test_co2_optional():
     assert r.mode == "feuchte_lueften"
 
 
-def test_co2_hysteresis_keeps_advice_stable_near_threshold():
-    kept = evaluate_room(base(co2=980, previous_mode="co2_lueften"))
-    released = evaluate_room(base(co2=940, previous_mode="co2_lueften"))
-    assert kept.mode == "co2_lueften"
-    assert released.mode != "co2_lueften"
+def test_co2_hysteresis_keeps_advice_stable_down_to_900_ppm():
+    kept = evaluate_room(base(co2=920, previous_mode="co2_lueften", previous_need="co2_elevated"))
+    released = evaluate_room(base(co2=899, previous_mode="co2_lueften", previous_need="co2_elevated"))
+    held_below_threshold = evaluate_room(
+        base(
+            co2=850,
+            previous_mode="co2_lueften",
+            previous_need="co2_elevated",
+            co2_pending_hold=True,
+        )
+    )
+    assert kept.primary_need == "co2_elevated"
+    assert released.primary_need != "co2_elevated"
+    assert held_below_threshold.primary_need == "co2_elevated"
 
 
 def test_humidity_hysteresis_keeps_active_drying_advice_stable():
@@ -354,16 +363,50 @@ def test_humidity_hysteresis_keeps_active_drying_advice_stable():
     assert fresh.mode != "feuchte_lueften"
 
 
-def test_open_window_co2_hysteresis_uses_a_yellow_finish_band():
+def test_open_window_co2_hysteresis_uses_900_to_850_finish_band():
+    continuing = evaluate_room(
+        base(
+            co2=930,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+        )
+    )
     transition = evaluate_room(
-        base(co2=980, window_open=True, previous_mode="weiter_lueften")
+        base(
+            co2=880,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+        )
+    )
+    waiting_at_target = evaluate_room(
+        base(
+            co2=845,
+            window_open=True,
+            previous_mode="co2_abwaegung",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_ready=False,
+        )
     )
     released = evaluate_room(
-        base(co2=940, window_open=True, previous_mode="weiter_lueften")
+        base(
+            co2=845,
+            window_open=True,
+            previous_mode="co2_abwaegung",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_ready=True,
+        )
     )
+    assert continuing.mode == "weiter_lueften"
     assert transition.color == "yellow"
     assert transition.mode == "co2_abwaegung"
     assert transition.reason_args["caution"] == "near_target"
+    assert waiting_at_target.mode == "co2_abwaegung"
     assert released.mode == "lueftung_fertig"
 
 
@@ -497,9 +540,37 @@ def test_agreed_matrix_7_critical_co2_can_outweigh_hotter_wetter_air():
 
 
 def test_co2_session_transitions_green_to_yellow_then_outdoor_disadvantage_after_close():
-    green = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=1300, window_open=True, previous_mode="weiter_lueften"))
-    yellow = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=1000, window_open=True, previous_mode="weiter_lueften"))
-    orange = evaluate_room(base(outdoor_temp=31, outdoor_humidity=34, co2=900, window_open=False, previous_mode="lueftung_fertig"))
+    green = evaluate_room(
+        base(
+            outdoor_temp=31,
+            outdoor_humidity=34,
+            co2=930,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+        )
+    )
+    yellow = evaluate_room(
+        base(
+            outdoor_temp=31,
+            outdoor_humidity=34,
+            co2=880,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+        )
+    )
+    orange = evaluate_room(
+        base(
+            outdoor_temp=31,
+            outdoor_humidity=34,
+            co2=850,
+            window_open=False,
+            previous_mode="lueftung_fertig",
+        )
+    )
     assert green.color == "green"
     assert yellow.color == "yellow"
     assert orange.color == "orange"

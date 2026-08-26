@@ -9,13 +9,14 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change, async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event, async_track_time_change, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .airing import tracker_signal
 from .co2 import co2_tracker_signal
+from .co2_hysteresis import Co2HysteresisState
 from .const import (
     CONF_CO2,
     CONF_NIGHT_START_HOUR,
@@ -37,8 +38,7 @@ from .notifications import (
     clear_room_notification_state,
 )
 from .outside import async_get_or_create_outside_coordinator, get_outside_coordinator
-from .runtime import RoomSnapshot, build_room_snapshot, room_source_entities
-from .history import async_get_or_create_room_history
+from .runtime import RoomSnapshot, build_room_snapshot, room_co2_window_values, room_source_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -105,7 +105,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_mode: str | None = None
         self._previous_need: str | None = None
         self._previous_mode_at: datetime | None = None
-        self._history = None
+        self._co2_hysteresis = Co2HysteresisState()
+        self._co2_hysteresis_unsub: Callable[[], None] | None = None
         self._memory_store: Store[dict[str, Any]] = Store(
             hass,
             STORAGE_VERSION,
@@ -141,6 +142,25 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_mode_at = dt_util.utcnow()
         self._memory_store.async_delay_save(self._memory_payload, 10)
 
+    def _schedule_co2_hysteresis_check(self, seconds: float | None) -> None:
+        """Schedule the exact point where a stable CO₂ threshold can release."""
+        if self._co2_hysteresis_unsub is not None:
+            self._co2_hysteresis_unsub()
+            self._co2_hysteresis_unsub = None
+        if seconds is None or seconds <= 0:
+            return
+
+        @callback
+        def _refresh(_now) -> None:
+            self._co2_hysteresis_unsub = None
+            self._handle_tracker_change()
+
+        self._co2_hysteresis_unsub = async_call_later(
+            self.hass,
+            seconds + 0.05,
+            _refresh,
+        )
+
     def _build_snapshot(self) -> RoomSnapshot:
         outside_coordinator = get_outside_coordinator(self.hass, self.entry)
         weather = outside_coordinator.data.weather if outside_coordinator is not None and outside_coordinator.data is not None else None
@@ -155,12 +175,24 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             if self.data is not None and self.data.result is not None
             else self._previous_need
         )
+        co2, window_open = room_co2_window_values(self.hass, self.entry, self.subentry)
+        co2_hysteresis = self._co2_hysteresis.evaluate(
+            now=dt_util.utcnow(),
+            co2=co2,
+            window_open=window_open,
+            previous_mode=previous_mode,
+            previous_need=previous_need,
+        )
+        self._schedule_co2_hysteresis_check(co2_hysteresis.next_check_seconds)
         return build_room_snapshot(
             self.hass,
             self.entry,
             self.subentry,
             previous_mode=previous_mode,
             previous_need=previous_need,
+            co2_pending_hold=co2_hysteresis.pending_hold,
+            co2_airing_active=co2_hysteresis.airing_active,
+            co2_finish_ready=co2_hysteresis.finish_ready,
             weather=weather,
             warnings=warnings,
         )
@@ -168,8 +200,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
     async def _async_update_data(self) -> RoomSnapshot:
         snapshot = self._build_snapshot()
         self._remember_snapshot(snapshot)
-        if self._history is not None:
-            self._history.observe(snapshot)
         await async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot)
         return snapshot
 
@@ -178,7 +208,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             return
         self._started = True
         await self._restore_memory()
-        self._history = await async_get_or_create_room_history(self.hass, self.entry, self.subentry)
         outside = await async_get_or_create_outside_coordinator(self.hass, self.entry)
         await self.async_config_entry_first_refresh()
 
@@ -240,8 +269,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
 
     def _publish_snapshot(self, snapshot: RoomSnapshot) -> None:
         self._remember_snapshot(snapshot)
-        if self._history is not None:
-            self._history.observe(snapshot)
         self.async_set_updated_data(snapshot)
         self.hass.async_create_task(
             async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),
@@ -274,6 +301,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._publish_snapshot(self._build_snapshot())
 
     async def async_shutdown(self) -> None:
+        if self._co2_hysteresis_unsub is not None:
+            self._co2_hysteresis_unsub()
+            self._co2_hysteresis_unsub = None
         while self._unsubs:
             self._unsubs.pop()()
         clear_room_notification_state(self.hass, self.entry.entry_id, self.subentry.subentry_id)

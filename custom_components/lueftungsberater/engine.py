@@ -20,6 +20,17 @@ TEMP_NEED_ON = 1.0
 TEMP_NEED_OFF = 0.6
 
 
+def _previous_co2_context(previous_mode: str, previous_need: str) -> bool:
+    return previous_need in {"co2_elevated", "co2_high", "co2_critical"} or previous_mode in {
+        "co2_kritisch",
+        "co2_kritisch_vorsicht",
+        "co2_lueften",
+        "co2_lueften_mit_nachteil",
+        "co2_abwaegung",
+        "co2_warten",
+    }
+
+
 def absolute_humidity(temp_c: float, rh: float) -> float:
     """Return absolute humidity in g/m³ using the Magnus approximation."""
     vapor_pressure = (rh / 100.0) * 6.112 * math.exp((17.62 * temp_c) / (243.12 + temp_c))
@@ -233,6 +244,8 @@ def _primary_need(
     previous_mode: str,
     previous_need: str,
     window_open: bool,
+    co2_pending_hold: bool,
+    co2_airing_active: bool,
 ) -> tuple[str, int]:
     """Return the strongest current reason and a small ordinal urgency level."""
     if co2 is not None and co2 > 2000:
@@ -260,9 +273,11 @@ def _primary_need(
     if co2 is not None and (
         co2 >= 1000
         or (
-            previous_mode in {"co2_lueften", "co2_abwaegung", "co2_warten", "weiter_lueften"}
-            and co2 >= 950
+            _previous_co2_context(previous_mode, previous_need)
+            and co2 >= 900
         )
+        or co2_pending_hold
+        or co2_airing_active
     ):
         return "co2_elevated", 1
 
@@ -404,12 +419,15 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     co2 = data.co2
     hours = data.hours_since_airing or 0.0
     previous_mode = data.previous_mode or ""
+    previous_need = data.previous_need or ""
 
     co2_critical = co2 is not None and co2 > 2000
     co2_high = co2 is not None and co2 >= 1400
     co2_elevated = co2 is not None and (
         co2 >= 1000
-        or (previous_mode in {"co2_lueften", "co2_abwaegung", "co2_warten", "weiter_lueften"} and co2 >= 950)
+        or (_previous_co2_context(previous_mode, previous_need) and co2 >= 900)
+        or data.co2_pending_hold
+        or data.co2_airing_active
     )
 
     surface_rh = surface_relative_humidity(ti, hi, data.surface_temp)
@@ -439,8 +457,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         mold_persistent=mold_persistent,
         hours=hours,
         previous_mode=previous_mode,
-        previous_need=data.previous_need or "",
+        previous_need=previous_need,
         window_open=data.window_open,
+        co2_pending_hold=data.co2_pending_hold,
+        co2_airing_active=data.co2_airing_active,
     )
 
     # A true protection instruction is outside the normal four-colour scale.
@@ -651,33 +671,26 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         elif mode == "normal":
             mode = "regen" if data.rain_now else "regen_bald"
 
-    # CO₂-driven airing gets its own closing hysteresis. If a session started
-    # because indoor CO₂ was clearly high, ordinary heat/moisture drawbacks do
-    # not suddenly flip the card to orange halfway through. As CO₂ approaches
-    # the good range we move through yellow, then after the window is closed the
-    # normal outdoor disadvantages can become orange again.
-    co2_airing_modes = {
-        "co2_kritisch",
-        "co2_lueften",
-        "co2_lueften_mit_nachteil",
-        "weiter_lueften",
-    }
+    # CO₂-driven airing is treated as a user session, not as a fresh threshold
+    # decision on every sensor update. Once the user opens a window because of
+    # CO₂, stay in that session until <=850 ppm has remained stable for two
+    # minutes. Between 850 and 900 ppm show the yellow near-target band.
     if (
         data.window_open
         and hard_mode is None
-        and previous_mode in co2_airing_modes
+        and data.co2_airing_active
         and co2 is not None
         and air_penalty < 2
         and data.nina_status != "caution"
         and not data.weather_caution
         and not outdoor_co2_limited
     ):
-        if co2 < 950:
+        if data.co2_finish_ready:
             mode = "lueftung_fertig"
-        elif co2 < 1100:
+        elif co2 <= 900:
             mode = "co2_abwaegung"
             caution_kind = "near_target"
-        elif co2 >= 1100:
+        else:
             mode = "weiter_lueften"
 
     # If a window is already open, keep green goals going, mark a finished
@@ -686,7 +699,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     if data.window_open:
         if _color(mode) == "green":
             continue_co2 = co2 is not None and (
-                co2 >= 1000 or (previous_mode == "weiter_lueften" and co2 >= 950)
+                co2 >= 1000
+                or (data.co2_airing_active and not data.co2_finish_ready)
             )
             continue_moisture = (
                 (hi >= 60 and diff > AH_NEUTRAL)
@@ -770,7 +784,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "weiter_lueften":
         reason_key = "continue_airing"
         reason_args = {
-            "continue_co2": co2 is not None and co2 >= 950,
+            "continue_co2": co2 is not None and (co2 >= 1000 or (data.co2_airing_active and not data.co2_finish_ready)),
             "continue_moisture": (
                 (hi >= 60 and diff > AH_NEUTRAL)
                 or (previous_mode == "weiter_lueften" and hi >= 58 and diff >= AH_CONTINUE)

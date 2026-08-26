@@ -14,7 +14,8 @@ from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air
 from .api import async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
-from .history import async_stop_entry_histories
+from .history import async_cleanup_legacy_room_history
+from .recorder_maintenance import async_register_recorder_retention
 from .outside import async_get_or_create_outside_coordinator, async_stop_outside_coordinator
 from .coordinator import (
     async_get_or_create_room_coordinator,
@@ -52,7 +53,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.7.2"
+FRONTEND_VERSION = "0.7.5"
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -269,6 +270,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
 
+    await async_cleanup_legacy_room_history(hass)
+    entry.async_on_unload(async_register_recorder_retention(hass, entry))
+
     await async_get_or_create_air_quality_tracker(hass, entry)
     await async_get_or_create_outside_coordinator(hass, entry)
 
@@ -300,7 +304,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         await async_stop_entry_coordinators(hass, entry)
-        await async_stop_entry_histories(hass, entry)
         await async_stop_outside_coordinator(hass, entry)
         await async_stop_air_quality_tracker(hass, entry)
         await async_stop_entry_trackers(hass, entry)

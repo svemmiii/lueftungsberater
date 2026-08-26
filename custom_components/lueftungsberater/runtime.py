@@ -242,6 +242,22 @@ def target_temperature(
     return fallback
 
 
+def room_co2_window_values(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> tuple[float | None, bool]:
+    """Return the two raw inputs needed by the CO₂ session hysteresis."""
+    tracker = get_tracker(hass, entry, subentry)
+    windows = subentry.data.get(CONF_WINDOWS, []) or []
+    window_open = (
+        tracker.is_open
+        if tracker is not None
+        else any(hass.states.is_state(entity_id, "on") for entity_id in windows)
+    )
+    return room_co2_value(hass, entry, subentry), bool(window_open)
+
+
 def _room_values(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -251,11 +267,7 @@ def _room_values(
     tracker = get_tracker(hass, entry, subentry)
     windows = subentry.data.get(CONF_WINDOWS, []) or []
     has_windows = bool(windows)
-    window_open = (
-        tracker.is_open
-        if tracker is not None
-        else any(hass.states.is_state(entity_id, "on") for entity_id in windows)
-    )
+    co2_ppm, window_open = room_co2_window_values(hass, entry, subentry)
 
     return {
         # All temperatures exposed by this snapshot are Celsius. The frontend
@@ -272,7 +284,7 @@ def _room_values(
         "air_quality_pollutant": weather.air_quality_pollutant,
         "air_quality_value": weather.air_quality_value,
         "air_quality_values": dict(weather.air_quality_values),
-        "co2_ppm": room_co2_value(hass, entry, subentry),
+        "co2_ppm": co2_ppm,
         "outdoor_co2_ppm": _plausible_co2(
             _number(hass, _manual_outdoor_entity(entry, CONF_OUTDOOR_CO2))
         ),
@@ -385,6 +397,9 @@ def build_room_snapshot(
     subentry: ConfigSubentry,
     previous_mode: str | None = None,
     previous_need: str | None = None,
+    co2_pending_hold: bool = False,
+    co2_airing_active: bool = False,
+    co2_finish_ready: bool = False,
     weather: WeatherAssessment | None = None,
     warnings: WarningAssessment | None = None,
 ) -> RoomSnapshot:
@@ -561,6 +576,9 @@ def build_room_snapshot(
             air_quality_history_samples=int(values.get("air_quality_history_samples") or 0),
             previous_mode=previous_mode,
             previous_need=previous_need,
+            co2_pending_hold=co2_pending_hold,
+            co2_airing_active=co2_airing_active,
+            co2_finish_ready=co2_finish_ready,
         )
     )
 

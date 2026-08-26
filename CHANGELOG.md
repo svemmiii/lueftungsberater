@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.7.5
+
+- CO₂-Empfehlungen starten weiterhin bei 1000 ppm, werden bei geschlossenem Fenster aber erst nach 3 stabilen Minuten unter 900 ppm zurückgenommen.
+- Eine bereits gestartete CO₂-Lüftung wird als Sitzung behandelt: oberhalb 900 ppm weiterlüften, 850–900 ppm gelbe Zielnähe, Abschluss erst nach 2 stabilen Minuten bei höchstens 850 ppm.
+- Steigt CO₂ während der Stabilitätsphase wieder über die jeweilige Rückfallgrenze, beginnt die Stabilitätszeit neu.
+- Die sichtbaren CO₂-Klassen (<800 / 800–999 / 1000–1399 / 1400–2000 / >2000 ppm) bleiben unverändert.
+
+## v0.7.4
+
+- Trennt den Benachrichtigungs-Fingerprint jetzt strikt nach der tatsächlich aktiven Quelle (`nina_*`, `luftqualitaet_*`, `wetter*`).
+- Änderungen der normalen Luftqualität können dadurch eine unveränderte NINA-Warnung nicht mehr erneut benachrichtigen.
+- Umgekehrt ändern NINA-/DWD-Daten nicht mehr die Identität einer reinen Luftqualitätswarnung.
+- Wetterwarnungen verwenden ausschließlich ihre Warnungs-ID/Reason-/Schutzanweisungs-Identität und ignorieren parallele Luftqualitätsänderungen.
+- Rohwerte und mutable Beschreibungstexte bleiben weiterhin aus dem Fingerprint ausgeschlossen.
+
+## v0.7.3
+
+- Entfernt die experimentelle, integrationseigene 30-Tage/40-MiB-`RoomHistory`. Sie duplizierte Recorder-Daten, wurde von keiner Beratungsfunktion ausgewertet und konnte unnötig RAM/Storage belegen.
+- Bestehende v0.7.2-`lueftungsberater.history.*`-Stores werden beim ersten lokalen Setup automatisch entfernt.
+- Die bereits eingeführten Recorder-Optimierungen bleiben erhalten: große/dynamische Advisor-Attribute, Warntexte, CO₂-Rohwertattribute und Lüftungs-Debugattribute werden nicht unnötig historisiert.
+- Neue gezielte Recorder-Aufbewahrung: Lüftungsassistent-Entities werden einmal täglich auf **maximal 20 Tage** State-Historie begrenzt. Andere Integrationen bleiben unberührt. Eine global kürzere Recorder-Aufbewahrung bleibt maßgeblich.
+- Der Purge verwendet die exakten aktuell registrierten Entity-IDs der Lüftungsassistent-ConfigEntries; umbenannte Entities werden dadurch ebenfalls korrekt erfasst.
+- Behebt den veralteten Config-Flow-Test, der `MINOR_VERSION == 7` verlangte, obwohl v0.7.2 korrekt Minor-Version 8 verwendet.
+- Bereinigt den Release von den alten kaputten `reference`-YAML-Dateien.
+
 ## v0.7.2
 
 ### Benachrichtigungen
