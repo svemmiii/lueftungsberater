@@ -426,10 +426,12 @@ async def test_remote_supported_subentry_cache_is_pinned_read_only(
 
 
 def test_v071_config_flow_minor_version_republishes_remote_capabilities() -> None:
-    """v0.7.1 must run its migration on entries created by v0.7.0."""
+    """The v0.7.1 remote-capability migration must remain reachable."""
     from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
 
-    assert LueftungsberaterConfigFlow.MINOR_VERSION == 7
+    # Later releases may add further minor migrations. Requiring exactly 7
+    # would make this regression test fail every time MINOR_VERSION advances.
+    assert LueftungsberaterConfigFlow.MINOR_VERSION >= 7
 
 
 def test_v072_notification_choices_are_split_between_assistant_and_room():

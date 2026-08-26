@@ -1,11 +1,18 @@
-Lüftungsassistent v0.7.0 – Patch ab v0.6.24
+v0.7.2 CI fix – stale MINOR_VERSION assertion
 
-Diese ZIP enthält nur neue/geänderte Dateien gegenüber dem letzten grünen v0.6.24-CLEAN-COMPLETE-v3 Stand.
-Die Ordnerstruktur muss beim Upload beibehalten werden.
+GitHub failure:
+test_v071_config_flow_minor_version_republishes_remote_capabilities
+assert 8 == 7
 
-Wichtig:
-- technische Domain bleibt custom_components/lueftungsberater
-- keine Root-manifest.json oder Root-__init__.py anlegen
-- .github/workflows/validate.yml bleibt enthalten, falls sich der Workflow gegenüber der Basis unterscheidet
-- vollständige Release Notes: RELEASE_NOTES_v0.7.0.md
-- Audit: CI_AUDIT_v0.7.0.txt
+Cause:
+v0.7.2 correctly advances ConfigFlow.MINOR_VERSION to 8 because it adds the
+assistant-vs-room notification migration. The older v0.7.1 regression test
+incorrectly required the current minor version to remain exactly 7 forever.
+
+Fix:
+The test now asserts MINOR_VERSION >= 7. This still guarantees that the v0.7.1
+remote-capability migration is reachable, while allowing v0.7.2 and future
+minor migrations.
+
+Production code changed: none.
+Replace: tests/test_config_flow.py
