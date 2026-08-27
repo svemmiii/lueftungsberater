@@ -80,7 +80,7 @@ def _message(language: str | None, room: str, trigger: str) -> tuple[str, str]:
         "de": {
             NOTIFY_TRIGGER_AIRING_RECOMMENDED: f"In {room} ist Lüften jetzt wieder sinnvoll.",
             NOTIFY_TRIGGER_AIRING_FINISHED: f"In {room} kannst du die Lüftung jetzt beenden und die Fenster wieder schließen.",
-            NOTIFY_TRIGGER_AIR_DANGER: f"In {room} ist noch ein Fenster oder eine Tür offen, obwohl die Außenluft stark belastet ist oder eine ernste Warnung gilt. Bei einer Schutzwarnung bitte sofort schließen; bei hoher Luftbelastung die aktuelle Empfehlung prüfen.",
+            NOTIFY_TRIGGER_AIR_DANGER: f"In {room} ist noch ein Fenster oder eine Tür offen, obwohl die Außenluft stark belastet ist oder eine ernste Warnung gilt. Bitte schließe es bei einer Schutzwarnung sofort; bei hoher Luftbelastung prüfe die aktuelle Empfehlung.",
             NOTIFY_TRIGGER_AIR_CAUTION: f"In {room} ist noch ein Fenster oder eine Tür offen, während ein Außenluft-Hinweis gilt. Prüfe, ob du besser schließen solltest.",
             NOTIFY_TRIGGER_WEATHER_DANGER: f"In {room} ist noch ein Fenster oder eine Tür offen, obwohl eine ernste Wetterwarnung gilt. Bitte prüfen und bei Bedarf schließen.",
             NOTIFY_TRIGGER_WEATHER_CAUTION: f"In {room} ist noch ein Fenster oder eine Tür offen, während ein Wetterhinweis aktiv ist. Behalte die Lage im Blick.",
