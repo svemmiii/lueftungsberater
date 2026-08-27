@@ -701,3 +701,58 @@ def test_room_view_rises_when_indoor_need_becomes_stronger_despite_bad_outside()
     assert result.color == "yellow"
     assert result.room_status_color == "yellow"
     assert result.room_recommendation_key == "room_watch"
+
+
+def test_minimum_co2_airing_keeps_green_session_open_even_after_fast_co2_drop():
+    r = evaluate_room(
+        base(
+            co2=500,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_ready=True,
+            co2_minimum_airing_active=True,
+        )
+    )
+    assert r.color == "green"
+    assert r.mode == "co2_mindestlueftung"
+    assert r.recommendation_key == "keep_open"
+    assert r.reason_key == "co2_minimum_airing"
+    assert r.duration_key == "co2_minimum"
+
+
+def test_minimum_co2_airing_preserves_cautious_yellow_session():
+    r = evaluate_room(
+        base(
+            co2=700,
+            window_open=True,
+            previous_mode="co2_abwaegung",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_ready=True,
+            co2_minimum_airing_active=True,
+            co2_minimum_airing_cautious=True,
+        )
+    )
+    assert r.color == "yellow"
+    assert r.mode == "co2_mindestlueftung_vorsicht"
+    assert r.recommendation_key == "short_observation"
+
+
+def test_minimum_co2_airing_never_overrides_hard_nina_lock():
+    r = evaluate_room(
+        base(
+            co2=700,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_ready=True,
+            co2_minimum_airing_active=True,
+            nina_status="danger",
+        )
+    )
+    assert r.safety_lock is True
+    assert r.mode == "nina_aussenluftgefahr"
+    assert r.color == "red"

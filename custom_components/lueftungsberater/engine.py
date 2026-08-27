@@ -84,6 +84,8 @@ def _normal_airing_duration(outdoor_temp: float) -> str:
 
 
 def _duration_key(mode: str, outdoor_temp: float) -> str:
+    if mode in {"co2_mindestlueftung", "co2_mindestlueftung_vorsicht"}:
+        return "co2_minimum"
     if mode == "weiter_lueften":
         return "until_targets"
     if mode == "lueftung_fertig":
@@ -130,6 +132,7 @@ def _color(mode: str) -> str:
         "co2_kritisch",
         "co2_lueften",
         "co2_lueften_mit_nachteil",
+        "co2_mindestlueftung",
         "weiter_lueften",
         "feuchte_lueften",
         "schimmel_lueften",
@@ -142,6 +145,7 @@ def _color(mode: str) -> str:
     if mode in {
         "co2_kritisch_vorsicht",
         "co2_abwaegung",
+        "co2_mindestlueftung_vorsicht",
         "feuchte_neutral",
         "schimmel_neutral",
         "komfort_abwaegung",
@@ -180,7 +184,12 @@ def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
         return "close_now" if window_open else "keep_closed"
     if color == "orange":
         return "better_close" if window_open else "caution_keep_closed"
-    if mode in {"co2_kritisch_vorsicht", "co2_abwaegung", "komfort_abwaegung"}:
+    if mode in {
+        "co2_kritisch_vorsicht",
+        "co2_abwaegung",
+        "co2_mindestlueftung_vorsicht",
+        "komfort_abwaegung",
+    }:
         return "short_observation"
     if window_open:
         return "can_close"
@@ -441,6 +450,72 @@ def _temperature_drawback(ti: float, ta: float, target: float) -> float:
     if not _temperature_moves_away(ti, ta, target):
         return 0.0
     return abs(ta - ti)
+
+
+def co2_outdoor_context(data: RoomInput) -> dict[str, int | bool]:
+    """Return coarse outdoor-disadvantage bands for a running CO₂ airing.
+
+    The bands intentionally reuse thresholds that already influence the normal
+    engine. They are not a second decision system; they only let the coordinator
+    distinguish an already accepted drawback from a genuinely new worsening
+    while the five-minute minimum airing phase is active.
+    """
+    indoor_ah = absolute_humidity(data.indoor_temp, data.indoor_humidity)
+    outdoor_ah = absolute_humidity(data.outdoor_temp, data.outdoor_humidity)
+    diff = indoor_ah - outdoor_ah
+    temp_drawback = _temperature_drawback(
+        data.indoor_temp, data.outdoor_temp, data.target_temp
+    )
+
+    temperature = 0
+    if temp_drawback >= 15.0:
+        temperature = 3
+    elif temp_drawback >= 5.0:
+        temperature = 2
+    elif temp_drawback >= 3.0:
+        temperature = 1
+
+    humidity = 0
+    if diff <= -3.0:
+        humidity = 4
+    elif diff <= -1.5:
+        humidity = 3
+    elif diff <= -1.0:
+        humidity = 2
+    elif diff < -AH_NEUTRAL:
+        humidity = 1
+
+    outdoor_co2 = 0
+    if data.outdoor_co2 is not None:
+        if data.outdoor_co2 >= 1200:
+            outdoor_co2 = 3
+        elif data.outdoor_co2 >= 1000:
+            outdoor_co2 = 2
+        elif data.outdoor_co2 >= 800:
+            outdoor_co2 = 1
+
+    rain = bool(data.rain_now)
+    if not rain and data.rain_minutes_until is not None:
+        rain = 0 <= data.rain_minutes_until <= 15
+    if not rain:
+        rain = bool(data.rain_soon)
+
+    temp_direction = "neutral"
+    if temp_drawback > 0:
+        temp_direction = "hot" if data.outdoor_temp > data.indoor_temp else "cold"
+
+    return {
+        "temperature": temperature,
+        "outdoor_temp": round(float(data.outdoor_temp), 2),
+        "temperature_direction": temp_direction,
+        "humidity": humidity,
+        "outdoor_absolute_humidity": round(float(outdoor_ah), 2),
+        "air_quality": _air_quality_penalty(data),
+        "outdoor_co2": outdoor_co2,
+        "nina_caution": data.nina_status == "caution",
+        "weather_caution": bool(data.weather_caution),
+        "rain": rain,
+    }
 
 
 def _strong_no_need_disadvantage(
@@ -746,11 +821,30 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         else:
             mode = "weiter_lueften"
 
+    # If the user followed an actual CO₂ recommendation, give that airing
+    # at least five minutes before a fast indoor CO₂ drop is allowed to finish
+    # the session. The coordinator only sets this flag while the outdoor
+    # situation has not entered a newly worse category; hard locks were already
+    # handled above and therefore always win immediately.
+    if (
+        data.window_open
+        and hard_mode is None
+        and data.co2_minimum_airing_active
+    ):
+        mode = (
+            "co2_mindestlueftung_vorsicht"
+            if data.co2_minimum_airing_cautious
+            else "co2_mindestlueftung"
+        )
+        caution_kind = "minimum_airing"
+
     # If a window is already open, keep green goals going, mark a finished
     # neutral session as done, and preserve red/yellow trade-off modes so the
     # user sees why closing may now be sensible.
     if data.window_open:
-        if _color(mode) == "green":
+        if mode == "co2_mindestlueftung":
+            pass
+        elif _color(mode) == "green":
             continue_co2 = co2 is not None and (
                 co2 >= 1000
                 or (data.co2_airing_active and not data.co2_finish_ready)
@@ -852,6 +946,12 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         }
     elif mode == "lueftung_fertig":
         reason_key, reason_args = "airing_finished", {}
+    elif mode in {"co2_mindestlueftung", "co2_mindestlueftung_vorsicht"}:
+        reason_key = "co2_minimum_airing"
+        reason_args = {
+            "co2": co2,
+            "cautious": mode == "co2_mindestlueftung_vorsicht",
+        }
     elif mode == "co2_kritisch":
         if caution_kind == "rain":
             reason_key, reason_args = "co2_critical_rain", {"co2": co2}

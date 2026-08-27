@@ -5,16 +5,16 @@
       "user": {
         "title": "Lüftungsassistent hinzufügen",
         "menu_options": {
-          "local": "Lokalen Lüftungsassistent einrichten",
-          "remote": "Entfernten Lüftungsassistent über Tailscale verbinden"
+          "local": "Lokalen Lüftungsassistenten einrichten",
+          "remote": "Entfernten Lüftungsassistenten über Tailscale verbinden"
         },
         "menu_option_descriptions": {
           "local": "Räume und Sensoren dieses Home Assistants verwenden.",
-          "remote": "Nur den aktuellen Stand einer anderen Lüftungsassistent-Installation anzeigen."
+          "remote": "Nur den aktuellen Stand eines anderen Lüftungsassistenten anzeigen."
         }
       },
       "local": {
-        "title": "Lokalen Lüftungsassistent einrichten",
+        "title": "Lokalen Lüftungsassistenten einrichten",
         "description": "Gib der Installation einen Namen und wähle Wetterdienst sowie optional einen Warndienst. Räume werden anschließend separat hinzugefügt.",
         "data": {
           "instance_name": "Name dieser Installation",
@@ -29,8 +29,8 @@
           "outdoor_co2": "CO₂ außen (optional)"
         },
         "data_description": {
-          "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 aktuell kein sinnvoller Lüftungsdruck / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 draußen/jetzt gut zum Lüften / 🔴 geschlossen lassen. Harte Schutzanweisungen bleiben immer 🔒.",
-          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Luft direkt an deinem Standort."
+          "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
+          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
         },
         "sections": {
           "general": {
@@ -42,7 +42,7 @@
               "display_mode": "Ampeldarstellung"
             },
             "data_description": {
-              "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 aktuell kein sinnvoller Lüftungsdruck / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 draußen/jetzt gut zum Lüften / 🔴 geschlossen lassen. Harte Schutzanweisungen bleiben immer 🔒."
+              "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
             }
           },
           "outdoor": {
@@ -54,7 +54,7 @@
               "outdoor_co2": "CO₂ außen (optional)"
             },
             "data_description": {
-              "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Luft direkt an deinem Standort."
+              "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
             }
           },
           "notifications": {
@@ -68,8 +68,8 @@
         }
       },
       "remote": {
-        "title": "Entfernten Lüftungsassistent verbinden",
-        "description": "Die Verbindung ist absichtlich auf Tailscale-Adressen beschränkt. Es werden nur aktuelle Lüftungsassistent-Snapshots übertragen; entfernte Sensoren und deren Verlauf werden nicht in diesem Home Assistant angelegt. Mit „Weiter“ wird die Verbindung zunächst nur getestet. Gespeichert wird sie erst nach der anschließenden Erfolgsbestätigung.",
+        "title": "Entfernten Lüftungsassistenten verbinden",
+        "description": "Die Verbindung ist absichtlich auf Tailscale-Adressen beschränkt. Übertragen wird nur der aktuelle Zustand des entfernten Lüftungsassistenten; dessen Sensoren und Verläufe werden in diesem Home Assistant nicht angelegt. Mit „Weiter“ wird die Verbindung zunächst nur getestet. Gespeichert wird sie erst nach der anschließenden Erfolgsbestätigung.",
         "data": {
           "instance_name": "Anzeigename",
           "remote_host": "Tailscale-IP oder MagicDNS-Name",
@@ -97,8 +97,8 @@
           "outdoor_co2": "CO₂ außen (optional)"
         },
         "data_description": {
-          "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 aktuell kein sinnvoller Lüftungsdruck / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 draußen/jetzt gut zum Lüften / 🔴 geschlossen lassen. Harte Schutzanweisungen bleiben immer 🔒.",
-          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Luft direkt an deinem Standort."
+          "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
+          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
         },
         "sections": {
           "general": {
@@ -110,7 +110,7 @@
               "display_mode": "Ampeldarstellung"
             },
             "data_description": {
-              "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 aktuell kein sinnvoller Lüftungsdruck / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 draußen/jetzt gut zum Lüften / 🔴 geschlossen lassen. Harte Schutzanweisungen bleiben immer 🔒."
+              "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
             }
           },
           "outdoor": {
@@ -122,7 +122,7 @@
               "outdoor_co2": "CO₂ außen (optional)"
             },
             "data_description": {
-              "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Luft direkt an deinem Standort."
+              "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
             }
           },
           "notifications": {
@@ -165,7 +165,7 @@
       "reconfigure_successful": "Die Einstellungen wurden gespeichert."
     },
     "progress": {
-      "testing_remote": "Tailscale-Verbindung wird geprüft und der aktuelle Lüftungsassistent-Stand wird eingelesen …"
+      "testing_remote": "Tailscale-Verbindung wird geprüft und der aktuelle Stand des Lüftungsassistenten wird eingelesen …"
     }
   },
   "config_subentries": {
@@ -178,16 +178,16 @@
       "step": {
         "user": {
           "title": "Raum hinzufügen",
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeit legt nur fest, ab wann ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data": {
             "room_name": "Raumname",
             "indoor_temperature": "Innentemperatur",
             "indoor_humidity": "Innenluftfeuchtigkeit",
             "co2_entity": "CO₂ (optional)",
-            "window_entities": "Fenster / Türen (optional)",
+            "window_entities": "Fenster/Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
             "target_temperature": "🌡️ Fallback-Solltemperatur",
-            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
+            "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)",
             "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
             "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
@@ -196,7 +196,7 @@
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
             "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
-            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
+            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
           },
           "sections": {
             "room_climate": {
@@ -221,22 +221,22 @@
               },
               "data_description": {
                 "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
-                "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
+                "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
               }
             },
             "room_sensors": {
               "name": "🧪 Zusatzsensoren",
-              "description": "Optional. CO₂ und Oberflächentemperatur geben dem Berater mehr Grundlage.",
+              "description": "Optional. CO₂ und Oberflächentemperatur liefern dem Berater zusätzliche Informationen.",
               "data": {
                 "co2_entity": "CO₂ (optional)",
-                "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)"
+                "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)"
               }
             },
             "room_openings": {
               "name": "🪟 Fenster & Türen",
               "description": "Optional. Damit erkennt der Berater laufende Lüftungen und kann sie nach einem Neustart fortführen.",
               "data": {
-                "window_entities": "Fenster / Türen (optional)"
+                "window_entities": "Fenster/Türen (optional)"
               }
             },
             "room_remote": {
@@ -262,20 +262,20 @@
             "indoor_temperature": "Innentemperatur",
             "indoor_humidity": "Innenluftfeuchtigkeit",
             "co2_entity": "CO₂ (optional)",
-            "window_entities": "Fenster / Türen (optional)",
+            "window_entities": "Fenster/Türen (optional)",
             "climate_entity": "Climate-Entity für Solltemperatur (optional)",
             "target_temperature": "🌡️ Fallback-Solltemperatur",
-            "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)",
+            "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)",
             "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
             "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
             "room_notify_triggers": "Benachrichtigen für diesen Raum"
           },
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeit legt nur fest, ab wann ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
             "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
-            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
+            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
           },
           "sections": {
             "room_climate": {
@@ -300,22 +300,22 @@
               },
               "data_description": {
                 "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
-                "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt ohne Zwangsaktion wieder der normale Tagesbetrieb."
+                "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
               }
             },
             "room_sensors": {
               "name": "🧪 Zusatzsensoren",
-              "description": "Optional. CO₂ und Oberflächentemperatur geben dem Berater mehr Grundlage.",
+              "description": "Optional. CO₂ und Oberflächentemperatur liefern dem Berater zusätzliche Informationen.",
               "data": {
                 "co2_entity": "CO₂ (optional)",
-                "surface_temperature": "Kalte / kritische Oberflächentemperatur für Feuchteschutz (optional)"
+                "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)"
               }
             },
             "room_openings": {
               "name": "🪟 Fenster & Türen",
               "description": "Optional. Damit erkennt der Berater laufende Lüftungen und kann sie nach einem Neustart fortführen.",
               "data": {
-                "window_entities": "Fenster / Türen (optional)"
+                "window_entities": "Fenster/Türen (optional)"
               }
             },
             "room_remote": {
@@ -337,7 +337,7 @@
       },
       "abort": {
         "already_configured": "Ein Raum mit diesem Namen existiert bereits.",
-        "remote_read_only": "Remote-/Tailscale-Verbindungen sind schreibgeschützt. Räume können nur zu einem lokalen Lüftungsassistent hinzugefügt werden."
+        "remote_read_only": "Remote-/Tailscale-Verbindungen sind schreibgeschützt. Räume können nur einem lokalen Lüftungsassistenten hinzugefügt werden."
       }
     }
   },
@@ -348,13 +348,13 @@
           "open_now": "Jetzt lüften",
           "keep_open": "Weiter lüften",
           "can_close": "Lüften kann beendet werden",
-          "short_observation": "Nur kurz lüften und im Blick behalten",
-          "better_close": "Besser schließen",
+          "short_observation": "Nur kurz lüften und die Situation im Blick behalten",
+          "better_close": "Besser wieder schließen",
           "caution_keep_closed": "Vorsicht – lieber geschlossen lassen",
           "keep_closed": "Geschlossen lassen",
           "close_now": "Jetzt schließen",
           "wait": "Besser noch etwas warten",
-          "optional": "Lüften ist optional"
+          "optional": "Lüften ist aktuell optional"
         }
       },
       "absolute_humidity": {
@@ -417,8 +417,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Lüftungsampel · 🟢 = jetzt gut lüften · 🔴 = geschlossen",
-        "room_air": "Lüftungsbedarf · 🟢 = kein Druck · 🔴 = jetzt lüften"
+        "ventilation": "Lüftungsampel · 🟢 = jetzt gut zum Lüften · 🔴 = besser geschlossen lassen",
+        "room_air": "Lüftungsbedarf · 🟢 = kein Lüftungsgrund · 🔴 = jetzt lüften"
       }
     },
     "room_notify_triggers": {

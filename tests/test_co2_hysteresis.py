@@ -111,3 +111,165 @@ def test_hysteresis_timestamps_roundtrip_for_restart_memory():
 
     assert restored.pending_below_since == original.pending_below_since
     assert restored.finish_below_since == original.finish_below_since
+
+
+def test_minimum_co2_airing_runs_five_minutes_and_then_releases():
+    from custom_components.lueftungsberater.co2_hysteresis import (
+        CO2_MINIMUM_AIRING,
+        Co2MinimumAiringState,
+    )
+
+    start = datetime(2026, 8, 27, 18, 0, tzinfo=UTC)
+    context = {
+        "temperature": 1,
+        "outdoor_temp": 28.0,
+        "temperature_direction": "hot",
+        "humidity": 2,
+        "outdoor_absolute_humidity": 14.0,
+        "air_quality": 0,
+        "outdoor_co2": 0,
+        "nina_caution": False,
+        "weather_caution": False,
+        "rain": False,
+    }
+    state = Co2MinimumAiringState()
+    assert state.start(started_at=start, cautious=False, baseline_context=context)
+
+    active = state.evaluate(
+        now=start + timedelta(minutes=2),
+        window_open=True,
+        current_context=context,
+        safety_lock=False,
+    )
+    released = state.evaluate(
+        now=start + CO2_MINIMUM_AIRING,
+        window_open=True,
+        current_context=context,
+        safety_lock=False,
+    )
+
+    assert active.active is True
+    assert 170 <= active.next_check_seconds <= 190
+    assert released.active is False
+    assert state.completed_for_open_window is True
+
+
+def test_minimum_co2_airing_keeps_already_known_bad_outdoor_conditions():
+    from custom_components.lueftungsberater.co2_hysteresis import Co2MinimumAiringState
+
+    start = datetime(2026, 8, 27, 18, 0, tzinfo=UTC)
+    context = {
+        "temperature": 2,
+        "outdoor_temp": 33.0,
+        "temperature_direction": "hot",
+        "humidity": 3,
+        "outdoor_absolute_humidity": 16.0,
+        "air_quality": 0,
+        "outdoor_co2": 0,
+        "nina_caution": False,
+        "weather_caution": False,
+        "rain": False,
+    }
+    state = Co2MinimumAiringState()
+    state.start(started_at=start, cautious=True, baseline_context=context)
+    decision = state.evaluate(
+        now=start + timedelta(minutes=2),
+        window_open=True,
+        current_context=dict(context),
+        safety_lock=False,
+    )
+    assert decision.active is True
+    assert decision.cautious is True
+
+
+def test_minimum_co2_airing_aborts_for_new_outdoor_warning():
+    from custom_components.lueftungsberater.co2_hysteresis import Co2MinimumAiringState
+
+    start = datetime(2026, 8, 27, 18, 0, tzinfo=UTC)
+    context = {
+        "temperature": 0,
+        "outdoor_temp": 21.0,
+        "temperature_direction": "neutral",
+        "humidity": 0,
+        "outdoor_absolute_humidity": 10.0,
+        "air_quality": 0,
+        "outdoor_co2": 0,
+        "nina_caution": False,
+        "weather_caution": False,
+        "rain": False,
+    }
+    state = Co2MinimumAiringState()
+    state.start(started_at=start, cautious=False, baseline_context=context)
+    worsened = dict(context, weather_caution=True)
+    decision = state.evaluate(
+        now=start + timedelta(minutes=1),
+        window_open=True,
+        current_context=worsened,
+        safety_lock=False,
+    )
+    assert decision.active is False
+    assert decision.aborted_for_outdoor_worsening is True
+
+
+def test_minimum_co2_airing_hard_safety_lock_always_wins():
+    from custom_components.lueftungsberater.co2_hysteresis import Co2MinimumAiringState
+
+    start = datetime(2026, 8, 27, 18, 0, tzinfo=UTC)
+    context = {
+        "temperature": 0,
+        "outdoor_temp": 21.0,
+        "temperature_direction": "neutral",
+        "humidity": 0,
+        "outdoor_absolute_humidity": 10.0,
+        "air_quality": 0,
+        "outdoor_co2": 0,
+        "nina_caution": False,
+        "weather_caution": False,
+        "rain": False,
+    }
+    state = Co2MinimumAiringState()
+    state.start(started_at=start, cautious=False, baseline_context=context)
+    decision = state.evaluate(
+        now=start + timedelta(seconds=30),
+        window_open=True,
+        current_context=context,
+        safety_lock=True,
+    )
+    assert decision.active is False
+
+
+def test_minimum_co2_airing_does_not_restart_until_window_was_closed():
+    from custom_components.lueftungsberater.co2_hysteresis import (
+        CO2_MINIMUM_AIRING,
+        Co2MinimumAiringState,
+    )
+
+    start = datetime(2026, 8, 27, 18, 0, tzinfo=UTC)
+    context = {
+        "temperature": 0,
+        "outdoor_temp": 21.0,
+        "temperature_direction": "neutral",
+        "humidity": 0,
+        "outdoor_absolute_humidity": 10.0,
+        "air_quality": 0,
+        "outdoor_co2": 0,
+        "nina_caution": False,
+        "weather_caution": False,
+        "rain": False,
+    }
+    state = Co2MinimumAiringState()
+    state.start(started_at=start, cautious=False, baseline_context=context)
+    state.evaluate(
+        now=start + CO2_MINIMUM_AIRING,
+        window_open=True,
+        current_context=context,
+        safety_lock=False,
+    )
+    assert state.start(started_at=start + timedelta(minutes=6), cautious=False, baseline_context=context) is False
+    state.evaluate(
+        now=start + timedelta(minutes=6),
+        window_open=False,
+        current_context=context,
+        safety_lock=False,
+    )
+    assert state.start(started_at=start + timedelta(minutes=7), cautious=False, baseline_context=context) is True

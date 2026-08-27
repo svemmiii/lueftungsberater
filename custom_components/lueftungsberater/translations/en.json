@@ -10,7 +10,7 @@
         },
         "menu_option_descriptions": {
           "local": "Use rooms and sensors from this Home Assistant.",
-          "remote": "Show only the current state of another Fresh Air Assistant installation."
+          "remote": "Show only the current state of another Fresh Air Assistant."
         }
       },
       "local": {
@@ -29,7 +29,7 @@
           "outdoor_co2": "Outdoor CO₂ (optional)"
         },
         "data_description": {
-          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒.",
+          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
         },
         "sections": {
@@ -42,7 +42,7 @@
               "display_mode": "Traffic-light view"
             },
             "data_description": {
-              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒."
+              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒."
             }
           },
           "outdoor": {
@@ -69,7 +69,7 @@
       },
       "remote": {
         "title": "Connect a remote Fresh Air Assistant",
-        "description": "Remote connections are deliberately limited to Tailscale addresses. Only current Fresh Air Assistant snapshots are transferred; remote sensors and their history are not created in this Home Assistant. Continue first tests the connection only; it is saved after the following success confirmation.",
+        "description": "Remote connections are deliberately limited to Tailscale addresses. Only the current state of the remote Fresh Air Assistant is transferred; its sensors and history are not created in this Home Assistant. “Continue” first tests the connection. It is saved only after the following success confirmation.",
         "data": {
           "instance_name": "Display name",
           "remote_host": "Tailscale IP or MagicDNS name",
@@ -97,7 +97,7 @@
           "outdoor_co2": "Outdoor CO₂ (optional)"
         },
         "data_description": {
-          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒.",
+          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
         },
         "sections": {
@@ -110,7 +110,7 @@
               "display_mode": "Traffic-light view"
             },
             "data_description": {
-              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒."
+              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒."
             }
           },
           "outdoor": {
@@ -178,7 +178,7 @@
       "step": {
         "user": {
           "title": "Add room",
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated.",
+          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
           "data": {
             "room_name": "Room name",
             "indoor_temperature": "Indoor temperature",
@@ -196,7 +196,7 @@
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
             "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
-            "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
+            "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
           },
           "sections": {
             "room_climate": {
@@ -221,7 +221,7 @@
               },
               "data_description": {
                 "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
-                "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
+                "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
               }
             },
             "room_sensors": {
@@ -271,11 +271,11 @@
             "remote_share": "Allow this room to be queried remotely",
             "room_notify_triggers": "Notify for this room"
           },
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The time only controls when useful night advice may appear. Missing optional sensors are never estimated.",
+          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
             "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
-            "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
+            "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
           },
           "sections": {
             "room_climate": {
@@ -300,7 +300,7 @@
               },
               "data_description": {
                 "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
-                "night_advice_end_time": "The night advice may remain visible until this time. Afterwards the normal daytime assessment resumes without forcing any action."
+                "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
               }
             },
             "room_sensors": {
@@ -354,7 +354,7 @@
           "keep_closed": "Keep the windows closed",
           "close_now": "Close the windows now",
           "wait": "Better wait a little longer",
-          "optional": "Airing is optional"
+          "optional": "Ventilation is optional"
         }
       },
       "absolute_humidity": {
@@ -417,8 +417,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Ventilation light · 🟢 = good to air now · 🔴 = keep closed",
-        "room_air": "Ventilation need · 🟢 = no pressure · 🔴 = ventilate now"
+        "ventilation": "Ventilation light · 🟢 = good time to ventilate · 🔴 = better keep closed",
+        "room_air": "Ventilation need · 🟢 = no current reason · 🔴 = ventilate now"
       }
     },
     "room_notify_triggers": {

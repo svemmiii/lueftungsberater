@@ -60,12 +60,20 @@ def test_incomplete_sensor_data_has_natural_text_in_all_languages() -> None:
         assert "incomplete_data" not in duration_text("incomplete_data", language)
 
 
+
+def test_room_good_uses_clear_reason_wording_in_all_languages() -> None:
+    from custom_components.lueftungsberater.localization import recommendation_text
+
+    assert recommendation_text("room_good", "de") == "Aktuell kein Lüftungsgrund"
+    assert recommendation_text("room_good", "en") == "No current reason to ventilate"
+    assert recommendation_text("room_good", "tr") == "Şu anda havalandırma nedeni yok"
+
 def test_night_advice_text_is_localized() -> None:
     from custom_components.lueftungsberater.localization import night_advice_text
 
     expected_fragments = {
         "de": "Heute Nacht lüften",
-        "en": "Air tonight",
+        "en": "Ventilate tonight",
         "tr": "Bu gece havalandır",
     }
     args = {
@@ -152,3 +160,14 @@ def test_room_perspective_green_humidity_tradeoff_mentions_outweighed_drawback()
         text = reason_text("room_perspective", args, language, "°C")
         assert fragments[0] in text
         assert fragments[1] in text
+
+
+def test_co2_minimum_airing_text_exists_in_all_languages():
+    for language in ("de", "en", "tr"):
+        text = reason_text(
+            "co2_minimum_airing",
+            {"co2": 820, "cautious": True},
+            language,
+        )
+        assert "820" in text
+        assert len(text) > 30

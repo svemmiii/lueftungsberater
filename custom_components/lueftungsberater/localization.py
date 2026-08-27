@@ -11,17 +11,17 @@ RECOMMENDATIONS = {
         "open_now": "Jetzt lüften",
         "keep_open": "Weiter lüften",
         "can_close": "Lüften kann beendet werden",
-        "short_observation": "Nur kurz lüften und im Blick behalten",
-        "optional": "Lüften ist optional",
-        "better_close": "Besser schließen",
+        "short_observation": "Nur kurz lüften und die Situation im Blick behalten",
+        "optional": "Lüften ist aktuell optional",
+        "better_close": "Besser wieder schließen",
         "caution_keep_closed": "Vorsicht – lieber geschlossen lassen",
         "keep_closed": "Geschlossen lassen",
         "close_now": "Jetzt schließen",
         "wait": "Besser noch etwas warten",
         "unknown": "Aktuell keine zuverlässige Empfehlung möglich",
-        "room_good": "Aktuell kein Lüftungsdruck",
-        "room_watch": "Lüften kann sinnvoll werden",
-        "room_need": "Lüften ist sinnvoll",
+        "room_good": "Aktuell kein Lüftungsgrund",
+        "room_watch": "Lüften kann sinnvoll sein",
+        "room_need": "Lüften ist aktuell sinnvoll",
         "room_urgent": "Jetzt lüften",
         "room_keep_brief": "Noch kurz weiterlüften",
     },
@@ -30,18 +30,18 @@ RECOMMENDATIONS = {
         "keep_open": "Keep the windows open a little longer",
         "can_close": "You can close the windows now",
         "short_observation": "Open the windows briefly and keep an eye on it",
-        "optional": "Airing is optional",
+        "optional": "Ventilation is optional",
         "better_close": "Better close the windows",
         "caution_keep_closed": "Better keep the windows closed for now",
         "keep_closed": "Keep the windows closed",
         "close_now": "Close the windows now",
         "wait": "Better wait a little longer",
         "unknown": "No reliable recommendation is available right now",
-        "room_good": "No need to air the room right now",
-        "room_watch": "Airing may become useful",
-        "room_need": "Airing is useful",
-        "room_urgent": "Air the room now",
-        "room_keep_brief": "Keep airing briefly",
+        "room_good": "No current reason to ventilate",
+        "room_watch": "Ventilation may be worthwhile",
+        "room_need": "Ventilation is worthwhile now",
+        "room_urgent": "Ventilate now",
+        "room_keep_brief": "Keep ventilating briefly",
     },
     "tr": {
         "open_now": "Şimdi pencereleri aç",
@@ -55,9 +55,9 @@ RECOMMENDATIONS = {
         "close_now": "Pencereleri şimdi kapat",
         "wait": "Biraz daha beklemek daha iyi",
         "unknown": "Şu anda güvenilir bir öneri verilemiyor",
-        "room_good": "Şu anda havalandırma baskısı yok",
-        "room_watch": "Havalandırma yakında faydalı olabilir",
-        "room_need": "Havalandırmak faydalı",
+        "room_good": "Şu anda havalandırma nedeni yok",
+        "room_watch": "Havalandırmak faydalı olabilir",
+        "room_need": "Şu anda havalandırmak faydalı",
         "room_urgent": "Şimdi havalandır",
         "room_keep_brief": "Kısa süre daha havalandır",
     },
@@ -65,11 +65,12 @@ RECOMMENDATIONS = {
 
 DURATIONS = {
     "de": {
-        "until_targets": "Bis die offenen Lüftungsziele erreicht sind",
+        "until_targets": "Bis die noch offenen Lüftungsziele erreicht sind",
         "can_end": "Die Lüftung kann jetzt beendet werden",
-        "brief_observation": "Etwa 5 Minuten und dabei die Situation im Blick behalten",
+        "brief_observation": "Etwa 5 Minuten – dabei die Situation im Blick behalten",
         "co2_recheck": "5–10 Minuten, danach CO₂ erneut prüfen",
         "co2_until_good": "5–10 Minuten bzw. bis CO₂ unter etwa 1000 ppm fällt",
+        "co2_minimum": "Mindestens 5 Minuten ab dem Öffnen",
         "cooling": "15–30 Minuten – oder länger, solange die Außenluft weiterhin beim Abkühlen hilft",
         "warming": "5–10 Minuten",
         "2_4": "2–4 Minuten",
@@ -86,9 +87,10 @@ DURATIONS = {
     "en": {
         "until_targets": "Until the remaining ventilation targets are reached",
         "can_end": "You can close the windows now",
-        "brief_observation": "About 5 minutes while keeping an eye on the conditions",
+        "brief_observation": "About 5 minutes, while keeping an eye on the conditions",
         "co2_recheck": "5–10 minutes, then check CO₂ again",
         "co2_until_good": "5–10 minutes, or until CO₂ drops below roughly 1000 ppm",
+        "co2_minimum": "At least 5 minutes from opening the window",
         "cooling": "15–30 minutes, or longer if the cooler outdoor air continues to help",
         "warming": "5–10 minutes",
         "2_4": "2–4 minutes",
@@ -108,6 +110,7 @@ DURATIONS = {
         "brief_observation": "Yaklaşık 5 dakika; bu sırada durumu takip et",
         "co2_recheck": "5–10 dakika, ardından CO₂ seviyesini yeniden kontrol et",
         "co2_until_good": "5–10 dakika veya CO₂ yaklaşık 1000 ppm'in altına düşene kadar",
+        "co2_minimum": "Pencere açıldıktan sonra en az 5 dakika",
         "cooling": "15–30 dakika; dışarıdaki serin hava işe yaramaya devam ederse daha uzun da olabilir",
         "warming": "5–10 dakika",
         "2_4": "2–4 dakika",
@@ -229,7 +232,7 @@ def _continue_reason(args: dict[str, Any], lang: str, unit: str) -> str:
 
     joined = _join_reason_parts(parts, lang)
     return {
-        "de": f"Lüfte ruhig noch etwas weiter: {joined}.",
+        "de": f"Lüfte noch etwas weiter: {joined}.",
         "en": f"Keep the windows open a little longer: {joined}.",
         "tr": f"Pencereleri biraz daha açık tutabilirsin: {joined}.",
     }[lang]
@@ -279,9 +282,9 @@ def _air_quality_reason(key: str, a: dict[str, Any], lang: str) -> str:
 
     if key == "air_quality_moderate":
         return {
-            "de": f"Die Außenluft ist gerade nur mäßig{measured}. Wenn drinnen alles passt, musst du dafür nicht extra lüften.{context}",
-            "en": f"Outdoor air is only moderate right now{measured}. If the room is already fine, there is no need to open the windows just for that.{context}",
-            "tr": f"Dış hava şu anda yalnızca orta düzeyde{measured}. İçeride her şey yolundaysa sırf bunun için pencere açmaya gerek yok.{context}",
+            "de": f"Die Außenluft ist aktuell mäßig belastet{measured}. Wenn die Innenwerte passen, kannst du die Fenster geschlossen lassen.{context}",
+            "en": f"Outdoor air quality is moderate right now{measured}. If the indoor values are fine, you can keep the windows closed.{context}",
+            "tr": f"Dış hava kalitesi şu anda orta düzeyde{measured}. İç değerler uygunsa pencereleri kapalı tutabilirsin.{context}",
         }[lang]
 
     very_poor = key == "air_quality_very_poor"
@@ -291,7 +294,7 @@ def _air_quality_reason(key: str, a: dict[str, Any], lang: str) -> str:
         "tr": "çok kötü" if very_poor else "kötü",
     }[lang]
     return {
-        "de": f"Die Außenluft ist aktuell {level}{measured}. Wenn drinnen kein wichtiger Grund fürs Lüften besteht, lass die Fenster lieber zu.{context}",
+        "de": f"Die Außenluft ist aktuell {level}{measured}. Wenn drinnen kein wichtiger Lüftungsgrund besteht, lass die Fenster lieber geschlossen.{context}",
         "en": f"Outdoor air is {level} right now{measured}. If there is no important reason to air the room, it is better to keep the windows closed.{context}",
         "tr": f"Dış hava şu anda {level}{measured}. İçeride önemli bir havalandırma nedeni yoksa pencereleri kapalı tutmak daha iyi.{context}",
     }[lang]
@@ -304,9 +307,9 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
         ppm = _measurement(_number(co2, lang, 0), "ppm")
         detail_options = {
             "rain": {
-                "de": "Es regnet bzw. Regen kann die kurze Lüftung treffen.",
-                "en": "It is raining or rain may overlap the short airing period.",
-                "tr": "Yağmur yağıyor veya yağmur kısa havalandırma süresine denk gelebilir.",
+                "de": "Es regnet oder während der kurzen Lüftung könnte Regen einsetzen.",
+                "en": "It is raining or rain may begin during the short ventilation period.",
+                "tr": "Yağmur yağıyor veya kısa havalandırma sırasında yağmur başlayabilir.",
             },
             "humidity": {
                 "de": "Die Außenluft ist dabei feuchter und würde die Feuchtesituation verschlechtern.",
@@ -314,12 +317,12 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
                 "tr": "Dış hava daha nemli ve içerideki nem durumunu kötüleştirebilir.",
             },
             "temperature": {
-                "de": "Draußen würde es den Raum spürbar in die falsche Richtung ziehen.",
-                "en": "Outdoor air would noticeably push the room temperature in the wrong direction.",
-                "tr": "Dış hava oda sıcaklığını belirgin biçimde yanlış yöne götürür.",
+                "de": "Die Außentemperatur würde den Raum spürbar vom Sollwert wegbewegen.",
+                "en": "The outdoor temperature would noticeably move the room away from its target.",
+                "tr": "Dış sıcaklık oda sıcaklığını hedeften belirgin biçimde uzaklaştırır.",
             },
             "combined": {
-                "de": "Draußen ist es gleichzeitig deutlich wärmer und feuchter bzw. kälter und trockener.",
+                "de": "Draußen passen Temperatur und Feuchte gleichzeitig deutlich schlechter.",
                 "en": "Outside is also clearly worse for both temperature and humidity.",
                 "tr": "Dışarısı aynı anda hem sıcaklık hem de nem açısından belirgin biçimde daha kötü.",
             },
@@ -364,11 +367,11 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
     need_text = {
         "humidity": {"de": "Die Raumfeuchte spricht fürs Lüften.", "en": "Indoor humidity would benefit from airing.", "tr": "İç nem havalandırmadan fayda görür."},
         "humidity_urgent": {"de": "Die Raumfeuchte ist deutlich erhöht.", "en": "Indoor humidity is clearly elevated.", "tr": "İç nem belirgin şekilde yüksek."},
-        "mold": {"de": "Die Feuchtesituation an der überwachten Oberfläche würde von Luftaustausch profitieren.", "en": "The moisture situation at the monitored surface would benefit from air exchange.", "tr": "İzlenen yüzeydeki nem durumu hava değişiminden fayda görür."},
+        "mold": {"de": "Die Feuchtesituation an der überwachten Oberfläche kann von Luftaustausch profitieren.", "en": "The moisture situation at the monitored surface would benefit from air exchange.", "tr": "İzlenen yüzeydeki nem durumu hava değişiminden fayda görür."},
         "mold_persistent": {"de": "Die kritische Oberflächenfeuchte hält bereits länger an.", "en": "The critical surface humidity has persisted for a longer period.", "tr": "Kritik yüzey nemi daha uzun süredir devam ediyor."},
         "heat": {"de": "Der Raum ist deutlich aufgeheizt und könnte abkühlen.", "en": "The room is very warm and could benefit from cooling.", "tr": "Oda belirgin biçimde sıcak ve serinlemeden fayda görebilir."},
         "humid_heat": {"de": "Wärme und hohe Feuchte belasten den Raumkomfort.", "en": "Heat and high humidity are reducing comfort.", "tr": "Sıcaklık ve yüksek nem konforu azaltıyor."},
-        "temperature": {"de": "Die Außenluft würde die Temperatur Richtung Wunschwert bewegen.", "en": "The outdoor air would move the temperature toward your preferred value.", "tr": "Dış hava sıcaklığı tercih edilen değere yaklaştırabilir."},
+        "temperature": {"de": "Die Außenluft würde die Raumtemperatur Richtung Wunschwert bewegen.", "en": "The outdoor air would move the temperature toward your preferred value.", "tr": "Dış hava sıcaklığı tercih edilen değere yaklaştırabilir."},
         "routine": {"de": "Ein kurzer Luftaustausch wäre grundsätzlich sinnvoll.", "en": "A short air exchange would generally make sense.", "tr": "Kısa bir hava değişimi genel olarak mantıklı olur."},
     }.get(need, {"de": "Lüften hätte einen Vorteil.", "en": "Airing would have a benefit.", "tr": "Havalandırmanın bir faydası olur."})[lang]
     drawback_options = {
@@ -378,7 +381,7 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
         "air_warning": {"de": "Es gilt jedoch ein Außenluft-Hinweis.", "en": "There is an outdoor-air advisory, though.", "tr": "Ancak dış hava için bir uyarı var."},
         "weather": {"de": "Die Wetterlage spricht gleichzeitig gegen ein offenes Fenster.", "en": "The weather also argues against an open window.", "tr": "Hava koşulları aynı zamanda açık pencereye karşı."},
         "temperature": {"de": "Dabei würde sich die Raumtemperatur spürbar verschlechtern.", "en": "Room temperature would noticeably worsen at the same time.", "tr": "Oda sıcaklığı aynı zamanda belirgin biçimde kötüleşir."},
-        "combined": {"de": "Draußen würden Temperatur und Feuchte gleichzeitig deutlich schlechter passen.", "en": "Outdoor temperature and humidity would both be a noticeably worse fit.", "tr": "Dış sıcaklık ve nem aynı anda belirgin biçimde daha kötü uyuyor."},
+        "combined": {"de": "Temperatur und Feuchte draußen wären gleichzeitig deutlich ungünstiger.", "en": "Outdoor temperature and humidity would both be a noticeably worse fit.", "tr": "Dış sıcaklık ve nem aynı anda belirgin biçimde daha kötü uyuyor."},
         "outdoor_co2": {"de": "Auch draußen ist CO₂ hoch, dadurch bringt der Luftaustausch dafür nur wenig.", "en": "Outdoor CO₂ is high as well, so the air exchange would do little for that.", "tr": "Dışarıdaki CO₂ de yüksek; bu yüzden hava değişimi bu açıdan çok az fayda sağlar."},
     }
     drawback = drawback_options.get(caution, {
@@ -408,9 +411,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
 
     if need == "co2_critical":
         inside = {
-            "de": f"CO₂ liegt mit {co2} sehr hoch und erzeugt einen dringenden Lüftungsbedarf.",
-            "en": f"CO₂ is very high at {co2}, creating an urgent need for fresh air.",
-            "tr": f"CO₂ {co2} ile çok yüksek ve acil havalandırma ihtiyacı oluşturuyor.",
+            "de": f"CO₂ liegt mit {co2} sehr hoch. Dadurch ist Lüften dringend nötig.",
+            "en": f"CO₂ is very high at {co2}. Ventilation is urgently needed.",
+            "tr": f"CO₂ {co2} ile çok yüksek. Bu nedenle havalandırma acilen gerekli.",
         }[lang]
     elif need in {"co2_high", "co2_elevated"}:
         inside = {
@@ -425,51 +428,51 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             "tr": "biraz yüksek" if level <= 1 else "belirgin biçimde yüksek",
         }[lang]
         inside = {
-            "de": f"Die Raumfeuchte ist mit {humidity} {qualifier}.",
+            "de": f"Die Raumfeuchte liegt mit {humidity} {qualifier}.",
             "en": f"Indoor humidity is {qualifier} at {humidity}.",
             "tr": f"İç nem {humidity} ile {qualifier}.",
         }[lang]
     elif need == "mold_persistent":
         inside = {
-            "de": f"Die überwachte Oberfläche bleibt mit rund {surface} relativer Feuchte länger auffällig.",
-            "en": f"The monitored surface has remained elevated at around {surface} relative humidity for a longer period.",
-            "tr": f"İzlenen yüzey yaklaşık {surface} bağıl nemle daha uzun süredir yüksek kalıyor.",
+            "de": f"An der überwachten Oberfläche liegt die relative Feuchte seit längerer Zeit bei rund {surface} und bleibt damit auffällig.",
+            "en": f"Relative humidity at the monitored surface has remained elevated at around {surface} for a longer period.",
+            "tr": f"İzlenen yüzeyde bağıl nem uzun süredir yaklaşık {surface} seviyesinde ve yüksek kalıyor.",
         }[lang]
     elif need == "mold":
         inside = {
-            "de": f"Die Feuchte an der überwachten Oberfläche ist mit rund {surface} erhöht.",
+            "de": f"An der überwachten Oberfläche liegt die relative Feuchte bei rund {surface} und ist erhöht.",
             "en": f"Humidity at the monitored surface is elevated at around {surface}.",
             "tr": f"İzlenen yüzeydeki nem yaklaşık {surface} ile yüksek.",
         }[lang]
     elif need == "heat":
         inside = {
-            "de": f"Der Raum ist mit {ti} deutlich zu warm gegenüber {target} Soll.",
-            "en": f"The room is clearly too warm at {ti} compared with the {target} target.",
-            "tr": f"Oda {ti} ile {target} hedefine göre belirgin biçimde sıcak.",
+            "de": f"Der Raum liegt mit {ti} deutlich über dem Sollwert von {target}.",
+            "en": f"The room is at {ti}, clearly above the target of {target}.",
+            "tr": f"Oda {ti} ile {target} hedefinin belirgin biçimde üzerinde.",
         }[lang]
     elif need == "humid_heat":
         inside = {
-            "de": f"Mit {ti} und {humidity} sind Wärme und Feuchte gemeinsam erhöht.",
+            "de": f"Im Raum sind mit {ti} und {humidity} sowohl Temperatur als auch Feuchte erhöht.",
             "en": f"At {ti} and {humidity}, heat and humidity are elevated together.",
             "tr": f"{ti} ve {humidity} ile sıcaklık ve nem birlikte yüksek.",
         }[lang]
     elif need == "temperature":
         inside = {
-            "de": f"Die Raumtemperatur liegt bei {ti} statt ungefähr {target}; Luftaustausch kann sie Richtung Soll bewegen.",
-            "en": f"Room temperature is {ti} instead of roughly {target}; air exchange can move it toward the target.",
-            "tr": f"Oda sıcaklığı yaklaşık {target} yerine {ti}; hava değişimi hedefe doğru yardımcı olabilir.",
+            "de": f"Die Raumtemperatur liegt bei {ti} statt nahe am Sollwert von {target}. Lüften kann sie wieder Richtung Soll bewegen.",
+            "en": f"Room temperature is {ti}, away from the target of {target}. Ventilation can move it back toward the target.",
+            "tr": f"Oda sıcaklığı {ti}, hedef ise {target}. Havalandırma sıcaklığı yeniden hedefe yaklaştırabilir.",
         }[lang]
     elif need == "routine":
         inside = {
-            "de": f"Seit rund {hours} Stunden wurde keine bestätigte Lüftung erkannt; ein kurzer Luftaustausch wird dadurch langsam sinnvoll.",
-            "en": f"No confirmed airing has been detected for about {hours} hours, so a short air exchange is gradually becoming useful.",
-            "tr": f"Yaklaşık {hours} saattir doğrulanmış havalandırma algılanmadı; kısa bir hava değişimi giderek faydalı oluyor.",
+            "de": f"Seit rund {hours} Stunden wurde keine bestätigte Lüftung erkannt. Damit gibt es einen zusätzlichen Grund für einen kurzen Luftaustausch.",
+            "en": f"No confirmed airing has been detected for about {hours} hours. That adds a reason for a short air exchange.",
+            "tr": f"Yaklaşık {hours} saattir doğrulanmış havalandırma algılanmadı. Bu, kısa bir hava değişimi için ek bir neden oluşturuyor.",
         }[lang]
     else:
         inside = {
-            "de": "Die Innenwerte geben aktuell keinen relevanten Lüftungsbedarf vor.",
-            "en": "The indoor values do not indicate a relevant need for airing right now.",
-            "tr": "İç değerler şu anda belirgin bir havalandırma ihtiyacı göstermiyor.",
+            "de": "Die Innenwerte geben aktuell keinen relevanten Grund zum Lüften.",
+            "en": "The indoor values do not indicate a relevant reason to ventilate right now.",
+            "tr": "İç değerler şu anda belirgin bir havalandırma nedeni göstermiyor.",
         }[lang]
 
     # Keep the front of the card short: add only the outdoor factor that best
@@ -486,7 +489,7 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             outside = {
                 "de": " Die Außenluft ist derzeit feuchter und spricht gegen längeres Lüften.",
                 "en": " Outdoor air is currently more humid, which argues against prolonged airing.",
-                "tr": " Dış hava şu anda daha nemli ve uzun havalandırmaya karşı çıkıyor.",
+                "tr": " Dış hava şu anda daha nemli ve uzun süre havalandırmayı daha az uygun hâle getiriyor.",
             }[lang]
     elif caution == "temperature":
         if ventilation_color == "green" and level > 0:
@@ -499,13 +502,13 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             outside = {
                 "de": " Die Außentemperatur ist derzeit ungünstig und spricht gegen längeres Lüften.",
                 "en": " The outdoor temperature is currently unfavorable and argues against prolonged airing.",
-                "tr": " Dış sıcaklık şu anda elverişsiz ve uzun havalandırmaya karşı çıkıyor.",
+                "tr": " Dış sıcaklık şu anda elverişsiz ve uzun süre havalandırmayı daha az uygun hâle getiriyor.",
             }[lang]
     elif mode == "aussen_zu_warm":
         outside = {
             "de": f" Draußen sind es {ta}; Lüften würde den Raum aktuell eher weiter aufheizen.",
-            "en": f" It is {ta} outside; airing would currently tend to warm the room further.",
-            "tr": f" Dışarısı {ta}; havalandırma şu anda odayı daha da ısıtmaya eğilimli.",
+            "en": f" It is {ta} outside; ventilation would currently warm the room further.",
+            "tr": f" Dışarısı {ta}; havalandırma şu anda odayı daha da ısıtır.",
         }[lang]
     elif mode == "aussen_zu_kalt":
         outside = {
@@ -515,13 +518,13 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
         }[lang]
     elif mode in {"luftqualitaet_maessig", "luftqualitaet_schlecht", "luftqualitaet_sehr_schlecht", "luftqualitaet_sehr_schlecht_typisch"} or caution == "air_quality":
         outside = {
-            "de": " Die Außenluftqualität ist momentan ein Nachteil fürs Lüften.",
-            "en": " Outdoor air quality is currently a disadvantage for airing.",
-            "tr": " Dış hava kalitesi şu anda havalandırma açısından bir dezavantaj.",
+            "de": " Die Außenluftqualität ist momentan ein Nachteil beim Lüften.",
+            "en": " Outdoor air quality currently makes ventilation less favorable.",
+            "tr": " Dış hava kalitesi şu anda havalandırmayı daha az uygun hâle getiriyor.",
         }[lang]
     elif mode in {"nina_vorsicht", "wetter_vorsicht", "regen", "regen_bald"} or caution in {"air_warning", "weather", "rain"}:
         outside = {
-            "de": " Die aktuelle Außen- bzw. Wetterlage spricht gleichzeitig für Vorsicht.",
+            "de": " Die aktuelle Außen- oder Wetterlage spricht zusätzlich für Vorsicht.",
             "en": " The current outdoor or weather situation also calls for caution.",
             "tr": " Mevcut dış hava veya hava durumu aynı zamanda dikkat gerektiriyor.",
         }[lang]
@@ -533,9 +536,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
         }[lang]
     elif caution == "combined":
         outside = {
-            "de": " Temperatur und Feuchte draußen passen gleichzeitig deutlich schlechter.",
-            "en": " Outdoor temperature and humidity are both a clearly worse fit.",
-            "tr": " Dış sıcaklık ve nem aynı anda belirgin biçimde daha kötü uyuyor.",
+            "de": " Temperatur und Feuchte draußen sind gleichzeitig deutlich ungünstiger.",
+            "en": " Outdoor temperature and humidity are both clearly unfavorable.",
+            "tr": " Dış sıcaklık ve nem aynı anda belirgin biçimde elverişsiz.",
         }[lang]
     elif ventilation_color == "green" and level > 0:
         outside = {
@@ -562,6 +565,48 @@ def reason_text(
     if key == "room_perspective":
         return _room_perspective_reason(a, lang, temperature_unit)
 
+    if key == "co2_minimum_airing":
+        ppm = m(a.get("co2"), "ppm", 0) if a.get("co2") is not None else None
+        cautious = bool(a.get("cautious"))
+        if lang == "de":
+            value = f" CO₂ liegt aktuell bei {ppm}." if ppm else ""
+            tail = (
+                " Die bereits bekannten ungünstigen Außenbedingungen sind dabei schon berücksichtigt."
+                if cautious
+                else ""
+            )
+            return (
+                "Die gestartete CO₂-Lüftung läuft noch keine fünf Minuten. "
+                "Lüfte noch kurz weiter, damit der Luftaustausch Zeit hat zu wirken."
+                + value
+                + tail
+            )
+        if lang == "tr":
+            value = f" CO₂ şu anda {ppm}." if ppm else ""
+            tail = (
+                " Başlangıçta bilinen elverişsiz dış koşullar bu öneride zaten dikkate alındı."
+                if cautious
+                else ""
+            )
+            return (
+                "Başlatılan CO₂ havalandırması henüz beş dakika sürmedi. "
+                "Hava değişiminin etkili olması için biraz daha havalandır."
+                + value
+                + tail
+            )
+        value = f" CO₂ is currently at {ppm}." if ppm else ""
+        tail = (
+            " The unfavorable outdoor conditions already known at the start are already accounted for."
+            if cautious
+            else ""
+        )
+        return (
+            "The CO₂ airing session has not yet run for five minutes. "
+            "Keep ventilating a little longer so the air exchange has time to work."
+            + value
+            + tail
+        )
+
     if key == "continue_airing":
         return _continue_reason(a, lang, temperature_unit)
 
@@ -579,14 +624,14 @@ def reason_text(
             "temperature": {"de": "Draußen passt die Temperatur gerade nicht ideal.", "en": "Outdoor temperature is not ideal right now.", "tr": "Dış sıcaklık şu anda ideal değil."},
         }.get(caution, {"de": "Draußen ist es nicht ganz ideal.", "en": "Outside is not a great fit right now.", "tr": "Dış koşullar tam ideal değil."})[lang]
         return {
-            "de": f"CO₂ liegt bei {ppm}. Lüften ist trotzdem sinnvoll; {detail.lower()}",
-            "en": f"CO₂ is at {ppm}. Airing still makes sense; {detail[0].lower() + detail[1:]}",
-            "tr": f"CO₂ {ppm}. Buna rağmen havalandırmak mantıklı; {detail[0].lower() + detail[1:]}",
+            "de": f"CO₂ liegt bei {ppm}. Lüften ist trotzdem sinnvoll. {detail}",
+            "en": f"CO₂ is at {ppm}. Ventilation still makes sense. {detail}",
+            "tr": f"CO₂ {ppm}. Buna rağmen havalandırmak mantıklı. {detail}",
         }[lang]
 
     if key == "outside_strongly_unhelpful":
         return {
-            "de": f"Drinnen passt es bereits gut. Draußen sind es {t(a.get('ta'))} und auch die Feuchte würde sich deutlich verschlechtern. Lass die Fenster lieber geschlossen.",
+            "de": f"Die Innenwerte liegen bereits im guten Bereich. Draußen sind es {t(a.get('ta'))}; zusätzlich würde sich die Feuchtesituation deutlich verschlechtern. Lass die Fenster lieber geschlossen.",
             "en": f"The room is already in a good range. It is {t(a.get('ta'))} outside and humidity would also get noticeably worse, so keep the windows closed.",
             "tr": f"İçeride durum zaten iyi. Dışarısı {t(a.get('ta'))} ve nem de belirgin biçimde kötüleşir; pencereleri kapalı tutmak daha iyi.",
         }[lang]
@@ -594,14 +639,14 @@ def reason_text(
     if key == "surface_moisture_persistent_ventilate":
         surface = m(a.get("surface_humidity"), "%", 0)
         return {
-            "de": f"Die überwachte Oberfläche liegt bei etwa {surface} relativer Feuchte und die Belastung hält bereits länger an. Trocknere Außenluft hilft beim Entlasten.",
+            "de": f"An der überwachten Oberfläche liegt die relative Feuchte bei etwa {surface}; der erhöhte Wert hält bereits länger an. Die trockenere Außenluft kann die Feuchte dort senken.",
             "en": f"The monitored surface is at about {surface} relative humidity and the condition has persisted for a longer period. Drier outdoor air can help reduce it.",
             "tr": f"İzlenen yüzeyde bağıl nem yaklaşık {surface} ve bu durum daha uzun süredir devam ediyor. Daha kuru dış hava nemi azaltmaya yardımcı olur.",
         }[lang]
 
     if key == "surface_moisture_ventilate":
         return {
-            "de": "Die Feuchtesituation profitiert aktuell von der trockeneren Außenluft.",
+            "de": "Die trockenere Außenluft kann die Feuchtesituation an der überwachten Oberfläche aktuell verbessern.",
             "en": "The current moisture situation benefits from the drier outdoor air.",
             "tr": "Mevcut nem durumu daha kuru dış havadan fayda görür.",
         }[lang]
@@ -622,7 +667,7 @@ def reason_text(
 
     if key == "surface_moisture_neutral":
         return {
-            "de": "Innen- und Außenluft sind für die aktuelle Feuchtesituation nahezu ausgeglichen. Lüften ist dafür weder klar hilfreich noch deutlich nachteilig.",
+            "de": "Innen- und Außenluft sind hinsichtlich der Feuchte nahezu ausgeglichen. Lüften ist dafür weder klar hilfreich noch deutlich nachteilig.",
             "en": "Indoor and outdoor air are nearly balanced for the current moisture situation. Airing is neither clearly helpful nor clearly harmful for it.",
             "tr": "İç ve dış hava mevcut nem durumu açısından neredeyse dengeli. Havalandırma ne açıkça faydalı ne de belirgin biçimde zararlı.",
         }[lang]
@@ -648,7 +693,7 @@ def reason_text(
 
     if key == "humidity_neutral":
         return {
-            "de": f"Die Raumfeuchte liegt bei {m(a.get('humidity'), '%', 0)}, aber innen und außen unterscheiden sich absolut nur wenig. Lüften würde die Feuchte kaum verändern.",
+            "de": f"Die Raumfeuchte liegt bei {m(a.get('humidity'), '%', 0)}, die absolute Feuchte ist innen und außen aber nahezu gleich. Lüften würde daran kaum etwas ändern.",
             "en": f"Indoor relative humidity is {m(a.get('humidity'), '%', 0)}, but absolute humidity indoors and outdoors is very similar. Airing would hardly change it.",
             "tr": f"İç bağıl nem {m(a.get('humidity'), '%', 0)}, ancak içeride ve dışarıda mutlak nem birbirine çok yakın. Havalandırma nemi pek değiştirmez.",
         }[lang]
@@ -659,12 +704,12 @@ def reason_text(
         danger = key.endswith("danger")
         if danger:
             return {
-                "de": f"Wind bzw. Böen sind aktuell sehr kräftig{speed_text}. Ein offenes Fenster ist damit eher nachteilig; lass es besser geschlossen.",
-                "en": f"Wind or gusts are very strong right now{speed_text}. An open window is more disadvantageous in these conditions, so keep it closed.",
-                "tr": f"Rüzgâr veya rüzgâr hamleleri şu anda çok kuvvetli{speed_text}. Bu koşullarda açık pencere daha çok dezavantaj yaratır; kapalı tutmak daha iyi.",
+                "de": f"Wind bzw. Böen sind aktuell sehr kräftig{speed_text}. Ein offenes Fenster ist unter diesen Bedingungen ungünstig; lass es besser geschlossen.",
+                "en": f"Wind or gusts are very strong right now{speed_text}. An open window is unfavorable in these conditions, so keep it closed.",
+                "tr": f"Rüzgâr veya rüzgâr hamleleri şu anda çok kuvvetli{speed_text}. Bu koşullarda pencereyi açık bırakmak uygun değil; kapalı tutmak daha iyi.",
             }[lang]
         return {
-            "de": f"Es ist deutlich windig{speed_text}. Lüften ist möglich, aber das Fenster sollte gesichert und die Situation beobachtet werden.",
+            "de": f"Es ist deutlich windig{speed_text}. Lüften ist möglich, aber sichere das Fenster und behalte die Situation im Blick.",
             "en": f"It is noticeably windy{speed_text}. Airing is possible, but secure the window and keep an eye on conditions.",
             "tr": f"Hava belirgin biçimde rüzgârlı{speed_text}. Havalandırma mümkün, ancak pencereyi sabitlemek ve durumu izlemek gerekir.",
         }[lang]
@@ -672,9 +717,9 @@ def reason_text(
     if key == "rain_soon" and a.get("minutes") is not None:
         minutes = max(0, round(float(a.get("minutes"))))
         return {
-            "de": f"In etwa {minutes} Minuten wird Niederschlag erwartet und könnte die Lüftung treffen. Wenn es nicht dringend ist, warte besser kurz.",
-            "en": f"Precipitation is expected in about {minutes} minutes and may overlap the airing period. If it is not urgent, wait a little.",
-            "tr": f"Yaklaşık {minutes} dakika içinde yağış bekleniyor ve havalandırmaya denk gelebilir. Acil değilse biraz beklemek daha iyi.",
+            "de": f"In etwa {minutes} Minuten wird Niederschlag erwartet und könnte während der Lüftung einsetzen. Wenn es nicht dringend ist, warte besser kurz.",
+            "en": f"Precipitation is expected in about {minutes} minutes and may begin while the windows are open. If it is not urgent, wait a little.",
+            "tr": f"Yaklaşık {minutes} dakika içinde yağış bekleniyor ve pencereler açıkken başlayabilir. Acil değilse biraz beklemek daha iyi.",
         }[lang]
 
     if lang == "de":
@@ -686,7 +731,7 @@ def reason_text(
             "air_smoke_caution": "In der Umgebung wird Rauch oder Brandrauch gemeldet. Wenn es nicht dringend nötig ist, warte mit dem Lüften besser noch etwas.",
             "air_hazard_danger": "Es gibt eine Warnung vor Schadstoffen oder einem Gasaustritt in der Außenluft. Lass Fenster und Türen deshalb geschlossen.",
             "air_hazard_caution": "Es gibt einen Hinweis auf mögliche Schadstoffe in der Außenluft. Lüfte vorsichtshalber nur, wenn es wirklich nötig ist.",
-            "weather_danger": "Draußen ist eine Unwetterlage aktiv, bei der offene Fenster keine gute Idee sind. Lass sie vorerst geschlossen.",
+            "weather_danger": "Aktuell gilt eine Unwetterwarnung, bei der offene Fenster ungünstig sind. Lass sie vorerst geschlossen.",
             "weather_caution": "Es gibt aktuell eine Wetterwarnung. Lüften ist nicht grundsätzlich ausgeschlossen, aber im Moment eher ungünstig.",
             "weather_heavy_rain_current": "Draußen regnet es gerade kräftig. Lüften ist nicht grundsätzlich ausgeschlossen, aber im Moment eher unpraktisch.",
             "weather_heavy_rain_caution": "Es wird vor Starkregen gewarnt. Wenn es nicht dringend nötig ist, warte mit dem Lüften besser noch etwas.",
@@ -709,17 +754,17 @@ def reason_text(
             "co2_wait": f"CO₂ liegt bei {m(a.get('co2'), 'ppm', 0)} und ist erhöht. Die Außenbedingungen sind gerade aber ungünstig, deshalb ist kurzes Warten die bessere Wahl.",
             "mold_prevention": f"An der überwachten kalten Oberfläche liegt die berechnete relative Feuchte bei etwa {m(a.get('surface_humidity'), '%', 0)}. Da die Außenluft trockener ist, hilft Lüften dabei, die Feuchte dort wieder zu senken.",
             "mold_wait": f"An der überwachten kalten Oberfläche liegt die berechnete relative Feuchte bei etwa {m(a.get('surface_humidity'), '%', 0)}. Lüften würde die Feuchte im Moment aber nicht zuverlässig verbessern; behalte die Situation im Blick.",
-            "humidity_ventilate": f"Drinnen liegen {m(a.get('humidity'), '%', 0)} relative Feuchte an. Draußen enthält die Luft rund {m(a.get('diff'), 'g/m³')} weniger Wasser – Lüften hilft also beim Trocknen.",
+            "humidity_ventilate": f"Die relative Luftfeuchtigkeit innen liegt bei {m(a.get('humidity'), '%', 0)}. Draußen enthält die Luft rund {m(a.get('diff'), 'g/m³')} weniger Wasser – Lüften hilft also beim Trocknen.",
             "humidity_wait": "Die Luftfeuchte drinnen ist erhöht, draußen gibt es im Moment aber kaum einen Trocknungsvorteil. Warte besser noch etwas.",
             "cooling": f"Drinnen sind es {t(a.get('ti'))}, bei einem Soll von {t(a.get('target'))}. Draußen sind es {t(a.get('ta'))} – Lüften hilft jetzt beim Abkühlen.",
-            "warming": f"Drinnen sind es {t(a.get('ti'))}, bei einem Soll von {t(a.get('target'))}. Draußen ist es wärmer und die Außenluft eignet sich gerade zum Lüften.",
+            "warming": f"Drinnen sind es {t(a.get('ti'))}, bei einem Soll von {t(a.get('target'))}. Draußen ist es wärmer und kann den Raum beim Lüften Richtung Solltemperatur bringen.",
             "routine_ventilate": f"Seit rund {n(a.get('hours'), 1)} Stunden wurde keine bestätigte Lüftung erfasst. Die Außenbedingungen passen gerade gut, deshalb ist jetzt ein kurzer Luftaustausch sinnvoll.",
             "routine_wait": f"Seit rund {n(a.get('hours'), 1)} Stunden wurde keine bestätigte Lüftung erfasst. Die Bedingungen draußen passen gerade aber nicht gut genug – warte lieber noch etwas.",
             "outside_too_hot": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Beim Lüften würdest du gerade zusätzliche Wärme hereinholen – die Fenster bleiben besser zu.",
             "outside_too_cold": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Lüften würde den Raum gerade unnötig auskühlen – deshalb besser geschlossen lassen.",
-            "outside_more_humid": f"Die Außenluft enthält rund {m(a.get('amount'), 'g/m³')} mehr Wasser als die Luft drinnen. Lüften würde die Feuchte eher hereinholen als herausbringen.",
+            "outside_more_humid": f"Die Außenluft enthält rund {m(a.get('amount'), 'g/m³')} mehr Wasser als die Luft drinnen. Lüften würde aktuell eher Feuchte hineinbringen als abführen.",
             "inside_too_dry": "Die Luft drinnen ist bereits ziemlich trocken. Lüften würde sie im Moment noch weiter austrocknen – deshalb besser warten.",
-            "rain_now": "Draußen fällt gerade Niederschlag. Das sagt nichts über den Trocknungseffekt aus, macht ein offenes Fenster aber unpraktischer; wenn Lüften nicht nötig ist, warte besser kurz.",
+            "rain_now": "Draußen fällt gerade Niederschlag. Das verändert den Trocknungseffekt nicht automatisch, macht ein offenes Fenster aber unpraktischer. Wenn Lüften nicht nötig ist, warte besser kurz.",
             "rain_soon": "In Kürze wird Niederschlag erwartet. Wenn es nicht dringend nötig ist, ist ein etwas späterer Zeitpunkt zum Lüften wahrscheinlich besser.",
             "normal": "Aktuell gibt es keinen klaren Grund zum Lüften, und die Außenbedingungen bringen keinen deutlichen Vorteil. Lüften ist möglich, aber nicht nötig.",
             "incomplete_data": "Mindestens ein benötigter Temperatur- oder Feuchtewert ist gerade nicht verfügbar. Sobald die Sensordaten wieder vollständig sind, wird die Empfehlung automatisch aktualisiert.",
@@ -733,7 +778,7 @@ def reason_text(
             "air_smoke_caution": "Yakın çevrede duman veya yangın dumanı bildiriliyor. Acil değilse pencereleri açmadan önce biraz daha beklemek daha iyi.",
             "air_hazard_danger": "Dış havada zararlı madde veya gaz kaçağına ilişkin bir uyarı var. Pencereleri ve kapıları şimdilik kapalı tut.",
             "air_hazard_caution": "Dış havada olası kirletici maddelere ilişkin bir uyarı var. Gerçekten gerekmedikçe şimdilik pencereleri açma.",
-            "weather_danger": "Dışarıda açık pencerenin iyi fikir olmadığı ciddi bir hava durumu var. Koşullar düzelene kadar pencereleri kapalı tut.",
+            "weather_danger": "Ciddi bir hava durumu uyarısı aktif ve pencereleri açık bırakmak uygun değil. Koşullar düzelene kadar pencereleri kapalı tut.",
             "weather_caution": "Şu anda bir hava durumu uyarısı var. Pencereleri açmak tamamen yanlış değil, ancak koşullar pek uygun değil.",
             "weather_heavy_rain_current": "Dışarıda şu anda kuvvetli yağmur yağıyor. Pencereleri açmak tamamen yanlış değil ama şu an pek pratik değil.",
             "weather_heavy_rain_caution": "Kuvvetli yağmur uyarısı var. Acil değilse pencereleri açmadan önce biraz daha beklemek daha iyi.",
@@ -780,7 +825,7 @@ def reason_text(
             "air_smoke_caution": "Smoke or fire smoke has been reported nearby. Unless opening the windows is urgent, it is better to wait a little longer.",
             "air_hazard_danger": "There is a warning about hazardous substances or a gas release in the outdoor air. Keep windows and doors closed for now.",
             "air_hazard_caution": "There is an advisory about possible pollutants in the outdoor air. Unless you really need fresh air, keep the windows closed for now.",
-            "weather_danger": "Severe weather is active outside and open windows are a bad idea right now. Keep them closed until conditions improve.",
+            "weather_danger": "A severe-weather warning is active and open windows are unfavorable. Keep them closed until conditions improve.",
             "weather_caution": "There is an active weather warning. Opening the windows is not completely ruled out, but the conditions are not ideal right now.",
             "weather_heavy_rain_current": "It is raining heavily outside. Opening the windows is not completely ruled out, but it is rather impractical right now.",
             "weather_heavy_rain_caution": "There is a heavy-rain warning. Unless opening the windows is urgent, it is better to wait a little longer.",
@@ -867,9 +912,9 @@ def night_advice_text(
 
     if key == "night_now":
         return {
-            "de": f"🌙 Heute Nacht lüften: Draußen ist es schon {change}. Bis etwa {end} sieht es weiterhin gut zum Lüften aus.",
-            "en": f"🌙 Air tonight: it is already {change} outside. It should stay suitable for airing until around {end}.",
-            "tr": f"🌙 Bu gece havalandır: dışarısı şimdiden {change}. Yaklaşık {end} saatine kadar havalandırmaya uygun kalması bekleniyor.",
+            "de": f"🌙 Heute Nacht lüften: Draußen ist es bereits {change}. Bis etwa {end} bleiben die Bedingungen voraussichtlich günstig.",
+            "en": f"🌙 Ventilate tonight: it is already {change} outside. Conditions should remain suitable until around {end}.",
+            "tr": f"🌙 Bu gece havalandır: dışarısı şimdiden {change}. Koşulların yaklaşık {end} saatine kadar uygun kalması bekleniyor.",
         }[lang]
     if key == "night_later":
         return {
@@ -882,7 +927,7 @@ def night_advice_text(
         if a.get("rain_risk"):
             details.append({"de": "Regen möglich", "en": "rain is possible", "tr": "yağmur olabilir"}[lang])
         if a.get("humidity_disadvantage"):
-            details.append({"de": "draußen eher feuchter", "en": "outdoor air is more humid", "tr": "dış hava daha nemli"}[lang])
+            details.append({"de": "Außenluft eher feuchter", "en": "outdoor air is more humid", "tr": "dış hava daha nemli"}[lang])
         if a.get("weather_caution"):
             details.append({"de": "Wetterhinweis aktiv", "en": "a weather advisory is active", "tr": "hava durumu uyarısı aktif"}[lang])
         if a.get("air_warning"):
@@ -896,14 +941,14 @@ def night_advice_text(
         }[lang]
         if key == "night_later_conditional":
             return {
-                "de": f"🌙 Später könnte sich Lüften lohnen: Ab etwa {start} wird es draußen {change}, aber {detail}.",
-                "en": f"🌙 Airing may make sense later: from around {start}, it should be {change} outside, but {detail}.",
-                "tr": f"🌙 Daha sonra havalandırmak işe yarayabilir: yaklaşık {start} itibarıyla dışarısı {change} olacak, ancak {detail}.",
+                "de": f"🌙 Später könnte sich Lüften lohnen: Ab etwa {start} wird es draußen {change}. Allerdings: {detail}.",
+                "en": f"🌙 Ventilation may make sense later: from around {start}, it should be {change} outside. However: {detail}.",
+                "tr": f"🌙 Daha sonra havalandırmak işe yarayabilir: yaklaşık {start} itibarıyla dışarısı {change} olacak. Ancak: {detail}.",
             }[lang]
         return {
-            "de": f"🌙 Heute Nacht könnte Lüften sinnvoll sein, aber nicht ohne Abwägung: {detail}.",
-            "en": f"🌙 Airing tonight may make sense, but there is a trade-off: {detail}.",
-            "tr": f"🌙 Bu gece havalandırmak mantıklı olabilir, ancak bazı noktaları tartmak gerekiyor: {detail}.",
+            "de": f"🌙 Heute Nacht könnte Lüften sinnvoll sein, allerdings mit Einschränkungen: {detail}.",
+            "en": f"🌙 Ventilation tonight may make sense, but there are some drawbacks: {detail}.",
+            "tr": f"🌙 Bu gece havalandırmak mantıklı olabilir, ancak bazı kısıtlamalar var: {detail}.",
         }[lang]
     if key == "night_blocked":
         return {

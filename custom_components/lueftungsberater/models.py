@@ -45,6 +45,8 @@ class RoomInput:
     co2_pending_hold: bool = False
     co2_airing_active: bool = False
     co2_finish_ready: bool = False
+    co2_minimum_airing_active: bool = False
+    co2_minimum_airing_cautious: bool = False
 
 
 @dataclass(slots=True)

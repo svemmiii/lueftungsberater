@@ -14,9 +14,9 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .airing import tracker_signal
+from .airing import get_tracker, tracker_signal
 from .co2 import co2_tracker_signal
-from .co2_hysteresis import Co2HysteresisState
+from .co2_hysteresis import Co2HysteresisState, Co2MinimumAiringState
 from .const import (
     CONF_CO2,
     CONF_NIGHT_START_HOUR,
@@ -42,6 +42,16 @@ from .night import NIGHT_MAX_TEMP_DELTA, NightAdvice, display_interval, stabiliz
 from .runtime import RoomSnapshot, build_room_snapshot, room_co2_window_values, room_source_entities
 
 _LOGGER = logging.getLogger(__name__)
+
+_CO2_MINIMUM_GREEN_START_MODES = {
+    "co2_kritisch",
+    "co2_lueften",
+    "co2_lueften_mit_nachteil",
+}
+_CO2_MINIMUM_CAUTION_START_MODES = {
+    "co2_kritisch_vorsicht",
+    "co2_abwaegung",
+}
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -107,6 +117,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_need: str | None = None
         self._previous_mode_at: datetime | None = None
         self._co2_hysteresis = Co2HysteresisState()
+        self._co2_minimum_airing = Co2MinimumAiringState()
         self._co2_hysteresis_unsub: Callable[[], None] | None = None
         self._night_memory: NightAdvice | None = None
         self._night_memory_start: datetime | None = None
@@ -139,6 +150,22 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 self._co2_hysteresis.restore(
                     pending_below_since=pending,
                     finish_below_since=finish,
+                )
+
+        minimum_memory = stored.get("co2_minimum_airing")
+        if isinstance(minimum_memory, dict):
+            started_at = _parse_dt(minimum_memory.get("started_at"))
+            baseline_context = minimum_memory.get("baseline_context")
+            if stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL:
+                self._co2_minimum_airing.restore(
+                    started_at=started_at,
+                    cautious=bool(minimum_memory.get("cautious")),
+                    baseline_context=(
+                        baseline_context if isinstance(baseline_context, dict) else {}
+                    ),
+                    completed_for_open_window=bool(
+                        minimum_memory.get("completed_for_open_window")
+                    ),
                 )
 
         night = stored.get("night")
@@ -187,6 +214,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             "primary_need": self._previous_need,
             "updated_at": self._previous_mode_at.isoformat() if self._previous_mode_at else None,
             "co2_hysteresis": self._co2_hysteresis.as_dict(),
+            "co2_minimum_airing": self._co2_minimum_airing.as_dict(),
             "night": self._night_memory_payload(),
         }
 
@@ -318,6 +346,64 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_mode_at = dt_util.utcnow()
         self._queue_memory_save()
 
+    def _start_co2_minimum_airing_if_needed(
+        self, snapshot: RoomSnapshot, now_utc: datetime
+    ) -> bool:
+        """Start the five-minute hold only after a real CO₂ airing decision."""
+        if self._co2_minimum_airing.started_at is not None:
+            return False
+        if self._co2_minimum_airing.completed_for_open_window:
+            return False
+        if snapshot.result is None or not bool(snapshot.values.get("window_open")):
+            return False
+        if snapshot.result.safety_lock:
+            return False
+
+        source = snapshot
+        previous = self.data
+        # When the window has just been opened, the decision immediately before
+        # that action is the cleanest proof that the user followed the advisor.
+        if (
+            previous is not None
+            and previous.result is not None
+            and not bool(previous.values.get("window_open"))
+        ):
+            source = previous
+
+        result = source.result
+        if result is None or not result.primary_need.startswith("co2_"):
+            return False
+
+        mode = result.mode
+        cautious = mode in _CO2_MINIMUM_CAUTION_START_MODES
+        eligible = (
+            mode in _CO2_MINIMUM_GREEN_START_MODES
+            or mode in _CO2_MINIMUM_CAUTION_START_MODES
+            # If the window was already open when CO₂ became the new reason,
+            # the normal engine rewrites a green CO₂ mode to weiter_lueften.
+            or (mode == "weiter_lueften" and source is snapshot)
+        )
+        if not eligible:
+            return False
+
+        baseline = source.values.get("_co2_outdoor_context")
+        if not isinstance(baseline, dict):
+            baseline = snapshot.values.get("_co2_outdoor_context")
+        if not isinstance(baseline, dict):
+            baseline = {}
+
+        tracker = get_tracker(self.hass, self.entry, self.subentry)
+        started_at = (
+            tracker.open_since
+            if tracker is not None and tracker.open_since is not None
+            else now_utc
+        )
+        return self._co2_minimum_airing.start(
+            started_at=started_at,
+            cautious=cautious,
+            baseline_context=baseline,
+        )
+
     def _schedule_co2_hysteresis_check(self, seconds: float | None) -> None:
         """Schedule the exact point where a stable CO₂ threshold can release."""
         if self._co2_hysteresis_unsub is not None:
@@ -351,19 +437,23 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             if self.data is not None and self.data.result is not None
             else self._previous_need
         )
+        now_utc = dt_util.utcnow()
         co2, window_open = room_co2_window_values(self.hass, self.entry, self.subentry)
+
         co2_before = self._co2_hysteresis.as_dict()
         co2_hysteresis = self._co2_hysteresis.evaluate(
-            now=dt_util.utcnow(),
+            now=now_utc,
             co2=co2,
             window_open=window_open,
             previous_mode=previous_mode,
             previous_need=previous_need,
         )
-        if self._co2_hysteresis.as_dict() != co2_before:
-            self._queue_memory_save()
-        self._schedule_co2_hysteresis_check(co2_hysteresis.next_check_seconds)
-        snapshot = build_room_snapshot(
+        hysteresis_changed = self._co2_hysteresis.as_dict() != co2_before
+
+        # First calculate the untouched normal decision. The minimum-airing
+        # layer may then preserve an already accepted CO₂ session, but it never
+        # decides whether the user should have started airing in the first place.
+        base_snapshot = build_room_snapshot(
             self.hass,
             self.entry,
             self.subentry,
@@ -375,6 +465,68 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             weather=weather,
             warnings=warnings,
         )
+
+        minimum_before = self._co2_minimum_airing.as_dict()
+        minimum = self._co2_minimum_airing.evaluate(
+            now=now_utc,
+            window_open=window_open,
+            current_context=(
+                base_snapshot.values.get("_co2_outdoor_context")
+                if isinstance(base_snapshot.values.get("_co2_outdoor_context"), dict)
+                else None
+            ),
+            safety_lock=bool(
+                base_snapshot.result is not None and base_snapshot.result.safety_lock
+            ),
+        )
+
+        if not minimum.active and self._start_co2_minimum_airing_if_needed(
+            base_snapshot, now_utc
+        ):
+            minimum = self._co2_minimum_airing.evaluate(
+                now=now_utc,
+                window_open=window_open,
+                current_context=(
+                    base_snapshot.values.get("_co2_outdoor_context")
+                    if isinstance(base_snapshot.values.get("_co2_outdoor_context"), dict)
+                    else None
+                ),
+                safety_lock=bool(
+                    base_snapshot.result is not None and base_snapshot.result.safety_lock
+                ),
+            )
+
+        minimum_changed = self._co2_minimum_airing.as_dict() != minimum_before
+        if hysteresis_changed or minimum_changed:
+            self._queue_memory_save()
+
+        checks = [
+            seconds
+            for seconds in (
+                co2_hysteresis.next_check_seconds,
+                minimum.next_check_seconds,
+            )
+            if seconds is not None and seconds > 0
+        ]
+        self._schedule_co2_hysteresis_check(min(checks) if checks else None)
+
+        if minimum.active:
+            snapshot = build_room_snapshot(
+                self.hass,
+                self.entry,
+                self.subentry,
+                previous_mode=previous_mode,
+                previous_need=previous_need,
+                co2_pending_hold=co2_hysteresis.pending_hold,
+                co2_airing_active=co2_hysteresis.airing_active,
+                co2_finish_ready=co2_hysteresis.finish_ready,
+                co2_minimum_airing_active=True,
+                co2_minimum_airing_cautious=minimum.cautious,
+                weather=weather,
+                warnings=warnings,
+            )
+        else:
+            snapshot = base_snapshot
         return self._apply_night_memory(snapshot)
 
     async def _async_update_data(self) -> RoomSnapshot:

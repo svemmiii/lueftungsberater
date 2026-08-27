@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.7.7
+
+### CO₂-Lüftungssitzungen stabilisiert
+- Wenn der Lüftungsassistent aufgrund seiner Gesamtbewertung tatsächlich zum Lüften wegen CO₂ auffordert und anschließend ein Fenster geöffnet wird, erhält diese gestartete CO₂-Lüftung jetzt **mindestens 5 Minuten** Zeit. Ein sehr schneller CO₂-Abfall kann die Empfehlung in dieser Mindestzeit nicht sofort wieder auf „fertig“ umschalten.
+- Die Mindestzeit beginnt mit der tatsächlichen Fensteröffnung. War das Fenster beim Entstehen des CO₂-Lüftungsgrunds bereits geöffnet, wird die bereits vergangene Öffnungszeit berücksichtigt.
+- Öffnet der Nutzer ein Fenster entgegen einer aktuellen CO₂-Empfehlung wie „noch warten“, wird daraus bewusst **keine** künstliche 5-Minuten-Sitzung erzeugt.
+- Bereits beim Start bekannte und von der Gesamtentscheidung akzeptierte Nachteile draußen werden während der kurzen Mindestzeit nicht sekündlich neu gegen den inzwischen fallenden CO₂-Wert ausgespielt. Neue relevante Verschlechterungen der Außenlage dürfen die Mindestzeit dagegen aufheben; harte Safety-Locks und amtliche Schließanweisungen übersteuern weiterhin sofort.
+- War die ursprüngliche CO₂-Empfehlung wegen ungünstiger Außenbedingungen nur **Gelb / kurz und beobachten**, bleibt auch die Mindestphase bewusst vorsichtig und wird nicht künstlich auf Grün hochgestuft.
+- Nach Ablauf der 5 Minuten gilt unverändert die vorhandene CO₂-Abschlusshysterese: Zielnähe zwischen 850 und 900 ppm sowie Abschluss erst nach mindestens 2 stabilen Minuten bei höchstens 850 ppm.
+- Startzeit und kleiner Sitzungskontext werden mit dem vorhandenen Entscheidungs-Memory gespeichert, damit ein kurzer Home-Assistant-Neustart die Mindestlüftung nicht künstlich verkürzt.
+- Neue kurze Kartentexte für die Mindestlüftung wurden in Deutsch, Englisch und Türkisch ergänzt.
+
+### Texte und Formulierungen überarbeitet
+- Alle nutzerseitigen Empfehlungstexte der Hauptkarte wurden auf Verständlichkeit, Satzbau und Bezug zur tatsächlichen Entscheidungslogik geprüft. Die zugrunde liegende Lüftungsentscheidung bleibt unverändert.
+- Die Bedarfsperspektive verwendet jetzt den klareren Begriff **„Lüftungsgrund“** statt „Lüftungsdruck“. Grün bedeutet damit verständlich: aktuell besteht kein relevanter Grund zu lüften.
+- Mehrere Kurzbegründungen wurden sprachlich geglättet, insbesondere für CO₂, Feuchte, Oberflächenfeuchte, Temperatur, Routine-Lüftung, Wind, Regen und Zielkonflikte mit ungünstigen Außenbedingungen.
+- Die Nachttexte wurden vereinfacht: bedingte Nachtlüftung spricht jetzt von **Einschränkungen** statt der schwerer verständlichen Formulierung „nicht ohne Abwägung“.
+- Benachrichtigungen und Karten-Hinweise wurden an denselben kurzen, direkten Sprachstil angepasst.
+- Deutsche Konfigurations- und Editor-Texte wurden grammatikalisch bereinigt; unter anderem „Lüftungsassistenten“, Nacht-Zeitfenster, Remote-Hinweise und einzelne UI-Beschriftungen.
+- Englische und türkische Texte wurden inhaltlich entsprechend angeglichen; mehrere wörtlich oder technisch klingende Formulierungen wurden natürlicher formuliert.
+- Keine Grenzwerte, Prioritäten, Hysteresen, Warnlogiken oder Nachtentscheidungen wurden durch dieses Text-Update verändert.
+
 ## v0.7.6
 
 ### Zwei Ampelperspektiven sauber getrennt

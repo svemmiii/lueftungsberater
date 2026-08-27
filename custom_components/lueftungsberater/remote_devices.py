@@ -107,7 +107,7 @@ def async_sync_remote_room_devices(
                 manufacturer="Lüftungsassistent",
                 model="Tailscale Remote-Raum",
                 name=(f"{instance_name} · {room_name}" if multiple_instances else room_name),
-                sw_version="0.7.6",
+                sw_version="0.7.7",
             )
 
     # Remove remote room cards only when an available peer confirms that the

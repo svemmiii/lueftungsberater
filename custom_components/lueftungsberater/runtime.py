@@ -15,7 +15,7 @@ from .airing import get_tracker
 from .air_quality import get_air_quality_tracker
 from .co2 import get_co2_tracker
 from .const import *
-from .engine import evaluate_room, surface_relative_humidity
+from .engine import co2_outdoor_context, evaluate_room, surface_relative_humidity
 from .models import RoomInput, VentilationResult
 from .mold import get_mold_tracker
 from .night import evaluate_night_ventilation
@@ -400,6 +400,8 @@ def build_room_snapshot(
     co2_pending_hold: bool = False,
     co2_airing_active: bool = False,
     co2_finish_ready: bool = False,
+    co2_minimum_airing_active: bool = False,
+    co2_minimum_airing_cautious: bool = False,
     weather: WeatherAssessment | None = None,
     warnings: WarningAssessment | None = None,
 ) -> RoomSnapshot:
@@ -542,48 +544,53 @@ def build_room_snapshot(
     # this extra flag as an entity attribute.
     values["_night_ventilation_safety_block"] = night_advice.safety_block
 
-    result = evaluate_room(
-        RoomInput(
-            indoor_temp=ti,
-            indoor_humidity=hi,
-            outdoor_temp=ta,
-            outdoor_humidity=ha,
-            target_temp=values["target_temperature"],
-            co2=values["co2_ppm"],
-            outdoor_co2=values.get("outdoor_co2_ppm"),
-            window_open=bool(values["window_open"]),
-            hours_since_airing=values["hours_since_last_airing"],
-            rain_now=(weather.rain_now or legacy_rain_now),
-            rain_soon=(weather.rain_soon or legacy_rain_soon),
-            rain_minutes_until=weather.rain_minutes_until,
-            weather_caution=weather_caution,
-            weather_danger=weather_danger,
-            weather_reason_key=weather_reason_key,
-            weather_reason_args=weather_reason_args,
-            weather_original_reason=weather_original_reason,
-            nina_status=normalized_nina,
-            nina_reason_key=nina_reason_key,
-            nina_reason_args=nina_reason_args,
-            nina_original_reason=nina_original_reason,
-            surface_temp=values.get("surface_temperature"),
-            mold_current_critical_minutes=values.get("mold_current_critical_minutes"),
-            mold_critical_minutes_24h=values.get("mold_critical_minutes_24h"),
-            mold_persistent=bool(values.get("mold_persistent")),
-            air_quality=weather.air_quality_index,
-            air_quality_pollutant=weather.air_quality_pollutant,
-            air_quality_value=weather.air_quality_value,
-            air_quality_baseline_value=values.get("air_quality_baseline_value"),
-            air_quality_typical=values.get("air_quality_typical"),
-            air_quality_unusual=bool(values.get("air_quality_unusual")),
-            air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
-            air_quality_history_samples=int(values.get("air_quality_history_samples") or 0),
-            previous_mode=previous_mode,
-            previous_need=previous_need,
-            co2_pending_hold=co2_pending_hold,
-            co2_airing_active=co2_airing_active,
-            co2_finish_ready=co2_finish_ready,
-        )
+    room_input = RoomInput(
+        indoor_temp=ti,
+        indoor_humidity=hi,
+        outdoor_temp=ta,
+        outdoor_humidity=ha,
+        target_temp=values["target_temperature"],
+        co2=values["co2_ppm"],
+        outdoor_co2=values.get("outdoor_co2_ppm"),
+        window_open=bool(values["window_open"]),
+        hours_since_airing=values["hours_since_last_airing"],
+        rain_now=(weather.rain_now or legacy_rain_now),
+        rain_soon=(weather.rain_soon or legacy_rain_soon),
+        rain_minutes_until=weather.rain_minutes_until,
+        weather_caution=weather_caution,
+        weather_danger=weather_danger,
+        weather_reason_key=weather_reason_key,
+        weather_reason_args=weather_reason_args,
+        weather_original_reason=weather_original_reason,
+        nina_status=normalized_nina,
+        nina_reason_key=nina_reason_key,
+        nina_reason_args=nina_reason_args,
+        nina_original_reason=nina_original_reason,
+        surface_temp=values.get("surface_temperature"),
+        mold_current_critical_minutes=values.get("mold_current_critical_minutes"),
+        mold_critical_minutes_24h=values.get("mold_critical_minutes_24h"),
+        mold_persistent=bool(values.get("mold_persistent")),
+        air_quality=weather.air_quality_index,
+        air_quality_pollutant=weather.air_quality_pollutant,
+        air_quality_value=weather.air_quality_value,
+        air_quality_baseline_value=values.get("air_quality_baseline_value"),
+        air_quality_typical=values.get("air_quality_typical"),
+        air_quality_unusual=bool(values.get("air_quality_unusual")),
+        air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
+        air_quality_history_samples=int(values.get("air_quality_history_samples") or 0),
+        previous_mode=previous_mode,
+        previous_need=previous_need,
+        co2_pending_hold=co2_pending_hold,
+        co2_airing_active=co2_airing_active,
+        co2_finish_ready=co2_finish_ready,
+        co2_minimum_airing_active=co2_minimum_airing_active,
+        co2_minimum_airing_cautious=co2_minimum_airing_cautious,
     )
+    # Internal-only category snapshot for the five-minute CO₂ hold. Keeping it
+    # in the shared room snapshot lets the coordinator compare outdoor changes
+    # without adding recorder attributes or a second decision path.
+    values["_co2_outdoor_context"] = co2_outdoor_context(room_input)
+    result = evaluate_room(room_input)
 
     return RoomSnapshot(result, values, weather, warnings)
 
