@@ -8,6 +8,10 @@ from typing import Any
 
 from .engine import AH_NEUTRAL, absolute_humidity
 
+NIGHT_MAX_TEMP_DELTA = 9.0
+NIGHT_FORECAST_BUFFER = timedelta(hours=1)
+NIGHT_FINAL_HOLD = timedelta(hours=1)
+
 _RAINY_CONDITIONS = {
     "rainy",
     "pouring",
@@ -25,9 +29,77 @@ class NightAdvice:
     status: str = "unavailable"  # now | later | conditional | blocked | unavailable
     reason_key: str | None = None
     reason_args: dict[str, Any] = field(default_factory=dict)
+    safety_block: bool = False
 
 
-def _display_interval(
+def _advice_rank(advice: NightAdvice) -> int:
+    """Higher means more restrictive for final-hour stabilization."""
+    return {"now": 0, "later": 1, "conditional": 2, "blocked": 3}.get(
+        advice.status, -1
+    )
+
+
+def _advance_held_advice(advice: NightAdvice, now: datetime) -> NightAdvice:
+    """Turn a stored 'later' hint into 'now' once its planned start passed."""
+    args = dict(advice.reason_args)
+    raw_start = args.get("start_time")
+    start: datetime | None = None
+    if isinstance(raw_start, str):
+        try:
+            start = datetime.fromisoformat(raw_start)
+        except ValueError:
+            start = None
+    if start is not None and start.tzinfo is not None and start <= now:
+        if advice.status == "later":
+            args["start_time"] = now.isoformat()
+            return NightAdvice("now", "night_now", args)
+        if advice.status == "conditional" and advice.reason_key == "night_later_conditional":
+            args["start_time"] = now.isoformat()
+            return NightAdvice("conditional", "night_now_conditional", args)
+    return NightAdvice(advice.status, advice.reason_key, args)
+
+
+def stabilize_night_advice(
+    *,
+    now: datetime,
+    interval_end: datetime,
+    raw: NightAdvice,
+    previous: NightAdvice | None,
+    planning_need: bool,
+    current_delta_ok: bool,
+) -> tuple[NightAdvice, NightAdvice | None]:
+    """Keep an evening plan calm near the end without hiding new danger.
+
+    The first return value is what the card should show now. The second is the
+    non-safety base plan that should be kept for restart/final-hour memory.
+    """
+    if not planning_need or not current_delta_ok:
+        return raw, None
+
+    if raw.safety_block:
+        # Hard official/weather protection always wins, but must not overwrite
+        # the previous base plan. A late all-clear can therefore fall back to it.
+        return raw, previous
+
+    in_final_hour = interval_end - now <= NIGHT_FINAL_HOLD
+    if in_final_hour:
+        if previous is None:
+            # Do not invent a brand-new positive strategy shortly before the
+            # configured end; the night card is primarily a pre-sleep decision.
+            return NightAdvice(), None
+        held = _advance_held_advice(previous, now)
+        if raw.status != "unavailable" and _advice_rank(raw) > _advice_rank(held):
+            # Worsening conditions may still make the card more cautious.
+            return raw, NightAdvice(raw.status, raw.reason_key, dict(raw.reason_args))
+        return held, previous
+
+    if raw.status != "unavailable":
+        remembered = NightAdvice(raw.status, raw.reason_key, dict(raw.reason_args))
+        return raw, remembered
+    return raw, previous
+
+
+def display_interval(
     now: datetime,
     start_minute: int,
     end_minute: int = 7 * 60,
@@ -131,7 +203,7 @@ def evaluate_night_ventilation(
     """
     if start_hour is not None:
         start_minute = max(0, min(23, int(start_hour))) * 60
-    interval = _display_interval(now, start_minute, end_minute)
+    interval = display_interval(now, start_minute, end_minute)
     if interval is None:
         return NightAdvice()
     if indoor_temp is None or indoor_humidity is None or target_temp is None:
@@ -150,7 +222,7 @@ def evaluate_night_ventilation(
             number = float(temp)
         except (TypeError, ValueError):
             continue
-        if now <= stamp <= end:
+        if now <= stamp <= end + NIGHT_FORECAST_BUFFER:
             item = dict(raw)
             item["temperature"] = number
             points.append(item)
@@ -170,9 +242,10 @@ def evaluate_night_ventilation(
     # as a proxy for the current outdoor conditions.
     current_useful = False
     if outdoor_temp is not None:
-        if thermal_need and outdoor_temp <= indoor_temp - 0.7:
+        unattended_temp_ok = abs(outdoor_temp - indoor_temp) <= NIGHT_MAX_TEMP_DELTA
+        if unattended_temp_ok and thermal_need and outdoor_temp <= indoor_temp - 0.7:
             current_useful = True
-        if humidity_need and outdoor_humidity is not None:
+        if unattended_temp_ok and humidity_need and outdoor_humidity is not None:
             try:
                 current_outdoor_ah = absolute_humidity(outdoor_temp, outdoor_humidity)
                 if current_outdoor_ah <= indoor_ah - AH_NEUTRAL:
@@ -188,6 +261,12 @@ def evaluate_night_ventilation(
     candidate_points: list[dict[str, Any]] = []
     for item in points:
         useful = False
+        # A night hint is meant for a longer, mostly unattended opening. Even a
+        # thermodynamically helpful forecast is not a sensible all-night hint if
+        # it is more than 9 K away from the current room temperature. Ordinary
+        # live airing remains handled by the main advisor without this guard.
+        if abs(float(item["temperature"]) - indoor_temp) > NIGHT_MAX_TEMP_DELTA:
+            continue
         if thermal_need and item["temperature"] <= indoor_temp - 0.7:
             useful = True
         if humidity_need and item.get("humidity") is not None:
@@ -200,7 +279,11 @@ def evaluate_night_ventilation(
         if useful:
             candidate_points.append(item)
 
-    segments = [segment for segment in _consecutive_segments(candidate_points) if len(segment) >= 2]
+    segments = [
+        segment
+        for segment in _consecutive_segments(candidate_points)
+        if len(segment) >= 2 and segment[0]["datetime"] < end
+    ]
     if not segments:
         return NightAdvice()
 
@@ -282,7 +365,12 @@ def evaluate_night_ventilation(
     # alone is not a safety lock here, but it is enough to avoid recommending a
     # long unattended opening, especially when it is unusually bad locally.
     if nina_status == "danger" or weather_danger or max_wind_level >= 2:
-        return NightAdvice("blocked", "night_blocked", args)
+        return NightAdvice(
+            "blocked",
+            "night_blocked",
+            args,
+            safety_block=(nina_status == "danger" or weather_danger),
+        )
     if air_quality == "very_poor" and (air_quality_unusual or air_quality_trend == "rising"):
         return NightAdvice("blocked", "night_air_too_bad", args)
 

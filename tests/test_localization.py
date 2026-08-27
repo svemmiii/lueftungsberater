@@ -79,3 +79,76 @@ def test_night_advice_text_is_localized() -> None:
         text = night_advice_text("night_now", args, language, "°C")
         assert fragment in text
         assert "03:00" in text
+
+
+def test_room_perspective_text_is_short_and_localized_in_all_languages() -> None:
+    from custom_components.lueftungsberater.localization import recommendation_text
+
+    args = {
+        "need": "humidity",
+        "level": 1,
+        "ventilation_color": "orange",
+        "mode": "feuchte_warten",
+        "humidity": 60.6,
+        "ti": 23.0,
+        "ta": 24.0,
+        "target": 22.0,
+    }
+    for language in ("de", "en", "tr"):
+        recommendation = recommendation_text("room_good", language)
+        reason = reason_text("room_perspective", args, language, "°C")
+        assert recommendation
+        assert reason
+        assert "room_" not in recommendation
+        assert "room_" not in reason
+
+
+def test_room_perspective_green_tradeoff_does_not_claim_outside_is_good() -> None:
+    args = {
+        "need": "co2_high",
+        "level": 3,
+        "ventilation_color": "green",
+        "mode": "co2_lueften_mit_nachteil",
+        "caution": "temperature",
+        "co2": 1900,
+        "humidity": 50.0,
+        "ti": 25.0,
+        "ta": 38.0,
+        "target": 22.0,
+    }
+    expected = {
+        "de": ("Außentemperatur ist zwar ungünstig", "Lüftungsbedarf wiegt hier aber stärker"),
+        "en": ("outdoor temperature is unfavorable", "need for air exchange outweighs"),
+        "tr": ("Dış sıcaklık elverişsiz", "havalandırma ihtiyacı bu dezavantajdan daha ağır basıyor"),
+    }
+    for language, fragments in expected.items():
+        text = reason_text("room_perspective", args, language, "°C")
+        assert fragments[0] in text
+        assert fragments[1] in text
+        assert "ausreichend gut" not in text
+        assert "suitable enough" not in text
+        assert "yeterince uygun" not in text
+
+
+def test_room_perspective_green_humidity_tradeoff_mentions_outweighed_drawback() -> None:
+    args = {
+        "need": "co2_high",
+        "level": 3,
+        "ventilation_color": "green",
+        "mode": "co2_lueften_mit_nachteil",
+        "caution": "humidity",
+        "co2": 1900,
+        "humidity": 50.0,
+        "ti": 23.0,
+        "ta": 23.0,
+        "target": 22.0,
+    }
+    expected = {
+        "de": ("Außenluft ist zwar feuchter", "Lüftungsbedarf wiegt hier aber stärker"),
+        "en": ("Outdoor air is more humid", "need for air exchange outweighs"),
+        "tr": ("Dış hava daha nemli", "havalandırma ihtiyacı bu dezavantajdan daha ağır basıyor"),
+    }
+    for language, fragments in expected.items():
+        text = reason_text("room_perspective", args, language, "°C")
+        assert fragments[0] in text
+        assert fragments[1] in text

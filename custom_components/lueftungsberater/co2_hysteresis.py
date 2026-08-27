@@ -47,6 +47,27 @@ class Co2HysteresisState:
         self.pending_below_since = None
         self.finish_below_since = None
 
+    def as_dict(self) -> dict[str, str | None]:
+        """Return the tiny restart-safe timer state."""
+        return {
+            "pending_below_since": (
+                self.pending_below_since.isoformat() if self.pending_below_since else None
+            ),
+            "finish_below_since": (
+                self.finish_below_since.isoformat() if self.finish_below_since else None
+            ),
+        }
+
+    def restore(
+        self,
+        *,
+        pending_below_since: datetime | None,
+        finish_below_since: datetime | None,
+    ) -> None:
+        """Restore timers; normal evaluate() validation still decides relevance."""
+        self.pending_below_since = pending_below_since
+        self.finish_below_since = finish_below_since
+
     def evaluate(
         self,
         *,

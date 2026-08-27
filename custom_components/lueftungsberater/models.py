@@ -62,6 +62,9 @@ class VentilationResult:
     absolute_humidity_difference: float
     co2_status: str
     room_status_color: str = "green"
+    room_recommendation_key: str = "room_good"
+    room_reason_key: str = "room_perspective"
+    room_reason_args: dict[str, Any] = field(default_factory=dict)
     primary_need: str = "none"
     safety_lock: bool = False
     surface_relative_humidity: float | None = None

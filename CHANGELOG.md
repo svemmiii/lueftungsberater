@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.7.6
+
+### Zwei Ampelperspektiven sauber getrennt
+- Die eigentliche Lüftungsentscheidung bleibt dieselbe vollständige Gesamtabwägung aus Innen- und Außenwerten. v0.7.6 baut **keine zweite Entscheidungsengine** und verändert die bestehenden CO₂-/Feuchte-/Temperatur-Schwellen nicht.
+- Die Standardansicht `room_air` wird als **Lüftungsbedarf-/Handlungsdruck-Perspektive** sauber ausgewertet: leichte Innenabweichungen bleiben bei deutlich ungeeigneter Außenluft bewusst ruhig, stärkere Gründe steigen schrittweise über Gelb/Orange bis Rot an.
+- Regression für den v0.7.5-Doppel-Orange-Fall: Bei ansonsten guten Innenwerten, nur leicht erhöhter Raumfeuchte und noch feuchterer Außenluft kann die Lüftungsampel weiterhin Orange sein, während die Bedarfsperspektive korrekt Grün zeigt.
+- `room_air` tauscht nicht mehr nur die Farbe aus. Empfehlung und Kurzbegründung werden jetzt ebenfalls aus der Raum-/Bedarfsperspektive formuliert; Safety-Locks behalten immer den eindeutigen amtlichen Schutztext.
+- Akzeptiert ein starker Innenbedarf bewusst einen ungünstigen Außenfaktor, benennt die Bedarfsperspektive diesen Zielkonflikt jetzt korrekt in Deutsch, Englisch und Türkisch, statt die Außenbedingungen fälschlich als passend zu bezeichnen.
+- Kartenlayout, Messwertdarstellung und Bedienung bleiben unverändert.
+
+### Nachtlüftung ruhiger und plausibler
+- Für einen längeren, weitgehend unbeaufsichtigten Nachthinweis werden Forecastpunkte mit mehr als **9 K** Abstand zur aktuellen Raumtemperatur verworfen. Die normale Live-Lüftungslogik ist davon nicht betroffen.
+- Die Forecastauswertung darf intern bis zu **eine Stunde hinter die konfigurierte Nacht-Endzeit** schauen, um den letzten Abschnitt belastbar zu bestätigen; angezeigt wird weiterhin niemals über die vom Nutzer eingestellte Endzeit hinaus.
+- In der letzten Stunde wird bei dünner Forecastbasis der letzte belastbare Nacht-Basisstatus gehalten statt eine neue positive Strategie zu erfinden. Verschlechterungen dürfen die Aussage weiterhin vorsichtiger machen; harte NINA-/DWD-Schutzsperren übersteuern jederzeit.
+- Nach einer späten Entwarnung kann auf den vorherigen Basisplan zurückgefallen werden. Ist der eigentliche Nacht-Lüftungsgrund inzwischen weggefallen oder der aktuelle Temperaturabstand unplausibel groß, wird kein alter Plan künstlich festgehalten.
+- Der gehaltene Nacht-Basisstatus wird kompakt gespeichert und nach einem Home-Assistant-Neustart innerhalb desselben Nachtfensters wiederhergestellt.
+
+### Neustartsicherheit
+- Die Zeitpunkte der 3-Minuten-CO₂-Rücklaufhysterese und der 2-Minuten-Abschlussstabilisierung werden kompakt mit dem bestehenden Entscheidungs-Memory gespeichert und nach einem Neustart weiterverwendet, sofern der Live-Kontext noch passt.
+- Der vorhandene 60-Sekunden-Failsafe für einen kurz ausfallenden CO₂-Sensor übersteht nun ebenfalls einen Neustart, ohne die Grace-Zeit neu zu starten. Ein abgelaufener Wert wird nicht als aktueller Messwert wiederhergestellt.
+- Es wird weiterhin **keine zusätzliche CO₂-/Temperatur-/Feuchte-Rohhistorie** angelegt. Gespeichert werden nur kleine Zustandsautomaten und Zeitpunkte, die nach einem Neustart nicht sicher aus Live-Entities rekonstruierbar sind.
+
+### Tests / Release
+- Neue Regressionstests für beide Ampelperspektiven, den 9-K-Nachtfilter, den +1-h-Forecastpuffer, den Final-Hour-Hold, Safety-Override/Entwarnung sowie restartfähige CO₂-Zustände ergänzt.
+- Release-Archiv bleibt auf das normale Repository-Layout beschränkt; keine Root-Manifeste, Caches, `__pycache__`, `.pyc` oder Arbeitsdateien.
+
 ## v0.7.5
 
 - CO₂-Empfehlungen starten weiterhin bei 1000 ppm, werden bei geschlossenem Fenster aber erst nach 3 stabilen Minuten unter 900 ppm zurückgenommen.

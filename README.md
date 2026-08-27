@@ -14,9 +14,10 @@ Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Rau
 
 - Eigene Lüftungsempfehlung pro Raum
 - Vierstufige, konfigurierbare Ampeldarstellung mit kurzer Begründung
-  - **Raumluftstatus (Standard):** Grün = Raumluft unauffällig, Gelb = leichte Abweichung, Orange = Lüften sinnvoll, Rot = deutlicher Lüftungsbedarf
-  - **Lüftungsampel (optional):** Grün = Lüften sinnvoll, Gelb = optional/Übergang, Orange = eher geschlossen lassen, Rot = Lüften deutlich nachteilig
-  - Echte Schutzlagen liegen außerhalb der normalen Ampel und werden eindeutig mit **🔒 Fenster geschlossen halten** dargestellt
+  - **Lüftungsbedarf (Standard):** dieselbe vollständige Gesamtbewertung aus Sicht des Handlungsdrucks im Raum. Grün = aktuell kein sinnvoller Lüftungsdruck, Gelb/Orange = zunehmender Bedarf, Rot = jetzt lüften.
+  - **Lüftungsampel (optional):** dieselbe Gesamtbewertung aus Sicht der aktuellen Lüftungs-/Außenbedingungen. Grün = Lüften sinnvoll, Gelb = Abwägung/Übergang, Orange = eher geschlossen lassen, Rot = Lüften deutlich nachteilig.
+  - Beide Ansichten nutzen dieselbe Entscheidungsengine; es werden keine Sensoren je nach Darstellung ein- oder ausgeschaltet. Nur Farbe, kurze Empfehlung und Begründung werden aus der gewählten Perspektive formuliert.
+  - Echte Schutzlagen liegen außerhalb der normalen Ampel und werden eindeutig mit **🔒 Fenster geschlossen halten** dargestellt.
 - Absolute Feuchtigkeit innen/außen
 - Optionaler CO₂-Sensor pro Raum
 - Automatischer Lüftungsverlauf mit Fenster-/Türkontakt
@@ -128,9 +129,13 @@ Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als ang
 
 ### Nachtlüftung
 
-Pro Raum lässt sich ein eigenes Nachtfenster **von–bis** festlegen (Standard **22:00–07:00**). Beide Zeiten sind reine Anzeigegrenzen und keine Aufforderung, genau dann ein Fenster zu öffnen oder zu schließen. Zeiträume über Mitternacht und ungewöhnliche Schichtzeiten werden unterstützt. Wenn es beim Beginn des Nachtfensters noch zu warm ist, die Stundenprognose aber später bessere Bedingungen zeigt, kann die Karte zum Beispiel **„Später lüften – ab etwa 01:00 Uhr wird es draußen deutlich kühler“** anzeigen. Bringt die Nacht voraussichtlich keinen nennenswerten Vorteil, bleibt die Zeile einfach verborgen; nach Ende des Nachtfensters übernimmt ohne Zwangsaktion wieder die normale Tagesbewertung.
+Pro Raum lässt sich ein eigenes Nachtfenster **von–bis** festlegen (Standard **22:00–07:00**). Beide Zeiten sind reine Anzeigegrenzen und keine Aufforderung, genau dann ein Fenster zu öffnen oder zu schließen. Zeiträume über Mitternacht und ungewöhnliche Schichtzeiten werden unterstützt. Die Nachtkarte ist bewusst eine einfache Einschätzung vor dem Schlafengehen: Wenn ein längeres Lüften in der Nacht voraussichtlich sinnvoll ist, nennt sie den passenden Zeitraum; wenn eine grundsätzlich interessante Nachtlage nur mit Abwägung sinnvoll ist, sagt sie das kurz dazu. Ergibt längeres Nachtlüften praktisch keinen Nutzen, bleibt der Zusatz komplett verborgen.
 
-Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die stündliche Home-Assistant-Wettervorhersage bis zum Morgen ausgewertet. Persönliche Solltemperatur sowie vorhandene Prognosen für Feuchte, Regen und Wind und aktuelle Warn-/Luftqualitätslagen können die Empfehlung beeinflussen. Fehlende Forecast-Felder werden nicht geschätzt. Die Nachtbewertung bleibt eine Zusatzinformation und verändert die normale aktuelle Ampel nicht.
+Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die stündliche Home-Assistant-Wettervorhersage ausgewertet. Persönliche Solltemperatur sowie vorhandene Prognosen für Feuchte, Regen und Wind und aktuelle Warn-/Luftqualitätslagen können die Empfehlung beeinflussen. Ein Forecastpunkt gilt für den **längeren, weitgehend unbeaufsichtigten** Nachthinweis nur dann als plausibel, wenn seine Außentemperatur höchstens **9 K** von der aktuellen Raumtemperatur entfernt liegt. Diese 9-K-Grenze gilt ausdrücklich nicht für die normale Live-Lüftungsberatung.
+
+Intern darf die Nachtplanung bis zu **eine Stunde hinter die konfigurierte Endzeit** in den Forecast schauen, um einen Abschnitt am Ende noch belastbar beurteilen zu können. Die sichtbare Nachtzeit wird dadurch niemals verlängert: Ist z. B. 06:00 Uhr als Ende eingestellt, verschwindet der Hinweis um 06:00 Uhr. In der letzten Stunde werden aus einer dünner werdenden Forecastbasis keine neuen positiven Strategien mehr erfunden. Stattdessen bleibt der letzte belastbare Basisstatus erhalten; eine Verschlechterung darf die Empfehlung weiterhin vorsichtiger machen und ein harter Safety-Lock übersteuert sie jederzeit. Nach einer späten Entwarnung kann dadurch auf den vorherigen Basisplan zurückgefallen werden, statt kurz vor Ende eine völlig neue Nachtstrategie zu starten. Der gehaltene Basisstatus ist neustartsicher.
+
+Fehlende Forecast-Felder werden nicht geschätzt. Die Nachtbewertung bleibt eine Zusatzinformation und verändert die normale aktuelle Ampel nicht.
 
 ### Außenluftqualität und lokaler Kontext
 
@@ -140,7 +145,7 @@ Zusätzlich kann Lüftungsassistent pro Standort einen rollierenden typischen Be
 
 ## Wie die Empfehlung entschieden und stabil gehalten wird
 
-Lüftungsassistent bewertet den **Gesamtnutzen** des Lüftens. Ein einzelner Grenzwert gewinnt nicht automatisch gegen alle anderen Messwerte. Gesundheit und Sicherheit haben Vorrang; danach werden Innenraumluft, Feuchte-/Oberflächenrisiko, persönliches Temperatursoll, erwartete Komfortänderung sowie Außenbedingungen gemeinsam eingeordnet. Der persönliche Sollwert bleibt der Maßstab für thermische Behaglichkeit, während sehr hohe und länger anhaltende Raumtemperaturen zusätzlich als gesundheitlicher Hitzefaktor berücksichtigt werden. Lüftungsassistent bleibt dabei ein Berater und gibt kein medizinisches oder bauphysikalisches Gutachten ab.
+Lüftungsassistent bewertet den **Gesamtnutzen** des Lüftens. Ein einzelner Grenzwert gewinnt nicht automatisch gegen alle anderen Messwerte. Gesundheit und Sicherheit haben Vorrang; danach werden Innenraumluft, Feuchte-/Oberflächenrisiko, persönliches Temperatursoll, erwartete Komfortänderung sowie Außenbedingungen gemeinsam eingeordnet. Der persönliche Sollwert bleibt der Maßstab für thermische Behaglichkeit, während sehr hohe und länger anhaltende Raumtemperaturen zusätzlich als gesundheitlicher Hitzefaktor berücksichtigt werden. Die wählbare Ampeldarstellung verändert diese Hintergrundentscheidung nicht: Sie bestimmt nur, ob die kurze Vorderseite stärker den **Lüftungsdruck im Raum** oder die **aktuelle Eignung der Außen-/Lüftungsbedingungen** erklärt. Lüftungsassistent bleibt dabei ein Berater und gibt kein medizinisches oder bauphysikalisches Gutachten ab.
 
 Für die absolute Feuchtedifferenz wird um **±0,5 g/m³** eine kleine technische Neutralzone verwendet. Diese Zahl ist kein Gesundheits- oder Normgrenzwert, sondern verhindert, dass Messrauschen und praktisch sehr kleine Unterschiede eine starke Empfehlung auslösen. Positive Differenzen bedeuten trocknere Außenluft; negative Differenzen bedeuten feuchtere Außenluft. Die Stärke dieser Abweichung wird zusammen mit CO₂, Raumfeuchte, Temperatur und optionalen Zusatzdaten abgewogen. Eine laufende sinnvolle Feuchtelüftung erhält zusätzlich eine kleine Hysterese.
 
@@ -150,7 +155,7 @@ Der Hauptsensor bleibt bewusst die zentrale Automation-Schnittstelle. Eine zusä
 
 ## Neustartsicherheit und Ressourcen
 
-Lüftungsassistent hält sein internes Gedächtnis bewusst klein. Gespeichert werden nur Zustände, die sich nach einem Neustart nicht zuverlässig aus den aktuellen Home-Assistant-Entities rekonstruieren lassen: laufende bzw. letzte bestätigte Lüftung, ein kurzlebiger Hysteresezustand, kompakter Oberflächen-Feuchtekontext und eine begrenzte lokale Außenluft-Statistik. Temperatur-, Feuchte- und CO₂-Rohverläufe werden nicht zusätzlich zum Home-Assistant-Recorder dupliziert.
+Lüftungsassistent hält sein internes Gedächtnis bewusst klein. Gespeichert werden nur Zustände, die sich nach einem Neustart nicht zuverlässig aus den aktuellen Home-Assistant-Entities rekonstruieren lassen: laufende bzw. letzte bestätigte Lüftung, die kurzen CO₂-Hysterese-Zeitpunkte, der noch gültige 60-Sekunden-CO₂-Ausfallpuffer, ein belastbarer Nacht-Basisstatus bis zu dessen Endzeit, kompakter Oberflächen-Feuchtekontext und eine begrenzte lokale Außenluft-Statistik. Temperatur-, Feuchte- und CO₂-Rohverläufe werden nicht zusätzlich zum Home-Assistant-Recorder dupliziert. Persistierte CO₂-Rohwerte dienen ausschließlich dem sehr kurzen Ausfallpuffer und werden nach Ablauf dieser Grace-Periode nicht als aktueller Messwert wiederverwendet.
 
 Im Leerlauf laufen keine minutenweisen Komplettauswertungen pro Raum nur für den 24-Stunden-Fallback. Der Minutentakt für „Fenster geöffnet seit“ ist nur während einer tatsächlichen Lüftung aktiv; der 24-Stunden-Fallback wird gezielt terminiert. Wetter, Warnungen und Außenluft werden einmal pro lokalem Lüftungsassistent aufbereitet und von den Räumen gemeinsam genutzt. Große Kartenattribute bleiben für die Oberfläche verfügbar, werden aber nicht unnötig als eigener Recorder-Verlauf gespeichert.
 

@@ -29,7 +29,7 @@
           "outdoor_co2": "Outdoor CO₂ (optional)"
         },
         "data_description": {
-          "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒.",
+          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
         },
         "sections": {
@@ -42,7 +42,7 @@
               "display_mode": "Traffic-light view"
             },
             "data_description": {
-              "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒."
+              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒."
             }
           },
           "outdoor": {
@@ -97,7 +97,7 @@
           "outdoor_co2": "Outdoor CO₂ (optional)"
         },
         "data_description": {
-          "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒.",
+          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
         },
         "sections": {
@@ -110,7 +110,7 @@
               "display_mode": "Traffic-light view"
             },
             "data_description": {
-              "display_mode": "🟢 room air good / 🔴 strong need to ventilate is the default. Alternative: 🟢 ventilate / 🔴 keep closed. Real hazards always appear separately with 🔒."
+              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no useful pressure to air now / 🔴 ventilate now. Alternative: ventilation light · 🟢 outside/current conditions are good for airing / 🔴 keep closed. Hard protection instructions always stay 🔒."
             }
           },
           "outdoor": {
@@ -417,8 +417,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Ventilation light · 🟢 = ventilate · 🔴 = keep closed",
-        "room_air": "Room-air status · 🟢 = good · 🔴 = ventilation needed"
+        "ventilation": "Ventilation light · 🟢 = good to air now · 🔴 = keep closed",
+        "room_air": "Ventilation need · 🟢 = no pressure · 🔴 = ventilate now"
       }
     },
     "room_notify_triggers": {

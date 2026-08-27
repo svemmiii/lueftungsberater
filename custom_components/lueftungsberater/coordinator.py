@@ -38,6 +38,7 @@ from .notifications import (
     clear_room_notification_state,
 )
 from .outside import async_get_or_create_outside_coordinator, get_outside_coordinator
+from .night import NIGHT_MAX_TEMP_DELTA, NightAdvice, display_interval, stabilize_night_advice
 from .runtime import RoomSnapshot, build_room_snapshot, room_co2_window_values, room_source_entities
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,6 +108,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_mode_at: datetime | None = None
         self._co2_hysteresis = Co2HysteresisState()
         self._co2_hysteresis_unsub: Callable[[], None] | None = None
+        self._night_memory: NightAdvice | None = None
+        self._night_memory_start: datetime | None = None
+        self._night_memory_end: datetime | None = None
         self._memory_store: Store[dict[str, Any]] = Store(
             hass,
             STORAGE_VERSION,
@@ -118,17 +122,189 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         mode = stored.get("mode")
         need = stored.get("primary_need")
         stamp = _parse_dt(stored.get("updated_at"))
-        if isinstance(mode, str) and mode and stamp is not None and dt_util.utcnow() - stamp <= DECISION_MEMORY_TTL:
+        now_utc = dt_util.utcnow()
+        if isinstance(mode, str) and mode and stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL:
             self._previous_mode = mode
             self._previous_need = need if isinstance(need, str) and need else None
             self._previous_mode_at = stamp
+
+        co2_memory = stored.get("co2_hysteresis")
+        if isinstance(co2_memory, dict):
+            pending = _parse_dt(co2_memory.get("pending_below_since"))
+            finish = _parse_dt(co2_memory.get("finish_below_since"))
+            # These timers are only a few minutes long. Reuse them only while
+            # the surrounding decision memory is still fresh; evaluate() will
+            # immediately reset them if the live CO2 context no longer matches.
+            if stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL:
+                self._co2_hysteresis.restore(
+                    pending_below_since=pending,
+                    finish_below_since=finish,
+                )
+
+        night = stored.get("night")
+        if isinstance(night, dict):
+            start = _parse_dt(night.get("interval_start"))
+            end = _parse_dt(night.get("interval_end"))
+            status = night.get("status")
+            reason_key = night.get("reason_key")
+            reason_args = night.get("reason_args")
+            now_local = dt_util.now()
+            if (
+                start is not None
+                and end is not None
+                and start <= now_local < end
+                and isinstance(status, str)
+                and status in {"now", "later", "conditional", "blocked"}
+                and isinstance(reason_key, str)
+                and isinstance(reason_args, dict)
+            ):
+                self._night_memory = NightAdvice(
+                    status=status,
+                    reason_key=reason_key,
+                    reason_args=dict(reason_args),
+                )
+                self._night_memory_start = start
+                self._night_memory_end = end
+
+    def _night_memory_payload(self) -> dict[str, Any] | None:
+        if (
+            self._night_memory is None
+            or self._night_memory_start is None
+            or self._night_memory_end is None
+        ):
+            return None
+        return {
+            "interval_start": self._night_memory_start.isoformat(),
+            "interval_end": self._night_memory_end.isoformat(),
+            "status": self._night_memory.status,
+            "reason_key": self._night_memory.reason_key,
+            "reason_args": dict(self._night_memory.reason_args),
+        }
 
     def _memory_payload(self) -> dict[str, Any]:
         return {
             "mode": self._previous_mode,
             "primary_need": self._previous_need,
             "updated_at": self._previous_mode_at.isoformat() if self._previous_mode_at else None,
+            "co2_hysteresis": self._co2_hysteresis.as_dict(),
+            "night": self._night_memory_payload(),
         }
+
+    def _queue_memory_save(self) -> None:
+        self._memory_store.async_delay_save(self._memory_payload, 5)
+
+    def _clear_night_memory(self) -> None:
+        if self._night_memory is None and self._night_memory_end is None:
+            return
+        self._night_memory = None
+        self._night_memory_start = None
+        self._night_memory_end = None
+        self._queue_memory_save()
+
+    def _night_interval(self, now: datetime) -> tuple[datetime, datetime] | None:
+        start_hour, start_minute = _night_clock(self.subentry)
+        end_hour, end_minute = _night_end_clock(self.subentry)
+        return display_interval(
+            now,
+            start_hour * 60 + start_minute,
+            end_hour * 60 + end_minute,
+        )
+
+    def _remember_night_advice(
+        self,
+        advice: NightAdvice,
+        interval: tuple[datetime, datetime],
+    ) -> None:
+        start, end = interval
+        if advice.status == "unavailable" or advice.safety_block:
+            return
+        if (
+            self._night_memory is not None
+            and self._night_memory_start == start
+            and self._night_memory_end == end
+            and self._night_memory.status == advice.status
+            and self._night_memory.reason_key == advice.reason_key
+            and self._night_memory.reason_args == advice.reason_args
+        ):
+            return
+        self._night_memory = NightAdvice(
+            advice.status, advice.reason_key, dict(advice.reason_args)
+        )
+        self._night_memory_start = start
+        self._night_memory_end = end
+        self._queue_memory_save()
+
+    def _apply_night_memory(self, snapshot: RoomSnapshot) -> RoomSnapshot:
+        """Keep the last trustworthy night plan stable near the configured end."""
+        now = dt_util.now()
+        interval = self._night_interval(now)
+        if interval is None:
+            self._clear_night_memory()
+            return snapshot
+
+        start, end = interval
+        if self._night_memory_end is not None and self._night_memory_end != end:
+            self._clear_night_memory()
+
+        values = snapshot.values
+        raw = NightAdvice(
+            status=str(values.get("night_ventilation_status") or "unavailable"),
+            reason_key=values.get("night_ventilation_key"),
+            reason_args=dict(values.get("night_ventilation_args") or {}),
+            safety_block=bool(values.get("_night_ventilation_safety_block")),
+        )
+
+        # If the actual reason for a long night opening is gone, do not preserve
+        # an old plan merely for visual stability. CO2 alone intentionally does
+        # not create the all-night hint, matching night.py.
+        ti = values.get("temperature_inside")
+        hi = values.get("humidity_inside")
+        target = values.get("target_temperature")
+        ta = values.get("temperature_outside")
+        planning_need = (
+            ti is not None
+            and hi is not None
+            and target is not None
+            and (float(ti) > float(target) + 0.5 or float(hi) >= 60.0)
+        )
+        current_delta_ok = (
+            ti is None
+            or ta is None
+            or abs(float(ta) - float(ti)) <= NIGHT_MAX_TEMP_DELTA
+        )
+        if not planning_need or not current_delta_ok:
+            self._clear_night_memory()
+            return snapshot
+
+        memory_valid = (
+            self._night_memory is not None
+            and self._night_memory_start == start
+            and self._night_memory_end == end
+        )
+        previous = self._night_memory if memory_valid else None
+        chosen, remembered = stabilize_night_advice(
+            now=now,
+            interval_end=end,
+            raw=raw,
+            previous=previous,
+            planning_need=planning_need,
+            current_delta_ok=current_delta_ok,
+        )
+        if remembered is None:
+            if memory_valid:
+                self._clear_night_memory()
+        elif (
+            not memory_valid
+            or remembered.status != self._night_memory.status
+            or remembered.reason_key != self._night_memory.reason_key
+            or remembered.reason_args != self._night_memory.reason_args
+        ):
+            self._remember_night_advice(remembered, interval)
+
+        values["night_ventilation_status"] = chosen.status
+        values["night_ventilation_key"] = chosen.reason_key
+        values["night_ventilation_args"] = dict(chosen.reason_args)
+        return snapshot
 
     def _remember_snapshot(self, snapshot: RoomSnapshot) -> None:
         if snapshot.result is None:
@@ -140,7 +316,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_mode = mode
         self._previous_need = need
         self._previous_mode_at = dt_util.utcnow()
-        self._memory_store.async_delay_save(self._memory_payload, 10)
+        self._queue_memory_save()
 
     def _schedule_co2_hysteresis_check(self, seconds: float | None) -> None:
         """Schedule the exact point where a stable CO₂ threshold can release."""
@@ -176,6 +352,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             else self._previous_need
         )
         co2, window_open = room_co2_window_values(self.hass, self.entry, self.subentry)
+        co2_before = self._co2_hysteresis.as_dict()
         co2_hysteresis = self._co2_hysteresis.evaluate(
             now=dt_util.utcnow(),
             co2=co2,
@@ -183,8 +360,10 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             previous_mode=previous_mode,
             previous_need=previous_need,
         )
+        if self._co2_hysteresis.as_dict() != co2_before:
+            self._queue_memory_save()
         self._schedule_co2_hysteresis_check(co2_hysteresis.next_check_seconds)
-        return build_room_snapshot(
+        snapshot = build_room_snapshot(
             self.hass,
             self.entry,
             self.subentry,
@@ -196,6 +375,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             weather=weather,
             warnings=warnings,
         )
+        return self._apply_night_memory(snapshot)
 
     async def _async_update_data(self) -> RoomSnapshot:
         snapshot = self._build_snapshot()

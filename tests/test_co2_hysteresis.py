@@ -93,3 +93,21 @@ def test_finish_timer_resets_if_co2_rises_above_850():
     assert restarted.airing_active and not restarted.finish_ready
     assert restarted.next_check_seconds is not None
     assert restarted.next_check_seconds > 110
+
+
+def test_hysteresis_timestamps_roundtrip_for_restart_memory():
+    start = datetime(2026, 8, 27, 1, 2, 3, tzinfo=UTC)
+    original = Co2HysteresisState(
+        pending_below_since=start,
+        finish_below_since=start + timedelta(minutes=1),
+    )
+    payload = original.as_dict()
+
+    restored = Co2HysteresisState()
+    restored.restore(
+        pending_below_since=datetime.fromisoformat(payload["pending_below_since"]),
+        finish_below_since=datetime.fromisoformat(payload["finish_below_since"]),
+    )
+
+    assert restored.pending_below_since == original.pending_below_since
+    assert restored.finish_below_since == original.finish_below_since

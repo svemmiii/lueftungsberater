@@ -116,6 +116,10 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         result = self.snapshot.result if self.snapshot else None
         if result is None:
             return None
+        # Keep the entity state as the stable action/automation interface. The
+        # selected traffic-light perspective only changes the card attributes
+        # (colour, short recommendation and reason), so existing automations do
+        # not change semantics when a user switches the visual mode.
         return result.recommendation_key
 
     @property
@@ -195,15 +199,18 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             absolute_humidity_difference = None
             current_co2_status = co2_status(values.get("co2_ppm"))
         else:
-            recommendation_key = r.recommendation_key
-            reason_key = r.reason_key
-            reason_args = dict(r.reason_args)
-            duration_key = r.duration_key
             display_mode = self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
+            room_view = display_mode == DISPLAY_MODE_ROOM_AIR and not r.safety_lock
+            recommendation_key = (
+                r.room_recommendation_key if room_view else r.recommendation_key
+            )
+            reason_key = r.room_reason_key if room_view else r.reason_key
+            reason_args = dict(r.room_reason_args if room_view else r.reason_args)
+            duration_key = r.duration_key
             status = (
                 "locked"
                 if r.safety_lock
-                else (r.room_status_color if display_mode == DISPLAY_MODE_ROOM_AIR else r.color)
+                else (r.room_status_color if room_view else r.color)
             )
             mode = r.mode
             original_reason = r.original_reason

@@ -648,3 +648,56 @@ def test_room_status_keeps_external_disadvantage_green_when_indoor_air_is_good()
     assert result.color in {"orange", "red"}
     assert result.safety_lock is False
     assert result.room_status_color == "green"
+
+
+def test_room_view_keeps_borderline_humidity_green_when_outside_is_worse():
+    """Regression for the v0.7.5 double-orange card shown by the user."""
+    result = evaluate_room(
+        base(
+            indoor_temp=23.0,
+            target_temp=22.0,
+            indoor_humidity=60.6,
+            outdoor_temp=24.0,
+            outdoor_humidity=67.0,
+            co2=791,
+        )
+    )
+    assert result.color == "orange"
+    assert result.mode == "feuchte_warten"
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "room_good"
+    text = reason_text(result.room_reason_key, result.room_reason_args, "de")
+    assert "leicht erhöht" in text
+    assert "Außenluft" in text
+
+
+def test_room_view_mild_indoor_need_stays_green_when_outside_is_very_bad():
+    result = evaluate_room(
+        base(
+            indoor_temp=23.0,
+            target_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=38.0,
+            outdoor_humidity=50.0,
+            co2=1100,
+        )
+    )
+    assert result.color == "orange"
+    assert result.mode == "co2_warten"
+    assert result.room_status_color == "green"
+
+
+def test_room_view_rises_when_indoor_need_becomes_stronger_despite_bad_outside():
+    result = evaluate_room(
+        base(
+            indoor_temp=23.0,
+            target_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=38.0,
+            outdoor_humidity=50.0,
+            co2=1500,
+        )
+    )
+    assert result.color == "yellow"
+    assert result.room_status_color == "yellow"
+    assert result.room_recommendation_key == "room_watch"

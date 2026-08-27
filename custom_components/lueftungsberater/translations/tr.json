@@ -29,7 +29,7 @@
           "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
         },
         "data_description": {
-          "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir.",
+          "display_mode": "Her iki görünüm de aynı eksiksiz genel değerlendirmeyi kullanır. Varsayılan: havalandırma gereksinimi · 🟢 şu anda anlamlı bir ihtiyaç yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 dış/mevcut koşullar havalandırma için uygun / 🔴 kapalı tut. Kesin koruma talimatları her zaman 🔒 olarak kalır.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
         },
         "sections": {
@@ -42,7 +42,7 @@
               "display_mode": "Gösterge biçimi"
             },
             "data_description": {
-              "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir."
+              "display_mode": "Her iki görünüm de aynı eksiksiz genel değerlendirmeyi kullanır. Varsayılan: havalandırma gereksinimi · 🟢 şu anda anlamlı bir ihtiyaç yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 dış/mevcut koşullar havalandırma için uygun / 🔴 kapalı tut. Kesin koruma talimatları her zaman 🔒 olarak kalır."
             }
           },
           "outdoor": {
@@ -97,7 +97,7 @@
           "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
         },
         "data_description": {
-          "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir.",
+          "display_mode": "Her iki görünüm de aynı eksiksiz genel değerlendirmeyi kullanır. Varsayılan: havalandırma gereksinimi · 🟢 şu anda anlamlı bir ihtiyaç yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 dış/mevcut koşullar havalandırma için uygun / 🔴 kapalı tut. Kesin koruma talimatları her zaman 🔒 olarak kalır.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
         },
         "sections": {
@@ -110,7 +110,7 @@
               "display_mode": "Gösterge biçimi"
             },
             "data_description": {
-              "display_mode": "Varsayılan: 🟢 oda havası iyi / 🔴 havalandırma gereksinimi yüksek. Alternatif: 🟢 havalandır / 🔴 kapalı tut. Gerçek tehlikeler her zaman ayrı bir 🔒 durumuyla gösterilir."
+              "display_mode": "Her iki görünüm de aynı eksiksiz genel değerlendirmeyi kullanır. Varsayılan: havalandırma gereksinimi · 🟢 şu anda anlamlı bir ihtiyaç yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 dış/mevcut koşullar havalandırma için uygun / 🔴 kapalı tut. Kesin koruma talimatları her zaman 🔒 olarak kalır."
             }
           },
           "outdoor": {
@@ -417,8 +417,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Havalandırma göstergesi · 🟢 = havalandır · 🔴 = kapalı tut",
-        "room_air": "Oda havası durumu · 🟢 = iyi · 🔴 = havalandırma gerekli"
+        "ventilation": "Havalandırma göstergesi · 🟢 = şimdi uygun · 🔴 = kapalı tut",
+        "room_air": "Havalandırma gereksinimi · 🟢 = ihtiyaç yok · 🔴 = şimdi havalandır"
       }
     },
     "room_notify_triggers": {

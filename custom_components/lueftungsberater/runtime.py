@@ -538,6 +538,9 @@ def build_room_snapshot(
     values["night_ventilation_status"] = night_advice.status
     values["night_ventilation_key"] = night_advice.reason_key
     values["night_ventilation_args"] = dict(night_advice.reason_args)
+    # Internal coordinator metadata only; sensor.py deliberately does not expose
+    # this extra flag as an entity attribute.
+    values["_night_ventilation_safety_block"] = night_advice.safety_block
 
     result = evaluate_room(
         RoomInput(

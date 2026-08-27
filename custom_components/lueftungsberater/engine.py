@@ -350,38 +350,91 @@ def _co2_outdoor_limited(data: RoomInput) -> bool:
     return data.outdoor_co2 >= data.co2 - 100.0
 
 
-def _room_status_color(urgency: int, ventilation_color: str) -> str:
-    """Return the optional room-status colour without creating unsafe meanings.
+def _room_display_urgency(need: str, data: RoomInput) -> int:
+    """Return display urgency for the inverted room-air perspective.
 
-    In room-status mode red must *always* mean that airing is urgently useful.
-    If the normal ventilation decision is a trade-off or recommends keeping the
-    window closed, an indoor problem is therefore capped at orange/yellow. A
-    true outside protection reason is rendered separately as ``locked`` by the
-    UI and never reuses red for the opposite action.
+    This does *not* decide whether to ventilate. The actual engine decision has
+    already considered all indoor and outdoor inputs. This level only translates
+    that decision into the optional "green = fine / red = air now" view.
+    Slight deviations therefore stay deliberately calm when the outdoor side is
+    clearly unsuitable, while stronger indoor needs can progressively overcome
+    that visual calm.
     """
+    co2 = data.co2
+    if need == "co2_critical":
+        return 3
+    if need == "co2_high":
+        return 3 if co2 is not None and co2 >= 1800 else 2
+    if need == "co2_elevated":
+        return 1
+    if need == "heat":
+        return 3
+    if need == "mold_persistent":
+        return 3
+    if need == "mold":
+        return 2
+    if need == "humidity_urgent":
+        return 3 if data.indoor_humidity >= 75 else 2
+    if need == "humidity":
+        # Around the normal 60 % edge this is intentionally only a mild signal.
+        # It must not turn a room with otherwise good values orange merely
+        # because outdoor air is even less suitable (the v0.7.5 double-orange
+        # problem).
+        return 1 if data.indoor_humidity < 63 else 2
+    if need == "humid_heat":
+        return 2
+    if need == "temperature":
+        return 2 if abs(data.indoor_temp - data.target_temp) >= 3.0 else 1
+    if need == "routine":
+        return 1
+    return 0
+
+
+def _room_status_color(urgency: int, ventilation_color: str) -> str:
+    """Translate the final ventilation judgement into the room-air colour view.
+
+    The two traffic-light modes are perspectives on one shared engine decision,
+    not two independent decision engines. Green ventilation conditions expose
+    indoor urgency directly. When ventilation is a trade-off or clearly
+    disadvantageous, mild indoor deviations remain green and stronger needs
+    climb gradually through yellow/orange. Red is only used when the room need
+    is severe *and* the actual ventilation decision is green. Hard official
+    protection instructions are rendered separately as ``locked`` by the UI.
+    """
+    urgency = max(0, min(3, int(urgency)))
     if ventilation_color == "green":
-        if urgency >= 3:
-            return "red"
-        if urgency >= 2:
-            return "orange"
-        if urgency >= 1:
-            return "yellow"
-        return "green"
+        return ("green", "yellow", "orange", "red")[urgency]
 
     if ventilation_color == "yellow":
-        if urgency >= 2:
+        if urgency >= 3:
             return "orange"
         if urgency >= 1:
             return "yellow"
         return "green"
 
-    # When airing is currently disadvantageous, never show red in room-status
-    # mode: a user who chose this view learns red as "air now".
-    if urgency >= 2:
+    # Outdoor conditions currently argue against opening. A small indoor
+    # deviation is therefore still a green "no useful pressure to act" state;
+    # only a stronger indoor need moves the inverted view upward.
+    if urgency >= 3:
         return "orange"
-    if urgency >= 1:
+    if urgency >= 2:
         return "yellow"
     return "green"
+
+
+def _room_recommendation_key(color: str, window_open: bool) -> str:
+    if window_open:
+        if color == "green":
+            return "can_close"
+        if color == "yellow":
+            return "room_keep_brief"
+        return "keep_open"
+    return {
+        "green": "room_good",
+        "yellow": "room_watch",
+        "orange": "room_need",
+        "red": "room_urgent",
+    }.get(color, "room_watch")
 
 
 def _temperature_drawback(ti: float, ta: float, target: float) -> float:
@@ -918,6 +971,27 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     else:
         reason_key, reason_args = "normal", {}
 
+    room_urgency = _room_display_urgency(need, data)
+    room_color = _room_status_color(room_urgency, color)
+    room_recommendation_key = _room_recommendation_key(room_color, data.window_open)
+    room_reason_args = {
+        "need": need,
+        "level": room_urgency,
+        "ventilation_color": color,
+        "mode": mode,
+        "co2": co2,
+        "humidity": hi,
+        "ti": ti,
+        "ta": ta,
+        "target": target,
+        "diff": diff,
+        "hours": hours,
+        "surface_humidity": surface_rh,
+        "caution": caution_kind,
+        "air_quality": data.air_quality,
+        "window_open": data.window_open,
+    }
+
     return VentilationResult(
         color=color,
         mode=mode,
@@ -931,7 +1005,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         outdoor_absolute_humidity=round(aha, 2),
         absolute_humidity_difference=round(diff, 2),
         co2_status=co2_status(co2),
-        room_status_color=_room_status_color(urgency, color),
+        room_status_color=room_color,
+        room_recommendation_key=room_recommendation_key,
+        room_reason_key="room_perspective",
+        room_reason_args=room_reason_args,
         primary_need=need,
         safety_lock=hard_mode is not None,
         surface_relative_humidity=(round(surface_rh, 1) if surface_rh is not None else None),
