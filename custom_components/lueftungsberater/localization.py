@@ -69,7 +69,7 @@ DURATIONS = {
         "can_end": "Die Lüftung kann jetzt beendet werden",
         "brief_observation": "Etwa 5 Minuten – dabei die Situation im Blick behalten",
         "co2_recheck": "5–10 Minuten, danach CO₂ erneut prüfen",
-        "co2_until_good": "5–10 Minuten bzw. bis CO₂ unter etwa 1000 ppm fällt",
+        "co2_until_good": "5–10 Minuten, danach CO₂ erneut prüfen",
         "co2_minimum": "Mindestens 5 Minuten ab dem Öffnen",
         "cooling": "15–30 Minuten – oder länger, solange die Außenluft weiterhin beim Abkühlen hilft",
         "warming": "5–10 Minuten",
@@ -89,7 +89,7 @@ DURATIONS = {
         "can_end": "You can close the windows now",
         "brief_observation": "About 5 minutes, while keeping an eye on the conditions",
         "co2_recheck": "5–10 minutes, then check CO₂ again",
-        "co2_until_good": "5–10 minutes, or until CO₂ drops below roughly 1000 ppm",
+        "co2_until_good": "5–10 minutes, then check CO₂ again",
         "co2_minimum": "At least 5 minutes from opening the window",
         "cooling": "15–30 minutes, or longer if the cooler outdoor air continues to help",
         "warming": "5–10 minutes",
@@ -109,7 +109,7 @@ DURATIONS = {
         "can_end": "Artık pencereleri kapatabilirsin",
         "brief_observation": "Yaklaşık 5 dakika; bu sırada durumu takip et",
         "co2_recheck": "5–10 dakika, ardından CO₂ seviyesini yeniden kontrol et",
-        "co2_until_good": "5–10 dakika veya CO₂ yaklaşık 1000 ppm'in altına düşene kadar",
+        "co2_until_good": "5–10 dakika, ardından CO₂ seviyesini yeniden kontrol et",
         "co2_minimum": "Pencere açıldıktan sonra en az 5 dakika",
         "cooling": "15–30 dakika; dışarıdaki serin hava işe yaramaya devam ederse daha uzun da olabilir",
         "warming": "5–10 dakika",
@@ -190,9 +190,20 @@ def _continue_reason(args: dict[str, Any], lang: str, unit: str) -> str:
     parts: list[str] = []
     if args.get("continue_co2"):
         ppm = _measurement(_number(args.get("co2"), lang, 0), "ppm")
-        parts.append(
-            {"de": f"CO₂ liegt noch bei {ppm}", "en": f"CO₂ is still at {ppm}", "tr": f"CO₂ hâlâ {ppm}"}[lang]
-        )
+        target_raw = args.get("co2_target")
+        if target_raw is not None:
+            target_ppm = _measurement(_number(target_raw, lang, 0), "ppm")
+            parts.append(
+                {
+                    "de": f"CO₂ liegt noch bei {ppm}; Ziel dieser Lüftung sind etwa {target_ppm}",
+                    "en": f"CO₂ is still at {ppm}; this airing session is aiming for about {target_ppm}",
+                    "tr": f"CO₂ hâlâ {ppm}; bu havalandırmanın hedefi yaklaşık {target_ppm}",
+                }[lang]
+            )
+        else:
+            parts.append(
+                {"de": f"CO₂ liegt noch bei {ppm}", "en": f"CO₂ is still at {ppm}", "tr": f"CO₂ hâlâ {ppm}"}[lang]
+            )
     if args.get("continue_moisture"):
         diff = _measurement(_number(args.get("diff"), lang, 1), "g/m³")
         parts.append(
@@ -332,9 +343,9 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
                 "tr": "Dışarıdaki CO₂ de yüksek, bu yüzden havalandırma değeri yalnızca biraz düşürür.",
             },
             "near_target": {
-                "de": "Der Wert ist inzwischen fast wieder im guten Bereich. Du kannst die Lüftung gleich beenden.",
-                "en": "The level is almost back in the good range. You can finish airing soon.",
-                "tr": "Değer artık iyi aralığa çok yakın. Havalandırmayı yakında bitirebilirsin.",
+                "de": "Das Ziel dieser Lüftung ist fast erreicht. Du kannst die Lüftung gleich beenden.",
+                "en": "The target for this airing session is almost reached. You can finish airing soon.",
+                "tr": "Bu havalandırmanın hedefi neredeyse tamamlandı. Havalandırmayı yakında bitirebilirsin.",
             },
             "air_quality": {
                 "de": "Die Außenluftqualität ist nur mäßig.",
@@ -357,6 +368,13 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
             "en": "Outside is not a great fit right now.",
             "tr": "Dışarısı şu anda pek uygun değil.",
         })[lang]
+        if caution == "near_target" and a.get("co2_target") is not None:
+            target_ppm = _measurement(_number(a.get("co2_target"), lang, 0), "ppm")
+            detail = {
+                "de": f"Das für diese Lüftung festgelegte Ziel von etwa {target_ppm} ist fast erreicht. Du kannst die Lüftung gleich beenden.",
+                "en": f"The target of about {target_ppm} set for this airing session is almost reached. You can finish airing soon.",
+                "tr": f"Bu havalandırma için belirlenen yaklaşık {target_ppm} hedefi neredeyse tamamlandı. Havalandırmayı yakında bitirebilirsin.",
+            }[lang]
         return {
             "de": f"CO₂ liegt bei {ppm} und spricht fürs Lüften. {detail}",
             "en": f"CO₂ is at {ppm}, so fresh air would help. {detail}",
@@ -570,6 +588,11 @@ def reason_text(
         cautious = bool(a.get("cautious"))
         if lang == "de":
             value = f" CO₂ liegt aktuell bei {ppm}." if ppm else ""
+            target = (
+                f" Ziel dieser Lüftung sind etwa {m(a.get('co2_target'), 'ppm', 0)}."
+                if a.get("co2_target") is not None
+                else ""
+            )
             tail = (
                 " Die bereits bekannten ungünstigen Außenbedingungen sind dabei schon berücksichtigt."
                 if cautious
@@ -579,10 +602,16 @@ def reason_text(
                 "Die gestartete CO₂-Lüftung läuft noch keine fünf Minuten. "
                 "Lüfte noch kurz weiter, damit der Luftaustausch Zeit hat zu wirken."
                 + value
+                + target
                 + tail
             )
         if lang == "tr":
             value = f" CO₂ şu anda {ppm}." if ppm else ""
+            target = (
+                f" Bu havalandırmanın hedefi yaklaşık {m(a.get('co2_target'), 'ppm', 0)}."
+                if a.get("co2_target") is not None
+                else ""
+            )
             tail = (
                 " Başlangıçta bilinen elverişsiz dış koşullar bu öneride zaten dikkate alındı."
                 if cautious
@@ -592,9 +621,15 @@ def reason_text(
                 "Başlatılan CO₂ havalandırması henüz beş dakika sürmedi. "
                 "Hava değişiminin etkili olması için biraz daha havalandır."
                 + value
+                + target
                 + tail
             )
         value = f" CO₂ is currently at {ppm}." if ppm else ""
+        target = (
+            f" This airing session is aiming for about {m(a.get('co2_target'), 'ppm', 0)}."
+            if a.get("co2_target") is not None
+            else ""
+        )
         tail = (
             " The unfavorable outdoor conditions already known at the start are already accounted for."
             if cautious
@@ -604,6 +639,7 @@ def reason_text(
             "The CO₂ airing session has not yet run for five minutes. "
             "Keep ventilating a little longer so the air exchange has time to work."
             + value
+            + target
             + tail
         )
 

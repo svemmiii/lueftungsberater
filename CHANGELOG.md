@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.8
+
+### CO₂-Lüftungssitzung repariert und situationsabhängig beendet
+- Behebt einen Praxisfehler, bei dem eine laufende CO₂-Lüftung ihren Sitzungskontext verlieren konnte, sobald der Messwert z. B. von über 1400 ppm wieder knapp unter 1400 ppm fiel. Eine einmal tatsächlich gestartete CO₂-Lüftung bleibt jetzt als eigene Sitzung erhalten und hängt nicht mehr davon ab, welcher Grund oder Modus beim nächsten Sensorupdate vorne liegt.
+- Die 5-Minuten-Mindestlüftung bleibt unverändert bestehen. Sie ist weiterhin nur eine zusätzliche Mindestdauer und ersetzt nicht die anschließende CO₂-Abschlusshysterese. Harte Safety-Locks und neu deutlich schlechtere Außenbedingungen dürfen weiterhin sofort übersteuern.
+- Das CO₂-Abschlussziel ist jetzt **situationsabhängig** statt für jede Sitzung pauschal 850 ppm. Entscheidend ist die CO₂-Stufe, ab der die aktuelle Gesamtbewertung das Lüften tatsächlich sinnvoll bzw. vertretbar gemacht hat.
+- Bei guten Außenbedingungen bleibt der normale Zielbereich erhalten: Wenn der Assistent bereits ab etwa 1000 ppm zum Lüften geraten hätte, liegt das Sitzungsziel weiterhin bei **850 ppm** – auch wenn der Nutzer das Fenster erst bei einem deutlich höheren Wert öffnet.
+- Wird Lüften wegen ungünstiger Außenbedingungen erst in einer höheren CO₂-Stufe sinnvoll, gilt derselbe 150-ppm-Hysteresepuffer situationsabhängig: typischerweise **1400 → 1250 ppm**, beim stärkeren **1700-ppm-Override → 1550 ppm** und bei einer nur noch im kritischen Bereich vertretbaren Lüftung **2000 → 1850 ppm**.
+- Das jeweilige Ziel muss weiterhin **2 Minuten stabil** erreicht bzw. unterschritten sein, bevor die Lüftung als beendet gilt. Die letzten 50 ppm oberhalb des Sitzungsziels werden als gelbe Zielnähe dargestellt.
+- Kartentexte nennen bei einer laufenden CO₂-Sitzung jetzt bei Bedarf das konkrete Ziel dieser Lüftung. Die frühere pauschale Dauerangabe „bis unter etwa 1000 ppm“ wurde entfernt, weil sie bei situationsabhängigen Zielwerten irreführend wäre. Deutsch, Englisch und Türkisch wurden gemeinsam angepasst.
+- Der explizite Sitzungskontext einschließlich Zielwert wird mit dem vorhandenen kleinen Entscheidungs-Memory gespeichert und kann einen Home-Assistant-Neustart überstehen.
+
 ## v0.7.7
 
 ### CO₂-Lüftungssitzungen stabilisiert

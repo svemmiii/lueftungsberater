@@ -171,3 +171,24 @@ def test_co2_minimum_airing_text_exists_in_all_languages():
         )
         assert "820" in text
         assert len(text) > 30
+
+
+def test_dynamic_co2_session_target_text_is_natural_in_all_languages() -> None:
+    expected = {
+        "de": "1250\u202fppm",
+        "en": "1250\u202fppm",
+        "tr": "1250\u202fppm",
+    }
+    for language, fragment in expected.items():
+        minimum = reason_text(
+            "co2_minimum_airing",
+            {"co2": 1380, "co2_target": 1250, "cautious": True},
+            language,
+        )
+        near = reason_text(
+            "co2_tradeoff",
+            {"co2": 1280, "co2_target": 1250, "caution": "near_target"},
+            language,
+        )
+        assert fragment in minimum
+        assert fragment in near

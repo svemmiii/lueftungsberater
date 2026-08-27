@@ -756,3 +756,81 @@ def test_minimum_co2_airing_never_overrides_hard_nina_lock():
     assert r.safety_lock is True
     assert r.mode == "nina_aussenluftgefahr"
     assert r.color == "red"
+
+
+def test_co2_session_target_depends_on_why_airing_became_worthwhile():
+    # Good outside conditions: even if the user waits until 1500 ppm, the
+    # advisor would already have recommended airing from the 1000-ppm band.
+    good = evaluate_room(base(co2=1500))
+    assert good.mode == "co2_lueften"
+    assert good.co2_session_target == 850
+
+    # Moderate humidity drawback: the elevated band is only a trade-off, while
+    # the high band makes the recommendation clear. Use 1400 - 150 = 1250 ppm.
+    moderate = evaluate_room(
+        base(
+            indoor_humidity=50,
+            outdoor_temp=22,
+            outdoor_humidity=65,
+            co2=1450,
+        )
+    )
+    assert moderate.mode == "co2_lueften"
+    assert moderate.absolute_humidity_difference < -0.5
+    assert moderate.co2_session_target == 1250
+
+    # Stronger drawback that needs the explicit >=1700 override.
+    stronger = evaluate_room(
+        base(
+            indoor_temp=25,
+            target_temp=22,
+            indoor_humidity=50,
+            outdoor_temp=31,
+            outdoor_humidity=34,
+            co2=1800,
+        )
+    )
+    assert stronger.mode == "co2_lueften_mit_nachteil"
+    assert stronger.co2_session_target == 1550
+
+
+def test_dynamic_co2_finish_target_can_end_above_1000_without_reopening_same_session():
+    continuing = evaluate_room(
+        base(
+            co2=1390,
+            window_open=True,
+            previous_mode="co2_mindestlueftung",
+            previous_need="humidity",
+            co2_airing_active=True,
+            co2_finish_target=1250,
+            co2_near_target=1300,
+        )
+    )
+    near = evaluate_room(
+        base(
+            co2=1280,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_finish_target=1250,
+            co2_near_target=1300,
+        )
+    )
+    finished = evaluate_room(
+        base(
+            co2=1240,
+            window_open=True,
+            previous_mode="co2_abwaegung",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_finish_ready=True,
+            co2_finish_target=1250,
+            co2_near_target=1300,
+        )
+    )
+    assert continuing.mode == "weiter_lueften"
+    assert near.mode == "co2_abwaegung"
+    assert near.reason_args["caution"] == "near_target"
+    assert near.reason_args["co2_target"] == 1250
+    assert finished.mode == "lueftung_fertig"

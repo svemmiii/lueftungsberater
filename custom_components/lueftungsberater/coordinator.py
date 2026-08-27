@@ -16,7 +16,11 @@ from homeassistant.util import dt as dt_util
 
 from .airing import get_tracker, tracker_signal
 from .co2 import co2_tracker_signal
-from .co2_hysteresis import Co2HysteresisState, Co2MinimumAiringState
+from .co2_hysteresis import (
+    Co2HysteresisState,
+    Co2MinimumAiringState,
+    co2_session_target,
+)
 from .const import (
     CONF_CO2,
     CONF_NIGHT_START_HOUR,
@@ -150,6 +154,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 self._co2_hysteresis.restore(
                     pending_below_since=pending,
                     finish_below_since=finish,
+                    session_active=bool(co2_memory.get("session_active")),
+                    session_target_ppm=co2_memory.get("session_target_ppm"),
+                    completed_for_open_window=bool(
+                        co2_memory.get("completed_for_open_window")
+                    ),
                 )
 
         minimum_memory = stored.get("co2_minimum_airing")
@@ -354,6 +363,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             return False
         if self._co2_minimum_airing.completed_for_open_window:
             return False
+        if self._co2_hysteresis.completed_for_open_window:
+            return False
         if snapshot.result is None or not bool(snapshot.values.get("window_open")):
             return False
         if snapshot.result.safety_lock:
@@ -391,6 +402,18 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             baseline = snapshot.values.get("_co2_outdoor_context")
         if not isinstance(baseline, dict):
             baseline = {}
+
+        # The five-minute hold and the longer CO₂ finish hysteresis belong to
+        # the same user action.  Start an explicit session now so later mode
+        # changes (for example 1400 -> 1399 ppm) cannot forget the CO₂ goal.
+        target_ppm = result.co2_session_target
+        if target_ppm is None:
+            target_ppm = co2_session_target(
+                co2=source.values.get("co2_ppm"),
+                primary_need=result.primary_need,
+                mode=mode,
+            )
+        self._co2_hysteresis.start_airing_session(target_ppm=target_ppm)
 
         tracker = get_tracker(self.hass, self.entry, self.subentry)
         started_at = (
@@ -448,23 +471,27 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             previous_mode=previous_mode,
             previous_need=previous_need,
         )
-        hysteresis_changed = self._co2_hysteresis.as_dict() != co2_before
+
+        def _snapshot_for_co2_state() -> RoomSnapshot:
+            return build_room_snapshot(
+                self.hass,
+                self.entry,
+                self.subentry,
+                previous_mode=previous_mode,
+                previous_need=previous_need,
+                co2_pending_hold=co2_hysteresis.pending_hold,
+                co2_airing_active=co2_hysteresis.airing_active,
+                co2_finish_ready=co2_hysteresis.finish_ready,
+                co2_finish_target=co2_hysteresis.finish_target_ppm,
+                co2_near_target=co2_hysteresis.near_target_ppm,
+                weather=weather,
+                warnings=warnings,
+            )
 
         # First calculate the untouched normal decision. The minimum-airing
         # layer may then preserve an already accepted CO₂ session, but it never
         # decides whether the user should have started airing in the first place.
-        base_snapshot = build_room_snapshot(
-            self.hass,
-            self.entry,
-            self.subentry,
-            previous_mode=previous_mode,
-            previous_need=previous_need,
-            co2_pending_hold=co2_hysteresis.pending_hold,
-            co2_airing_active=co2_hysteresis.airing_active,
-            co2_finish_ready=co2_hysteresis.finish_ready,
-            weather=weather,
-            warnings=warnings,
-        )
+        base_snapshot = _snapshot_for_co2_state()
 
         minimum_before = self._co2_minimum_airing.as_dict()
         minimum = self._co2_minimum_airing.evaluate(
@@ -480,9 +507,38 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             ),
         )
 
+        # A hard lock or a genuinely new outdoor deterioration is allowed to
+        # cancel the user session immediately. Mark it completed for the still
+        # open window so the previous CO₂ mode cannot auto-restart it a moment
+        # later. Closing the window clears that marker.
+        abort_session = bool(
+            base_snapshot.result is not None and base_snapshot.result.safety_lock
+        ) or minimum.aborted_for_outdoor_worsening
+        if abort_session and self._co2_hysteresis.session_active:
+            self._co2_hysteresis.end_airing_session(keep_completed=True)
+            co2_hysteresis = self._co2_hysteresis.evaluate(
+                now=now_utc,
+                co2=co2,
+                window_open=window_open,
+                previous_mode=previous_mode,
+                previous_need=previous_need,
+            )
+            base_snapshot = _snapshot_for_co2_state()
+
         if not minimum.active and self._start_co2_minimum_airing_if_needed(
             base_snapshot, now_utc
         ):
+            # Starting the five-minute hold also starts the explicit CO₂ session.
+            # Re-evaluate once so the very same snapshot already carries the
+            # correct dynamic target and cannot lose its CO₂ context.
+            co2_hysteresis = self._co2_hysteresis.evaluate(
+                now=now_utc,
+                co2=co2,
+                window_open=window_open,
+                previous_mode=previous_mode,
+                previous_need=previous_need,
+            )
+            base_snapshot = _snapshot_for_co2_state()
             minimum = self._co2_minimum_airing.evaluate(
                 now=now_utc,
                 window_open=window_open,
@@ -496,6 +552,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 ),
             )
 
+        hysteresis_changed = self._co2_hysteresis.as_dict() != co2_before
         minimum_changed = self._co2_minimum_airing.as_dict() != minimum_before
         if hysteresis_changed or minimum_changed:
             self._queue_memory_save()
@@ -520,6 +577,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 co2_pending_hold=co2_hysteresis.pending_hold,
                 co2_airing_active=co2_hysteresis.airing_active,
                 co2_finish_ready=co2_hysteresis.finish_ready,
+                co2_finish_target=co2_hysteresis.finish_target_ppm,
+                co2_near_target=co2_hysteresis.near_target_ppm,
                 co2_minimum_airing_active=True,
                 co2_minimum_airing_cautious=minimum.cautious,
                 weather=weather,

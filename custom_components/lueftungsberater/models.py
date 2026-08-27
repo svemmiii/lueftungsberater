@@ -45,6 +45,8 @@ class RoomInput:
     co2_pending_hold: bool = False
     co2_airing_active: bool = False
     co2_finish_ready: bool = False
+    co2_finish_target: float | None = None
+    co2_near_target: float | None = None
     co2_minimum_airing_active: bool = False
     co2_minimum_airing_cautious: bool = False
 
@@ -63,6 +65,7 @@ class VentilationResult:
     outdoor_absolute_humidity: float
     absolute_humidity_difference: float
     co2_status: str
+    co2_session_target: float | None = None
     room_status_color: str = "green"
     room_recommendation_key: str = "room_good"
     room_reason_key: str = "room_perspective"

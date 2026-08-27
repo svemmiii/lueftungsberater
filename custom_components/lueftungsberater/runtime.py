@@ -400,6 +400,8 @@ def build_room_snapshot(
     co2_pending_hold: bool = False,
     co2_airing_active: bool = False,
     co2_finish_ready: bool = False,
+    co2_finish_target: float | None = None,
+    co2_near_target: float | None = None,
     co2_minimum_airing_active: bool = False,
     co2_minimum_airing_cautious: bool = False,
     weather: WeatherAssessment | None = None,
@@ -583,6 +585,8 @@ def build_room_snapshot(
         co2_pending_hold=co2_pending_hold,
         co2_airing_active=co2_airing_active,
         co2_finish_ready=co2_finish_ready,
+        co2_finish_target=co2_finish_target,
+        co2_near_target=co2_near_target,
         co2_minimum_airing_active=co2_minimum_airing_active,
         co2_minimum_airing_cautious=co2_minimum_airing_cautious,
     )

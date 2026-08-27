@@ -127,6 +127,73 @@ def _duration_max_minutes(mode: str, outdoor_temp: float) -> float:
     }.get(key, 10)
 
 
+def _co2_session_target_for_decision(
+    *,
+    need: str,
+    mode: str,
+    co2: float | None,
+    temp_drawback: float,
+    humidity_drawback: bool,
+    humidity_drawback_strong: bool,
+    indoor_humidity: float,
+    caution_kind: str | None,
+) -> float | None:
+    """Choose the CO₂ finish target from the situation that caused the advice.
+
+    This is deliberately not based only on the current ppm. If outdoor
+    conditions are good enough that the advisor would already have recommended
+    airing around 1000 ppm, a user who waited until 1500 ppm still gets the
+    normal 850 ppm target. If the outdoor trade-off only made airing worthwhile
+    from a higher decision band, the target moves up with that band.
+    """
+    if need not in {"co2_elevated", "co2_high", "co2_critical"}:
+        return None
+    if mode not in {
+        "co2_kritisch",
+        "co2_kritisch_vorsicht",
+        "co2_lueften",
+        "co2_lueften_mit_nachteil",
+        "co2_abwaegung",
+    }:
+        return None
+
+    if need == "co2_elevated":
+        return 850.0
+
+    if need == "co2_high":
+        # With genuinely good outside conditions the elevated 1000-ppm band
+        # would already have produced a green CO₂ recommendation. Keep the
+        # original 850-ppm finish target even if the user opened later.
+        if (
+            mode == "co2_lueften"
+            and not humidity_drawback
+            and temp_drawback < 3.0
+        ):
+            return 850.0
+
+        # The explicit >=1700-ppm override is used when a stronger outdoor
+        # disadvantage had to be accepted. Preserve the same 150-ppm buffer.
+        if co2 is not None and co2 >= 1700.0 and mode in {
+            "co2_lueften_mit_nachteil",
+            "co2_abwaegung",
+        }:
+            return 1550.0
+        return 1250.0
+
+    # Critical CO₂: if outside was genuinely good, the advisor would already
+    # have wanted airing from the 1000-ppm band, so do not reward a late opening
+    # with an artificially high target. Ordinary drawbacks use the 1700 band;
+    # only a genuinely critical/cautious trade-off uses 2000 -> 1850 ppm.
+    if mode == "co2_kritisch" and caution_kind is None:
+        if not humidity_drawback and temp_drawback < 3.0:
+            return 850.0
+        if temp_drawback < 15.0 and not (
+            humidity_drawback_strong and indoor_humidity >= 65.0
+        ):
+            return 1550.0
+    return 1850.0
+
+
 def _color(mode: str) -> str:
     if mode in {
         "co2_kritisch",
@@ -799,10 +866,23 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         elif mode == "normal":
             mode = "regen" if data.rain_now else "regen_bald"
 
-    # CO₂-driven airing is treated as a user session, not as a fresh threshold
-    # decision on every sensor update. Once the user opens a window because of
-    # CO₂, stay in that session until <=850 ppm has remained stable for two
-    # minutes. Between 850 and 900 ppm show the yellow near-target band.
+    co2_session_target = _co2_session_target_for_decision(
+        need=need,
+        mode=mode,
+        co2=co2,
+        temp_drawback=temp_drawback,
+        humidity_drawback=humidity_drawback,
+        humidity_drawback_strong=humidity_drawback_strong,
+        indoor_humidity=hi,
+        caution_kind=caution_kind,
+    )
+
+    # CO₂-driven airing is treated as an explicit user session, not as a fresh
+    # threshold decision on every sensor update. The finish target is fixed when
+    # the user starts airing and follows the CO₂ band that justified the action:
+    # normally 850 ppm, 1250 ppm for a 1400-ppm high-band start, 1550 ppm when
+    # the >=1700 trade-off override was needed, and 1850 ppm for a critical start.
+    # The last 50 ppm above that target are shown as a yellow near-target band.
     if (
         data.window_open
         and hard_mode is None
@@ -813,9 +893,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         and not data.weather_caution
         and not outdoor_co2_limited
     ):
+        finish_target = data.co2_finish_target or 850.0
+        near_target = data.co2_near_target or (finish_target + 50.0)
         if data.co2_finish_ready:
             mode = "lueftung_fertig"
-        elif co2 <= 900:
+        elif co2 <= near_target:
             mode = "co2_abwaegung"
             caution_kind = "near_target"
         else:
@@ -846,8 +928,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             pass
         elif _color(mode) == "green":
             continue_co2 = co2 is not None and (
-                co2 >= 1000
-                or (data.co2_airing_active and not data.co2_finish_ready)
+                (not data.co2_finish_ready)
+                if data.co2_airing_active
+                else co2 >= 1000
             )
             continue_moisture = (
                 (hi >= 60 and diff > AH_NEUTRAL)
@@ -931,7 +1014,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "weiter_lueften":
         reason_key = "continue_airing"
         reason_args = {
-            "continue_co2": co2 is not None and (co2 >= 1000 or (data.co2_airing_active and not data.co2_finish_ready)),
+            "continue_co2": co2 is not None and (
+                (not data.co2_finish_ready)
+                if data.co2_airing_active
+                else co2 >= 1000
+            ),
             "continue_moisture": (
                 (hi >= 60 and diff > AH_NEUTRAL)
                 or (previous_mode == "weiter_lueften" and hi >= 58 and diff >= AH_CONTINUE)
@@ -940,6 +1027,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             "continue_cooling": ti > target + 0.2 and ta <= ti - 0.5,
             "continue_warming": ti < target - 0.2 and ta >= ti + 0.5,
             "co2": co2,
+            "co2_target": data.co2_finish_target,
             "diff": diff,
             "ti": ti,
             "target": target,
@@ -950,6 +1038,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key = "co2_minimum_airing"
         reason_args = {
             "co2": co2,
+            "co2_target": data.co2_finish_target,
             "cautious": mode == "co2_mindestlueftung_vorsicht",
         }
     elif mode == "co2_kritisch":
@@ -961,6 +1050,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key = "co2_tradeoff"
         reason_args = {
             "co2": co2,
+            "co2_target": data.co2_finish_target,
             "caution": caution_kind or "conditions",
             "diff": diff,
             "ti": ti,
@@ -1105,6 +1195,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         outdoor_absolute_humidity=round(aha, 2),
         absolute_humidity_difference=round(diff, 2),
         co2_status=co2_status(co2),
+        co2_session_target=co2_session_target,
         room_status_color=room_color,
         room_recommendation_key=room_recommendation_key,
         room_reason_key="room_perspective",
