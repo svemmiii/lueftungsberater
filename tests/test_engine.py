@@ -834,3 +834,27 @@ def test_dynamic_co2_finish_target_can_end_above_1000_without_reopening_same_ses
     assert near.reason_args["caution"] == "near_target"
     assert near.reason_args["co2_target"] == 1250
     assert finished.mode == "lueftung_fertig"
+
+
+def test_post_airing_rearm_threshold_suppresses_lower_co2_band_only():
+    # A completed 1400-band session may not instantly become a fresh 1000-band
+    # recommendation merely because the weather improved after closing.
+    blocked = evaluate_room(
+        base(
+            co2=1200,
+            co2_rearm_threshold=1400,
+            outdoor_temp=20,
+            outdoor_humidity=45,
+        )
+    )
+    assert not blocked.primary_need.startswith("co2_")
+
+    released = evaluate_room(
+        base(
+            co2=1400,
+            co2_rearm_threshold=1400,
+            outdoor_temp=20,
+            outdoor_humidity=45,
+        )
+    )
+    assert released.primary_need == "co2_high"

@@ -322,9 +322,16 @@ def _primary_need(
     window_open: bool,
     co2_pending_hold: bool,
     co2_airing_active: bool,
+    co2_rearm_threshold: float | None,
 ) -> tuple[str, int]:
     """Return the strongest current reason and a small ordinal urgency level."""
-    if co2 is not None and co2 > 2000:
+    co2_allowed = (
+        co2_airing_active
+        or co2_rearm_threshold is None
+        or (co2 is not None and co2 >= co2_rearm_threshold)
+    )
+
+    if co2_allowed and co2 is not None and co2 > 2000:
         return "co2_critical", 3
 
     # Personal target remains the comfort reference, but very hot indoor air can
@@ -336,7 +343,7 @@ def _primary_need(
         return "mold_persistent", 3
     if hi >= 65:
         return "humidity_urgent", 2
-    if co2 is not None and co2 >= 1400:
+    if co2_allowed and co2 is not None and co2 >= 1400:
         return "co2_high", 2
     if mold_risk:
         return "mold", 2
@@ -346,7 +353,7 @@ def _primary_need(
         and diff >= AH_CONTINUE
     ):
         return "humidity", 2
-    if co2 is not None and (
+    if co2_allowed and co2 is not None and (
         co2 >= 1000
         or (
             _previous_co2_context(previous_mode, previous_need)
@@ -656,6 +663,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         window_open=data.window_open,
         co2_pending_hold=data.co2_pending_hold,
         co2_airing_active=data.co2_airing_active,
+        co2_rearm_threshold=data.co2_rearm_threshold,
     )
 
     # A true protection instruction is outside the normal four-colour scale.

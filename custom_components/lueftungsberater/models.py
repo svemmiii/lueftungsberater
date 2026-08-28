@@ -47,6 +47,7 @@ class RoomInput:
     co2_finish_ready: bool = False
     co2_finish_target: float | None = None
     co2_near_target: float | None = None
+    co2_rearm_threshold: float | None = None
     co2_minimum_airing_active: bool = False
     co2_minimum_airing_cautious: bool = False
 

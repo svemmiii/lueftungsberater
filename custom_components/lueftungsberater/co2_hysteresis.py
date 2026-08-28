@@ -10,9 +10,13 @@ CO2_RECOMMEND_RELEASE = 900.0
 CO2_AIRING_FINISH = 850.0
 CO2_AIRING_NEAR_TARGET_MARGIN = 50.0
 CO2_AIRING_TARGET_DROP = 150.0
+CO2_REARM_MARGIN = 50.0
 CO2_RECOMMEND_RELEASE_STABLE = timedelta(minutes=3)
 CO2_AIRING_FINISH_STABLE = timedelta(minutes=2)
+CO2_REARM_STABLE = timedelta(minutes=2)
 CO2_MINIMUM_AIRING = timedelta(minutes=5)
+
+CO2_TRIGGER_STAGES = (1000.0, 1400.0, 1700.0, 2000.0)
 
 _CO2_NEEDS = {"co2_elevated", "co2_high", "co2_critical"}
 _CO2_MODES = {
@@ -84,6 +88,7 @@ class Co2HysteresisDecision:
     finish_ready: bool = False
     finish_target_ppm: float | None = None
     near_target_ppm: float | None = None
+    rearm_threshold_ppm: float | None = None
     next_check_seconds: float | None = None
 
 
@@ -96,6 +101,9 @@ class Co2HysteresisState:
     session_active: bool = False
     session_target_ppm: float | None = None
     completed_for_open_window: bool = False
+    rearm_threshold_ppm: float | None = None
+    rearm_below_since: datetime | None = None
+    rearm_candidate_ppm: float | None = None
 
     def reset(self) -> None:
         self.pending_below_since = None
@@ -103,6 +111,9 @@ class Co2HysteresisState:
         self.session_active = False
         self.session_target_ppm = None
         self.completed_for_open_window = False
+        self.rearm_threshold_ppm = None
+        self.rearm_below_since = None
+        self.rearm_candidate_ppm = None
 
     def _clear_session(self, *, keep_completed: bool = False) -> None:
         self.finish_below_since = None
@@ -127,6 +138,74 @@ class Co2HysteresisState:
         self.session_target_ppm = max(CO2_AIRING_FINISH, float(target_ppm))
         return True
 
+    @staticmethod
+    def _trigger_for_target(target_ppm: float) -> float:
+        """Return the decision band that belongs to a fixed session target."""
+        raw = float(target_ppm) + CO2_AIRING_TARGET_DROP
+        return min(CO2_TRIGGER_STAGES, key=lambda stage: abs(stage - raw))
+
+    def _arm_rearm_from_session(self) -> None:
+        """Remember which completed CO₂ band may next trigger a new session."""
+        if self.session_target_ppm is None:
+            return
+        trigger = self._trigger_for_target(self.session_target_ppm)
+        # The just-completed session is the newest proof. If better current
+        # conditions justified a lower 850-ppm target even though an older
+        # 1400-band lock was active, successfully reaching that target may
+        # legitimately re-arm the 1000 band immediately after closing.
+        self.rearm_threshold_ppm = trigger
+        self.rearm_below_since = None
+        self.rearm_candidate_ppm = None
+
+    def _rearm_candidate(self, co2: float | None) -> float | None:
+        """Return the lowest lower trigger band proven reachable by live CO₂."""
+        if co2 is None or self.rearm_threshold_ppm is None:
+            return None
+
+        lower_stages = [
+            stage for stage in CO2_TRIGGER_STAGES if stage < self.rearm_threshold_ppm
+        ]
+        candidates = [
+            stage for stage in lower_stages if co2 <= stage - CO2_REARM_MARGIN
+        ]
+        return min(candidates) if candidates else None
+
+    def _update_rearm(self, *, now: datetime, co2: float | None) -> float | None:
+        """Lower a post-airing trigger lock only after a stable 50 ppm deadband.
+
+        Example: a completed 1400 -> 1250 ppm session stays blocked below 1400.
+        Only after CO₂ has remained at or below 950 ppm for two minutes is the
+        normal 1000-ppm band allowed to trigger again. This prevents a noisy
+        999 -> 1000 ppm update immediately after closing from reopening the same
+        conversation with the user.
+        """
+        if self.rearm_threshold_ppm is None:
+            self.rearm_below_since = None
+            self.rearm_candidate_ppm = None
+            return None
+
+        candidate = self._rearm_candidate(co2)
+        if candidate is None:
+            self.rearm_below_since = None
+            self.rearm_candidate_ppm = None
+            return None
+
+        if self.rearm_candidate_ppm != candidate:
+            self.rearm_candidate_ppm = candidate
+            self.rearm_below_since = now
+
+        if self.rearm_below_since is None:
+            self.rearm_below_since = now
+
+        elapsed = now - self.rearm_below_since
+        remaining = CO2_REARM_STABLE - elapsed
+        if remaining.total_seconds() <= 0:
+            self.rearm_threshold_ppm = candidate
+            self.rearm_below_since = None
+            self.rearm_candidate_ppm = None
+            return None
+        return max(0.0, remaining.total_seconds())
+
     def as_dict(self) -> dict[str, Any]:
         """Return the tiny restart-safe timer/session state."""
         return {
@@ -139,6 +218,11 @@ class Co2HysteresisState:
             "session_active": self.session_active,
             "session_target_ppm": self.session_target_ppm,
             "completed_for_open_window": self.completed_for_open_window,
+            "rearm_threshold_ppm": self.rearm_threshold_ppm,
+            "rearm_below_since": (
+                self.rearm_below_since.isoformat() if self.rearm_below_since else None
+            ),
+            "rearm_candidate_ppm": self.rearm_candidate_ppm,
         }
 
     def restore(
@@ -149,6 +233,9 @@ class Co2HysteresisState:
         session_active: bool = False,
         session_target_ppm: float | None = None,
         completed_for_open_window: bool = False,
+        rearm_threshold_ppm: float | None = None,
+        rearm_below_since: datetime | None = None,
+        rearm_candidate_ppm: float | None = None,
     ) -> None:
         """Restore timers/session; live evaluate() still validates relevance."""
         self.pending_below_since = pending_below_since
@@ -166,6 +253,34 @@ class Co2HysteresisState:
             # Backwards-compatible fallback for a partially written store.
             self.session_target_ppm = CO2_AIRING_FINISH
 
+        try:
+            rearm = (
+                float(rearm_threshold_ppm)
+                if rearm_threshold_ppm is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            rearm = None
+        self.rearm_threshold_ppm = (
+            min(CO2_TRIGGER_STAGES, key=lambda stage: abs(stage - rearm))
+            if rearm is not None
+            else None
+        )
+        self.rearm_below_since = rearm_below_since
+        try:
+            candidate = (
+                float(rearm_candidate_ppm)
+                if rearm_candidate_ppm is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            candidate = None
+        self.rearm_candidate_ppm = (
+            min(CO2_TRIGGER_STAGES, key=lambda stage: abs(stage - candidate))
+            if candidate is not None
+            else None
+        )
+
     def evaluate(
         self,
         *,
@@ -176,11 +291,36 @@ class Co2HysteresisState:
         previous_need: str | None,
     ) -> Co2HysteresisDecision:
         """Return stable hysteresis flags without ever delaying fresh danger."""
-        # Closing the window ends the explicit open-window session.  The normal
-        # closed-window recommendation hysteresis can then take over again.
+        # A completed session arms a band-specific post-airing re-trigger lock.
+        # Do this before clearing the open-window session so the information is
+        # not lost when the user follows the "finished" recommendation.
+        if (
+            not window_open
+            and
+            self.session_active
+            and self.session_target_ppm is not None
+            and co2 is not None
+            and co2 <= self.session_target_ppm
+            and self.finish_below_since is not None
+            and now - self.finish_below_since >= CO2_AIRING_FINISH_STABLE
+        ):
+            self._arm_rearm_from_session()
+
+        # Closing the window ends the explicit open-window session. The rearm
+        # threshold intentionally survives; only the short open-window marker is
+        # cleared here.
         if not window_open:
             if self.session_active or self.completed_for_open_window:
                 self._clear_session()
+
+            rearm_check = self._update_rearm(now=now, co2=co2)
+        else:
+            # The downward rearm deadband begins only after the user closes the
+            # window. This keeps the semantics simple: finish the current airing
+            # first, then prove that a lower CO₂ band has genuinely been reached.
+            self.rearm_below_since = None
+            self.rearm_candidate_ppm = None
+            rearm_check = None
 
         # An explicit session no longer depends on whichever mode happens to be
         # prominent on the next sensor update.  This prevents a 1400 -> 1399 ppm
@@ -200,6 +340,7 @@ class Co2HysteresisState:
                     airing_active=True,
                     finish_target_ppm=target,
                     near_target_ppm=near_target,
+                    rearm_threshold_ppm=self.rearm_threshold_ppm,
                 )
 
             if co2 > target:
@@ -208,6 +349,7 @@ class Co2HysteresisState:
                     airing_active=True,
                     finish_target_ppm=target,
                     near_target_ppm=near_target,
+                    rearm_threshold_ppm=self.rearm_threshold_ppm,
                 )
 
             if self.finish_below_since is None:
@@ -220,20 +362,27 @@ class Co2HysteresisState:
                 finish_ready=ready,
                 finish_target_ppm=target,
                 near_target_ppm=near_target,
+                rearm_threshold_ppm=self.rearm_threshold_ppm,
                 next_check_seconds=max(0.0, remaining.total_seconds()) if not ready else None,
             )
 
         if co2 is None or not is_co2_context(previous_mode, previous_need):
             self.pending_below_since = None
             self.finish_below_since = None
-            return Co2HysteresisDecision()
+            return Co2HysteresisDecision(
+                rearm_threshold_ppm=self.rearm_threshold_ppm,
+                next_check_seconds=rearm_check,
+            )
 
         # Waiting for the user to act on an already-issued CO₂ recommendation.
         if not window_open:
             self.finish_below_since = None
             if co2 >= CO2_RECOMMEND_RELEASE:
                 self.pending_below_since = None
-                return Co2HysteresisDecision()
+                return Co2HysteresisDecision(
+                    rearm_threshold_ppm=self.rearm_threshold_ppm,
+                    next_check_seconds=rearm_check,
+                )
 
             if self.pending_below_since is None:
                 self.pending_below_since = now
@@ -242,14 +391,29 @@ class Co2HysteresisState:
             hold = remaining.total_seconds() > 0
             return Co2HysteresisDecision(
                 pending_hold=hold,
-                next_check_seconds=max(0.0, remaining.total_seconds()) if hold else None,
+                rearm_threshold_ppm=self.rearm_threshold_ppm,
+                next_check_seconds=(
+                    min(
+                        seconds
+                        for seconds in (
+                            max(0.0, remaining.total_seconds()) if hold else None,
+                            rearm_check,
+                        )
+                        if seconds is not None
+                    )
+                    if hold or rearm_check is not None
+                    else None
+                ),
             )
 
         # Compatibility path for an already-open CO₂ session restored from an
         # older release that did not persist an explicit session flag.  Use the
         # previous CO₂ band to choose the new dynamic target once, then keep it.
         if self.completed_for_open_window:
-            return Co2HysteresisDecision()
+            return Co2HysteresisDecision(
+                rearm_threshold_ppm=self.rearm_threshold_ppm,
+                next_check_seconds=rearm_check,
+            )
 
         target = co2_session_target(
             co2=co2,

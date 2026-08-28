@@ -81,6 +81,27 @@ CLEAR_NEGATIONS = (
     "warning has not been lifted",
 )
 
+# Defensive wording guard: these phrases contain the substring "Entwarnung"
+# but do not mean that the affected room can be treated as fully clear. They are
+# intentionally *not* a new warning state; they merely stop substring matching
+# from turning an ambiguous/partial update into a full all-clear.
+CLEAR_QUALIFIERS = (
+    "teilentwarnung",
+    "teil-entwarnung",
+    "teilweise entwarnung",
+    "bedingte entwarnung",
+    "bedingt entwarnt",
+    "entwarnung mit einschränkungen",
+    "entwarnung mit einschraenkungen",
+    "partielle entwarnung",
+    "partial all-clear",
+    "partial all clear",
+    "conditional all-clear",
+    "conditional all clear",
+    "all-clear with restrictions",
+    "all clear with restrictions",
+)
+
 # Official instructions are authoritative. The integration does not second-guess
 # why an authority orders windows/doors closed or ventilation switched off.
 OFFICIAL_CLOSE_ACTIONS = (
@@ -88,6 +109,8 @@ OFFICIAL_CLOSE_ACTIONS = (
     "fenster und tueren schliessen",
     "fenster und türen geschlossen halten",
     "fenster und tueren geschlossen halten",
+    "fenster und türen weiterhin geschlossen halten",
+    "fenster und tueren weiterhin geschlossen halten",
     "halten sie fenster und türen geschlossen",
     "halten sie fenster und tueren geschlossen",
     "schließen sie fenster und türen",
@@ -792,6 +815,8 @@ def _contains_any(text: str, words: tuple[str, ...]) -> bool:
 
 def _is_clear_warning(text: str) -> bool:
     low = " ".join(str(text).lower().split())
+    if any(word in low for word in CLEAR_QUALIFIERS):
+        return False
     if any(word in low for word in CLEAR_NEGATIONS):
         return False
     # Catch natural negations around the word "Entwarnung" without requiring
@@ -861,11 +886,11 @@ def _evaluate_air_warning(
     """
     alltext = " ".join((headline, description, actions)).lower()
 
-    if _is_clear_warning(alltext):
-        return "clear"
-
     if _contains_any(f"{actions} {description}", OFFICIAL_CLOSE_ACTIONS):
         return "danger"
+
+    if _is_clear_warning(alltext):
+        return "clear"
 
     # No direct close/outdoor-air instruction means the official warning is
     # outside this integration's remit. Weather and measured air quality are
@@ -1067,10 +1092,22 @@ def _evaluate_nina_like_entities(
         severity = _text(state, "severity") or detail.get("severity", "") or str(full.get("severity") or "") or "Unknown"
         alltext = " ".join((headline, description, actions))
 
-        if _is_clear_warning(alltext):
+        air_state = _evaluate_air_warning(
+            headline,
+            description,
+            actions,
+            severity,
+        )
+
+        if air_state == "danger":
+            result.official_close_instruction = True
+        elif air_state == "clear":
             # Keep the all-clear visible while the provider still exposes the
             # warning slot. Once the slot disappears/goes off, normal engine
-            # operation resumes with no artificial after-run.
+            # operation resumes with no artificial after-run. Explicit close
+            # instructions were checked first and can therefore never be
+            # accidentally neutralised by the word "Entwarnung" in the same
+            # payload.
             if result.nina_status != "danger":
                 result.nina_status = "clear"
                 result.warning_notice_kind = "all_clear"
@@ -1081,15 +1118,6 @@ def _evaluate_nina_like_entities(
         # severity. Only their explicit protection instructions below may alter
         # ventilation. DWD keeps its dedicated official warning-level path.
 
-        air_state = _evaluate_air_warning(
-            headline,
-            description,
-            actions,
-            severity,
-        )
-
-        if air_state == "danger":
-            result.official_close_instruction = True
         if air_rank[air_state] > air_rank[result.nina_status]:
             result.nina_status = air_state
             result.nina_reason_key = (

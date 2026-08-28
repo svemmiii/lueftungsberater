@@ -356,3 +356,163 @@ def test_explicit_co2_session_target_roundtrips_for_restart_memory():
     assert restored.session_active is True
     assert restored.session_target_ppm == 1250
     assert restored.finish_below_since == start
+
+
+def test_completed_1400_session_blocks_retrigger_until_1400_after_close():
+    state = Co2HysteresisState()
+    start = datetime(2026, 8, 28, 8, 0, tzinfo=UTC)
+    assert state.start_airing_session(target_ppm=1250)
+
+    state.evaluate(
+        now=start,
+        co2=1240,
+        window_open=True,
+        previous_mode="weiter_lueften",
+        previous_need="co2_high",
+    )
+    ready = state.evaluate(
+        now=start + CO2_AIRING_FINISH_STABLE,
+        co2=1240,
+        window_open=True,
+        previous_mode="co2_abwaegung",
+        previous_need="co2_high",
+    )
+    assert ready.finish_ready is True
+    assert ready.rearm_threshold_ppm is None
+
+    closed = state.evaluate(
+        now=start + CO2_AIRING_FINISH_STABLE + timedelta(seconds=1),
+        co2=1240,
+        window_open=False,
+        previous_mode="lueftung_fertig",
+        previous_need="co2_elevated",
+    )
+    assert closed.rearm_threshold_ppm == 1400
+    assert state.session_active is False
+
+
+def test_rearm_deadband_ignores_999_to_1000_flicker_after_1400_session():
+    state = Co2HysteresisState(rearm_threshold_ppm=1400)
+    start = datetime(2026, 8, 28, 9, 0, tzinfo=UTC)
+
+    first = state.evaluate(
+        now=start,
+        co2=999,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    second = state.evaluate(
+        now=start + timedelta(minutes=1),
+        co2=1000,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert first.rearm_threshold_ppm == 1400
+    assert second.rearm_threshold_ppm == 1400
+    assert state.rearm_below_since is None
+
+
+def test_rearm_moves_from_1400_to_1000_only_after_two_minutes_at_950_or_less():
+    from custom_components.lueftungsberater.co2_hysteresis import CO2_REARM_STABLE
+
+    state = Co2HysteresisState(rearm_threshold_ppm=1400)
+    start = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
+
+    first = state.evaluate(
+        now=start,
+        co2=945,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    almost = state.evaluate(
+        now=start + CO2_REARM_STABLE - timedelta(seconds=1),
+        co2=950,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    ready = state.evaluate(
+        now=start + CO2_REARM_STABLE,
+        co2=948,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+
+    assert first.rearm_threshold_ppm == 1400
+    assert almost.rearm_threshold_ppm == 1400
+    assert ready.rearm_threshold_ppm == 1000
+
+
+def test_rearm_can_drop_directly_to_lowest_proven_band():
+    from custom_components.lueftungsberater.co2_hysteresis import CO2_REARM_STABLE
+
+    state = Co2HysteresisState(rearm_threshold_ppm=1700)
+    start = datetime(2026, 8, 28, 10, 30, tzinfo=UTC)
+    state.evaluate(
+        now=start,
+        co2=930,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    ready = state.evaluate(
+        now=start + CO2_REARM_STABLE,
+        co2=940,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert ready.rearm_threshold_ppm == 1000
+
+
+def test_rearm_state_roundtrips_for_restart_memory():
+    start = datetime(2026, 8, 28, 11, 0, tzinfo=UTC)
+    original = Co2HysteresisState(
+        rearm_threshold_ppm=1400,
+        rearm_below_since=start,
+        rearm_candidate_ppm=1000,
+    )
+    payload = original.as_dict()
+    restored = Co2HysteresisState()
+    restored.restore(
+        pending_below_since=None,
+        finish_below_since=None,
+        rearm_threshold_ppm=payload["rearm_threshold_ppm"],
+        rearm_below_since=datetime.fromisoformat(payload["rearm_below_since"]),
+        rearm_candidate_ppm=payload["rearm_candidate_ppm"],
+    )
+    assert restored.rearm_threshold_ppm == 1400
+    assert restored.rearm_candidate_ppm == 1000
+    assert restored.rearm_below_since == start
+
+
+def test_new_successful_lower_target_can_replace_an_older_higher_rearm_lock():
+    state = Co2HysteresisState(rearm_threshold_ppm=1400)
+    start = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+    assert state.start_airing_session(target_ppm=850)
+    state.evaluate(
+        now=start,
+        co2=840,
+        window_open=True,
+        previous_mode="weiter_lueften",
+        previous_need="co2_high",
+    )
+    state.evaluate(
+        now=start + CO2_AIRING_FINISH_STABLE,
+        co2=840,
+        window_open=True,
+        previous_mode="co2_abwaegung",
+        previous_need="co2_elevated",
+    )
+    closed = state.evaluate(
+        now=start + CO2_AIRING_FINISH_STABLE + timedelta(seconds=1),
+        co2=840,
+        window_open=False,
+        previous_mode="lueftung_fertig",
+        previous_need="co2_elevated",
+    )
+    assert closed.rearm_threshold_ppm == 1000

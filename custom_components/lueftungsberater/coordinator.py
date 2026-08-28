@@ -147,19 +147,37 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if isinstance(co2_memory, dict):
             pending = _parse_dt(co2_memory.get("pending_below_since"))
             finish = _parse_dt(co2_memory.get("finish_below_since"))
+            rearm_below = _parse_dt(co2_memory.get("rearm_below_since"))
             # These timers are only a few minutes long. Reuse them only while
             # the surrounding decision memory is still fresh; evaluate() will
             # immediately reset them if the live CO2 context no longer matches.
-            if stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL:
-                self._co2_hysteresis.restore(
-                    pending_below_since=pending,
-                    finish_below_since=finish,
-                    session_active=bool(co2_memory.get("session_active")),
-                    session_target_ppm=co2_memory.get("session_target_ppm"),
-                    completed_for_open_window=bool(
-                        co2_memory.get("completed_for_open_window")
-                    ),
-                )
+            memory_fresh = (
+                stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL
+            )
+            self._co2_hysteresis.restore(
+                pending_below_since=pending if memory_fresh else None,
+                finish_below_since=finish if memory_fresh else None,
+                session_active=(
+                    bool(co2_memory.get("session_active")) if memory_fresh else False
+                ),
+                session_target_ppm=(
+                    co2_memory.get("session_target_ppm") if memory_fresh else None
+                ),
+                completed_for_open_window=(
+                    bool(co2_memory.get("completed_for_open_window"))
+                    if memory_fresh
+                    else False
+                ),
+                # The post-airing re-trigger band is not a short timer. Keep it
+                # across restarts until live CO₂ has genuinely proven a lower
+                # band via the deadband below. The two-minute candidate timer is
+                # only resumed while the surrounding memory is fresh.
+                rearm_threshold_ppm=co2_memory.get("rearm_threshold_ppm"),
+                rearm_below_since=rearm_below if memory_fresh else None,
+                rearm_candidate_ppm=(
+                    co2_memory.get("rearm_candidate_ppm") if memory_fresh else None
+                ),
+            )
 
         minimum_memory = stored.get("co2_minimum_airing")
         if isinstance(minimum_memory, dict):
@@ -484,6 +502,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 co2_finish_ready=co2_hysteresis.finish_ready,
                 co2_finish_target=co2_hysteresis.finish_target_ppm,
                 co2_near_target=co2_hysteresis.near_target_ppm,
+                co2_rearm_threshold=co2_hysteresis.rearm_threshold_ppm,
                 weather=weather,
                 warnings=warnings,
             )
@@ -579,6 +598,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 co2_finish_ready=co2_hysteresis.finish_ready,
                 co2_finish_target=co2_hysteresis.finish_target_ppm,
                 co2_near_target=co2_hysteresis.near_target_ppm,
+                co2_rearm_threshold=co2_hysteresis.rearm_threshold_ppm,
                 co2_minimum_airing_active=True,
                 co2_minimum_airing_cautious=minimum.cautious,
                 weather=weather,

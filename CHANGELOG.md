@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.7.9
+
+### CO₂-Wiedereinschaltung nach abgeschlossener Lüftung stabilisiert
+- Nach einer erfolgreich abgeschlossenen CO₂-Lüftung wird die auslösende CO₂-Stufe jetzt als **Wiedereinschaltgrenze** gespeichert. Dadurch kann der Assistent nach dem Schließen nicht sofort aufgrund inzwischen besserer Außenbedingungen dieselbe Lüftung erneut verlangen.
+- Beispiel: Wurde eine Sitzung erst in der **1400-ppm-Stufe** sinnvoll und bei etwa **1250 ppm** erfolgreich beendet, bleibt CO₂ anschließend zwischen 1000 und 1399 ppm für diesen Zyklus ruhig. Erst ein erneutes Erreichen von 1400 ppm darf diese Stufe wieder als Lüftungsgrund freigeben.
+- Niedrigere CO₂-Stufen können sich wieder freischalten, sobald der Raum nachweislich deutlich besser geworden ist. Dafür gilt eine **50-ppm-Deadband plus 2 Minuten Stabilität**: Aus einer 1400er-Sperre wird die 1000er-Stufe erst wieder freigegeben, wenn CO₂ höchstens 950 ppm für 2 Minuten stabil erreicht.
+- Dasselbe Prinzip gilt stufenweise für die höheren Bereiche: 2000 → 1700, 1700 → 1400 und 1400 → 1000. Fällt CO₂ bereits deutlich weiter, kann nach derselben stabilen Deadband direkt die niedrigste tatsächlich erreichte Stufe freigegeben werden.
+- Messwertflattern wie **999 → 1000 ppm** reicht damit ausdrücklich nicht aus, um direkt nach einer beendeten höheren Sitzung erneut „Lüften“ auszulösen.
+- Die Wiedereinschaltgrenze bleibt neustartsicher gespeichert. Der kurze 2-Minuten-Deadband-Timer wird nur aus frischem Entscheidungs-Memory fortgesetzt; die eigentliche Sperrstufe bleibt auch über längere Neustarts erhalten.
+- Die bestehende 5-Minuten-Mindestlüftung, die situationsabhängigen 850/1250/1550/1850-ppm-Ziele und die normale Gesamtbewertung aus Innen- und Außenwerten bleiben unverändert erhalten.
+
+### Entwarnungs-Erkennung defensiver gemacht
+- Formulierungen wie **„Teilentwarnung“**, **„bedingte Entwarnung“**, **„teilweise Entwarnung“** oder **„Entwarnung mit Einschränkungen“** werden nicht mehr allein wegen des enthaltenen Wortes „Entwarnung“ als vollständiges `clear` gewertet. Sie bleiben normale Meldungstexte und werden anschließend weiter ausgewertet.
+- Diese Begriffe erzeugen bewusst **keinen neuen Warnzustand und keine neue Ampelfarbe**; sie dienen ausschließlich als Schutz vor einer falschen Voll-Entwarnung durch Substring-Erkennung.
+- Eine explizite amtliche Anweisung wie **„Fenster und Türen geschlossen halten“** hat jetzt auch dann Vorrang, wenn dieselbe Meldung gleichzeitig das Wort „Entwarnung“ enthält. Harte Schutzanweisungen können dadurch nicht versehentlich durch einen widersprüchlichen Entwarnungstext aufgehoben werden.
+- Zusätzliche Formulierungsvarianten wie „Fenster und Türen weiterhin geschlossen halten“ werden als amtliche Schließanweisung erkannt.
+
+### Tests / Release
+- Neue Regressionstests decken die CO₂-Wiedereinschaltung, die 50-ppm-/2-Minuten-Deadband, direkte Rückkehr in eine niedrigere CO₂-Stufe, Neustart-Memory sowie qualifizierte Entwarnungsformulierungen und widersprüchliche Schutzanweisungen ab.
+
 ## v0.7.8
 
 ### CO₂-Lüftungssitzung repariert und situationsabhängig beendet

@@ -597,3 +597,51 @@ async def test_nina_get_details_is_cached_by_warning_id(hass, enable_custom_inte
 
     assert service_handler.await_count == 1
     assert result.nina_status == "danger"
+
+
+def test_qualified_all_clear_phrases_are_not_full_clear():
+    from custom_components.lueftungsberater.providers import _is_clear_warning
+
+    for text in (
+        "Bedingte Entwarnung für das betroffene Gebiet.",
+        "Teilentwarnung: Die Lage wird weiter beobachtet.",
+        "Teilweise Entwarnung, einzelne Maßnahmen bleiben bestehen.",
+        "Entwarnung mit Einschränkungen.",
+    ):
+        assert _is_clear_warning(text) is False
+
+
+def test_explicit_close_instruction_wins_even_if_payload_says_entwarnung():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Entwarnung",
+            "Die Lage hat sich verbessert.",
+            "Fenster und Türen weiterhin geschlossen halten.",
+            "Minor",
+        )
+        == "danger"
+    )
+
+
+def test_nina_like_payload_never_clears_an_explicit_close_instruction():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    entity = "binary_sensor.warning_clear_but_close"
+    hass = FakeHass(
+        {
+            entity: FakeState(
+                "on",
+                {
+                    "headline": "Entwarnung",
+                    "description": "Die Lage hat sich verbessert.",
+                    "recommended_actions": "Fenster und Türen weiterhin geschlossen halten.",
+                    "severity": "Minor",
+                },
+            )
+        }
+    )
+    result = _evaluate_nina_like_entities(hass, [entity])
+    assert result.nina_status == "danger"
+    assert result.official_close_instruction is True
