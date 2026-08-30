@@ -234,7 +234,10 @@ def clear_room_notification_state(
     """Forget transient room-level notification state."""
     domain_data = hass.data.get(DOMAIN, {})
     store = domain_data.get(DATA_NOTIFICATION_STATE, {})
-    store.pop(f"room:{entry_id}:{subentry_id}", None)
+    room_key = f"room:{entry_id}:{subentry_id}"
+    store.pop(room_key, None)
+    locks = domain_data.get(DATA_NOTIFICATION_LOCKS, {})
+    locks.pop(room_key, None)
     # Also clean the old pre-v0.7.1 key shape after an in-place update.
     store.pop(f"{entry_id}:{subentry_id}", None)
 
@@ -393,23 +396,31 @@ async def async_handle_room_notification(
     mode = result.mode if result is not None else None
     recommendation_key = result.recommendation_key if result is not None else None
     key = f"room:{entry.entry_id}:{subentry.subentry_id}"
-    store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_NOTIFICATION_STATE, {})
-    stored = store.get(key)
-    state: dict[str, Any] = dict(stored) if isinstance(stored, dict) else {}
-    initialized = bool(state.get("initialized"))
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    store = domain_data.setdefault(DATA_NOTIFICATION_STATE, {})
+    locks = domain_data.setdefault(DATA_NOTIFICATION_LOCKS, {})
+    lock = locks.setdefault(key, asyncio.Lock())
 
-    if initialized and result is not None:
-        transition_trigger = _transition_trigger(
-            state.get("mode"),
-            state.get("recommendation_key"),
-            mode,
-            recommendation_key,
-        )
-        if transition_trigger is not None and transition_trigger in room_enabled:
-            if not await _async_send(hass, entry, subentry, transition_trigger):
-                return
+    # Snapshots can be published by several event sources almost at once. Keep
+    # the edge-trigger state serial so two tasks cannot both observe the same
+    # previous state and emit the same room transition twice.
+    async with lock:
+        stored = store.get(key)
+        state: dict[str, Any] = dict(stored) if isinstance(stored, dict) else {}
+        initialized = bool(state.get("initialized"))
 
-    state["initialized"] = True
-    state["mode"] = mode
-    state["recommendation_key"] = recommendation_key
-    store[key] = state
+        if initialized and result is not None:
+            transition_trigger = _transition_trigger(
+                state.get("mode"),
+                state.get("recommendation_key"),
+                mode,
+                recommendation_key,
+            )
+            if transition_trigger is not None and transition_trigger in room_enabled:
+                if not await _async_send(hass, entry, subentry, transition_trigger):
+                    return
+
+        state["initialized"] = True
+        state["mode"] = mode
+        state["recommendation_key"] = recommendation_key
+        store[key] = state

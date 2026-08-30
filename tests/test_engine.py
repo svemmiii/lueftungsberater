@@ -858,3 +858,75 @@ def test_post_airing_rearm_threshold_suppresses_lower_co2_band_only():
         )
     )
     assert released.primary_need == "co2_high"
+
+
+def test_crossing_co2_elevated_threshold_never_weakens_temperature_airing():
+    before = evaluate_room(
+        base(
+            indoor_temp=16,
+            indoor_humidity=45,
+            outdoor_temp=18,
+            outdoor_humidity=60,
+            target_temp=21,
+            co2=999,
+        )
+    )
+    after = evaluate_room(
+        base(
+            indoor_temp=16,
+            indoor_humidity=45,
+            outdoor_temp=18,
+            outdoor_humidity=60,
+            target_temp=21,
+            co2=1000,
+        )
+    )
+    assert before.color == "green"
+    assert after.color == "green"
+
+
+def test_crossing_co2_high_threshold_never_weakens_humidity_airing():
+    common = dict(
+        indoor_temp=16,
+        indoor_humidity=60,
+        outdoor_temp=-10,
+        outdoor_humidity=20,
+        target_temp=21,
+    )
+    before = evaluate_room(base(**common, co2=1399))
+    after = evaluate_room(base(**common, co2=1400))
+    assert before.color == "green"
+    assert after.color == "green"
+    assert after.mode == "co2_lueften_mit_nachteil"
+    assert after.primary_need == "co2_high"
+
+
+def test_critical_co2_never_weakens_independent_green_humidity_need():
+    common = dict(
+        indoor_temp=16,
+        indoor_humidity=60,
+        outdoor_temp=-10,
+        outdoor_humidity=20,
+        target_temp=21,
+    )
+    before = evaluate_room(base(**common, co2=1999))
+    after = evaluate_room(base(**common, co2=2001))
+    assert before.color == "green"
+    assert after.color == "green"
+    assert after.mode == "co2_lueften_mit_nachteil"
+    assert after.primary_need == "co2_critical"
+
+
+def test_hard_warning_still_wins_over_independent_green_need():
+    result = evaluate_room(
+        base(
+            indoor_temp=16,
+            indoor_humidity=70,
+            outdoor_temp=-10,
+            outdoor_humidity=20,
+            co2=2200,
+            nina_status="danger",
+        )
+    )
+    assert result.safety_lock is True
+    assert result.mode == "nina_aussenluftgefahr"

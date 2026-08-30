@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
+INTEGRATION_VERSION = "0.8.0"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 

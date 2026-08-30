@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, INTEGRATION_VERSION
 from .coordinator import LueftungsberaterRoomCoordinator
 
 
@@ -46,5 +46,5 @@ class LueftungsberaterRoomEntity(
                     else "Room ventilation advisor"
                 )
             ),
-            sw_version="0.7.9",
+            sw_version=INTEGRATION_VERSION,
         )

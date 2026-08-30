@@ -70,3 +70,7 @@ async def test_compact_air_quality_store_migrates_v0623_points(hass, enable_cust
     assert stats["count"] == 3
     assert stats["baseline"] == 11.0
     assert isinstance(tracker._serialize()["buckets"]["50.75,7.00"]["pm2_5"], dict)
+
+
+def test_unknown_temperature_unit_is_not_assumed_to_be_celsius():
+    assert _to_celsius(75, "definitely-not-a-temperature-unit") is None

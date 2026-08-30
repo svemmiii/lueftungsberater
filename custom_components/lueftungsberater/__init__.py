@@ -13,6 +13,7 @@ from .airing import async_get_or_create_tracker, async_stop_entry_trackers
 from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air_quality_tracker
 from .api import async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
+from .compat import pin_subentry_capabilities
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
 from .history import async_cleanup_legacy_room_history
 from .recorder_maintenance import async_register_recorder_retention
@@ -38,6 +39,7 @@ from .const import (
     NOTIFY_TRIGGER_AIRING_RECOMMENDED,
     NOTIFY_TRIGGER_AIRING_FINISHED,
     LEGACY_NOTIFY_KEYS,
+    INTEGRATION_VERSION,
     PLATFORMS,
     SUBENTRY_TYPE_ROOM,
     entry_kind,
@@ -53,7 +55,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = "0.7.9"
+FRONTEND_VERSION = INTEGRATION_VERSION
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -107,20 +109,6 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
             "Updated Lüftungsassistent dashboard cards to frontend %s",
             FRONTEND_VERSION,
         )
-
-
-def _pin_subentry_capabilities(entry: ConfigEntry) -> None:
-    """Keep read-only remote entries out of Home Assistant's room parent picker.
-
-    Home Assistant caches supported subentry types on each ConfigEntry. Older
-    remote entries may have cached the room type before they were marked
-    read-only, so clear/pin the cache whenever the entry is migrated or set up.
-    """
-    if not hasattr(entry, "_supported_subentry_types"):
-        return
-    remote = entry_kind(entry) == ENTRY_KIND_REMOTE or bool(entry.data.get(CONF_REMOTE_HOST))
-    object.__setattr__(entry, "_supported_subentry_types", {} if remote else None)
-    entry.clear_state_cache()
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -235,7 +223,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Pin before async_update_entry: the update event serializes the ConfigEntry
     # for the frontend, so its supported_subentry_types must already be correct.
-    _pin_subentry_capabilities(entry)
+    pin_subentry_capabilities(entry)
     if updates:
         hass.config_entries.async_update_entry(entry, **updates)
     return True
@@ -245,7 +233,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one local or Tailscale-remote Lüftungsberater entry."""
     # Keep Home Assistant's per-entry subentry capability cache in sync with
     # our local-vs-remote model. Remote/Tailscale peers are read-only.
-    _pin_subentry_capabilities(entry)
+    pin_subentry_capabilities(entry)
 
     await _async_register_frontend(hass)
     async_register_api(hass)

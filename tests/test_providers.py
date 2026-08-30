@@ -645,3 +645,141 @@ def test_nina_like_payload_never_clears_an_explicit_close_instruction():
     result = _evaluate_nina_like_entities(hass, [entity])
     assert result.nina_status == "danger"
     assert result.official_close_instruction is True
+
+
+def test_strong_nina_all_clear_beats_stale_old_close_action():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Entwarnung: Rauchentwicklung",
+            "Die Warnung ist aufgehoben.",
+            "Schließen Sie Fenster und Türen und schalten Sie Lüftungen und Klimaanlagen ab.",
+        )
+        == "clear"
+    )
+
+
+def test_partial_all_clear_with_flexible_close_wording_remains_danger():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Teilentwarnung nach Rauchentwicklung",
+            "Für Teile des Gebietes kann Entwarnung gegeben werden.",
+            "Halten Sie im betroffenen Bereich weiterhin Fenster und Türen geschlossen. "
+            "Lüftungs- und Klimaanlagen sollen weiterhin ausgeschaltet bleiben.",
+        )
+        == "danger"
+    )
+
+
+def test_flexible_mowas_style_close_variants_are_recognized():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    variants = (
+        "Schließen Sie alle Fenster und Türen.",
+        "Bitte schließen Sie sofort Fenster und Türen.",
+        "Halten Sie Türen und Fenster vorsorglich geschlossen.",
+        "Schalten Sie die Belüftung aus und schließen Sie die Fenster.",
+    )
+    for action in variants:
+        assert _evaluate_air_warning("Rauchentwicklung", "", action) == "danger"
+
+
+def test_release_wording_is_not_misclassified_as_close_instruction():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    for action in (
+        "Fenster und Türen können wieder geöffnet werden.",
+        "Fenster und Türen müssen nicht mehr geschlossen bleiben.",
+        "Sie müssen Fenster und Türen nicht geschlossen halten.",
+        "Lüftungsanlagen können wieder eingeschaltet werden.",
+    ):
+        assert _evaluate_air_warning("Entwarnung", "Die Warnung wird aufgehoben.", action) == "clear"
+
+
+def test_simultaneous_nina_danger_suppresses_other_slot_all_clear():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    clear = "binary_sensor.warning_clear"
+    danger = "binary_sensor.warning_danger"
+    hass = FakeHass(
+        {
+            clear: FakeState(
+                "on",
+                {
+                    "id": "clear-1",
+                    "headline": "Entwarnung: Rauchentwicklung",
+                    "description": "Die Warnung ist aufgehoben.",
+                },
+            ),
+            danger: FakeState(
+                "on",
+                {
+                    "id": "danger-1",
+                    "headline": "Rauchentwicklung",
+                    "recommended_actions": "Halten Sie Fenster und Türen geschlossen.",
+                },
+            ),
+        }
+    )
+
+    result = _evaluate_nina_like_entities(hass, [clear, danger])
+    assert result.nina_status == "danger"
+    assert result.warning_notice_kind is None
+    assert result.warning_notice_text is None
+    assert result.warning_ids == {"danger-1"}
+    assert result.source_nina_entity == danger
+
+
+def test_irrelevant_nina_warning_does_not_change_relevant_warning_fingerprint_ids():
+    from custom_components.lueftungsberater.providers import _evaluate_nina_like_entities
+
+    oil = "binary_sensor.oil_warning"
+    smoke = "binary_sensor.smoke_warning"
+    hass = FakeHass(
+        {
+            oil: FakeState(
+                "on",
+                {
+                    "id": "oil-1",
+                    "headline": "Verunreinigung eines Gewässers mit Öl",
+                    "recommended_actions": "Entnehmen Sie kein Wasser aus dem Gewässer.",
+                },
+            ),
+            smoke: FakeState(
+                "on",
+                {
+                    "id": "smoke-1",
+                    "headline": "Rauchentwicklung",
+                    "recommended_actions": "Fenster und Türen geschlossen halten.",
+                },
+            ),
+        }
+    )
+
+    result = _evaluate_nina_like_entities(hass, [oil, smoke])
+    assert result.warning_ids == {"smoke-1"}
+
+
+def test_provider_float_rejects_non_finite_values():
+    from custom_components.lueftungsberater.providers import _float
+
+    assert _float("nan") is None
+    assert _float("inf") is None
+    assert _float("-inf") is None
+    assert _float("12.5") == 12.5
+
+
+def test_official_entwarnung_headline_can_clear_stale_action_without_description():
+    from custom_components.lueftungsberater.providers import _evaluate_air_warning
+
+    assert (
+        _evaluate_air_warning(
+            "Entwarnung: Rauchentwicklung nach Brand",
+            "",
+            "Fenster und Türen geschlossen halten.",
+        )
+        == "clear"
+    )

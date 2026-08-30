@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.8.0
+
+### NINA / MoWaS sicherer und praxisnäher ausgewertet
+- Vollständige Entwarnungen werden jetzt von bloßen Teil-/bedingten Entwarnungen sauber getrennt. Eine eindeutige Aufhebung wie **„Die Warnung ist aufgehoben“** darf eine alte, im Entwarnungsdatensatz noch mitgeführte Schutzanweisung überstimmen: Die harte Sperre fällt, die normale Lüftungsbewertung läuft wieder und der bestehende Entwarnungshinweis bleibt sichtbar.
+- **Teilentwarnung**, bedingte/teilweise Entwarnung und Entwarnung mit Einschränkungen bleiben defensiv: Ist weiterhin eine amtliche Schließanweisung vorhanden, bleibt die harte Sperre aktiv.
+- Fenster-/Lüftungsanweisungen werden nicht mehr nur über einzelne starre Vollsätze erkannt. Zusätzlich gibt es einen konservativen, satzgebundenen Matcher für reale MoWaS-Varianten wie „alle Fenster und Türen schließen“, „Fenster geschlossen halten“ oder „Belüftung ausschalten“. Freigabeformulierungen wie „Fenster können wieder geöffnet werden“ werden ausdrücklich ausgenommen.
+- Bei mehreren gleichzeitigen Warnslots gewinnt jede noch aktive lüftungsrelevante Gefahr über eine Entwarnung eines anderen Slots. Dadurch können harte Sperre und globaler Entwarnungshinweis nicht mehr gleichzeitig erscheinen.
+- Nur tatsächlich lüftungsrelevante Warnungen fließen noch in den Warn-Fingerprint ein. Eine parallele, für die Lüftung irrelevante Meldung (z. B. Gewässer-/Ölwarnung) kann dadurch keine identische Rauchwarnung erneut benachrichtigen.
+- NINA-Details aus `nina.get_details` werden weiterhin gecacht, aber spätestens nach fünf Minuten neu geladen. Änderungen an einer laufenden Warnung bleiben dadurch nicht wegen einer unveränderten Warnungs-ID dauerhaft im Cache hängen.
+- Diagnoseattribute merken sich jetzt die tatsächlich entscheidende NINA-/DWD-Quellentität statt eines zufälligen Elements aus einer Menge.
+
+### Entscheidungsengine konsistenter
+- Ein zusätzlicher CO₂-Lüftungsgrund kann eine bereits unabhängig sinnvolle grüne Lüftung nicht mehr abschwächen. Grenzfälle wie **1399 → 1400 ppm** oder **1999 → 2001 ppm** bleiben deshalb mindestens so handlungsstark, wenn Feuchte, Temperatur oder Schimmelschutz unter denselben Außenbedingungen ohnehin bereits klar zum Lüften raten.
+- Harte amtliche Schutzsperren und echte Außenwarnungen behalten dabei unverändert höchste Priorität. Die Änderung verhindert nur widersprüchliche Abschwächungen innerhalb gleichzeitig vorhandener Innenraumgründe.
+
+### Robustheit / Home Assistant
+- Nicht-endliche Messwerte (`NaN`, `+/-inf`) werden in Provider- und CO₂-Pfaden verworfen. Gespeicherte CO₂-Gnadenwerte werden ebenfalls validiert.
+- Unbekannte Temperatureinheiten werden nicht mehr stillschweigend als °C interpretiert. Ein nicht konvertierbarer Wert gilt stattdessen als nicht verwendbar.
+- Raum-Benachrichtigungen werden pro Raum serialisiert, damit nahezu gleichzeitige Sensorupdates denselben Zustandsübergang nicht doppelt melden können.
+- Der gemeinsame Outside-Coordinator beobachtet Änderungen der Home-Assistant-Entity-Registry und zieht seine Provider-Quellen dynamisch nach. Später erzeugte oder umbenannte Wetter-/Warnentitäten benötigen dadurch keinen Lüftungsberater-Reload mehr.
+- Der notwendige Home-Assistant-Kompatibilitätsworkaround für den privaten Subentry-Capability-Cache ist in `compat.py` isoliert und greift nur, solange die betreffende interne HA-Struktur existiert.
+- Python-seitige Versionsangaben verwenden eine gemeinsame `INTEGRATION_VERSION`; Manifest, Frontend-Cache-Buster und Geräteanzeige stehen für dieses Release auf **0.8.0**.
+- `nina_status` ist im Datenmodell explizit als `none | caution | danger | clear` typisiert; nicht verwendete Warnparameter und kleine doppelte/mehrdeutige Stellen wurden bereinigt.
+- Der tägliche GitHub-Pytest-Job installiert nicht mehr dauerhaft einen alten festgepinnten Home-Assistant-Teststack, sondern aktualisiert auf die jeweils aktuelle `pytest-homeassistant-custom-component`-Version und protokolliert die verwendeten Versionen.
+
+### Tests / Qualität
+- Neue Regressionstests decken reale Voll-Entwarnungen mit alten Schließtexten, Teilentwarnungen mit weiterhin gültiger Schutzanweisung, flexible MoWaS-Formulierungen, parallele Warn-/Entwarnungsslots, irrelevante Warn-IDs sowie `NaN`/`inf` und die CO₂-Grenzsprünge der Engine ab.
+- Die bestehende Sicherheitsarchitektur bleibt erhalten: amtliche harte Sperren können weiterhin nicht durch CO₂, Feuchte, Temperatur oder Komfortgründe überstimmt werden.
+
 ## v0.7.9
 
 ### CO₂-Wiedereinschaltung nach abgeschlossener Lüftung stabilisiert

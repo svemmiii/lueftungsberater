@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
+
+
+NinaStatus = Literal["none", "caution", "danger", "clear"]
 
 
 @dataclass(slots=True)
@@ -24,7 +27,7 @@ class RoomInput:
     weather_reason_key: str | None = None
     weather_reason_args: dict[str, Any] = field(default_factory=dict)
     weather_original_reason: str | None = None
-    nina_status: str = "none"  # none | caution | danger
+    nina_status: NinaStatus = "none"
     nina_reason_key: str | None = None
     nina_reason_args: dict[str, Any] = field(default_factory=dict)
     nina_original_reason: str | None = None

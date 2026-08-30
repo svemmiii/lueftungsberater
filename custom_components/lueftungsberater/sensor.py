@@ -346,15 +346,15 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 self.subentry.data.get(CONF_WINDOWS, []) or []
             ),
             "source_weather_reason": (
-                next(iter(warnings.source_entities), None)
+                warnings.source_weather_entity
                 or self.entry.data.get(CONF_WEATHER_REASON)
             ),
             "source_weather_danger": (
-                next(iter(warnings.source_entities), None)
+                warnings.source_weather_entity
                 or self.entry.data.get(CONF_WEATHER_DANGER)
             ),
             "source_nina_status": (
-                next(iter(warnings.source_entities), None)
+                warnings.source_nina_entity
                 or self.entry.data.get(CONF_NINA_STATUS)
             ),
             "weather_provider": weather.provider_domain,

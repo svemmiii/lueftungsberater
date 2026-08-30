@@ -93,9 +93,8 @@ def _number(hass: HomeAssistant, entity_id: str | None) -> float | None:
 
 def _to_celsius(value: Any, unit: str | None) -> float | None:
     """Convert a temperature value to Celsius for the decision engine."""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
+    number = _finite_number(value)
+    if number is None:
         return None
 
     if not unit or unit == UnitOfTemperature.CELSIUS:
@@ -108,7 +107,8 @@ def _to_celsius(value: Any, unit: str | None) -> float | None:
             UnitOfTemperature.CELSIUS,
         )
     except (TypeError, ValueError):
-        return number
+        # A foreign/invalid unit is not evidence that the raw number is Celsius.
+        return None
 
 
 def _temperature_state_celsius(

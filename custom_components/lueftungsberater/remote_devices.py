@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from .const import DOMAIN
+from .const import DOMAIN, INTEGRATION_VERSION
 from .remote import RemoteData
 
 _LEGACY_REMOTE_PREFIXES = ("remote_ha:", "remote_advisor:")
@@ -107,7 +107,7 @@ def async_sync_remote_room_devices(
                 manufacturer="Lüftungsassistent",
                 model="Tailscale Remote-Raum",
                 name=(f"{instance_name} · {room_name}" if multiple_instances else room_name),
-                sw_version="0.7.9",
+                sw_version=INTEGRATION_VERSION,
             )
 
     # Remove remote room cards only when an available peer confirms that the

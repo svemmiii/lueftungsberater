@@ -323,9 +323,10 @@ def _primary_need(
     co2_pending_hold: bool,
     co2_airing_active: bool,
     co2_rearm_threshold: float | None,
+    consider_co2: bool = True,
 ) -> tuple[str, int]:
     """Return the strongest current reason and a small ordinal urgency level."""
-    co2_allowed = (
+    co2_allowed = consider_co2 and (
         co2_airing_active
         or co2_rearm_threshold is None
         or (co2 is not None and co2 >= co2_rearm_threshold)
@@ -387,6 +388,62 @@ def _primary_need(
     if hours >= 24:
         return "routine", 1
     return "none", 0
+
+
+def _green_non_co2_mode(
+    *,
+    need: str,
+    hi: float,
+    ti: float,
+    ta: float,
+    target: float,
+    diff: float,
+    previous_mode: str,
+    caution_kind: str | None,
+) -> str | None:
+    """Return a green mode when a non-CO₂ need independently justifies airing.
+
+    CO₂ may be the strongest indoor signal, but crossing one of its thresholds
+    must never weaken an already useful ventilation action. Only an independent
+    need that would itself be green under the same outdoor conditions qualifies.
+    """
+    if caution_kind is not None:
+        return None
+
+    if need in {"mold_persistent", "mold"}:
+        if diff <= AH_NEUTRAL:
+            return None
+        return (
+            "schimmel_langzeit_lueften"
+            if need == "mold_persistent"
+            else "schimmel_lueften"
+        )
+
+    if need in {"humidity_urgent", "humidity"}:
+        continuation = (
+            previous_mode in {"feuchte_lueften", "weiter_lueften"}
+            and hi >= 58
+            and diff >= AH_CONTINUE
+        )
+        return "feuchte_lueften" if diff > AH_NEUTRAL or continuation else None
+
+    if need in {"heat", "humid_heat", "temperature"}:
+        helps = _temperature_moves_toward_target(ti, ta, target) or (
+            need == "heat" and ta <= ti - 1
+        )
+        if not helps or (diff < -1.0 and hi >= 55):
+            return None
+        return "kuehlen" if ta < ti else "erwaermen"
+
+    if need == "routine":
+        bad = (
+            diff < -AH_NEUTRAL
+            or (hi < 40 and diff > AH_NEUTRAL)
+            or _temperature_moves_away(ti, ta, target)
+        )
+        return None if bad else "routine_lueften"
+
+    return None
 
 
 def _air_quality_penalty(data: RoomInput) -> int:
@@ -853,6 +910,46 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         else:
             mode = "normal"
 
+
+    # Crossing a CO₂ threshold must not weaken an independently green reason
+    # to ventilate. Example: if humidity alone already says "air now", moving
+    # from 1399 to 1400 ppm may change the strongest indoor signal to CO₂, but
+    # it must not turn the overall recommendation yellow.
+    if hard_mode is None and need.startswith("co2_") and _color(mode) != "green":
+        supporting_need, supporting_urgency = _primary_need(
+            co2=co2,
+            hi=hi,
+            ti=ti,
+            ta=ta,
+            target=target,
+            diff=diff,
+            mold_risk=mold_risk,
+            mold_persistent=mold_persistent,
+            hours=hours,
+            previous_mode=previous_mode,
+            previous_need=previous_need,
+            window_open=data.window_open,
+            co2_pending_hold=data.co2_pending_hold,
+            co2_airing_active=data.co2_airing_active,
+            co2_rearm_threshold=data.co2_rearm_threshold,
+            consider_co2=False,
+        )
+        supporting_mode = _green_non_co2_mode(
+            need=supporting_need,
+            hi=hi,
+            ti=ti,
+            ta=ta,
+            target=target,
+            diff=diff,
+            previous_mode=previous_mode,
+            caution_kind=_outdoor_soft_caution(data),
+        )
+        if supporting_mode is not None:
+            # Keep CO₂ as the primary signal/session driver. The independent
+            # green need only proves that opening is useful overall despite the
+            # CO₂-specific drawback; it must not steal CO₂ hysteresis/targets.
+            urgency = max(urgency, supporting_urgency)
+            mode = "co2_lueften_mit_nachteil"
 
     # Rain is a practical window-opening disadvantage, never a proxy for
     # moisture physics. Only near-term rain that can overlap the actual airing

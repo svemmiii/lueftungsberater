@@ -390,7 +390,7 @@ async def test_remote_supported_subentry_cache_is_pinned_read_only(
     """Even an already-cached room capability must be removed from a remote entry."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    from custom_components.lueftungsberater import _pin_subentry_capabilities
+    from custom_components.lueftungsberater.compat import pin_subentry_capabilities
     from custom_components.lueftungsberater.const import (
         CONF_ENTRY_KIND,
         CONF_REMOTE_HOST,
@@ -419,7 +419,7 @@ async def test_remote_supported_subentry_cache_is_pinned_read_only(
     entry.clear_state_cache()
     assert SUBENTRY_TYPE_ROOM in entry.supported_subentry_types
 
-    _pin_subentry_capabilities(entry)
+    pin_subentry_capabilities(entry)
 
     assert entry.supported_subentry_types == {}
     assert entry.supported_subentry_types == {}

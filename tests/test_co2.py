@@ -77,3 +77,11 @@ async def test_co2_restart_does_not_restore_expired_value(
     assert tracker.data_status == "unavailable"
 
     await tracker.async_stop()
+
+
+def test_co2_state_parser_rejects_non_finite_and_implausible_values():
+    from custom_components.lueftungsberater.co2 import _state_to_float
+
+    for raw in ("nan", "inf", "-inf", -1, 1_000_001):
+        assert _state_to_float(SimpleNamespace(state=raw)) is None
+    assert _state_to_float(SimpleNamespace(state="1400")) == 1400.0

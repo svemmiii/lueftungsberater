@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
+import math
 import re
 from typing import Any
 
@@ -59,6 +60,7 @@ CLEAR_WORDS = (
     "entwarnung",
     "warnung ist aufgehoben",
     "warnung wurde aufgehoben",
+    "warnung wird aufgehoben",
     "die warnung ist aufgehoben",
     "gefahr ist vorüber",
     "gefahr ist vorueber",
@@ -170,6 +172,7 @@ OFFICIAL_CLOSE_ACTIONS = (
 
 _LOGGER = logging.getLogger(__name__)
 HOURLY_FORECAST_CACHE_MAX_AGE = timedelta(minutes=45)
+NINA_DETAILS_CACHE_MAX_AGE = timedelta(minutes=5)
 
 
 @dataclass(slots=True)
@@ -223,15 +226,19 @@ class WarningAssessment:
     source_entities: set[str] = field(default_factory=set)
     provider_domain: str | None = None
     warning_ids: set[str] = field(default_factory=set)
+    source_nina_entity: str | None = None
+    source_weather_entity: str | None = None
 
 
 def _float(value: Any) -> float | None:
+    """Return a finite float or ``None`` for broken provider values."""
     if value is None or value == "":
         return None
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    return number if math.isfinite(number) else None
 
 
 def _state_float(state: State | None) -> float | None:
@@ -467,7 +474,9 @@ def _forecast_temperature_to_celsius(value: Any, unit: str | None) -> float | No
     try:
         return float(TemperatureConverter.convert(number, unit, UnitOfTemperature.CELSIUS))
     except (TypeError, ValueError):
-        return number
+        # Unknown/foreign units are unusable. Treating them as Celsius can turn
+        # a provider metadata bug into an absurd night-ventilation decision.
+        return None
 
 
 def _normalize_hourly_forecast(
@@ -814,6 +823,7 @@ def _contains_any(text: str, words: tuple[str, ...]) -> bool:
 
 
 def _is_clear_warning(text: str) -> bool:
+    """Return whether text communicates an unqualified all-clear."""
     low = " ".join(str(text).lower().split())
     if any(word in low for word in CLEAR_QUALIFIERS):
         return False
@@ -826,7 +836,100 @@ def _is_clear_warning(text: str) -> bool:
         return False
     if re.search(r"entwarnung[^.!?]{0,50}(?:noch nicht|nicht möglich|nicht erfolgt)", low):
         return False
+    if re.search(
+        r"entwarnung[^.!?]{0,60}(?:nur\s+teilweise|teilweise|bedingt|mit\s+einschränkungen|mit\s+einschraenkungen)",
+        low,
+    ):
+        return False
     return any(word in low for word in CLEAR_WORDS)
+
+
+# A strong all-clear is allowed to beat stale action text copied from the old
+# warning. NINA/MoWaS cancellation pages can keep the former "Fenster schließen"
+# recommendation even though the warning itself explicitly says it is lifted.
+# The bare word "Entwarnung" is intentionally *not* strong enough for this.
+STRONG_CLEAR_WORDS = (
+    "warnung ist aufgehoben",
+    "warnung wurde aufgehoben",
+    "warnung wird aufgehoben",
+    "die warnung ist aufgehoben",
+    "gefahr ist vorüber",
+    "gefahr ist vorueber",
+    "warning has been lifted",
+    "warning lifted",
+)
+
+
+def _is_strong_clear_warning(text: str, message_type: str = "") -> bool:
+    """Return whether an explicit full cancellation is present."""
+    if not _is_clear_warning(text):
+        return False
+    if str(message_type).strip().lower() == "cancel":
+        return True
+    low = " ".join(str(text).lower().split())
+    return any(word in low for word in STRONG_CLEAR_WORDS)
+
+
+# MoWaS supplies standard action texts but warning centres may edit them or add
+# free text. Match the small semantic core instead of maintaining dozens of
+# complete sentence variants. Patterns are deliberately sentence-bounded.
+OFFICIAL_CLOSE_PATTERNS = (
+    re.compile(
+        r"(?:schließ(?:en|t)|schliess(?:en|t))[^.!?\n]{0,100}"
+        r"(?:dachfenster|fenster|türen|tueren)"
+    ),
+    re.compile(
+        r"(?:dachfenster|fenster|türen|tueren)[^.!?\n]{0,120}"
+        r"(?:schließ(?:en|t)|schliess(?:en|t)|geschlossen(?:\s+(?:halten|lassen|bleiben))?)"
+    ),
+    re.compile(
+        r"(?:lüftungs-?\s*und\s*klimaanlagen|luftungs-?\s*und\s*klimaanlagen|"
+        r"belüftung|belueftung|lüftungsanlagen?|luftungsanlagen?|lüftung|luftung|"
+        r"klimaanlagen?|frischluftzufuhr|außenluftzufuhr|aussenluftzufuhr)"
+        r"[^.!?\n]{0,120}(?:abschalt|ausschalt|ausgeschaltet|abgeschaltet|\bab\b|vermeid)"
+    ),
+    re.compile(
+        r"(?:vermeid|abschalt|ausschalt)[^.!?\n]{0,100}"
+        r"(?:frischluftzufuhr|außenluftzufuhr|aussenluftzufuhr|belüftung|belueftung|"
+        r"lüftungsanlagen?|luftungsanlagen?|lüftung|luftung|klimaanlagen?)"
+    ),
+)
+
+# Phrases which explicitly release the close/ventilation restriction. They stop
+# a flexible pattern from turning an all-clear sentence into a new hard lock.
+CLOSE_RELEASE_PATTERNS = (
+    re.compile(r"(?:fenster|türen|tueren)[^.!?\n]{0,100}(?:wieder|erneut)[^.!?\n]{0,30}(?:öffnen|oeffnen|geöffnet|geoeffnet)"),
+    re.compile(r"(?:fenster|türen|tueren)[^.!?\n]{0,100}nicht mehr[^.!?\n]{0,50}(?:geschlossen|schließen|schliessen)"),
+    re.compile(r"(?:fenster|türen|tueren)[^.!?\n]{0,80}(?:müssen|muessen|brauchen)[^.!?\n]{0,30}nicht[^.!?\n]{0,40}(?:geschlossen|schließen|schliessen)"),
+    re.compile(r"(?:fenster|türen|tueren)[^.!?\n]{0,80}nicht[^.!?\n]{0,25}(?:schließen|schliessen|geschlossen\s+(?:halten|lassen|bleiben))"),
+    re.compile(r"(?:geschlossen|schließen|schliessen)[^.!?\n]{0,80}nicht mehr[^.!?\n]{0,40}(?:erforderlich|nötig|noetig|notwendig)"),
+    re.compile(r"(?:lüftung|luftung|belüftung|belueftung|klimaanlagen?)[^.!?\n]{0,100}(?:wieder|erneut)[^.!?\n]{0,30}(?:einschalten|eingeschaltet)"),
+    re.compile(r"(?:lüftung|luftung|belüftung|belueftung|klimaanlagen?)[^.!?\n]{0,80}(?:müssen|muessen|brauchen)[^.!?\n]{0,30}nicht[^.!?\n]{0,40}(?:aus|abgeschaltet|ausgeschaltet)"),
+)
+
+
+def _matches_close_instruction(text: str) -> bool:
+    """Recognise real-world close/ventilation instructions conservatively."""
+    low = " ".join(str(text).lower().split())
+    if not low:
+        return False
+
+    # Existing exact phrases remain a cheap and transparent first layer, but a
+    # release statement in the same sentence always wins over a substring hit.
+    sentences = [part.strip() for part in re.split(r"[.!?\n]+", low) if part.strip()]
+    for sentence in sentences:
+        if any(pattern.search(sentence) for pattern in CLOSE_RELEASE_PATTERNS):
+            continue
+        if _contains_any(sentence, OFFICIAL_CLOSE_ACTIONS):
+            return True
+        if any(pattern.search(sentence) for pattern in OFFICIAL_CLOSE_PATTERNS):
+            return True
+    return False
+
+
+def _has_official_close_instruction(actions: str, description: str = "") -> bool:
+    """Return whether either provider field contains a protective close order."""
+    return _matches_close_instruction(actions) or _matches_close_instruction(description)
 
 
 def _weather_warning_kind(text: str) -> str:
@@ -855,38 +958,30 @@ def _weather_reason_key(text: str, danger: bool) -> str:
     return f"weather_{kind}_{suffix}"
 
 
-def _air_reason_key(text: str, status: str) -> str:
-    low = text.lower()
-    suffix = "danger" if status == "danger" else "caution"
-    if any(word in low for word in (
-        "brandrauch", "rauchentwicklung", "rauchgas", "rauchwolke",
-        "rauchbelastung", "smoke",
-    )):
-        return f"air_smoke_{suffix}"
-    if any(word in low for word in (
-        "gefahrstoff", "schadstoff", "gasaustritt", "gaswolke",
-        "chemieunfall", "chemikal", "giftig", "toxisch",
-        "hazardous substance", "gas leak", "toxic",
-    )):
-        return f"air_hazard_{suffix}"
-    return f"nina_air_{suffix}"
-
-
 def _evaluate_air_warning(
     headline: str,
     description: str,
     actions: str,
-    severity: str,
+    message_type: str = "",
 ) -> str:
-    """Return none/caution/danger/clear from official action instructions.
+    """Return none/danger/clear from official action and cancellation text.
 
-    v0.7 deliberately stops judging the event type or CAP severity itself. An
-    authority has already assessed the incident. We only consume instructions
-    that directly affect ventilation in the protected room/building.
+    A *strong* full cancellation (or CAP ``Cancel`` when a provider exposes it)
+    is checked first because real NINA cancellation payloads can retain the old
+    protective action text. A bare/ambiguous "Entwarnung" does not get that
+    privilege: an explicit current close instruction still wins there. Qualified
+    or negated all-clears are rejected by ``_is_clear_warning``.
     """
     alltext = " ".join((headline, description, actions)).lower()
+    headline_low = " ".join(str(headline).lower().split())
+    explicit_clear_headline = bool(
+        re.match(r"^(?:entwarnung|all[- ]clear)\s*[:–-]\s*\S", headline_low)
+    ) and _is_clear_warning(headline_low)
 
-    if _contains_any(f"{actions} {description}", OFFICIAL_CLOSE_ACTIONS):
+    if _is_strong_clear_warning(alltext, message_type) or explicit_clear_headline:
+        return "clear"
+
+    if _has_official_close_instruction(actions, description):
         return "danger"
 
     if _is_clear_warning(alltext):
@@ -919,12 +1014,12 @@ def _nina_details_bucket(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
 
 
 async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Fetch full NINA details once per active warning id.
+    """Fetch full NINA details with a small time-bounded cache.
 
-    Home Assistant's current NINA integration intentionally keeps only the
-    warning id on the binary sensor and exposes long description/recommended
-    actions through ``nina.get_details``. Caching by warning id avoids service
-    calls on every room/sensor refresh.
+    Home Assistant exposes long description/recommended actions through
+    ``nina.get_details``. A warning can be updated while its slot/id remains
+    stable, so caching forever by id risks keeping stale protection text. The
+    five-minute TTL is cheap and matches the time scale of official updates.
     """
     source = entry.data.get(CONF_WARNING_SOURCE)
     if not isinstance(source, str) or not source or source == WARNING_SOURCE_NONE:
@@ -953,10 +1048,21 @@ async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) ->
     for key in [key for key in bucket if key.startswith(prefix) and key not in active_keys]:
         bucket.pop(key, None)
 
+    now = dt_util.utcnow()
     for entity_id, warning_id in active.items():
         key = f"{prefix}{entity_id}"
         cached = bucket.get(key)
-        if isinstance(cached, dict) and cached.get("warning_id") == warning_id:
+        cached_at = (
+            _parse_datetime(cached.get("cached_at"))
+            if isinstance(cached, dict)
+            else None
+        )
+        if (
+            isinstance(cached, dict)
+            and cached.get("warning_id") == warning_id
+            and cached_at is not None
+            and timedelta(0) <= now - cached_at < NINA_DETAILS_CACHE_MAX_AGE
+        ):
             continue
         try:
             response = await hass.services.async_call(
@@ -972,7 +1078,11 @@ async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) ->
             continue
         details = response.get(entity_id) if isinstance(response, dict) else None
         if isinstance(details, dict):
-            bucket[key] = {"warning_id": warning_id, "details": dict(details)}
+            bucket[key] = {
+                "warning_id": warning_id,
+                "details": dict(details),
+                "cached_at": now.isoformat(),
+            }
 
 
 @callback
@@ -1032,6 +1142,12 @@ def _evaluate_nina_like_entities(
     entry: ConfigEntry | list[str],
     entity_ids: list[str] | None = None,
 ) -> WarningAssessment:
+    """Evaluate action-driven NINA-like warning entities.
+
+    Multiple simultaneous slots are aggregated deliberately: any active close
+    instruction wins over an all-clear from another slot, and only warnings that
+    actually influence ventilation contribute to the notification fingerprint.
+    """
     # Keep the older two-argument helper shape for focused unit tests and for
     # third-party callers. Full NINA detail caching is available only when the
     # owning Lüftungsberater ConfigEntry is supplied.
@@ -1043,31 +1159,29 @@ def _evaluate_nina_like_entities(
         advisor_entry = entry if not isinstance(entry, list) else None
 
     result = WarningAssessment()
-    air_rank = {"none": 0, "clear": 1, "caution": 2, "danger": 3}
     slot_details = _nina_slot_sensor_values(hass, entity_ids)
     registry = _optional_entity_registry(hass) if slot_details else None
+    clear_candidates: list[tuple[str, str, str]] = []
 
     for entity_id in entity_ids:
         state = hass.states.get(entity_id)
-        if state is None:
+        if state is None or not entity_id.startswith("binary_sensor.") or state.state != "on":
             continue
-
-        if not entity_id.startswith("binary_sensor.") or state.state != "on":
-            continue
-
-        warning_id = state.attributes.get("id") or state.attributes.get("identifier")
-        if warning_id:
-            result.warning_ids.add(str(warning_id))
-        else:
-            # Stable fallback for providers without an explicit warning id.
-            result.warning_ids.add(entity_id)
 
         registry_entry = registry.async_get(entity_id) if registry is not None else None
         slot_id = registry_entry.unique_id if registry_entry else None
         detail = slot_details.get(slot_id, {}) if isinstance(slot_id, str) else {}
 
-        full = _cached_nina_details(hass, advisor_entry, entity_id) if advisor_entry is not None else {}
-        headline = _text(state, "headline") or detail.get("headline", "") or str(full.get("headline") or "")
+        full = (
+            _cached_nina_details(hass, advisor_entry, entity_id)
+            if advisor_entry is not None
+            else {}
+        )
+        headline = (
+            _text(state, "headline")
+            or detail.get("headline", "")
+            or str(full.get("headline") or "")
+        )
         description = _text(state, "description") or str(full.get("description") or "")
         actions = " ".join(
             part
@@ -1089,45 +1203,65 @@ def _evaluate_nina_like_entities(
             )
             if part
         )
-        severity = _text(state, "severity") or detail.get("severity", "") or str(full.get("severity") or "") or "Unknown"
+        message_type = next(
+            (
+                str(value).strip()
+                for value in (
+                    state.attributes.get("msg_type"),
+                    state.attributes.get("message_type"),
+                    state.attributes.get("msgType"),
+                    full.get("msg_type"),
+                    full.get("message_type"),
+                    full.get("msgType"),
+                )
+                if value not in (None, "")
+            ),
+            "",
+        )
         alltext = " ".join((headline, description, actions))
-
         air_state = _evaluate_air_warning(
             headline,
             description,
             actions,
-            severity,
+            message_type,
         )
-
-        if air_state == "danger":
-            result.official_close_instruction = True
-        elif air_state == "clear":
-            # Keep the all-clear visible while the provider still exposes the
-            # warning slot. Once the slot disappears/goes off, normal engine
-            # operation resumes with no artificial after-run. Explicit close
-            # instructions were checked first and can therefore never be
-            # accidentally neutralised by the word "Entwarnung" in the same
-            # payload.
-            if result.nina_status != "danger":
-                result.nina_status = "clear"
-                result.warning_notice_kind = "all_clear"
-                result.warning_notice_text = headline or description or actions or None
+        if air_state == "none":
             continue
 
-        # Non-DWD warning providers are not reinterpreted by event type or CAP
-        # severity. Only their explicit protection instructions below may alter
-        # ventilation. DWD keeps its dedicated official warning-level path.
+        warning_id = state.attributes.get("id") or state.attributes.get("identifier")
+        warning_key = str(warning_id) if warning_id else entity_id
+        display_text = headline or description or actions or None
 
-        if air_rank[air_state] > air_rank[result.nina_status]:
-            result.nina_status = air_state
-            result.nina_reason_key = (
-                "official_close_instruction"
-                if air_state == "danger"
-                else _air_reason_key(alltext, air_state)
-            )
-            result.nina_original_reason = headline or description or actions or None
+        if air_state == "danger":
+            result.warning_ids.add(warning_key)
+            result.official_close_instruction = True
+            result.nina_status = "danger"
+            if result.nina_reason_key is None:
+                result.nina_reason_key = "official_close_instruction"
+                result.nina_original_reason = display_text
+                result.source_nina_entity = entity_id
+            continue
+
+        # Delay publishing the all-clear until every slot has been inspected.
+        # A separate simultaneous hazard must suppress the global all-clear
+        # notice instead of producing contradictory UI/notifications.
+        clear_candidates.append((warning_key, entity_id, display_text or ""))
+
+    if result.nina_status == "danger":
+        result.warning_notice_kind = None
+        result.warning_notice_text = None
+        return result
+
+    if clear_candidates:
+        warning_key, entity_id, display_text = clear_candidates[0]
+        result.nina_status = "clear"
+        result.warning_ids = {item[0] for item in clear_candidates}
+        result.warning_notice_kind = "all_clear"
+        result.warning_notice_text = display_text or None
+        result.source_nina_entity = entity_id
 
     return result
+
 
 
 def _evaluate_dwd_warning_entities(
@@ -1161,7 +1295,7 @@ def _evaluate_dwd_warning_entities(
                 or state.attributes.get(f"warning_{index}_event_id")
                 or state.attributes.get(f"warning_{index}_sent")
             )
-            result.warning_ids.add(str(warning_id) if warning_id else f"{entity_id}:{index}")
+            warning_key = str(warning_id) if warning_id else f"{entity_id}:{index}"
             name = str(
                 state.attributes.get(f"warning_{index}_name", "")
                 or ""
@@ -1180,17 +1314,21 @@ def _evaluate_dwd_warning_entities(
 
             # If DWD itself gives a window/ventilation protection instruction,
             # that instruction is authoritative regardless of the numeric level.
-            if _contains_any(instruction, OFFICIAL_CLOSE_ACTIONS):
+            if _has_official_close_instruction(instruction, description):
+                result.warning_ids.add(warning_key)
                 result.official_close_instruction = True
                 result.weather_danger = True
                 result.weather_caution = False
                 if result.weather_reason_key is None:
                     result.weather_reason_key = "official_close_instruction"
                     result.weather_original_reason = headline or instruction or name or None
+                    result.source_weather_entity = entity_id
                 continue
 
             if not _contains_any(text, WEATHER_WARNING_WORDS):
                 continue
+
+            result.warning_ids.add(warning_key)
 
             # DWD exposes a level for every individual warning. Prefer that
             # over the sensor state (which is only the highest active level),
@@ -1209,6 +1347,7 @@ def _evaluate_dwd_warning_entities(
                     result.weather_reason_key = _weather_reason_key(text, True)
                     result.weather_reason_args = {"warning_level": level}
                     result.weather_original_reason = reason or None
+                    result.source_weather_entity = entity_id
             elif not result.weather_danger:
                 # DWD level 1/2 and advance information are advisory for
                 # ventilation. Level 3/4 are actual severe-weather warnings.
@@ -1217,6 +1356,7 @@ def _evaluate_dwd_warning_entities(
                     result.weather_reason_key = _weather_reason_key(text, False)
                     result.weather_reason_args = {"warning_level": level}
                     result.weather_original_reason = reason or None
+                    result.source_weather_entity = entity_id
 
     return result
 
@@ -1269,4 +1409,6 @@ def warning_assessment(
     result.warning_notice_text = assessed.warning_notice_text
     result.official_close_instruction = assessed.official_close_instruction
     result.warning_ids = set(assessed.warning_ids)
+    result.source_nina_entity = assessed.source_nina_entity
+    result.source_weather_entity = assessed.source_weather_entity
     return result

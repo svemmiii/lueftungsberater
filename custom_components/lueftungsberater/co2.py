@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
@@ -36,9 +37,12 @@ def _state_to_float(state: Any) -> float | None:
     if raw in {None, "", "unknown", "unavailable", "none"}:
         return None
     try:
-        return float(raw)
+        number = float(raw)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(number) or not 0.0 <= number <= 1_000_000.0:
+        return None
+    return number
 
 
 class RoomCo2Tracker:
@@ -161,6 +165,10 @@ class RoomCo2Tracker:
         try:
             stored_value = float(stored_value) if stored_value is not None else None
         except (TypeError, ValueError):
+            stored_value = None
+        if stored_value is not None and (
+            not math.isfinite(stored_value) or not 0.0 <= stored_value <= 1_000_000.0
+        ):
             stored_value = None
         stored_valid_at = self._parse_dt(stored.get("last_valid_at"))
         stored_unavailable = self._parse_dt(stored.get("unavailable_since"))
