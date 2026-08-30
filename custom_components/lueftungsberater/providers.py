@@ -11,6 +11,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -473,7 +474,7 @@ def _forecast_temperature_to_celsius(value: Any, unit: str | None) -> float | No
         return number
     try:
         return float(TemperatureConverter.convert(number, unit, UnitOfTemperature.CELSIUS))
-    except (TypeError, ValueError):
+    except (HomeAssistantError, TypeError, ValueError):
         # Unknown/foreign units are unusable. Treating them as Celsius can turn
         # a provider metadata bug into an absurd night-ventilation decision.
         return None

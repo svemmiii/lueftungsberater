@@ -17,7 +17,7 @@
 
 ### Robustheit / Home Assistant
 - Nicht-endliche Messwerte (`NaN`, `+/-inf`) werden in Provider- und CO₂-Pfaden verworfen. Gespeicherte CO₂-Gnadenwerte werden ebenfalls validiert.
-- Unbekannte Temperatureinheiten werden nicht mehr stillschweigend als °C interpretiert. Ein nicht konvertierbarer Wert gilt stattdessen als nicht verwendbar.
+- Unbekannte Temperatureinheiten werden nicht mehr stillschweigend als °C interpretiert. Ein nicht konvertierbarer Wert gilt stattdessen als nicht verwendbar; dabei wird auch der von aktuellen Home-Assistant-Konvertern verwendete `HomeAssistantError` sauber abgefangen.
 - Raum-Benachrichtigungen werden pro Raum serialisiert, damit nahezu gleichzeitige Sensorupdates denselben Zustandsübergang nicht doppelt melden können.
 - Der gemeinsame Outside-Coordinator beobachtet Änderungen der Home-Assistant-Entity-Registry und zieht seine Provider-Quellen dynamisch nach. Später erzeugte oder umbenannte Wetter-/Warnentitäten benötigen dadurch keinen Lüftungsberater-Reload mehr.
 - Der notwendige Home-Assistant-Kompatibilitätsworkaround für den privaten Subentry-Capability-Cache ist in `compat.py` isoliert und greift nur, solange die betreffende interne HA-Struktur existiert.

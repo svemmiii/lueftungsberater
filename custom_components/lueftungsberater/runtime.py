@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -106,7 +107,7 @@ def _to_celsius(value: Any, unit: str | None) -> float | None:
             unit,
             UnitOfTemperature.CELSIUS,
         )
-    except (TypeError, ValueError):
+    except (HomeAssistantError, TypeError, ValueError):
         # A foreign/invalid unit is not evidence that the raw number is Celsius.
         return None
 

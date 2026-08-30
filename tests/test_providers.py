@@ -783,3 +783,9 @@ def test_official_entwarnung_headline_can_clear_stale_action_without_description
         )
         == "clear"
     )
+
+
+def test_unknown_forecast_temperature_unit_is_ignored():
+    from custom_components.lueftungsberater.providers import _forecast_temperature_to_celsius
+
+    assert _forecast_temperature_to_celsius(75, "definitely-not-a-temperature-unit") is None
