@@ -276,6 +276,35 @@ def _rain_relevant(data: RoomInput, candidate_mode: str, outdoor_temp: float) ->
     return bool(data.rain_soon)
 
 
+def _short_term_weather_worsening_relevant(
+    data: RoomInput, candidate_mode: str, outdoor_temp: float
+) -> bool:
+    """Return whether the next-hour forecast can overlap the planned airing.
+
+    The hourly forecast is only a soft planning signal. It never creates a
+    hard lock, and distant changes are ignored when a short airing would be
+    finished well before them.
+    """
+    if data.short_term_weather_change != "worsening":
+        return False
+    if data.short_term_weather_minutes is None:
+        return False
+    lead = float(data.short_term_weather_minutes)
+    if lead < 0 or lead > 60:
+        return False
+    return lead <= _duration_max_minutes(candidate_mode, outdoor_temp) + 5
+
+
+def _short_term_weather_args(data: RoomInput) -> dict[str, object]:
+    """Return compact forecast context for localized one-line explanations."""
+    return {
+        "forecast_change": data.short_term_weather_change,
+        "forecast_kind": data.short_term_weather_kind,
+        "forecast_minutes": data.short_term_weather_minutes,
+        "forecast_condition": data.short_term_weather_condition,
+    }
+
+
 def _temperature_moves_toward_target(ti: float, ta: float, target: float) -> bool:
     """Return whether airing initially moves room temperature toward target.
 
@@ -530,25 +559,34 @@ def _room_display_urgency(need: str, data: RoomInput) -> int:
     return 0
 
 
-def _room_status_color(urgency: int, ventilation_color: str) -> str:
+def _room_status_color(urgency: int, ventilation_color: str, need: str) -> str:
     """Translate the final ventilation judgement into the room-air colour view.
 
     The two traffic-light modes are perspectives on one shared engine decision,
-    not two independent decision engines. Green ventilation conditions expose
-    indoor urgency directly. When ventilation is a trade-off or clearly
-    disadvantageous, mild indoor deviations remain green and stronger needs
-    climb gradually through yellow/orange. Red is only used when the room need
-    is severe *and* the actual ventilation decision is green. Hard official
-    protection instructions are rendered separately as ``locked`` by the UI.
+    not two independent decision engines. Mild indoor deviations deliberately
+    remain green: this view is an action indicator, not a school grade for every
+    sensor. Yellow means "watch it", orange means airing is meaningfully useful,
+    and red is reserved for a truly urgent need under usable outside conditions.
+    Hard official protection instructions are rendered separately as ``locked``
+    by the UI.
     """
     urgency = max(0, min(3, int(urgency)))
+
+    # The 24-hour fallback exists specifically to become noticeable when no
+    # stronger sensor reason appeared. Keep it yellow instead of hiding it in
+    # the deliberately calm level-1 green band.
+    if need == "routine" and urgency > 0:
+        return "yellow"
+
     if ventilation_color == "green":
-        return ("green", "yellow", "orange", "red")[urgency]
+        # Mild deviations are information, not a command to act. Orange starts
+        # where airing is meaningfully useful; red remains the truly urgent end.
+        return ("green", "green", "orange", "red")[urgency]
 
     if ventilation_color == "yellow":
         if urgency >= 3:
             return "orange"
-        if urgency >= 1:
+        if urgency >= 2:
             return "yellow"
         return "green"
 
@@ -645,6 +683,11 @@ def co2_outdoor_context(data: RoomInput) -> dict[str, int | bool]:
         "outdoor_co2": outdoor_co2,
         "nina_caution": data.nina_status == "caution",
         "weather_caution": bool(data.weather_caution),
+        "weather_forecast": bool(
+            data.short_term_weather_change == "worsening"
+            and data.short_term_weather_minutes is not None
+            and 0 <= float(data.short_term_weather_minutes) <= 15
+        ),
         "rain": rain,
     }
 
@@ -971,6 +1014,43 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         elif mode == "normal":
             mode = "regen" if data.rain_now else "regen_bald"
 
+    # A material weather change in the next hour may matter before it becomes
+    # the current condition. Keep this deliberately softer than live weather or
+    # an official warning: it can turn a good opening window into a trade-off,
+    # but it never becomes a safety lock on forecast data alone.
+    short_term_weather_relevant = _short_term_weather_worsening_relevant(
+        data, mode, ta
+    )
+    if hard_mode is None and short_term_weather_relevant:
+        # A concrete current/radar rain signal remains the more immediate reason.
+        forecast_kind = str(data.short_term_weather_kind or "weather")
+        forecast_is_stronger_than_rain = forecast_kind in {
+            "thunderstorm",
+            "hail",
+            "severe_weather",
+            "wind",
+        }
+        if caution_kind != "rain" or forecast_is_stronger_than_rain:
+            if mode == "co2_kritisch":
+                mode = "co2_kritisch_vorsicht"
+                caution_kind = "weather_forecast"
+            elif _color(mode) == "green":
+                mode = (
+                    "co2_abwaegung"
+                    if need.startswith("co2")
+                    else "komfort_abwaegung"
+                )
+                caution_kind = "weather_forecast"
+            elif need == "none" or mode in {
+                "normal",
+                "feuchte_neutral",
+                "schimmel_neutral",
+            }:
+                mode = "wetter_vorsicht"
+                caution_kind = "weather_forecast"
+            elif _color(mode) == "yellow" and caution_kind is None:
+                caution_kind = "weather_forecast"
+
     co2_session_target = _co2_session_target_for_decision(
         need=need,
         mode=mode,
@@ -1094,10 +1174,16 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "wettergefahr":
         reason_key = data.weather_reason_key or "weather_danger"
         reason_args = dict(data.weather_reason_args)
+        reason_args.update(_short_term_weather_args(data))
         original_reason = data.weather_original_reason
     elif mode == "wetter_vorsicht":
-        reason_key = data.weather_reason_key or "weather_caution"
+        reason_key = (
+            "weather_forecast_worsening"
+            if caution_kind == "weather_forecast"
+            else (data.weather_reason_key or "weather_caution")
+        )
         reason_args = dict(data.weather_reason_args)
+        reason_args.update(_short_term_weather_args(data))
         original_reason = data.weather_original_reason
     elif mode in {"luftqualitaet_maessig", "luftqualitaet_schlecht", "luftqualitaet_sehr_schlecht", "luftqualitaet_sehr_schlecht_typisch"}:
         reason_key = {
@@ -1166,6 +1252,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             "air_quality_typical": data.air_quality_typical,
             "air_quality_unusual": data.air_quality_unusual,
             "air_quality_trend": data.air_quality_trend,
+            **_short_term_weather_args(data),
         }
     elif mode == "co2_lueften_mit_nachteil":
         reason_key = "co2_ventilate_tradeoff"
@@ -1231,6 +1318,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             "ta": ta,
             "target": target,
             "surface_humidity": surface_rh,
+            **_short_term_weather_args(data),
         }
     elif mode == "kuehlen":
         reason_key, reason_args = "cooling", {
@@ -1260,6 +1348,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "regen":
         reason_key = data.weather_reason_key or "rain_now"
         reason_args = dict(data.weather_reason_args)
+        reason_args.update(_short_term_weather_args(data))
         original_reason = data.weather_original_reason
     elif mode == "regen_bald":
         reason_key, reason_args = "rain_soon", {"minutes": data.rain_minutes_until}
@@ -1267,7 +1356,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key, reason_args = "normal", {}
 
     room_urgency = _room_display_urgency(need, data)
-    room_color = _room_status_color(room_urgency, color)
+    room_color = _room_status_color(room_urgency, color, need)
     room_recommendation_key = _room_recommendation_key(room_color, data.window_open)
     room_reason_args = {
         "need": need,
@@ -1285,6 +1374,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         "caution": caution_kind,
         "air_quality": data.air_quality,
         "window_open": data.window_open,
+        "room_color": room_color,
+        "weather_reason_key": data.weather_reason_key,
+        "weather_reason_args": dict(data.weather_reason_args),
+        **_short_term_weather_args(data),
     }
 
     return VentilationResult(

@@ -125,9 +125,9 @@ def test_room_perspective_green_tradeoff_does_not_claim_outside_is_good() -> Non
         "target": 22.0,
     }
     expected = {
-        "de": ("Außentemperatur ist zwar ungünstig", "Lüftungsbedarf wiegt hier aber stärker"),
-        "en": ("outdoor temperature is unfavorable", "need for air exchange outweighs"),
-        "tr": ("Dış sıcaklık elverişsiz", "havalandırma ihtiyacı bu dezavantajdan daha ağır basıyor"),
+        "de": ("Außentemperatur ist zwar ungünstig", "wegen der Innenwerte hier wichtiger"),
+        "en": ("outdoor temperature is unfavorable", "indoor values still make ventilation more important"),
+        "tr": ("Dış sıcaklık elverişsiz", "iç değerler nedeniyle havalandırmak burada daha önemli"),
     }
     for language, fragments in expected.items():
         text = reason_text("room_perspective", args, language, "°C")
@@ -152,14 +152,60 @@ def test_room_perspective_green_humidity_tradeoff_mentions_outweighed_drawback()
         "target": 22.0,
     }
     expected = {
-        "de": ("Außenluft ist zwar feuchter", "Lüftungsbedarf wiegt hier aber stärker"),
-        "en": ("Outdoor air is more humid", "need for air exchange outweighs"),
-        "tr": ("Dış hava daha nemli", "havalandırma ihtiyacı bu dezavantajdan daha ağır basıyor"),
+        "de": ("Außenluft ist zwar feuchter", "wegen der Innenwerte hier wichtiger"),
+        "en": ("Outdoor air is more humid", "indoor values still make ventilation more important"),
+        "tr": ("Dış hava daha nemli", "iç değerler nedeniyle havalandırmak burada daha önemli"),
     }
     for language, fragments in expected.items():
         text = reason_text("room_perspective", args, language, "°C")
         assert fragments[0] in text
         assert fragments[1] in text
+
+
+def test_room_perspective_mild_green_value_explicitly_says_no_action_needed() -> None:
+    args = {
+        "need": "co2_elevated",
+        "level": 1,
+        "room_color": "green",
+        "ventilation_color": "green",
+        "mode": "co2_lueften",
+        "co2": 1100,
+        "humidity": 50.0,
+        "ti": 22.0,
+        "ta": 20.0,
+        "target": 22.0,
+    }
+    text = reason_text("room_perspective", args, "de", "°C")
+    assert "leicht erhöht" in text
+    assert "noch kein Lüften nötig" in text
+
+
+def test_short_term_weather_text_is_plain_and_specific_in_all_languages() -> None:
+    args = {
+        "forecast_change": "worsening",
+        "forecast_kind": "thunderstorm",
+        "forecast_minutes": 10,
+    }
+    expected = {
+        "de": "Gewitter",
+        "en": "thunderstorm",
+        "tr": "fırtına",
+    }
+    for language, fragment in expected.items():
+        text = reason_text("weather_forecast_worsening", args, language, "°C")
+        assert fragment in text
+        assert "Außen- oder Wetterlage" not in text
+
+
+def test_current_thunderstorm_can_mention_expected_improvement_without_unlocking() -> None:
+    args = {
+        "forecast_change": "improving",
+        "forecast_kind": "thunderstorm",
+        "forecast_minutes": 10,
+    }
+    text = reason_text("weather_thunderstorm_danger", args, "de", "°C")
+    assert "Fenster geschlossen" in text
+    assert "beruhigen" in text
 
 
 def test_co2_minimum_airing_text_exists_in_all_languages():

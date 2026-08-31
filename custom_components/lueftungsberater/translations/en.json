@@ -29,7 +29,7 @@
           "outdoor_co2": "Outdoor CO₂ (optional)"
         },
         "data_description": {
-          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
+          "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
         },
         "sections": {
@@ -42,7 +42,7 @@
               "display_mode": "Traffic-light view"
             },
             "data_description": {
-              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒."
+              "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒."
             }
           },
           "outdoor": {
@@ -97,7 +97,7 @@
           "outdoor_co2": "Outdoor CO₂ (optional)"
         },
         "data_description": {
-          "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
+          "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
         },
         "sections": {
@@ -110,7 +110,7 @@
               "display_mode": "Traffic-light view"
             },
             "data_description": {
-              "display_mode": "Both views use the same complete overall assessment. Default: ventilation need · 🟢 no current reason to ventilate / 🔴 ventilate now. Alternative: ventilation light · 🟢 good time to ventilate / 🔴 better keep closed. Hard protection instructions are always shown as 🔒."
+              "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒."
             }
           },
           "outdoor": {
@@ -417,8 +417,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Ventilation light · 🟢 = good time to ventilate · 🔴 = better keep closed",
-        "room_air": "Ventilation need · 🟢 = no current reason · 🔴 = ventilate now"
+        "ventilation": "Ventilation light · 🟢 good time · 🟡 only partly suitable · 🟠/🔴 better keep closed",
+        "room_air": "Ventilation need · 🟢 nothing to do · 🟡 keep watching · 🟠 worthwhile · 🔴 ventilate now"
       }
     },
     "room_notify_triggers": {

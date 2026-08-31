@@ -14,7 +14,7 @@ Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Rau
 
 - Eigene Lüftungsempfehlung pro Raum
 - Vierstufige, konfigurierbare Ampeldarstellung mit kurzer Begründung
-  - **Lüftungsbedarf (Standard):** dieselbe vollständige Gesamtbewertung aus Sicht des aktuellen Lüftungsbedarfs im Raum. Grün = aktuell kein Lüftungsgrund, Gelb/Orange = zunehmender Bedarf, Rot = jetzt lüften.
+  - **Lüftungsbedarf (Standard):** dieselbe vollständige Gesamtbewertung als ruhige Handlungsampel für den Raum. **Grün** = aktuell nichts zu tun (leichte Abweichungen dürfen bewusst noch Grün bleiben), **Gelb** = beobachten, **Orange** = Lüften ist sinnvoll, **Rot** = jetzt lüften.
   - **Lüftungsampel (optional):** dieselbe Gesamtbewertung aus Sicht der aktuellen Lüftungs-/Außenbedingungen. Grün = Lüften sinnvoll, Gelb = Abwägung/Übergang, Orange = eher geschlossen lassen, Rot = Lüften deutlich nachteilig.
   - Beide Ansichten nutzen dieselbe Entscheidungsengine; es werden keine Sensoren je nach Darstellung ein- oder ausgeschaltet. Nur Farbe, kurze Empfehlung und Begründung werden aus der gewählten Perspektive formuliert.
   - Echte Schutzlagen liegen außerhalb der normalen Ampel und werden eindeutig mit **🔒 Fenster geschlossen halten** dargestellt.
@@ -127,6 +127,10 @@ Regen ist kein Ersatz für eine Feuchtebewertung: Ob Lüften trocknet, entscheid
 
 Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als angebliche amtliche DWD-Warnfarbe. Ab ungefähr Bft 6 wird vorsichtiger bewertet; ab etwa **50 km/h anhaltendem Wind** oder **65 km/h Böen** kann Lüften insgesamt nachteilig und damit Orange sein. Deutlich extremere Bedingungen können in der normalen Lüftungsampel Rot werden; echte Warnlagen mit klarem Schutzgrund werden zusätzlich eindeutig mit dem separaten **🔒-Sperrzustand** dargestellt. Offizielle DWD-Warnungen werden weiterhin separat nach ihrer konkreten Warnstufe und Handlungsempfehlung berücksichtigt.
 
+Ab v0.8.1 schaut auch die normale Live-Beratung vorsichtig auf die **nächsten bis zu 60 Minuten** der stündlichen Wettervorhersage. Das ist kein zweiter Nacht-Forecast und keine minutengenaue Gewittervorhersage: Der Blick nach vorn wird nur berücksichtigt, wenn eine erkennbare Wetteränderung die gerade erwartete Lüftungsdauer realistisch treffen kann. Wird z. B. in Kürze Gewitter erwartet, kann eine sonst gute Gelegenheit vorsichtiger werden; soll sich ein aktuelles Gewitter oder starker Regen in Kürze beruhigen, kann die Begründung auf die voraussichtlich bessere Gelegenheit hinweisen. Ein Forecast allein erzeugt **keinen harten Safety-Lock**. Aktuelle Wetterlage, Radar und amtliche Schutzanweisungen haben weiterhin Vorrang.
+
+Die stündliche Vorhersage wird dafür einmal pro lokalem Lüftungsassistent gemeinsam für alle Räume zwischengespeichert und höchstens etwa alle **15 Minuten** aktualisiert. Formulierungen wie „in Kürze“ oder „innerhalb der nächsten Stunde“ sind bewusst gewählt: Ein stündlicher Forecastpunkt wird nicht als exakter Beginn oder exaktes Ende eines Ereignisses ausgegeben.
+
 ### Nachtlüftung
 
 Pro Raum lässt sich ein eigenes Nachtfenster **von–bis** festlegen (Standard **22:00–07:00**). Beide Zeiten sind reine Anzeigegrenzen und keine Aufforderung, genau dann ein Fenster zu öffnen oder zu schließen. Zeiträume über Mitternacht und ungewöhnliche Schichtzeiten werden unterstützt. Die Nachtkarte ist bewusst eine einfache Einschätzung vor dem Schlafengehen: Wenn ein längeres Lüften in der Nacht voraussichtlich sinnvoll ist, nennt sie den passenden Zeitraum; wenn eine grundsätzlich interessante Nachtlage nur mit Abwägung sinnvoll ist, sagt sie das kurz dazu. Ergibt längeres Nachtlüften praktisch keinen Nutzen, bleibt der Zusatz komplett verborgen.
@@ -135,7 +139,7 @@ Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die st
 
 Intern darf die Nachtplanung bis zu **eine Stunde hinter die konfigurierte Endzeit** in den Forecast schauen, um einen Abschnitt am Ende noch belastbar beurteilen zu können. Die sichtbare Nachtzeit wird dadurch niemals verlängert: Ist z. B. 06:00 Uhr als Ende eingestellt, verschwindet der Hinweis um 06:00 Uhr. In der letzten Stunde werden aus einer dünner werdenden Forecastbasis keine neuen positiven Strategien mehr erfunden. Stattdessen bleibt der letzte belastbare Basisstatus erhalten; eine Verschlechterung darf die Empfehlung weiterhin vorsichtiger machen und ein harter Safety-Lock übersteuert sie jederzeit. Nach einer späten Entwarnung kann dadurch auf den vorherigen Basisplan zurückgefallen werden, statt kurz vor Ende eine völlig neue Nachtstrategie zu starten. Der gehaltene Basisstatus ist neustartsicher.
 
-Fehlende Forecast-Felder werden nicht geschätzt. Die Nachtbewertung bleibt eine Zusatzinformation und verändert die normale aktuelle Ampel nicht.
+Fehlende Forecast-Felder werden nicht geschätzt. Die eigentliche Nachtstrategie bleibt eine separate Zusatzinformation und verändert die normale Live-Entscheidung nicht. Unabhängig davon nutzt die normale Karte seit v0.8.1 ausschließlich den kurzen 60-Minuten-Ausblick als vorsichtigen Vorlauf für unmittelbar relevante Wetteränderungen.
 
 ### Außenluftqualität und lokaler Kontext
 
@@ -157,7 +161,7 @@ Der Hauptsensor bleibt bewusst die zentrale Automation-Schnittstelle. Eine zusä
 
 Lüftungsassistent hält sein internes Gedächtnis bewusst klein. Gespeichert werden nur Zustände, die sich nach einem Neustart nicht zuverlässig aus den aktuellen Home-Assistant-Entities rekonstruieren lassen: laufende bzw. letzte bestätigte Lüftung, die kurzen CO₂-Hysterese-Zeitpunkte einschließlich einer noch laufenden 5-Minuten-Mindestlüftung, der noch gültige 60-Sekunden-CO₂-Ausfallpuffer, ein belastbarer Nacht-Basisstatus bis zu dessen Endzeit, kompakter Oberflächen-Feuchtekontext und eine begrenzte lokale Außenluft-Statistik. Temperatur-, Feuchte- und CO₂-Rohverläufe werden nicht zusätzlich zum Home-Assistant-Recorder dupliziert. Persistierte CO₂-Rohwerte dienen ausschließlich dem sehr kurzen Ausfallpuffer und werden nach Ablauf dieser Grace-Periode nicht als aktueller Messwert wiederverwendet.
 
-Im Leerlauf laufen keine minutenweisen Komplettauswertungen pro Raum nur für den 24-Stunden-Fallback. Der Minutentakt für „Fenster geöffnet seit“ ist nur während einer tatsächlichen Lüftung aktiv; der 24-Stunden-Fallback wird gezielt terminiert. Wetter, Warnungen und Außenluft werden einmal pro lokalem Lüftungsassistent aufbereitet und von den Räumen gemeinsam genutzt. Große Kartenattribute bleiben für die Oberfläche verfügbar, werden aber nicht unnötig als eigener Recorder-Verlauf gespeichert.
+Im Leerlauf laufen keine minutenweisen Komplettauswertungen pro Raum nur für den 24-Stunden-Fallback. Der Minutentakt für „Fenster geöffnet seit“ ist nur während einer tatsächlichen Lüftung aktiv; der 24-Stunden-Fallback wird gezielt terminiert. Wetter, Warnungen und Außenluft werden einmal pro lokalem Lüftungsassistent aufbereitet und von den Räumen gemeinsam genutzt. Auch der 60-Minuten-Wetterausblick wird gemeinsam gecacht und höchstens etwa alle 15 Minuten erneuert, statt pro Raum eigene Forecast-Abfragen zu erzeugen. Große Kartenattribute bleiben für die Oberfläche verfügbar, werden aber nicht unnötig als eigener Recorder-Verlauf gespeichert.
 
 ## Sprache und Einheiten
 

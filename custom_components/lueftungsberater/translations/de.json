@@ -29,7 +29,7 @@
           "outdoor_co2": "CO₂ außen (optional)"
         },
         "data_description": {
-          "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
+          "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
           "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
         },
         "sections": {
@@ -42,7 +42,7 @@
               "display_mode": "Ampeldarstellung"
             },
             "data_description": {
-              "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
+              "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
             }
           },
           "outdoor": {
@@ -97,7 +97,7 @@
           "outdoor_co2": "CO₂ außen (optional)"
         },
         "data_description": {
-          "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
+          "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
           "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
         },
         "sections": {
@@ -110,7 +110,7 @@
               "display_mode": "Ampeldarstellung"
             },
             "data_description": {
-              "display_mode": "Beide Ansichten nutzen dieselbe vollständige Gesamtbewertung. Standard: Lüftungsbedarf · 🟢 kein aktueller Lüftungsgrund / 🔴 jetzt lüften. Alternativ: Lüftungsampel · 🟢 jetzt gut zum Lüften / 🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
+              "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
             }
           },
           "outdoor": {
@@ -417,8 +417,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Lüftungsampel · 🟢 = jetzt gut zum Lüften · 🔴 = besser geschlossen lassen",
-        "room_air": "Lüftungsbedarf · 🟢 = kein Lüftungsgrund · 🔴 = jetzt lüften"
+        "ventilation": "Lüftungsampel · 🟢 gut zum Lüften · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen",
+        "room_air": "Lüftungsbedarf · 🟢 nichts zu tun · 🟡 beobachten · 🟠 sinnvoll · 🔴 jetzt lüften"
       }
     },
     "room_notify_triggers": {

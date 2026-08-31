@@ -10,14 +10,10 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.util import dt as dt_util
 
 from .air_quality import get_air_quality_tracker
 from .const import (
     CONF_MANUAL_OUTDOOR,
-    CONF_NIGHT_START_HOUR,
-    CONF_NIGHT_START_TIME,
-    CONF_NIGHT_END_TIME,
     CONF_OUTDOOR_CO2,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
@@ -28,11 +24,8 @@ from .const import (
     CONF_WEATHER_REASON,
     CONF_NINA_STATUS,
     DATA_OUTSIDE_COORDINATORS,
-    DEFAULT_NIGHT_START_HOUR,
-    DEFAULT_NIGHT_END_TIME,
     DOMAIN,
     FORECAST_REFRESH_INTERVAL,
-    SUBENTRY_TYPE_ROOM,
 )
 from .providers import (
     NINA_DETAILS_CACHE_MAX_AGE,
@@ -51,68 +44,6 @@ _LOGGER = logging.getLogger(__name__)
 class OutsideSnapshot:
     weather: WeatherAssessment
     warnings: WarningAssessment
-
-
-def _night_start_minutes(subentry) -> int:
-    raw = subentry.data.get(CONF_NIGHT_START_TIME)
-    if isinstance(raw, str):
-        parts = raw.split(":")
-        try:
-            hour = max(0, min(23, int(parts[0])))
-            minute = max(0, min(59, int(parts[1]) if len(parts) > 1 else 0))
-            return hour * 60 + minute
-        except (TypeError, ValueError):
-            pass
-    try:
-        hour = int(subentry.data.get(CONF_NIGHT_START_HOUR, DEFAULT_NIGHT_START_HOUR))
-    except (TypeError, ValueError):
-        hour = DEFAULT_NIGHT_START_HOUR
-    return max(0, min(23, hour)) * 60
-
-
-def _night_end_minutes(subentry) -> int:
-    raw = subentry.data.get(CONF_NIGHT_END_TIME, DEFAULT_NIGHT_END_TIME)
-    if isinstance(raw, str):
-        parts = raw.split(":")
-        try:
-            hour = max(0, min(23, int(parts[0])))
-            minute = max(0, min(59, int(parts[1]) if len(parts) > 1 else 0))
-            return hour * 60 + minute
-        except (TypeError, ValueError):
-            pass
-    try:
-        hour, minute = str(DEFAULT_NIGHT_END_TIME).split(":", 1)
-        return int(hour) * 60 + int(minute)
-    except (TypeError, ValueError):
-        return 7 * 60
-
-
-def _minute_in_night_window(now_minute: int, start: int, end: int) -> bool:
-    """Return whether a minute belongs to the configured daily night window."""
-    start = max(0, min(1439, int(start)))
-    end = max(0, min(1439, int(end)))
-    now_minute = max(0, min(1439, int(now_minute)))
-    if start == end:
-        return True
-    if start < end:
-        return start <= now_minute < end
-    return now_minute >= start or now_minute < end
-
-
-def _night_forecast_relevant(entry: ConfigEntry) -> bool:
-    """Return whether at least one room may currently show night advice."""
-    now = dt_util.now()
-    now_minute = now.hour * 60 + now.minute
-    for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
-            continue
-        if _minute_in_night_window(
-            now_minute,
-            _night_start_minutes(subentry),
-            _night_end_minutes(subentry),
-        ):
-            return True
-    return False
 
 
 def _uses_home_assistant_nina(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -167,11 +98,11 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         self._started = False
 
     async def _async_update_data(self) -> OutsideSnapshot:
-        # Hourly forecasts are only needed while at least one room can display
-        # the night strategy. Current weather/warnings remain event-driven all
-        # day, so idle daytime rooms do not keep fetching forecast data.
-        if _night_forecast_relevant(self.entry):
-            await async_refresh_hourly_forecast(self.hass, self.entry)
+        # Keep one small shared hourly-forecast cache warm all day. The normal
+        # live card only looks at the next hour, while the night strategy can
+        # use the wider forecast later. This stays one provider call per advisor
+        # and is cache-limited to avoid per-room polling.
+        await async_refresh_hourly_forecast(self.hass, self.entry)
         await async_refresh_nina_details(self.hass, self.entry)
         weather = weather_assessment(self.hass, self.entry)
         warnings = warning_assessment(self.hass, self.entry)
@@ -269,12 +200,10 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
 
     @callback
     def _handle_forecast_tick(self, _now) -> None:
-        """Refresh forecast/provider context only while a night hint can be shown."""
-        if not _night_forecast_relevant(self.entry):
-            return
+        """Refresh the shared short-term/night forecast cache."""
         self.hass.async_create_task(
             self.async_request_refresh(),
-            f"Lüftungsberater night outside refresh {self.entry.entry_id}",
+            f"Lüftungsberater forecast outside refresh {self.entry.entry_id}",
         )
 
     @callback

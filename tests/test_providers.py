@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -158,6 +159,53 @@ def test_pouring_is_rain_but_not_automatically_weather_danger():
     assert result.weather_danger is False
     assert result.weather_caution is False
     assert result.weather_reason_key == "weather_heavy_rain_current"
+
+
+def test_short_term_forecast_detects_upcoming_thunderstorm():
+    from custom_components.lueftungsberater.providers import _short_term_forecast_outlook
+
+    now = datetime(2026, 8, 31, 16, 50, tzinfo=timezone.utc)
+    change, kind, minutes, condition = _short_term_forecast_outlook(
+        now=now,
+        current_condition="cloudy",
+        current_wind_kmh=10,
+        current_gust_kmh=20,
+        rain_now=False,
+        hourly_forecast=[
+            {
+                "datetime": now + timedelta(minutes=10),
+                "temperature": 21,
+                "condition": "lightning-rainy",
+            }
+        ],
+    )
+    assert change == "worsening"
+    assert kind == "thunderstorm"
+    assert round(minutes or 0) == 10
+    assert condition == "lightning-rainy"
+
+
+def test_short_term_forecast_detects_weather_improving_again():
+    from custom_components.lueftungsberater.providers import _short_term_forecast_outlook
+
+    now = datetime(2026, 8, 31, 16, 50, tzinfo=timezone.utc)
+    change, kind, minutes, _condition = _short_term_forecast_outlook(
+        now=now,
+        current_condition="lightning-rainy",
+        current_wind_kmh=20,
+        current_gust_kmh=30,
+        rain_now=True,
+        hourly_forecast=[
+            {
+                "datetime": now + timedelta(minutes=10),
+                "temperature": 20,
+                "condition": "cloudy",
+            }
+        ],
+    )
+    assert change == "improving"
+    assert kind == "thunderstorm"
+    assert round(minutes or 0) == 10
 
 
 def test_dwd_level_2_warning_is_caution_not_red_danger():

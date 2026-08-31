@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.8.1
+
+### Lüftungsbedarf-Ampel ruhiger und eindeutiger
+- Die Standardansicht **„Lüftungsbedarf“** bleibt dieselbe vollständige Gesamtbewertung, wird vorne aber konsequenter als Handlungsampel dargestellt: **Grün = aktuell nichts zu tun**, **Gelb = beobachten**, **Orange = Lüften ist sinnvoll**, **Rot = jetzt lüften**.
+- Leichte Abweichungen wie knapp erhöhte Raumfeuchte, leicht erhöhtes CO₂ oder eine kleine Temperaturabweichung dürfen deshalb bewusst noch Grün bleiben, solange daraus im Gesamtsystem kein sinnvoller Handlungsdruck entsteht. Grün bedeutet dabei nicht „jeder Messwert ist perfekt“, sondern „du musst aktuell nichts unternehmen“.
+- Der 24-Stunden-Routine-Fallback bleibt bewusst sichtbar und wird nicht in der ruhigeren Grünzone versteckt.
+- Die optionale **„Grün = Lüften“**-Ansicht behält ihre eigene Bedeutung: Grün = gute Lüftungsgelegenheit, Gelb = neutral/Abwägung, Orange/Rot = zunehmend ungeeignete Außenbedingungen. Die beiden Ansichten werden nicht künstlich spiegelverkehrt eingefärbt.
+- Die eigentliche Entscheidungsengine, Sensorbeteiligung und Safety-Lock-Priorität bleiben gemeinsam; geändert wurde die Darstellungsschwere der Bedarfsperspektive, nicht die grundlegende Physik der Lüftungsentscheidung.
+
+### Kurzer Wetter-Vorlauf für die normale Karte
+- Die normale Live-Beratung kann jetzt zusätzlich die **nächsten bis zu 60 Minuten** der stündlichen Wettervorhersage als vorsichtigen Vorlauf berücksichtigen.
+- Kommendes schlechteres Wetter beeinflusst die Empfehlung nur, wenn es die erwartete Lüftungsdauer realistisch treffen kann. Ein Gewitterpunkt weit nach einer kurzen Stoßlüftung blockiert deshalb nicht unnötig die aktuelle Gelegenheit.
+- Der Blick funktioniert auch in die andere Richtung: Soll sich eine aktuell ungünstige Wetterlage innerhalb der nächsten Stunde beruhigen, kann die Karte auf die voraussichtlich bessere Gelegenheit hinweisen.
+- Forecast-Daten sind ausschließlich eine **weiche Planungshilfe**. Ein künftiger Forecast erzeugt niemals allein einen harten Safety-Lock; aktuelle Wettergefahr, Radar und amtliche Schutzanweisungen behalten Vorrang.
+- Der gemeinsame Wetter-Forecast wird pro Lüftungsassistent zwischengespeichert und höchstens etwa alle **15 Minuten** aktualisiert. Dadurch erhalten alle Räume denselben kurzen Ausblick, ohne pro Raum zusätzliche Forecast-Abfragen zu erzeugen.
+- Neue Diagnoseattribute zeigen die erkannte kurzfristige Änderung, deren Art und den zeitlichen Abstand zum relevanten Forecastpunkt.
+
+### Kartentexte verständlicher
+- Nutzertexte in **Deutsch, Englisch und Türkisch** wurden nochmals auf eine möglichst direkte Aussage geprüft: zuerst was zu tun ist, danach kurz warum.
+- Der unklare Satz **„Die aktuelle Außen- oder Wetterlage spricht zusätzlich für Vorsicht“** wurde entfernt. Wenn bekannt, nennt die Karte nun konkret den Grund – z. B. Gewitter, Regen, starken Wind oder ungünstige Außenbedingungen.
+- Bei einer erwarteten Wetteränderung werden bewusst Formulierungen wie **„in Kürze“** oder **„innerhalb der nächsten Stunde“** verwendet. Ein stündlicher Forecastpunkt wird nicht fälschlich als minutengenauer Beginn oder minutengenaues Ende eines Ereignisses dargestellt.
+- Leicht erhöhte Innenwerte in einer grünen Bedarfskarte werden offen benannt, gleichzeitig aber klar eingeordnet: Die Karte sagt ausdrücklich, wenn daraus aktuell noch kein Lüften nötig ist.
+- Aktuelle harte Wetterlagen bleiben eindeutig formuliert; eine erwartete Besserung darf als Zusatz genannt werden, hebt die aktuelle Sperre aber nicht vorzeitig auf.
+
+### Tests / Release
+- Neue Regressionstests für die ruhigere Bedarfskarte, den 24-Stunden-Fallback sowie bevorstehende und abklingende Kurzzeit-Wetterlagen ergänzt.
+- CO₂-Mindestlüftung berücksichtigt eine neu auftretende, unmittelbar relevante Forecast-Verschlechterung weiterhin als echten neuen Außenfaktor; bereits bekannte Bedingungen verursachen kein unnötiges Hin-und-her.
+- Release-Struktur bleibt auf das bestehende Repository-Layout beschränkt; keine Cache-, `__pycache__`-, `.pyc`- oder Arbeitsdateien werden in das Archiv aufgenommen.
+
 ## v0.8.0
 
 ### NINA / MoWaS sicherer und praxisnäher ausgewertet

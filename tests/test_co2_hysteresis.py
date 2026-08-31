@@ -211,6 +211,35 @@ def test_minimum_co2_airing_aborts_for_new_outdoor_warning():
     assert decision.aborted_for_outdoor_worsening is True
 
 
+def test_minimum_co2_airing_aborts_when_a_new_imminent_weather_forecast_appears():
+    from custom_components.lueftungsberater.co2_hysteresis import Co2MinimumAiringState
+
+    start = datetime(2026, 8, 31, 16, 0, tzinfo=UTC)
+    context = {
+        "temperature": 0,
+        "outdoor_temp": 21.0,
+        "temperature_direction": "neutral",
+        "humidity": 0,
+        "outdoor_absolute_humidity": 10.0,
+        "air_quality": 0,
+        "outdoor_co2": 0,
+        "nina_caution": False,
+        "weather_caution": False,
+        "weather_forecast": False,
+        "rain": False,
+    }
+    state = Co2MinimumAiringState()
+    state.start(started_at=start, cautious=False, baseline_context=context)
+    decision = state.evaluate(
+        now=start + timedelta(minutes=1),
+        window_open=True,
+        current_context=dict(context, weather_forecast=True),
+        safety_lock=False,
+    )
+    assert decision.active is False
+    assert decision.aborted_for_outdoor_worsening is True
+
+
 def test_minimum_co2_airing_hard_safety_lock_always_wins():
     from custom_components.lueftungsberater.co2_hysteresis import Co2MinimumAiringState
 

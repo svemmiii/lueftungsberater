@@ -27,6 +27,10 @@ class RoomInput:
     weather_reason_key: str | None = None
     weather_reason_args: dict[str, Any] = field(default_factory=dict)
     weather_original_reason: str | None = None
+    short_term_weather_change: str | None = None
+    short_term_weather_kind: str | None = None
+    short_term_weather_minutes: float | None = None
+    short_term_weather_condition: str | None = None
     nina_status: NinaStatus = "none"
     nina_reason_key: str | None = None
     nina_reason_args: dict[str, Any] = field(default_factory=dict)

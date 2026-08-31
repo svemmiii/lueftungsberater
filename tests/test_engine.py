@@ -447,7 +447,10 @@ def test_closed_room_temperature_hysteresis_avoids_yellow_green_flicker():
         )
     )
     assert kept.primary_need == "temperature"
-    assert kept.room_status_color == "yellow"
+    # v0.8.1 keeps a mild level-1 deviation green in the action-oriented room
+    # view. The remembered need still exists internally; it simply no longer
+    # makes the front card look as if the user must act.
+    assert kept.room_status_color == "green"
     assert fresh.primary_need != "temperature"
     assert fresh.room_status_color == "green"
 
@@ -701,6 +704,69 @@ def test_room_view_rises_when_indoor_need_becomes_stronger_despite_bad_outside()
     assert result.color == "yellow"
     assert result.room_status_color == "yellow"
     assert result.room_recommendation_key == "room_watch"
+
+
+def test_room_view_mild_co2_stays_green_even_when_airing_would_be_easy():
+    result = evaluate_room(base(co2=1100, outdoor_temp=20, outdoor_humidity=50))
+    assert result.color == "green"
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "room_good"
+
+
+def test_room_view_meaningful_co2_need_jumps_to_orange_when_outside_is_good():
+    result = evaluate_room(base(co2=1500, outdoor_temp=20, outdoor_humidity=50))
+    assert result.color == "green"
+    assert result.room_status_color == "orange"
+    assert result.room_recommendation_key == "room_need"
+
+
+def test_room_view_routine_fallback_stays_visible_as_yellow():
+    result = evaluate_room(base(co2=None, hours_since_airing=25))
+    assert result.primary_need == "routine"
+    assert result.room_status_color == "yellow"
+    assert result.room_recommendation_key == "room_watch"
+
+
+def test_short_term_thunderstorm_can_turn_current_co2_airing_into_tradeoff():
+    result = evaluate_room(
+        base(
+            co2=1500,
+            short_term_weather_change="worsening",
+            short_term_weather_kind="thunderstorm",
+            short_term_weather_minutes=10,
+        )
+    )
+    assert result.color == "yellow"
+    assert result.mode == "co2_abwaegung"
+    assert result.reason_args["caution"] == "weather_forecast"
+
+
+def test_short_term_weather_is_ignored_when_short_airing_finishes_well_before_it():
+    result = evaluate_room(
+        base(
+            co2=1500,
+            short_term_weather_change="worsening",
+            short_term_weather_kind="thunderstorm",
+            short_term_weather_minutes=50,
+        )
+    )
+    assert result.color == "green"
+    assert result.mode == "co2_lueften"
+
+
+def test_short_term_thunderstorm_warns_even_when_room_has_no_airing_need():
+    result = evaluate_room(
+        base(
+            co2=700,
+            short_term_weather_change="worsening",
+            short_term_weather_kind="thunderstorm",
+            short_term_weather_minutes=10,
+        )
+    )
+    assert result.color == "orange"
+    assert result.mode == "wetter_vorsicht"
+    assert result.reason_key == "weather_forecast_worsening"
+    assert result.room_status_color == "green"
 
 
 def test_minimum_co2_airing_keeps_green_session_open_even_after_fast_co2_drop():

@@ -172,8 +172,9 @@ OFFICIAL_CLOSE_ACTIONS = (
 
 
 _LOGGER = logging.getLogger(__name__)
-HOURLY_FORECAST_CACHE_MAX_AGE = timedelta(minutes=45)
+HOURLY_FORECAST_CACHE_MAX_AGE = timedelta(minutes=15)
 NINA_DETAILS_CACHE_MAX_AGE = timedelta(minutes=5)
+SHORT_TERM_FORECAST_WINDOW = timedelta(minutes=60)
 
 
 @dataclass(slots=True)
@@ -206,6 +207,10 @@ class WeatherAssessment:
     air_quality_values: dict[str, float] = field(default_factory=dict)
     hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
     hourly_forecast_updated: datetime | None = None
+    short_term_change: str | None = None
+    short_term_kind: str | None = None
+    short_term_minutes: float | None = None
+    short_term_condition: str | None = None
 
 
 @dataclass(slots=True)
@@ -535,6 +540,90 @@ def _cached_hourly_forecast(
     return (list(items) if isinstance(items, list) else [], updated if isinstance(updated, datetime) else None)
 
 
+def _window_weather_profile(
+    condition: str | None,
+    wind_speed_kmh: float | None,
+    wind_gust_kmh: float | None,
+    *,
+    rain_now: bool = False,
+) -> tuple[int, str | None]:
+    """Return a coarse window-safety profile for short-term comparison.
+
+    This is deliberately not another warning scale. It only compares the
+    current weather with the next hourly forecast point so the live card can
+    notice that opening conditions are about to become materially better or
+    worse. Future severe weather is a *caution*, never a hard lock by itself.
+    """
+    condition = str(condition or "").lower()
+    wind = float(wind_speed_kmh or 0.0)
+    gust = float(wind_gust_kmh or 0.0)
+
+    if condition in {"lightning", "lightning-rainy"}:
+        return 3, "thunderstorm"
+    if condition == "hail":
+        return 3, "hail"
+    if condition == "exceptional":
+        return 3, "severe_weather"
+    if wind >= 75 or gust >= 105:
+        return 3, "wind"
+    if wind >= 50 or gust >= 65:
+        return 2, "wind"
+    if condition == "pouring":
+        return 2, "heavy_rain"
+    if rain_now or condition in RAIN_CONDITIONS:
+        return 1, "rain"
+    return 0, None
+
+
+def _short_term_forecast_outlook(
+    *,
+    now: datetime,
+    current_condition: str | None,
+    current_wind_kmh: float | None,
+    current_gust_kmh: float | None,
+    rain_now: bool,
+    hourly_forecast: list[dict[str, Any]],
+) -> tuple[str | None, str | None, float | None, str | None]:
+    """Describe the first material weather change within the next hour.
+
+    Home Assistant hourly forecasts are not minute-accurate nowcasts. The
+    returned minute value therefore means "the next forecast point showing a
+    change is this far away", not "the event starts exactly then".
+    """
+    current_level, current_kind = _window_weather_profile(
+        current_condition,
+        current_wind_kmh,
+        current_gust_kmh,
+        rain_now=rain_now,
+    )
+    end = now + SHORT_TERM_FORECAST_WINDOW
+
+    points: list[tuple[datetime, dict[str, Any]]] = []
+    for raw in hourly_forecast:
+        stamp = raw.get("datetime")
+        if not isinstance(stamp, datetime):
+            continue
+        if stamp <= now or stamp > end:
+            continue
+        points.append((stamp, raw))
+    points.sort(key=lambda item: item[0])
+
+    for stamp, raw in points:
+        level, kind = _window_weather_profile(
+            raw.get("condition"),
+            _float(raw.get("wind_speed")),
+            _float(raw.get("wind_gust_speed")),
+        )
+        if level == current_level:
+            continue
+        minutes = max(0.0, (stamp - now).total_seconds() / 60.0)
+        if level > current_level:
+            return "worsening", kind or "weather", minutes, str(raw.get("condition") or "") or None
+        return "improving", current_kind or "weather", minutes, str(raw.get("condition") or "") or None
+
+    return None, None, None, None
+
+
 async def async_refresh_hourly_forecast(
     hass: HomeAssistant, entry: ConfigEntry, *, force: bool = False
 ) -> None:
@@ -809,6 +898,20 @@ def weather_assessment(
                 # forecast is actually relevant to the expected airing duration.
                 if next_dt <= now + timedelta(hours=2):
                     result.rain_soon = True
+
+    (
+        result.short_term_change,
+        result.short_term_kind,
+        result.short_term_minutes,
+        result.short_term_condition,
+    ) = _short_term_forecast_outlook(
+        now=dt_util.now(),
+        current_condition=condition,
+        current_wind_kmh=result.wind_speed_kmh,
+        current_gust_kmh=result.wind_gust_kmh,
+        rain_now=result.rain_now,
+        hourly_forecast=result.hourly_forecast,
+    )
 
     return result
 

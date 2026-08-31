@@ -543,7 +543,7 @@ class Co2MinimumAiringState:
         except (TypeError, ValueError):
             pass
 
-        for key in ("nina_caution", "weather_caution", "rain"):
+        for key in ("nina_caution", "weather_caution", "weather_forecast", "rain"):
             if bool(current.get(key)) and not bool(baseline.get(key)):
                 return True
         return False

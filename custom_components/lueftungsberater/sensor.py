@@ -295,6 +295,13 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "wind_speed_kmh": weather.wind_speed_kmh,
             "wind_gust_kmh": weather.wind_gust_kmh,
             "rain_minutes_until": weather.rain_minutes_until,
+            "short_term_weather_change": weather.short_term_change,
+            "short_term_weather_kind": weather.short_term_kind,
+            "short_term_weather_minutes": (
+                round(weather.short_term_minutes, 1)
+                if weather.short_term_minutes is not None
+                else None
+            ),
             "night_ventilation_status": values.get("night_ventilation_status", "unavailable"),
             "night_ventilation_key": night_key,
             "night_ventilation_args": night_args,

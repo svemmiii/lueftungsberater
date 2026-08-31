@@ -29,7 +29,7 @@
           "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
         },
         "data_description": {
-          "display_mode": "Her iki görünüm de aynı kapsamlı değerlendirmeyi kullanır. Varsayılan: havalandırma ihtiyacı · 🟢 şu anda havalandırma nedeni yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 havalandırmak için uygun zaman / 🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
+          "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
         },
         "sections": {
@@ -42,7 +42,7 @@
               "display_mode": "Gösterge biçimi"
             },
             "data_description": {
-              "display_mode": "Her iki görünüm de aynı kapsamlı değerlendirmeyi kullanır. Varsayılan: havalandırma ihtiyacı · 🟢 şu anda havalandırma nedeni yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 havalandırmak için uygun zaman / 🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir."
+              "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir."
             }
           },
           "outdoor": {
@@ -97,7 +97,7 @@
           "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
         },
         "data_description": {
-          "display_mode": "Her iki görünüm de aynı kapsamlı değerlendirmeyi kullanır. Varsayılan: havalandırma ihtiyacı · 🟢 şu anda havalandırma nedeni yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 havalandırmak için uygun zaman / 🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
+          "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
         },
         "sections": {
@@ -110,7 +110,7 @@
               "display_mode": "Gösterge biçimi"
             },
             "data_description": {
-              "display_mode": "Her iki görünüm de aynı kapsamlı değerlendirmeyi kullanır. Varsayılan: havalandırma ihtiyacı · 🟢 şu anda havalandırma nedeni yok / 🔴 şimdi havalandır. Alternatif: havalandırma göstergesi · 🟢 havalandırmak için uygun zaman / 🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir."
+              "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir."
             }
           },
           "outdoor": {
@@ -417,8 +417,8 @@
     },
     "display_mode": {
       "options": {
-        "ventilation": "Havalandırma göstergesi · 🟢 = havalandırmak için uygun zaman · 🔴 = kapalı tutmak daha iyi",
-        "room_air": "Havalandırma ihtiyacı · 🟢 = havalandırma nedeni yok · 🔴 = şimdi havalandır"
+        "ventilation": "Havalandırma göstergesi · 🟢 uygun zaman · 🟡 kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi",
+        "room_air": "Havalandırma ihtiyacı · 🟢 işlem gerekmez · 🟡 takip et · 🟠 faydalı · 🔴 şimdi havalandır"
       }
     },
     "room_notify_triggers": {

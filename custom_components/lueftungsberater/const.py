@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.8.0"
+INTEGRATION_VERSION = "0.8.1"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 
@@ -69,7 +69,7 @@ DEFAULT_REMOTE_PORT = 8123
 REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
 REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
 REMOTE_PROTOCOL_VERSION = 2
-FORECAST_REFRESH_INTERVAL = timedelta(minutes=45)
+FORECAST_REFRESH_INTERVAL = timedelta(minutes=15)
 
 CONF_ROOM_NAME = "room_name"
 CONF_INDOOR_TEMP = "indoor_temperature"

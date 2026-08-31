@@ -20,8 +20,8 @@ RECOMMENDATIONS = {
         "wait": "Besser noch etwas warten",
         "unknown": "Aktuell keine zuverlässige Empfehlung möglich",
         "room_good": "Aktuell kein Lüftungsgrund",
-        "room_watch": "Lüften kann sinnvoll sein",
-        "room_need": "Lüften ist aktuell sinnvoll",
+        "room_watch": "Werte im Blick behalten",
+        "room_need": "Lüften ist sinnvoll",
         "room_urgent": "Jetzt lüften",
         "room_keep_brief": "Noch kurz weiterlüften",
     },
@@ -38,8 +38,8 @@ RECOMMENDATIONS = {
         "wait": "Better wait a little longer",
         "unknown": "No reliable recommendation is available right now",
         "room_good": "No current reason to ventilate",
-        "room_watch": "Ventilation may be worthwhile",
-        "room_need": "Ventilation is worthwhile now",
+        "room_watch": "Keep an eye on the values",
+        "room_need": "Ventilation is worthwhile",
         "room_urgent": "Ventilate now",
         "room_keep_brief": "Keep ventilating briefly",
     },
@@ -56,8 +56,8 @@ RECOMMENDATIONS = {
         "wait": "Biraz daha beklemek daha iyi",
         "unknown": "Şu anda güvenilir bir öneri verilemiyor",
         "room_good": "Şu anda havalandırma nedeni yok",
-        "room_watch": "Havalandırmak faydalı olabilir",
-        "room_need": "Şu anda havalandırmak faydalı",
+        "room_watch": "Değerleri takip et",
+        "room_need": "Havalandırmak faydalı",
         "room_urgent": "Şimdi havalandır",
         "room_keep_brief": "Kısa süre daha havalandır",
     },
@@ -311,6 +311,106 @@ def _air_quality_reason(key: str, a: dict[str, Any], lang: str) -> str:
     }[lang]
 
 
+def _short_term_weather_sentence(
+    a: dict[str, Any], lang: str, *, expected_change: str | None = None
+) -> str:
+    """Render a plain-language next-hour weather hint.
+
+    The minute value points to the next hourly forecast slot showing a change;
+    wording intentionally avoids claiming minute-accurate storm timing.
+    """
+    change = str(a.get("forecast_change") or "")
+    if not change or (expected_change is not None and change != expected_change):
+        return ""
+    kind = str(a.get("forecast_kind") or "weather")
+    try:
+        minutes = max(0, round(float(a.get("forecast_minutes"))))
+    except (TypeError, ValueError):
+        minutes = None
+
+    soon = minutes is not None and minutes <= 20
+    when = {
+        "de": "in Kürze" if soon else "innerhalb der nächsten Stunde",
+        "en": "shortly" if soon else "within the next hour",
+        "tr": "yakında" if soon else "önümüzdeki bir saat içinde",
+    }[lang]
+    when_start = {
+        "de": "In Kürze" if soon else "Innerhalb der nächsten Stunde",
+        "en": "Shortly" if soon else "Within the next hour",
+        "tr": "Yakında" if soon else "Önümüzdeki bir saat içinde",
+    }[lang]
+
+    if change == "worsening":
+        texts = {
+            "thunderstorm": {
+                "de": f"{when_start} wird Gewitter erwartet.",
+                "en": f"A thunderstorm is expected {when}.",
+                "tr": f"{when_start} gök gürültülü fırtına bekleniyor.",
+            },
+            "hail": {
+                "de": f"{when_start} wird Hagel bzw. eine deutlich schlechtere Wetterlage erwartet.",
+                "en": f"Hail or clearly worse weather is expected {when}.",
+                "tr": f"{when_start} dolu veya belirgin biçimde daha kötü hava bekleniyor.",
+            },
+            "wind": {
+                "de": f"{when_start} wird deutlich stärkerer Wind erwartet.",
+                "en": f"Much stronger wind is expected {when}.",
+                "tr": f"{when_start} belirgin biçimde daha güçlü rüzgâr bekleniyor.",
+            },
+            "heavy_rain": {
+                "de": f"{when_start} wird kräftiger Regen erwartet.",
+                "en": f"Heavy rain is expected {when}.",
+                "tr": f"{when_start} kuvvetli yağmur bekleniyor.",
+            },
+            "rain": {
+                "de": f"{when_start} wird Regen erwartet.",
+                "en": f"Rain is expected {when}.",
+                "tr": f"{when_start} yağmur bekleniyor.",
+            },
+        }
+        return texts.get(kind, {
+            "de": f"Die Wetterlage wird {when} voraussichtlich ungünstiger.",
+            "en": f"Weather conditions are expected to become less favorable {when}.",
+            "tr": f"Hava koşullarının {when} daha elverişsiz hâle gelmesi bekleniyor.",
+        })[lang]
+
+    if change == "improving":
+        texts = {
+            "thunderstorm": {
+                "de": f"Die Gewitterlage soll sich {when} beruhigen.",
+                "en": f"The thunderstorm conditions are expected to ease {when}.",
+                "tr": f"Gök gürültülü hava koşullarının {when} sakinleşmesi bekleniyor.",
+            },
+            "hail": {
+                "de": f"Die Hagel-/Unwetterlage soll sich {when} bessern.",
+                "en": f"The hail/severe-weather situation is expected to improve {when}.",
+                "tr": f"Dolu/şiddetli hava durumunun {when} iyileşmesi bekleniyor.",
+            },
+            "wind": {
+                "de": f"Der starke Wind soll {when} nachlassen.",
+                "en": f"The strong wind is expected to ease {when}.",
+                "tr": f"Kuvvetli rüzgârın {when} azalması bekleniyor.",
+            },
+            "heavy_rain": {
+                "de": f"Der kräftige Regen soll {when} nachlassen.",
+                "en": f"The heavy rain is expected to ease {when}.",
+                "tr": f"Kuvvetli yağmurun {when} azalması bekleniyor.",
+            },
+            "rain": {
+                "de": f"Der Regen soll {when} nachlassen.",
+                "en": f"The rain is expected to ease {when}.",
+                "tr": f"Yağmurun {when} azalması bekleniyor.",
+            },
+        }
+        return texts.get(kind, {
+            "de": f"Die Wetterlage soll sich {when} bessern.",
+            "en": f"Weather conditions are expected to improve {when}.",
+            "tr": f"Hava koşullarının {when} iyileşmesi bekleniyor.",
+        })[lang]
+
+    return ""
+
+
 def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
     caution = str(a.get("caution") or "conditions")
     co2 = a.get("co2")
@@ -363,10 +463,14 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
                 "tr": "Aynı zamanda hava koşulları elverişsiz.",
             },
         }
-        detail = detail_options.get(caution, {
-            "de": "Draußen passt es gerade nicht ganz.",
-            "en": "Outside is not a great fit right now.",
-            "tr": "Dışarısı şu anda pek uygun değil.",
+        detail = (
+            _short_term_weather_sentence(a, lang, expected_change="worsening")
+            if caution == "weather_forecast"
+            else ""
+        ) or detail_options.get(caution, {
+            "de": "Die Außenbedingungen sind gerade ungünstig.",
+            "en": "Outdoor conditions are unfavorable right now.",
+            "tr": "Dış koşullar şu anda elverişsiz.",
         })[lang]
         if caution == "near_target" and a.get("co2_target") is not None:
             target_ppm = _measurement(_number(a.get("co2_target"), lang, 0), "ppm")
@@ -402,7 +506,11 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
         "combined": {"de": "Temperatur und Feuchte draußen wären gleichzeitig deutlich ungünstiger.", "en": "Outdoor temperature and humidity would both be a noticeably worse fit.", "tr": "Dış sıcaklık ve nem aynı anda belirgin biçimde daha kötü uyuyor."},
         "outdoor_co2": {"de": "Auch draußen ist CO₂ hoch, dadurch bringt der Luftaustausch dafür nur wenig.", "en": "Outdoor CO₂ is high as well, so the air exchange would do little for that.", "tr": "Dışarıdaki CO₂ de yüksek; bu yüzden hava değişimi bu açıdan çok az fayda sağlar."},
     }
-    drawback = drawback_options.get(caution, {
+    drawback = (
+        _short_term_weather_sentence(a, lang, expected_change="worsening")
+        if caution == "weather_forecast"
+        else ""
+    ) or drawback_options.get(caution, {
         "de": "Draußen passt es gleichzeitig nicht besonders gut.",
         "en": "Outside is not a particularly good fit at the same time.",
         "tr": "Dışarısı aynı anda pek uygun değil.",
@@ -415,6 +523,7 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
     """Render the inverted traffic-light perspective without changing decisions."""
     need = str(a.get("need") or "none")
     level = int(a.get("level") or 0)
+    room_color = str(a.get("room_color") or "green")
     ventilation_color = str(a.get("ventilation_color") or "yellow")
     mode = str(a.get("mode") or "normal")
     caution = str(a.get("caution") or "")
@@ -434,22 +543,36 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             "tr": f"CO₂ {co2} ile çok yüksek. Bu nedenle havalandırma acilen gerekli.",
         }[lang]
     elif need in {"co2_high", "co2_elevated"}:
-        inside = {
-            "de": f"CO₂ liegt bei {co2} und erhöht den Lüftungsbedarf.",
-            "en": f"CO₂ is at {co2}, increasing the need for fresh air.",
-            "tr": f"CO₂ {co2} seviyesinde ve havalandırma ihtiyacını artırıyor.",
-        }[lang]
+        if room_color == "green" and level <= 1:
+            inside = {
+                "de": f"CO₂ liegt bei {co2} und ist leicht erhöht. Aktuell ist deshalb noch kein Lüften nötig.",
+                "en": f"CO₂ is slightly elevated at {co2}. There is no need to ventilate yet.",
+                "tr": f"CO₂ {co2} ile biraz yüksek. Şimdilik havalandırmak gerekmiyor.",
+            }[lang]
+        else:
+            inside = {
+                "de": f"CO₂ liegt bei {co2} und erhöht den Lüftungsbedarf.",
+                "en": f"CO₂ is at {co2}, increasing the need for fresh air.",
+                "tr": f"CO₂ {co2} seviyesinde ve havalandırma ihtiyacını artırıyor.",
+            }[lang]
     elif need in {"humidity", "humidity_urgent"}:
         qualifier = {
             "de": "leicht erhöht" if level <= 1 else "deutlich erhöht",
             "en": "slightly elevated" if level <= 1 else "clearly elevated",
             "tr": "biraz yüksek" if level <= 1 else "belirgin biçimde yüksek",
         }[lang]
-        inside = {
-            "de": f"Die Raumfeuchte liegt mit {humidity} {qualifier}.",
-            "en": f"Indoor humidity is {qualifier} at {humidity}.",
-            "tr": f"İç nem {humidity} ile {qualifier}.",
-        }[lang]
+        if room_color == "green" and level <= 1:
+            inside = {
+                "de": f"Die Raumfeuchte liegt mit {humidity} leicht erhöht. Aktuell ist deshalb noch kein Lüften nötig.",
+                "en": f"Indoor humidity is slightly elevated at {humidity}. There is no need to ventilate yet.",
+                "tr": f"İç nem {humidity} ile biraz yüksek. Şimdilik havalandırmak gerekmiyor.",
+            }[lang]
+        else:
+            inside = {
+                "de": f"Die Raumfeuchte liegt mit {humidity} {qualifier}.",
+                "en": f"Indoor humidity is {qualifier} at {humidity}.",
+                "tr": f"İç nem {humidity} ile {qualifier}.",
+            }[lang]
     elif need == "mold_persistent":
         inside = {
             "de": f"An der überwachten Oberfläche liegt die relative Feuchte seit längerer Zeit bei rund {surface} und bleibt damit auffällig.",
@@ -475,11 +598,18 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             "tr": f"{ti} ve {humidity} ile sıcaklık ve nem birlikte yüksek.",
         }[lang]
     elif need == "temperature":
-        inside = {
-            "de": f"Die Raumtemperatur liegt bei {ti} statt nahe am Sollwert von {target}. Lüften kann sie wieder Richtung Soll bewegen.",
-            "en": f"Room temperature is {ti}, away from the target of {target}. Ventilation can move it back toward the target.",
-            "tr": f"Oda sıcaklığı {ti}, hedef ise {target}. Havalandırma sıcaklığı yeniden hedefe yaklaştırabilir.",
-        }[lang]
+        if room_color == "green" and level <= 1:
+            inside = {
+                "de": f"Die Raumtemperatur liegt bei {ti}, der Sollwert bei {target}. Die Abweichung ist noch klein – aktuell musst du deshalb nicht lüften.",
+                "en": f"Room temperature is {ti}, with a target of {target}. The difference is still small, so there is no need to ventilate yet.",
+                "tr": f"Oda sıcaklığı {ti}, hedef {target}. Fark hâlâ küçük; şimdilik havalandırmak gerekmiyor.",
+            }[lang]
+        else:
+            inside = {
+                "de": f"Die Raumtemperatur liegt bei {ti} statt nahe am Sollwert von {target}. Lüften kann sie wieder Richtung Soll bewegen.",
+                "en": f"Room temperature is {ti}, away from the target of {target}. Ventilation can move it back toward the target.",
+                "tr": f"Oda sıcaklığı {ti}, hedef ise {target}. Havalandırma sıcaklığı yeniden hedefe yaklaştırabilir.",
+            }[lang]
     elif need == "routine":
         inside = {
             "de": f"Seit rund {hours} Stunden wurde keine bestätigte Lüftung erkannt. Damit gibt es einen zusätzlichen Grund für einen kurzen Luftaustausch.",
@@ -499,9 +629,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
     if mode in {"aussen_deutlich_feuchter", "feuchte_warten", "schimmel_warten"} or caution == "humidity":
         if ventilation_color == "green" and level > 0 and caution == "humidity":
             outside = {
-                "de": " Die Außenluft ist zwar feuchter, der aktuelle Lüftungsbedarf wiegt hier aber stärker.",
-                "en": " Outdoor air is more humid, but the current need for air exchange outweighs that drawback.",
-                "tr": " Dış hava daha nemli olsa da mevcut havalandırma ihtiyacı bu dezavantajdan daha ağır basıyor.",
+                "de": " Die Außenluft ist zwar feuchter, trotzdem ist Lüften wegen der Innenwerte hier wichtiger.",
+                "en": " Outdoor air is more humid, but the indoor values still make ventilation more important here.",
+                "tr": " Dış hava daha nemli olsa da iç değerler nedeniyle havalandırmak burada daha önemli.",
             }[lang]
         else:
             outside = {
@@ -512,9 +642,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
     elif caution == "temperature":
         if ventilation_color == "green" and level > 0:
             outside = {
-                "de": " Die Außentemperatur ist zwar ungünstig, der aktuelle Lüftungsbedarf wiegt hier aber stärker.",
-                "en": " The outdoor temperature is unfavorable, but the current need for air exchange outweighs that drawback.",
-                "tr": " Dış sıcaklık elverişsiz olsa da mevcut havalandırma ihtiyacı bu dezavantajdan daha ağır basıyor.",
+                "de": " Die Außentemperatur ist zwar ungünstig, trotzdem ist Lüften wegen der Innenwerte hier wichtiger.",
+                "en": " The outdoor temperature is unfavorable, but the indoor values still make ventilation more important here.",
+                "tr": " Dış sıcaklık elverişsiz olsa da iç değerler nedeniyle havalandırmak burada daha önemli.",
             }[lang]
         else:
             outside = {
@@ -540,12 +670,68 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             "en": " Outdoor air quality currently makes ventilation less favorable.",
             "tr": " Dış hava kalitesi şu anda havalandırmayı daha az uygun hâle getiriyor.",
         }[lang]
-    elif mode in {"nina_vorsicht", "wetter_vorsicht", "regen", "regen_bald"} or caution in {"air_warning", "weather", "rain"}:
-        outside = {
-            "de": " Die aktuelle Außen- oder Wetterlage spricht zusätzlich für Vorsicht.",
-            "en": " The current outdoor or weather situation also calls for caution.",
-            "tr": " Mevcut dış hava veya hava durumu aynı zamanda dikkat gerektiriyor.",
+    elif caution == "weather_forecast":
+        forecast = _short_term_weather_sentence(
+            a, lang, expected_change="worsening"
+        )
+        outside = f" {forecast}" if forecast else {
+            "de": " In Kürze werden ungünstigere Wetterbedingungen erwartet.",
+            "en": " Less favorable weather is expected shortly.",
+            "tr": " Yakında daha elverişsiz hava koşulları bekleniyor.",
         }[lang]
+    elif mode in {"regen", "regen_bald"} or caution == "rain":
+        if mode == "regen_bald":
+            outside = {
+                "de": " In Kürze wird Regen erwartet; ein offenes Fenster wäre dann unpraktisch.",
+                "en": " Rain is expected shortly, so an open window would soon become impractical.",
+                "tr": " Yakında yağmur bekleniyor; açık pencere kısa süre sonra pratik olmayabilir.",
+            }[lang]
+        else:
+            outside = {
+                "de": " Draußen regnet es gerade; ein offenes Fenster ist deshalb unpraktisch.",
+                "en": " It is raining outside right now, so an open window is impractical.",
+                "tr": " Dışarıda şu anda yağmur yağıyor; bu yüzden açık pencere pratik değil.",
+            }[lang]
+    elif mode == "nina_vorsicht" or caution == "air_warning":
+        outside = {
+            "de": " Ein aktueller Außenluft-Hinweis spricht gegen unnötiges Lüften.",
+            "en": " A current outdoor-air advisory argues against unnecessary ventilation.",
+            "tr": " Güncel bir dış hava uyarısı gereksiz havalandırmaya karşı.",
+        }[lang]
+    elif mode == "wetter_vorsicht" or caution == "weather":
+        weather_key = str(a.get("weather_reason_key") or "")
+        weather_texts = {
+            "weather_thunderstorm_caution": {
+                "de": " Die aktuelle Gewitterlage spricht gegen ein offenes Fenster.",
+                "en": " The current thunderstorm conditions argue against an open window.",
+                "tr": " Mevcut gök gürültülü hava açık pencereye karşı.",
+            },
+            "weather_thunderstorm_danger": {
+                "de": " Draußen gibt es aktuell Gewitter; die Fenster sollten geschlossen bleiben.",
+                "en": " There is a thunderstorm outside right now, so the windows should stay closed.",
+                "tr": " Dışarıda şu anda gök gürültülü fırtına var; pencereler kapalı kalmalı.",
+            },
+            "weather_heavy_rain_current": {
+                "de": " Draußen regnet es kräftig; ein offenes Fenster ist gerade unpraktisch.",
+                "en": " It is raining heavily outside, so an open window is impractical right now.",
+                "tr": " Dışarıda kuvvetli yağmur yağıyor; açık pencere şu anda pratik değil.",
+            },
+            "weather_wind_caution": {
+                "de": " Starker Wind macht ein offenes Fenster gerade ungünstig.",
+                "en": " Strong wind makes an open window unfavorable right now.",
+                "tr": " Kuvvetli rüzgâr açık pencereyi şu anda elverişsiz hâle getiriyor.",
+            },
+            "weather_hail_caution": {
+                "de": " Die aktuelle Hagellage spricht gegen ein offenes Fenster.",
+                "en": " The current hail conditions argue against an open window.",
+                "tr": " Mevcut dolu durumu açık pencereye karşı.",
+            },
+        }
+        outside = weather_texts.get(weather_key, {
+            "de": " Die aktuellen Wetterbedingungen sind fürs Lüften ungünstig.",
+            "en": " Current weather conditions are unfavorable for ventilation.",
+            "tr": " Mevcut hava koşulları havalandırma için elverişsiz.",
+        })[lang]
     elif caution == "outdoor_co2":
         outside = {
             "de": " Auch draußen ist CO₂ hoch, daher wäre der Luftaustausch dafür nur begrenzt wirksam.",
@@ -558,12 +744,22 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             "en": " Outdoor temperature and humidity are both clearly unfavorable.",
             "tr": " Dış sıcaklık ve nem aynı anda belirgin biçimde elverişsiz.",
         }[lang]
-    elif ventilation_color == "green" and level > 0:
+    elif ventilation_color == "green" and level > 0 and room_color != "green":
         outside = {
-            "de": " Die Außenbedingungen passen dazu ausreichend gut.",
-            "en": " Outdoor conditions are suitable enough for that.",
-            "tr": " Dış koşullar bunun için yeterince uygun.",
+            "de": " Draußen passen die Bedingungen dafür aktuell gut genug.",
+            "en": " Outdoor conditions are currently suitable enough for that.",
+            "tr": " Dış koşullar şu anda bunun için yeterince uygun.",
         }[lang]
+
+    if mode in {"wetter_vorsicht", "regen", "regen_bald"} or caution in {
+        "weather",
+        "rain",
+    }:
+        improvement = _short_term_weather_sentence(
+            a, lang, expected_change="improving"
+        )
+        if improvement:
+            outside += f" {improvement}"
 
     return inside + outside
 
@@ -657,8 +853,8 @@ def reason_text(
         caution = str(a.get("caution") or "conditions")
         detail = {
             "humidity": {"de": "Draußen ist die Luft etwas feuchter.", "en": "Outdoor air is a little more humid.", "tr": "Dış hava biraz daha nemli."},
-            "temperature": {"de": "Draußen passt die Temperatur gerade nicht ideal.", "en": "Outdoor temperature is not ideal right now.", "tr": "Dış sıcaklık şu anda ideal değil."},
-        }.get(caution, {"de": "Draußen ist es nicht ganz ideal.", "en": "Outside is not a great fit right now.", "tr": "Dış koşullar tam ideal değil."})[lang]
+            "temperature": {"de": "Die Außentemperatur ist gerade ungünstig.", "en": "The outdoor temperature is unfavorable right now.", "tr": "Dış sıcaklık şu anda elverişsiz."},
+        }.get(caution, {"de": "Die Außenbedingungen sind gerade ungünstig.", "en": "Outdoor conditions are unfavorable right now.", "tr": "Dış koşullar şu anda elverişsiz."})[lang]
         return {
             "de": f"CO₂ liegt bei {ppm}. Lüften ist trotzdem sinnvoll. {detail}",
             "en": f"CO₂ is at {ppm}. Ventilation still makes sense. {detail}",
@@ -758,6 +954,17 @@ def reason_text(
             "tr": f"Yaklaşık {minutes} dakika içinde yağış bekleniyor ve pencereler açıkken başlayabilir. Acil değilse biraz beklemek daha iyi.",
         }[lang]
 
+    if key == "weather_forecast_worsening":
+        forecast = _short_term_weather_sentence(
+            a, lang, expected_change="worsening"
+        )
+        if forecast:
+            return {
+                "de": f"{forecast} Wenn Lüften nicht dringend nötig ist, warte besser noch etwas.",
+                "en": f"{forecast} If ventilation is not urgent, it is better to wait a little.",
+                "tr": f"{forecast} Havalandırma acil değilse biraz beklemek daha iyi.",
+            }[lang]
+
     if lang == "de":
         texts = {
             "official_close_instruction": "Eine offizielle Warnquelle weist ausdrücklich an, Fenster und Türen geschlossen zu halten oder die Außenluftzufuhr abzuschalten. Diese Schutzanweisung hat Vorrang vor der normalen Lüftungsbewertung.",
@@ -768,14 +975,14 @@ def reason_text(
             "air_hazard_danger": "Es gibt eine Warnung vor Schadstoffen oder einem Gasaustritt in der Außenluft. Lass Fenster und Türen deshalb geschlossen.",
             "air_hazard_caution": "Es gibt einen Hinweis auf mögliche Schadstoffe in der Außenluft. Lüfte vorsichtshalber nur, wenn es wirklich nötig ist.",
             "weather_danger": "Aktuell gilt eine Unwetterwarnung, bei der offene Fenster ungünstig sind. Lass sie vorerst geschlossen.",
-            "weather_caution": "Es gibt aktuell eine Wetterwarnung. Lüften ist nicht grundsätzlich ausgeschlossen, aber im Moment eher ungünstig.",
-            "weather_heavy_rain_current": "Draußen regnet es gerade kräftig. Lüften ist nicht grundsätzlich ausgeschlossen, aber im Moment eher unpraktisch.",
+            "weather_caution": "Die Wetterlage ist aktuell ungünstig für ein offenes Fenster. Wenn Lüften nicht nötig ist, warte besser noch etwas.",
+            "weather_heavy_rain_current": "Draußen regnet es gerade kräftig. Wenn Lüften nicht nötig ist, warte besser, bis der Regen nachlässt.",
             "weather_heavy_rain_caution": "Es wird vor Starkregen gewarnt. Wenn es nicht dringend nötig ist, warte mit dem Lüften besser noch etwas.",
             "weather_heavy_rain_danger": "Es gilt eine Unwetterwarnung vor heftigem Starkregen. Lass die Fenster besser geschlossen, bis sich die Lage beruhigt.",
             "weather_continuous_rain_caution": "Es wird vor länger anhaltendem kräftigem Regen gewarnt. Wenn es nicht nötig ist, warte mit dem Lüften besser noch etwas.",
             "weather_continuous_rain_danger": "Es gilt eine Unwetterwarnung vor ergiebigem Dauerregen. Lass die Fenster vorerst besser geschlossen.",
-            "weather_thunderstorm_caution": "Es wird vor Gewittern gewarnt. Lüften ist gerade eher ungünstig; warte wenn möglich, bis die Gewitterlage vorbeigezogen ist.",
-            "weather_thunderstorm_danger": "Es gilt eine Unwetterwarnung vor Gewittern. Lass die Fenster geschlossen, bis die Lage wieder ruhiger ist.",
+            "weather_thunderstorm_caution": "Bei der aktuellen Gewitterlage ist ein offenes Fenster ungünstig. Warte wenn möglich mit dem Lüften, bis es ruhiger ist.",
+            "weather_thunderstorm_danger": "Aktuell spricht eine Gewitterlage klar gegen offene Fenster. Lass die Fenster geschlossen, bis es wieder ruhiger ist.",
             "weather_hail_caution": "Es besteht eine Hagelwarnung. Wenn möglich, lass die Fenster geschlossen, bis die Warnung vorbei ist.",
             "weather_hail_danger": "Es gilt eine Unwetterwarnung mit Hagel. Lass die Fenster geschlossen, bis die Lage vorbei ist.",
             "weather_storm_caution": "Es wird vor stürmischem Wetter gewarnt. Offene Fenster sind gerade keine gute Idee; warte besser noch etwas.",
@@ -815,14 +1022,14 @@ def reason_text(
             "air_hazard_danger": "Dış havada zararlı madde veya gaz kaçağına ilişkin bir uyarı var. Pencereleri ve kapıları şimdilik kapalı tut.",
             "air_hazard_caution": "Dış havada olası kirletici maddelere ilişkin bir uyarı var. Gerçekten gerekmedikçe şimdilik pencereleri açma.",
             "weather_danger": "Ciddi bir hava durumu uyarısı aktif ve pencereleri açık bırakmak uygun değil. Koşullar düzelene kadar pencereleri kapalı tut.",
-            "weather_caution": "Şu anda bir hava durumu uyarısı var. Pencereleri açmak tamamen yanlış değil, ancak koşullar pek uygun değil.",
-            "weather_heavy_rain_current": "Dışarıda şu anda kuvvetli yağmur yağıyor. Pencereleri açmak tamamen yanlış değil ama şu an pek pratik değil.",
+            "weather_caution": "Hava koşulları şu anda açık pencere için elverişsiz. Havalandırma gerekli değilse biraz beklemek daha iyi.",
+            "weather_heavy_rain_current": "Dışarıda şu anda kuvvetli yağmur yağıyor. Havalandırma gerekli değilse yağmur azalıncaya kadar beklemek daha iyi.",
             "weather_heavy_rain_caution": "Kuvvetli yağmur uyarısı var. Acil değilse pencereleri açmadan önce biraz daha beklemek daha iyi.",
             "weather_heavy_rain_danger": "Çok şiddetli yağmur için ciddi hava uyarısı var. Koşullar sakinleşene kadar pencereleri kapalı tut.",
             "weather_continuous_rain_caution": "Uzun süreli kuvvetli yağmur uyarısı var. Gerekli değilse pencereleri açmadan önce biraz daha bekle.",
             "weather_continuous_rain_danger": "Uzun süreli ve çok yoğun yağmur için ciddi hava uyarısı var. Pencereleri şimdilik kapalı tut.",
-            "weather_thunderstorm_caution": "Gök gürültülü fırtına uyarısı var. Şu anda pencereleri açmak pek uygun değil; mümkünse fırtına geçene kadar bekle.",
-            "weather_thunderstorm_danger": "Şiddetli gök gürültülü fırtına uyarısı var. Koşullar sakinleşene kadar pencereleri kapalı tut.",
+            "weather_thunderstorm_caution": "Mevcut gök gürültülü havada pencereyi açık bırakmak uygun değil. Mümkünse hava sakinleşene kadar bekle.",
+            "weather_thunderstorm_danger": "Gök gürültülü hava şu anda açık pencereler için uygun değil. Hava sakinleşene kadar pencereleri kapalı tut.",
             "weather_hail_caution": "Dolu uyarısı var. Mümkünse uyarı geçene kadar pencereleri kapalı tut.",
             "weather_hail_danger": "Dolu içeren ciddi bir hava uyarısı var. Geçene kadar pencereleri kapalı tut.",
             "weather_storm_caution": "Fırtınalı hava bekleniyor. Açık pencereler şu anda iyi fikir değil; biraz daha beklemek daha iyi.",
@@ -862,14 +1069,14 @@ def reason_text(
             "air_hazard_danger": "There is a warning about hazardous substances or a gas release in the outdoor air. Keep windows and doors closed for now.",
             "air_hazard_caution": "There is an advisory about possible pollutants in the outdoor air. Unless you really need fresh air, keep the windows closed for now.",
             "weather_danger": "A severe-weather warning is active and open windows are unfavorable. Keep them closed until conditions improve.",
-            "weather_caution": "There is an active weather warning. Opening the windows is not completely ruled out, but the conditions are not ideal right now.",
-            "weather_heavy_rain_current": "It is raining heavily outside. Opening the windows is not completely ruled out, but it is rather impractical right now.",
+            "weather_caution": "Current weather is unfavorable for an open window. If ventilation is not needed, it is better to wait a little.",
+            "weather_heavy_rain_current": "It is raining heavily outside. If ventilation is not needed, it is better to wait until the rain eases.",
             "weather_heavy_rain_caution": "There is a heavy-rain warning. Unless opening the windows is urgent, it is better to wait a little longer.",
             "weather_heavy_rain_danger": "A severe-weather warning for intense heavy rain is active. Keep the windows closed until conditions settle down.",
             "weather_continuous_rain_caution": "There is a warning for prolonged heavy rain. Unless fresh air is really needed, it is better to wait a little longer.",
             "weather_continuous_rain_danger": "A severe-weather warning for prolonged heavy rain is active. Keep the windows closed for now.",
-            "weather_thunderstorm_caution": "There is a thunderstorm warning. Opening the windows is not ideal right now; if possible, wait until the storms have passed.",
-            "weather_thunderstorm_danger": "A severe thunderstorm warning is active. Keep the windows closed until conditions calm down.",
+            "weather_thunderstorm_caution": "An open window is a poor choice during the current thunderstorm conditions. If possible, wait until conditions calm down.",
+            "weather_thunderstorm_danger": "Thunderstorm conditions currently make open windows a bad idea. Keep them closed until conditions calm down.",
             "weather_hail_caution": "There is a hail warning. If possible, keep the windows closed until the warning has passed.",
             "weather_hail_danger": "A severe-weather warning with hail is active. Keep the windows closed until it has passed.",
             "weather_storm_caution": "Stormy weather is expected. Open windows are not a good idea right now, so it is better to wait.",
@@ -900,7 +1107,14 @@ def reason_text(
             "incomplete_data": "At least one required temperature or humidity value is unavailable right now. The recommendation will update automatically as soon as the sensor data is complete again.",
         }
 
-    return texts.get(key, key)
+    text = texts.get(key, key)
+    if key.startswith("weather_") or key in {"rain_now"}:
+        improvement = _short_term_weather_sentence(
+            a, lang, expected_change="improving"
+        )
+        if improvement:
+            text = f"{text} {improvement}"
+    return text
 
 
 
