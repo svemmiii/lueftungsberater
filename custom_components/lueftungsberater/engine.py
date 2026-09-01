@@ -2,8 +2,8 @@
 
 The engine returns semantic keys plus raw values instead of pre-rendered
 language. Decisions deliberately use a hierarchy of evidence instead of a
-single additive score: safety/health constraints first, then the strongest
-current ventilation need, then expected humidity/temperature/comfort effects.
+single additive score: safety/health constraints first, then all active indoor
+ventilation needs against the same outdoor conditions, then a combined action.
 """
 from __future__ import annotations
 
@@ -180,17 +180,14 @@ def _co2_session_target_for_decision(
             return 1550.0
         return 1250.0
 
-    # Critical CO₂: if outside was genuinely good, the advisor would already
-    # have wanted airing from the 1000-ppm band, so do not reward a late opening
-    # with an artificially high target. Ordinary drawbacks use the 1700 band;
-    # only a genuinely critical/cautious trade-off uses 2000 -> 1850 ppm.
-    if mode == "co2_kritisch" and caution_kind is None:
+    # Critical CO₂: the visible decision is the source of truth for the session
+    # target. A merely soft caveat (for example moderate outdoor air quality)
+    # must not silently turn a green critical recommendation into a 1850-ppm
+    # finish target. Only an explicitly cautious critical mode uses that band.
+    if mode == "co2_kritisch":
         if not humidity_drawback and temp_drawback < 3.0:
             return 850.0
-        if temp_drawback < 15.0 and not (
-            humidity_drawback_strong and indoor_humidity >= 65.0
-        ):
-            return 1550.0
+        return 1550.0
     return 1850.0
 
 
@@ -233,6 +230,7 @@ def _color(mode: str) -> str:
         "aussen_zu_warm",
         "aussen_zu_kalt",
         "aussen_deutlich_feuchter",
+        "aussen_co2_hoeher",
         "innen_zu_trocken",
         "regen",
         "regen_bald",
@@ -242,6 +240,56 @@ def _color(mode: str) -> str:
     # outdoor-air danger, severe weather, very poor air quality, or another hard
     # safety/health constraint.
     return "red"
+
+
+_TRADEOFF_MODES = {
+    "co2_kritisch_vorsicht",
+    "co2_abwaegung",
+    "co2_mindestlueftung_vorsicht",
+    "komfort_abwaegung",
+}
+
+
+def _action_semantic(mode: str) -> str:
+    """Classify what a mode means for the act of opening a window.
+
+    Color alone is not sufficient: yellow is used both for a genuine trade-off
+    and for a neutral "airing does not help this reason" state. Keeping those
+    meanings separate prevents a neutral secondary need from relaxing an
+    existing keep-closed recommendation.
+    """
+    color = _color(mode)
+    if color == "green":
+        return "beneficial"
+    if color == "red":
+        # Hard NINA/weather locks are handled before candidate evaluation. A red
+        # candidate here therefore represents a *strong measured disadvantage*
+        # (for example unusually very poor outdoor air), not an absolute lock.
+        # Keeping that distinction lets critical indoor needs still form a real
+        # trade-off without allowing weak comfort reasons to ignore severe air.
+        return "strong_harmful"
+    if color == "orange":
+        return "harmful"
+    if mode in _TRADEOFF_MODES:
+        return "tradeoff"
+    return "neutral"
+
+
+def _need_protection_level(need: str) -> int:
+    """Return a tie-break protection level independent of traffic-light color.
+
+    Urgency remains the primary merge dimension.  This level only resolves
+    equally urgent pro/con reasons so a health-relevant surface/mold warning is
+    not treated like a comfort drawback, while CO2 and ordinary humidity can
+    still form a genuine yellow trade-off at equal urgency.
+    """
+    if need == "mold_persistent":
+        return 3
+    if need == "mold":
+        return 2
+    if need.startswith("co2_") or need in {"humidity_urgent", "humidity"}:
+        return 1
+    return 0
 
 
 def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
@@ -308,15 +356,16 @@ def _short_term_weather_args(data: RoomInput) -> dict[str, object]:
 def _temperature_moves_toward_target(ti: float, ta: float, target: float) -> bool:
     """Return whether airing initially moves room temperature toward target.
 
-    Outdoor air does not need to be numerically closer to the target than the
-    current room temperature. If a room is too warm, any sufficiently cooler
-    outdoor air moves it in the correct direction until the target is reached;
-    the same applies vice versa for warming.
+    Cooling may use substantially colder outdoor air because the user can stop
+    once the target is reached. For warming, however, very hot outdoor air can
+    overshoot a small heating need immediately. Use the same +4 K ceiling that
+    governs an already running warming session so start and continuation cannot
+    contradict each other with unchanged sensor values.
     """
     if ti > target:
         return ta <= ti - 0.7
     if ti < target:
-        return ta >= ti + 0.7
+        return ta >= ti + 0.7 and ta <= target + 4.0
     return False
 
 
@@ -335,7 +384,7 @@ def _temperature_moves_away(ti: float, ta: float, target: float) -> bool:
     return abs(ta - target) >= 2.0 and abs(ta - ti) >= 2.0
 
 
-def _primary_need(
+def _active_needs(
     *,
     co2: float | None,
     hi: float,
@@ -353,8 +402,9 @@ def _primary_need(
     co2_airing_active: bool,
     co2_rearm_threshold: float | None,
     consider_co2: bool = True,
-) -> tuple[str, int]:
-    """Return the strongest current reason and a small ordinal urgency level."""
+) -> list[tuple[str, int]]:
+    """Return all currently active indoor needs in deterministic priority order."""
+    needs: list[tuple[str, int]] = []
     co2_allowed = consider_co2 and (
         co2_airing_active
         or co2_rearm_threshold is None
@@ -362,42 +412,37 @@ def _primary_need(
     )
 
     if co2_allowed and co2 is not None and co2 > 2000:
-        return "co2_critical", 3
+        needs.append(("co2_critical", 3))
+    elif co2_allowed and co2 is not None and co2 >= 1400:
+        needs.append(("co2_high", 2))
+    elif co2_allowed and co2 is not None and (
+        co2 >= 1000
+        or (_previous_co2_context(previous_mode, previous_need) and co2 >= 900)
+        or co2_pending_hold
+        or co2_airing_active
+    ):
+        needs.append(("co2_elevated", 1))
 
-    # Personal target remains the comfort reference, but very hot indoor air can
-    # still justify cooling even if an unusually high target was configured.
     if ti >= 30 and ta <= ti - 1:
-        return "heat", 3
+        needs.append(("heat", 3))
 
     if mold_persistent:
-        return "mold_persistent", 3
+        needs.append(("mold_persistent", 3))
+    elif mold_risk:
+        needs.append(("mold", 2))
+
     if hi >= 65:
-        return "humidity_urgent", 2
-    if co2_allowed and co2 is not None and co2 >= 1400:
-        return "co2_high", 2
-    if mold_risk:
-        return "mold", 2
-    if hi >= 60 or (
+        needs.append(("humidity_urgent", 2))
+    elif hi >= 60 or (
         previous_mode in {"feuchte_lueften", "weiter_lueften"}
         and hi >= 58
         and diff >= AH_CONTINUE
     ):
-        return "humidity", 2
-    if co2_allowed and co2 is not None and (
-        co2 >= 1000
-        or (
-            _previous_co2_context(previous_mode, previous_need)
-            and co2 >= 900
-        )
-        or co2_pending_hold
-        or co2_airing_active
-    ):
-        return "co2_elevated", 1
+        needs.append(("humidity", 2))
 
-    # Warm + humid rooms can be noticeably uncomfortable even below the hard
-    # heat-protection layer, but only use ventilation when outdoor air helps.
     if ti >= 26 and hi >= 65 and ta <= ti - 1 and diff >= -AH_NEUTRAL:
-        return "humid_heat", 1
+        needs.append(("humid_heat", 1))
+
     temperature_delta = abs(ti - target)
     temperature_hysteresis = previous_need == "temperature"
     temperature_start = (
@@ -410,43 +455,72 @@ def _primary_need(
         "weiter_lueften",
     } and (
         (ti > target + 0.2 and ta <= ti - 0.5)
-        or (ti < target - 0.2 and ta >= ti + 0.5)
+        or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
     )
     if temperature_start or temperature_continue:
-        return "temperature", 1
-    if hours >= 24:
-        return "routine", 1
-    return "none", 0
+        needs.append(("temperature", 1))
+
+    # Routine is a fallback, not a peer health/comfort signal. If a concrete
+    # indoor need is already active, reaching the 24 h mark must not inject a
+    # new candidate that can change the existing multi-need conflict.
+    if hours >= 24 and not needs:
+        needs.append(("routine", 1))
+
+    # Preserve the previous primary ordering for equal urgency. The ordering is
+    # now only a display/tie-break rule; it no longer erases secondary reasons.
+    priority = {
+        "co2_critical": 0,
+        "heat": 1,
+        "mold_persistent": 2,
+        "humidity_urgent": 3,
+        "co2_high": 4,
+        "mold": 5,
+        "humidity": 6,
+        "co2_elevated": 7,
+        "humid_heat": 8,
+        "temperature": 9,
+        "routine": 10,
+    }
+    needs.sort(key=lambda item: (-item[1], priority.get(item[0], 99)))
+    return needs
 
 
-def _green_non_co2_mode(
+def _non_co2_mode_for_need(
     *,
     need: str,
+    data: RoomInput,
     hi: float,
     ti: float,
     ta: float,
     target: float,
     diff: float,
     previous_mode: str,
-    caution_kind: str | None,
-) -> str | None:
-    """Return a green mode when a non-CO₂ need independently justifies airing.
-
-    CO₂ may be the strongest indoor signal, but crossing one of its thresholds
-    must never weaken an already useful ventilation action. Only an independent
-    need that would itself be green under the same outdoor conditions qualifies.
-    """
-    if caution_kind is not None:
-        return None
+) -> tuple[str, str | None]:
+    """Evaluate one non-CO₂ need independently against outdoor conditions."""
+    caution_kind = _outdoor_soft_caution(data)
+    air_quality_mode = _air_quality_mode(data)
 
     if need in {"mold_persistent", "mold"}:
-        if diff <= AH_NEUTRAL:
-            return None
-        return (
-            "schimmel_langzeit_lueften"
-            if need == "mold_persistent"
-            else "schimmel_lueften"
-        )
+        if diff > AH_NEUTRAL:
+            mode = (
+                "schimmel_langzeit_lueften"
+                if need == "mold_persistent"
+                else "schimmel_lueften"
+            )
+            if air_quality_mode is not None:
+                # Moderate air can remain a real trade-off when airing solves a
+                # health-relevant moisture problem. Poor/very-poor AQ retains
+                # its actual class and severity instead of being downgraded.
+                if data.air_quality == "moderate":
+                    mode = "komfort_abwaegung"
+                else:
+                    mode = air_quality_mode
+            elif caution_kind is not None:
+                mode = "komfort_abwaegung"
+            return mode, caution_kind
+        if diff < -AH_NEUTRAL:
+            return "schimmel_warten", "humidity"
+        return "schimmel_neutral", None
 
     if need in {"humidity_urgent", "humidity"}:
         continuation = (
@@ -454,26 +528,66 @@ def _green_non_co2_mode(
             and hi >= 58
             and diff >= AH_CONTINUE
         )
-        return "feuchte_lueften" if diff > AH_NEUTRAL or continuation else None
+        if diff > AH_NEUTRAL or continuation:
+            mode = "feuchte_lueften"
+            if air_quality_mode is not None:
+                # Moderate AQ is only a mild outside disadvantage. If outdoor
+                # air is actually dry enough to improve an active humidity need,
+                # that mild AQ band must not turn a newly-active moisture reason
+                # into a weaker recommendation than an already-green CO2 reason
+                # at the 60 % threshold. Poor/very-poor AQ still keeps its real
+                # class/severity and participates in the closing side of the
+                # merger.
+                if (
+                    data.air_quality == "moderate"
+                    and data.nina_status != "caution"
+                    and not data.weather_caution
+                    and not _outdoor_co2_general_disadvantage(data)
+                ):
+                    mode = "feuchte_lueften"
+                else:
+                    mode = (
+                        "komfort_abwaegung"
+                        if data.air_quality == "moderate"
+                        else air_quality_mode
+                    )
+            elif caution_kind is not None:
+                mode = "komfort_abwaegung"
+            return mode, caution_kind
+        if diff < -AH_NEUTRAL:
+            return "feuchte_warten", "humidity"
+        return "feuchte_neutral", None
 
     if need in {"heat", "humid_heat", "temperature"}:
         helps = _temperature_moves_toward_target(ti, ta, target) or (
             need == "heat" and ta <= ti - 1
         )
-        if not helps or (diff < -1.0 and hi >= 55):
-            return None
-        return "kuehlen" if ta < ti else "erwaermen"
+        if not helps:
+            return "normal", None
+        if caution_kind is not None:
+            if caution_kind == "air_quality":
+                return air_quality_mode or "luftqualitaet_maessig", caution_kind
+            if caution_kind == "air_warning":
+                return "nina_vorsicht", caution_kind
+            if caution_kind == "weather":
+                return "wetter_vorsicht", caution_kind
+            return "komfort_abwaegung", caution_kind
+        if diff < -1.0 and hi >= 55:
+            return "komfort_abwaegung", "humidity"
+        return ("kuehlen" if ta < ti else "erwaermen"), None
 
     if need == "routine":
+        if air_quality_mode is not None:
+            return air_quality_mode, "air_quality"
         bad = (
-            diff < -AH_NEUTRAL
+            caution_kind is not None
+            or diff < -AH_NEUTRAL
             or (hi < 40 and diff > AH_NEUTRAL)
             or _temperature_moves_away(ti, ta, target)
         )
-        return None if bad else "routine_lueften"
+        return ("routine_warten" if bad else "routine_lueften"), caution_kind
 
-    return None
-
+    raise ValueError(f"Unsupported non-CO2 need: {need}")
 
 def _air_quality_penalty(data: RoomInput) -> int:
     """Return an outdoor-air disadvantage without changing the UBA class.
@@ -498,6 +612,35 @@ def _air_quality_penalty(data: RoomInput) -> int:
     return 0
 
 
+def _outdoor_co2_general_disadvantage(data: RoomInput) -> bool:
+    """Return whether measured outdoor CO₂ is materially worse than indoors."""
+    if data.co2 is None or data.outdoor_co2 is None:
+        return False
+    # Technical margin only: avoid turning normal sensor noise into a decision.
+    return data.outdoor_co2 >= data.co2 + 100.0
+
+
+def _air_quality_mode(data: RoomInput) -> str | None:
+    """Return the exact visible mode for the current outdoor AQ class.
+
+    Multi-need evaluation must not collapse poor/very-poor air into a generic
+    caution and later relabel it as merely moderate. The UBA class therefore
+    survives intact until the final conflict merge.
+    """
+    penalty = _air_quality_penalty(data)
+    if data.air_quality == "very_poor":
+        return (
+            "luftqualitaet_sehr_schlecht_typisch"
+            if penalty == 2
+            else "luftqualitaet_sehr_schlecht"
+        )
+    if data.air_quality == "poor":
+        return "luftqualitaet_schlecht"
+    if data.air_quality == "moderate":
+        return "luftqualitaet_maessig"
+    return None
+
+
 def _outdoor_soft_caution(data: RoomInput) -> str | None:
     if _air_quality_penalty(data) > 0:
         return "air_quality"
@@ -505,6 +648,8 @@ def _outdoor_soft_caution(data: RoomInput) -> str | None:
         return "air_warning"
     if data.weather_caution:
         return "weather"
+    if _outdoor_co2_general_disadvantage(data):
+        return "outdoor_co2"
     return None
 
 
@@ -712,6 +857,183 @@ def _strong_no_need_disadvantage(
     return wetter_when_not_needed or drier_when_not_needed
 
 
+def _outside_baseline_mode(
+    *,
+    data: RoomInput,
+    ti: float,
+    hi: float,
+    ta: float,
+    target: float,
+    diff: float,
+    previous_mode: str,
+) -> tuple[str, str | None]:
+    """Return the strongest outside-only reason against unnecessary airing.
+
+    These reasons are intentionally merged by *restriction* rather than by the
+    normal traffic-light ordering. Adding a caution must therefore never turn a
+    pre-existing stronger keep-closed reason into a more opening-friendly one.
+    """
+    candidates: list[tuple[str, str | None]] = []
+    air_penalty = _air_quality_penalty(data)
+
+    if data.air_quality == "very_poor":
+        candidates.append(
+            (
+                "luftqualitaet_sehr_schlecht_typisch"
+                if air_penalty == 2
+                else "luftqualitaet_sehr_schlecht",
+                "air_quality",
+            )
+        )
+    elif data.air_quality == "poor":
+        candidates.append(("luftqualitaet_schlecht", "air_quality"))
+    elif data.air_quality == "moderate":
+        candidates.append(("luftqualitaet_maessig", "air_quality"))
+
+    if data.nina_status == "caution":
+        candidates.append(("nina_vorsicht", "air_warning"))
+    if data.weather_caution:
+        candidates.append(("wetter_vorsicht", "weather"))
+    if _strong_no_need_disadvantage(ti=ti, hi=hi, ta=ta, target=target, diff=diff):
+        candidates.append(("aussen_stark_unpassend", "conditions"))
+    if _outdoor_co2_general_disadvantage(data):
+        candidates.append(("aussen_co2_hoeher", "outdoor_co2"))
+    if (hi < 40 and diff > AH_NEUTRAL) or (
+        previous_mode == "innen_zu_trocken"
+        and hi < 42
+        and diff >= AH_CONTINUE
+    ):
+        candidates.append(("innen_zu_trocken", "humidity"))
+    if diff < -AH_NEUTRAL:
+        candidates.append(("aussen_deutlich_feuchter", "humidity"))
+    if _temperature_moves_away(ti, ta, target):
+        candidates.append(
+            ("aussen_zu_warm" if ta > ti else "aussen_zu_kalt", "temperature")
+        )
+
+    if not candidates:
+        return "normal", None
+
+    restriction_rank = {"green": 0, "yellow": 1, "orange": 2, "red": 3}
+    return max(candidates, key=lambda item: restriction_rank.get(_color(item[0]), 0))
+
+
+def _co2_mode_for_need(
+    *,
+    need: str,
+    data: RoomInput,
+    co2: float | None,
+    hi: float,
+    diff: float,
+    mold_persistent: bool,
+    air_penalty: int,
+    temp_drawback: float,
+    humidity_drawback: bool,
+    humidity_drawback_strong: bool,
+    outdoor_co2_limited: bool,
+) -> tuple[str, str | None]:
+    """Evaluate one active CO₂ need without allowing cautions to relax it.
+
+    Physical outside drawbacks are evaluated first. Official/weather/air-
+    quality cautions may then keep or strengthen that result, but can never
+    turn an existing orange wait-state into a yellow trade-off.
+    """
+    soft_caution = _outdoor_soft_caution(data)
+    external_caution = (
+        "air_quality"
+        if air_penalty >= 2
+        else "air_warning"
+        if data.nina_status == "caution"
+        else "weather"
+        if data.weather_caution
+        else None
+    )
+
+    if need == "co2_critical":
+        if outdoor_co2_limited:
+            mode, caution = "co2_kritisch_vorsicht", "outdoor_co2"
+        elif hi >= 60 and diff <= -3.0:
+            mode, caution = "co2_kritisch_vorsicht", "humidity"
+        elif temp_drawback >= 15.0:
+            mode, caution = "co2_kritisch_vorsicht", "temperature"
+        else:
+            mode, caution = "co2_kritisch", soft_caution
+
+        if external_caution is not None and _color(mode) == "green":
+            return "co2_kritisch_vorsicht", external_caution
+        return mode, caution
+
+    if need == "co2_high":
+        if mold_persistent and humidity_drawback:
+            mode, caution = "co2_warten", "humidity"
+        elif _outdoor_co2_general_disadvantage(data):
+            mode, caution = "co2_warten", "outdoor_co2"
+        elif co2 is not None and co2 >= 1700:
+            # Continuous disadvantages only: crossing an unrelated RH threshold
+            # must not make a higher CO₂ reading produce a weaker recommendation.
+            if temp_drawback >= 15.0 or (hi >= 60 and diff <= -3.0):
+                mode, caution = (
+                    "co2_abwaegung",
+                    "temperature" if temp_drawback >= 15.0 else "humidity",
+                )
+            elif outdoor_co2_limited:
+                mode, caution = "co2_abwaegung", "outdoor_co2"
+            elif temp_drawback >= 3.0 or humidity_drawback:
+                mode, caution = (
+                    "co2_lueften_mit_nachteil",
+                    "temperature" if temp_drawback >= 3.0 else "humidity",
+                )
+            else:
+                mode, caution = "co2_lueften", soft_caution
+        elif hi >= 65 and humidity_drawback_strong:
+            mode, caution = "co2_warten", "humidity"
+        elif (hi >= 60 and humidity_drawback) or temp_drawback >= 5.0:
+            mode, caution = (
+                "co2_abwaegung",
+                "humidity" if hi >= 60 and humidity_drawback else "temperature",
+            )
+        elif outdoor_co2_limited:
+            mode, caution = "co2_abwaegung", "outdoor_co2"
+        else:
+            mode, caution = "co2_lueften", soft_caution
+
+        # A new external warning can only keep or reduce the willingness to
+        # open. In particular, an existing co2_warten state stays orange.
+        if external_caution is not None and _color(mode) == "green":
+            return "co2_abwaegung", external_caution
+        return mode, caution
+
+    if need == "co2_elevated":
+        if mold_persistent and humidity_drawback:
+            mode, caution = "co2_warten", "humidity"
+        elif _outdoor_co2_general_disadvantage(data):
+            mode, caution = "co2_warten", "outdoor_co2"
+        elif temp_drawback >= 6.0 and humidity_drawback:
+            mode, caution = "co2_warten", "combined"
+        elif diff <= -1.0:
+            mode, caution = "co2_warten", "humidity"
+        elif humidity_drawback or temp_drawback >= 3.0:
+            mode, caution = (
+                "co2_abwaegung",
+                "humidity" if humidity_drawback else "temperature",
+            )
+        elif outdoor_co2_limited:
+            mode, caution = "co2_abwaegung", "outdoor_co2"
+        else:
+            mode, caution = "co2_lueften", soft_caution
+
+        if air_penalty >= 2 and _color(mode) != "orange":
+            return "co2_warten", "air_quality"
+        if (
+            (data.nina_status == "caution" or data.weather_caution)
+            and _color(mode) == "green"
+        ):
+            return "co2_abwaegung", external_caution or "conditions"
+        return mode, caution
+
+    raise ValueError(f"Unsupported CO2 need: {need}")
+
+
 def evaluate_room(data: RoomInput) -> VentilationResult:
     ti, hi, ta = data.indoor_temp, data.indoor_humidity, data.outdoor_temp
     target = data.target_temp
@@ -748,7 +1070,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     )
     mold_persistent = bool(data.mold_persistent and mold_risk)
 
-    need, urgency = _primary_need(
+    active_needs = _active_needs(
         co2=co2,
         hi=hi,
         ti=ti,
@@ -765,6 +1087,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         co2_airing_active=data.co2_airing_active,
         co2_rearm_threshold=data.co2_rearm_threshold,
     )
+    # Strongest indoor signal remains the room/display perspective. The actual
+    # recommendation below is merged from every independently evaluated need.
+    need, urgency = active_needs[0] if active_needs else ("none", 0)
 
     # A true protection instruction is outside the normal four-colour scale.
     # The result still carries red for backwards compatibility, while
@@ -785,214 +1110,358 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     humidity_drawback_strong = diff <= -1.5
     outdoor_co2_limited = _co2_outdoor_limited(data)
 
+    decision_need = need
+    decision_urgency = urgency
+    co2_candidate_need: str | None = None
+    co2_candidate_mode: str | None = None
+    co2_candidate_caution: str | None = None
+
     if hard_mode is not None:
         mode = hard_mode
+        decision_need = "safety"
 
-    elif need == "co2_critical":
-        # Critical indoor CO2 justifies accepting ordinary heat/moisture costs,
-        # but not a protection warning. Strong wind/moderate pollution stays a
-        # visible trade-off. Extremely bad combinations also remain cautious.
-        if air_penalty >= 2 or data.nina_status == "caution" or data.weather_caution:
-            mode = "co2_kritisch_vorsicht"
-            caution_kind = caution_kind or "conditions"
-        elif outdoor_co2_limited:
-            mode = "co2_kritisch_vorsicht"
-            caution_kind = "outdoor_co2"
-        elif humidity_drawback and diff <= -3.0 and hi >= 65:
-            mode = "co2_kritisch_vorsicht"
-            caution_kind = "humidity"
-        elif temp_drawback >= 15.0:
-            mode = "co2_kritisch_vorsicht"
-            caution_kind = "temperature"
-        else:
-            mode = "co2_kritisch"
-
-    elif need == "co2_high":
-        if air_penalty >= 2 or data.nina_status == "caution" or data.weather_caution:
-            mode = "co2_abwaegung"
-            caution_kind = caution_kind or "conditions"
-        elif outdoor_co2_limited:
-            mode = "co2_warten"
-            caution_kind = "outdoor_co2"
-        elif mold_persistent and humidity_drawback:
-            mode = "co2_warten"
-        elif co2 is not None and co2 >= 1700:
-            # Agreed test behaviour: around 1800 ppm the indoor-air benefit can
-            # outweigh a ~9 K and ~1 g/m³ outdoor disadvantage. The reason still
-            # mentions that trade-off instead of pretending outside is ideal.
-            if temp_drawback >= 15.0 or (humidity_drawback_strong and hi >= 65):
-                mode = "co2_abwaegung"
-                caution_kind = "temperature" if temp_drawback >= 15.0 else "humidity"
-            elif temp_drawback >= 3.0 or humidity_drawback:
-                mode = "co2_lueften_mit_nachteil"
-                caution_kind = "temperature" if temp_drawback >= 3.0 else "humidity"
+    elif active_needs:
+        # Evaluate every active indoor reason independently. Merge by semantic
+        # action, not by color alone: a yellow trade-off is opening-friendly,
+        # while a yellow neutral state is not. A neutral secondary reason must
+        # therefore never relax an existing keep-closed reason.
+        candidates: list[tuple[str, int, str, str | None]] = []
+        for candidate_need, candidate_urgency in active_needs:
+            if candidate_need.startswith("co2_"):
+                candidate_mode, candidate_caution = _co2_mode_for_need(
+                    need=candidate_need,
+                    data=data,
+                    co2=co2,
+                    hi=hi,
+                    diff=diff,
+                    mold_persistent=mold_persistent,
+                    air_penalty=air_penalty,
+                    temp_drawback=temp_drawback,
+                    humidity_drawback=humidity_drawback,
+                    humidity_drawback_strong=humidity_drawback_strong,
+                    outdoor_co2_limited=outdoor_co2_limited,
+                )
+                if co2_candidate_need is None:
+                    co2_candidate_need = candidate_need
+                    co2_candidate_mode = candidate_mode
+                    co2_candidate_caution = candidate_caution
             else:
-                mode = "co2_lueften"
-        elif hi >= 65 and humidity_drawback_strong:
-            mode = "co2_warten"
-        elif (hi >= 60 and humidity_drawback) or temp_drawback >= 5.0:
-            mode = "co2_abwaegung"
-            caution_kind = "humidity" if hi >= 60 and humidity_drawback else "temperature"
-        else:
-            mode = "co2_lueften"
-
-    elif need == "co2_elevated":
-        if air_penalty >= 2 or data.nina_status == "caution" or data.weather_caution:
-            mode = "co2_warten" if air_penalty >= 2 else "co2_abwaegung"
-            caution_kind = caution_kind or "conditions"
-        elif outdoor_co2_limited:
-            mode = "co2_warten"
-            caution_kind = "outdoor_co2"
-        elif mold_persistent and humidity_drawback:
-            mode = "co2_warten"
-        elif temp_drawback >= 6.0 and humidity_drawback:
-            # Agreed case: ~1250 ppm does not justify importing markedly hotter
-            # and wetter air when the room is otherwise comfortable.
-            mode = "co2_warten"
-            caution_kind = "combined"
-        elif hi >= 60 and diff <= -1.0:
-            mode = "co2_warten"
-            caution_kind = "humidity"
-        elif humidity_drawback or temp_drawback >= 3.0:
-            mode = "co2_abwaegung"
-            caution_kind = "humidity" if humidity_drawback else "temperature"
-        else:
-            mode = "co2_lueften"
-
-    elif need in {"mold_persistent", "mold"}:
-        if diff > AH_NEUTRAL:
-            mode = (
-                "schimmel_langzeit_lueften"
-                if need == "mold_persistent"
-                else "schimmel_lueften"
+                candidate_mode, candidate_caution = _non_co2_mode_for_need(
+                    need=candidate_need,
+                    data=data,
+                    hi=hi,
+                    ti=ti,
+                    ta=ta,
+                    target=target,
+                    diff=diff,
+                    previous_mode=previous_mode,
+                )
+            candidates.append(
+                (candidate_need, candidate_urgency, candidate_mode, candidate_caution)
             )
-            if caution_kind is not None:
-                mode = "komfort_abwaegung"
-        elif diff < -AH_NEUTRAL:
-            mode = "schimmel_warten"
-        else:
-            mode = "schimmel_neutral"
 
-    elif need in {"humidity_urgent", "humidity"}:
-        humidity_continuation = (
-            previous_mode in {"feuchte_lueften", "weiter_lueften"}
-            and hi >= 58
-            and diff >= AH_CONTINUE
+        # Outdoor conditions are global, not something that should suddenly
+        # appear only because a secondary indoor need (such as the 24 h routine)
+        # becomes active. Add the strongest outside-only disadvantage once with
+        # zero indoor urgency; semantic protection below decides how strongly it
+        # competes with the actual indoor reasons.
+        baseline_mode, baseline_caution = _outside_baseline_mode(
+            data=data,
+            ti=ti,
+            hi=hi,
+            ta=ta,
+            target=target,
+            diff=diff,
+            previous_mode=previous_mode,
         )
-        if diff > AH_NEUTRAL or humidity_continuation:
-            mode = "feuchte_lueften"
-            if caution_kind is not None:
-                mode = "komfort_abwaegung"
-        elif diff < -AH_NEUTRAL:
-            mode = "feuchte_warten"
-        else:
-            mode = "feuchte_neutral"
-
-    elif need in {"heat", "humid_heat", "temperature"}:
-        temperature_help = _temperature_moves_toward_target(ti, ta, target) or (
-            need == "heat" and ta <= ti - 1
-        )
-        if not temperature_help:
-            mode = "normal"
-        elif caution_kind is not None:
-            # Comfort-only gains do not justify knowingly importing moderate
-            # air pollution or opening into an active warning situation.
-            mode = (
-                "luftqualitaet_maessig"
-                if caution_kind == "air_quality"
-                else ("nina_vorsicht" if caution_kind == "air_warning" else "wetter_vorsicht")
+        global_outdoor_modes = {
+            "nina_vorsicht",
+            "wetter_vorsicht",
+            "luftqualitaet_maessig",
+            "luftqualitaet_schlecht",
+            "luftqualitaet_sehr_schlecht_typisch",
+            "luftqualitaet_sehr_schlecht",
+            "aussen_co2_hoeher",
+        }
+        if baseline_mode in global_outdoor_modes:
+            baseline_urgency = (
+                2 if baseline_mode == "luftqualitaet_sehr_schlecht" else 1
             )
-        elif diff < -1.0 and hi >= 55:
-            mode = "komfort_abwaegung"
-            caution_kind = "humidity"
-        elif ta < ti:
-            mode = "kuehlen"
-        else:
-            mode = "erwaermen"
+            candidates.append(
+                ("outside", baseline_urgency, baseline_mode, baseline_caution)
+            )
 
-    elif need == "routine":
-        routine_bad = (
-            caution_kind is not None
-            or diff < -AH_NEUTRAL
-            or hi < 40 and diff > AH_NEUTRAL
-            or _temperature_moves_away(ti, ta, target)
+        beneficial = [item for item in candidates if _action_semantic(item[2]) == "beneficial"]
+        tradeoffs = [item for item in candidates if _action_semantic(item[2]) == "tradeoff"]
+        harmful = [item for item in candidates if _action_semantic(item[2]) == "harmful"]
+        strong_harmful = [
+            item for item in candidates if _action_semantic(item[2]) == "strong_harmful"
+        ]
+        neutral = [item for item in candidates if _action_semantic(item[2]) == "neutral"]
+
+        # Resolve *all* candidates through the same two-sided merge. The best
+        # opening signal is chosen from beneficial + genuine trade-offs, while
+        # the best closing signal is chosen from ordinary + strong measured
+        # disadvantages. Merely adding a third category can therefore never
+        # switch the engine to a different selection algorithm.
+        opening_candidates = beneficial + tradeoffs
+        closing_candidates = harmful + strong_harmful
+
+        opening_conflict = (
+            max(
+                opening_candidates,
+                key=lambda item: (
+                    item[1],
+                    # CO2 monotonicity and independent-benefit stability: at
+                    # equal urgency an already useful green reason must not be
+                    # weakened merely because a peer need enters a yellow band.
+                    1 if _action_semantic(item[2]) == "beneficial" else 0,
+                    _need_protection_level(item[0]),
+                ),
+            )
+            if opening_candidates
+            else None
         )
-        mode = "routine_warten" if routine_bad else "routine_lueften"
+
+        opening = opening_conflict
+        if (
+            opening_conflict is not None
+            and opening_conflict[0].startswith("co2_")
+            and _action_semantic(opening_conflict[2]) == "tradeoff"
+            and beneficial
+        ):
+            # An independent green indoor reason proves that opening remains
+            # useful even when the current CO2 band itself carries a drawback.
+            # Keep CO2 as the decision/session driver, but preserve the existing
+            # monotonic behaviour as a green "with disadvantage" result.
+            opening = (
+                opening_conflict[0],
+                opening_conflict[1],
+                "co2_lueften_mit_nachteil",
+                opening_conflict[3] or "combined",
+            )
+
+        # Two closing representatives are useful for different purposes:
+        # ``closing_conflict`` supplies the urgency/protection that competes with
+        # opening, while ``closing_display`` preserves the strongest visible
+        # protection class (red strong_harmful > orange harmful). Thus a severe
+        # measured AQ warning cannot be relabelled orange merely because another
+        # indoor reason has higher urgency.
+        def _closing_effective_urgency(
+            item: tuple[str, int, str, str | None],
+        ) -> int:
+            # When CO2 says "wait" solely because measured outdoor CO2 is
+            # higher, the *closing* disadvantage is the outside delta, not the
+            # indoor CO2 band that happened to activate the need. Do not let the
+            # 1000/1400 ppm indoor thresholds artificially strengthen the same
+            # unchanged outdoor disadvantage. This keeps CO2 monotonic while the
+            # normal conflict resolver can still compare a real opening trade-off
+            # against that disadvantage.
+            if (
+                item[0].startswith("co2_")
+                and item[2] == "co2_warten"
+                and item[3] == "outdoor_co2"
+            ):
+                return 1
+
+            # Unusually very poor measured outdoor air is not a hard lock, but
+            # it is stronger than a weak comfort/routine reason. Give such a red
+            # measured disadvantage a floor of urgency 2. Critical indoor needs
+            # (urgency 3) can still outweigh it into a genuine trade-off.
+            strong_floor = (
+                2
+                if item[2] == "luftqualitaet_sehr_schlecht"
+                else 1
+                if _action_semantic(item[2]) == "strong_harmful"
+                else 0
+            )
+            return max(item[1], strong_floor)
+
+        closing_conflict = (
+            max(
+                closing_candidates,
+                key=lambda item: (
+                    _closing_effective_urgency(item),
+                    _need_protection_level(item[0]),
+                    1 if _action_semantic(item[2]) == "strong_harmful" else 0,
+                ),
+            )
+            if closing_candidates
+            else None
+        )
+        closing_display = (
+            max(
+                closing_candidates,
+                key=lambda item: (
+                    1 if _action_semantic(item[2]) == "strong_harmful" else 0,
+                    item[1],
+                    _need_protection_level(item[0]),
+                ),
+            )
+            if closing_candidates
+            else None
+        )
+
+        def _select_closing() -> tuple[str, int, str, str | None]:
+            assert closing_conflict is not None and closing_display is not None
+            conflict_need, conflict_urgency, _conflict_mode, _conflict_caution = closing_conflict
+            _display_need, _display_urgency, display_mode, display_caution = closing_display
+            # Keep the strongest *decision* reason in memory, while showing the
+            # strongest actual protection class to the user.
+            return (conflict_need, conflict_urgency, display_mode, display_caution)
+
+        if opening is not None and opening_conflict is not None and closing_conflict is not None:
+            opening_semantic = _action_semantic(opening_conflict[2])
+            closing_semantic = _action_semantic(closing_display[2]) if closing_display else "harmful"
+
+            if closing_conflict[0].startswith("co2_") and (
+                opening_semantic == "beneficial"
+                or (
+                    opening_semantic == "tradeoff"
+                    and _closing_effective_urgency(closing_conflict)
+                    <= opening_conflict[1]
+                )
+            ):
+                # CO2 monotonicity: crossing into a higher CO2 band must not
+                # erase an already independent useful reason to air merely
+                # because the CO2 branch itself dislikes an outdoor drawback.
+                # A yellow opening trade-off only receives that protection at
+                # equal/lower CO2 closing urgency. A more urgent CO2 wait-state
+                # still competes through the normal priority rules.
+                selected = opening
+            elif _closing_effective_urgency(closing_conflict) > opening_conflict[1]:
+                selected = _select_closing()
+            elif _closing_effective_urgency(closing_conflict) < opening_conflict[1]:
+                selected = opening
+            else:
+                opening_protection = _need_protection_level(opening_conflict[0])
+                closing_protection = _need_protection_level(closing_conflict[0])
+                if closing_semantic == "strong_harmful":
+                    # At equal effective urgency, unusually very poor measured
+                    # air remains the stronger protection message. Only urgency
+                    # 3 indoor needs can outrank it before reaching this tie.
+                    selected = _select_closing()
+                elif closing_protection > opening_protection:
+                    selected = _select_closing()
+                elif opening_protection > closing_protection:
+                    selected = opening
+                elif (
+                    opening_conflict[0].startswith("co2_")
+                    and opening_semantic == "beneficial"
+                ):
+                    # Once CO2 itself becomes clearly worth airing at the same
+                    # urgency as an ordinary humidity/comfort drawback, raising
+                    # CO2 must not make the overall recommendation weaker.
+                    selected = opening
+                elif opening_semantic == "tradeoff":
+                    # Equal urgency/protection with an already cautious opening
+                    # signal remains a genuine trade-off.
+                    selected = opening
+                else:
+                    # Equal green-vs-closing urgency is a genuine conflict. A
+                    # red measured disadvantage is still not a hard safety lock;
+                    # represent the tie as an explicit yellow trade-off.
+                    o_need, o_urgency, _o_mode, _o_caution = opening_conflict
+                    selected = (
+                        o_need,
+                        o_urgency,
+                        "co2_abwaegung" if o_need.startswith("co2_") else "komfort_abwaegung",
+                        "air_quality" if closing_semantic == "strong_harmful" else "combined",
+                    )
+        elif opening is not None:
+            selected = opening
+        elif closing_conflict is not None:
+            selected = _select_closing()
+        else:
+            # Outside-only disadvantages participate when active reasons are
+            # neutral. This prevents feuchte_neutral/schimmel_neutral from
+            # overwriting an independently meaningful keep-closed condition.
+            baseline_mode, baseline_caution = _outside_baseline_mode(
+                data=data,
+                ti=ti,
+                hi=hi,
+                ta=ta,
+                target=target,
+                diff=diff,
+                previous_mode=previous_mode,
+            )
+            if neutral and baseline_mode in {
+                "nina_vorsicht",
+                "wetter_vorsicht",
+                "luftqualitaet_maessig",
+                "luftqualitaet_schlecht",
+                "luftqualitaet_sehr_schlecht_typisch",
+                "luftqualitaet_sehr_schlecht",
+                "aussen_stark_unpassend",
+                "aussen_co2_hoeher",
+            }:
+                selected = ("outside", 0, baseline_mode, baseline_caution)
+            elif neutral:
+                selected = neutral[0]
+            else:
+                selected = ("none", 0, "normal", None)
+
+        decision_need, decision_urgency, mode, caution_kind = selected
+
+        # The 24-hour routine remains a fallback and therefore never re-enters
+        # the normal multi-need candidate set. Its already-established positive
+        # airing value must nevertheless not disappear exactly when the first,
+        # low CO2 band becomes active. If routine airing would be green under the
+        # same outside conditions and elevated CO2 only says "trade-off" because
+        # outdoor CO2 offers limited reduction, preserve the recommendation as a
+        # green CO2 airing with an explicit disadvantage. Higher CO2 bands and
+        # real outside warnings are unaffected.
+        if (
+            hours >= 24.0
+            and decision_need == "co2_elevated"
+            and mode == "co2_abwaegung"
+            and caution_kind == "outdoor_co2"
+        ):
+            routine_mode, _routine_caution = _non_co2_mode_for_need(
+                need="routine",
+                data=data,
+                hi=hi,
+                ti=ti,
+                ta=ta,
+                target=target,
+                diff=diff,
+                previous_mode=previous_mode,
+            )
+            if _action_semantic(routine_mode) == "beneficial":
+                mode = "co2_lueften_mit_nachteil"
+
+        # When CO₂ is the strongest indoor signal and its own judgement is a
+        # genuine yellow trade-off, an independently green reason proves that
+        # opening is still clearly useful overall. Keep CO₂ as the session
+        # driver without hiding its drawback. A true orange wait-state is never
+        # promoted.
+        if (
+            need.startswith("co2_")
+            and decision_need != need
+            and _color(mode) == "green"
+            and co2_candidate_mode is not None
+            and _action_semantic(co2_candidate_mode) == "tradeoff"
+        ):
+            decision_need = need
+            decision_urgency = urgency
+            mode = "co2_lueften_mit_nachteil"
+            caution_kind = co2_candidate_caution or "combined"
 
     else:
-        # No ventilation need: yellow is genuinely neutral, orange means a
-        # meaningful downside, and red is reserved for a clearly strong
-        # combination. UBA-LQI stays absolute; local history only distinguishes
-        # ordinary local pollution from an unusually bad episode.
-        if data.air_quality == "very_poor":
-            mode = (
-                "luftqualitaet_sehr_schlecht_typisch"
-                if air_penalty == 2
-                else "luftqualitaet_sehr_schlecht"
-            )
-        elif data.air_quality == "poor":
-            mode = "luftqualitaet_schlecht"
-        elif data.air_quality == "moderate":
-            mode = "luftqualitaet_maessig"
-        elif data.nina_status == "caution":
-            mode = "nina_vorsicht"
-        elif data.weather_caution:
-            mode = "wetter_vorsicht"
-        elif _strong_no_need_disadvantage(ti=ti, hi=hi, ta=ta, target=target, diff=diff):
-            mode = "aussen_stark_unpassend"
-        elif (hi < 40 and diff > AH_NEUTRAL) or (
-            previous_mode == "innen_zu_trocken"
-            and hi < 42
-            and diff >= AH_CONTINUE
-        ):
-            mode = "innen_zu_trocken"
-        elif diff < -AH_NEUTRAL:
-            mode = "aussen_deutlich_feuchter"
-        elif _temperature_moves_away(ti, ta, target):
-            mode = "aussen_zu_warm" if ta > ti else "aussen_zu_kalt"
-        else:
-            mode = "normal"
-
-
-    # Crossing a CO₂ threshold must not weaken an independently green reason
-    # to ventilate. Example: if humidity alone already says "air now", moving
-    # from 1399 to 1400 ppm may change the strongest indoor signal to CO₂, but
-    # it must not turn the overall recommendation yellow.
-    if hard_mode is None and need.startswith("co2_") and _color(mode) != "green":
-        supporting_need, supporting_urgency = _primary_need(
-            co2=co2,
-            hi=hi,
+        mode, caution_kind = _outside_baseline_mode(
+            data=data,
             ti=ti,
-            ta=ta,
-            target=target,
-            diff=diff,
-            mold_risk=mold_risk,
-            mold_persistent=mold_persistent,
-            hours=hours,
-            previous_mode=previous_mode,
-            previous_need=previous_need,
-            window_open=data.window_open,
-            co2_pending_hold=data.co2_pending_hold,
-            co2_airing_active=data.co2_airing_active,
-            co2_rearm_threshold=data.co2_rearm_threshold,
-            consider_co2=False,
-        )
-        supporting_mode = _green_non_co2_mode(
-            need=supporting_need,
             hi=hi,
-            ti=ti,
             ta=ta,
             target=target,
             diff=diff,
             previous_mode=previous_mode,
-            caution_kind=_outdoor_soft_caution(data),
         )
-        if supporting_mode is not None:
-            # Keep CO₂ as the primary signal/session driver. The independent
-            # green need only proves that opening is useful overall despite the
-            # CO₂-specific drawback; it must not steal CO₂ hysteresis/targets.
-            urgency = max(urgency, supporting_urgency)
-            mode = "co2_lueften_mit_nachteil"
+        # No indoor need is driving the decision. Keep the decision memory at
+        # "none" so later short-term weather post-processing can still replace a
+        # mild outside inconvenience with the more relevant imminent warning.
+        decision_need = "none"
+        decision_urgency = 0
 
     # Rain is a practical window-opening disadvantage, never a proxy for
     # moisture physics. Only near-term rain that can overlap the actual airing
@@ -1004,9 +1473,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             # Keep green but use a short, explicit rain reason.
             mode = "co2_kritisch"
             caution_kind = "rain"
-        elif mode in {"co2_lueften", "feuchte_lueften", "schimmel_lueften", "schimmel_langzeit_lueften", "kuehlen", "erwaermen", "routine_lueften"}:
+        elif mode in {"co2_lueften", "co2_lueften_mit_nachteil", "feuchte_lueften", "schimmel_lueften", "schimmel_langzeit_lueften", "kuehlen", "erwaermen", "routine_lueften"}:
             if urgency >= 2:
-                mode = "co2_abwaegung" if need.startswith("co2") else "komfort_abwaegung"
+                mode = "co2_abwaegung" if decision_need.startswith("co2") else "komfort_abwaegung"
                 caution_kind = "rain"
             else:
                 mode = "komfort_abwaegung"
@@ -1037,11 +1506,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             elif _color(mode) == "green":
                 mode = (
                     "co2_abwaegung"
-                    if need.startswith("co2")
+                    if decision_need.startswith("co2")
                     else "komfort_abwaegung"
                 )
                 caution_kind = "weather_forecast"
-            elif need == "none" or mode in {
+            elif decision_need == "none" or mode in {
                 "normal",
                 "feuchte_neutral",
                 "schimmel_neutral",
@@ -1051,16 +1520,29 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             elif _color(mode) == "yellow" and caution_kind is None:
                 caution_kind = "weather_forecast"
 
-    co2_session_target = _co2_session_target_for_decision(
-        need=need,
-        mode=mode,
-        co2=co2,
-        temp_drawback=temp_drawback,
-        humidity_drawback=humidity_drawback,
-        humidity_drawback_strong=humidity_drawback_strong,
-        indoor_humidity=hi,
-        caution_kind=caution_kind,
-    )
+    co2_session_need: str | None = None
+    co2_session_target: float | None = None
+    if hard_mode is None and co2_candidate_need is not None and co2_candidate_mode is not None:
+        co2_session_target = _co2_session_target_for_decision(
+            need=co2_candidate_need,
+            mode=co2_candidate_mode,
+            co2=co2,
+            temp_drawback=temp_drawback,
+            humidity_drawback=humidity_drawback,
+            humidity_drawback_strong=humidity_drawback_strong,
+            indoor_humidity=hi,
+            caution_kind=co2_candidate_caution,
+        )
+        if co2_session_target is not None:
+            if outdoor_co2_limited and co2_candidate_caution == "outdoor_co2":
+                co2_session_target = None
+            elif data.outdoor_co2 is not None and co2_session_target <= data.outdoor_co2:
+                co2_session_target = min(
+                    float(co2) if co2 is not None else data.outdoor_co2 + 50.0,
+                    data.outdoor_co2 + 50.0,
+                )
+            if co2_session_target is not None:
+                co2_session_need = co2_candidate_need
 
     # CO₂-driven airing is treated as an explicit user session, not as a fresh
     # threshold decision on every sensor update. The finish target is fixed when
@@ -1132,7 +1614,21 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             # where cooling was declared finished noticeably above target.
             continue_cooling = ti > target + 0.2 and ta <= ti - 0.5
             continue_warming = ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4
-            if continue_co2 or continue_moisture or continue_cooling or continue_warming:
+            # A routine-airing recommendation is only considered fulfilled
+            # after a real minimum exchange time. The airing tracker confirms
+            # sessions at five minutes; mirror that threshold here so the UI
+            # cannot say "done" seconds after the user opens the window.
+            continue_routine = (
+                decision_need == "routine"
+                and (data.open_minutes is None or data.open_minutes < 5.0)
+            )
+            if (
+                continue_co2
+                or continue_moisture
+                or continue_cooling
+                or continue_warming
+                or continue_routine
+            ):
                 mode = "weiter_lueften"
             else:
                 mode = "lueftung_fertig"
@@ -1216,7 +1712,15 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 or (mold_risk and diff > AH_NEUTRAL)
             ),
             "continue_cooling": ti > target + 0.2 and ta <= ti - 0.5,
-            "continue_warming": ti < target - 0.2 and ta >= ti + 0.5,
+            "continue_warming": (
+                ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0
+            ),
+            "continue_routine": (
+                decision_need == "routine"
+                and (data.open_minutes is None or data.open_minutes < 5.0)
+            ),
+            "open_minutes": data.open_minutes,
+            "routine_min_minutes": 5.0,
             "co2": co2,
             "co2_target": data.co2_finish_target,
             "diff": diff,
@@ -1310,7 +1814,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "komfort_abwaegung":
         reason_key = "comfort_tradeoff"
         reason_args = {
-            "need": need,
+            "need": decision_need,
             "caution": caution_kind or "conditions",
             "humidity": hi,
             "diff": diff,
@@ -1339,6 +1843,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key, reason_args = "outside_too_cold", {"ti": ti, "ta": ta, "target": target}
     elif mode == "aussen_deutlich_feuchter":
         reason_key, reason_args = "outside_more_humid", {"amount": abs(diff)}
+    elif mode == "aussen_co2_hoeher":
+        reason_key, reason_args = "outdoor_co2_worse", {
+            "co2": co2,
+            "outdoor_co2": data.outdoor_co2,
+        }
     elif mode == "aussen_stark_unpassend":
         reason_key, reason_args = "outside_strongly_unhelpful", {
             "ti": ti, "ta": ta, "target": target, "diff": diff, "humidity": hi
@@ -1394,11 +1903,13 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         absolute_humidity_difference=round(diff, 2),
         co2_status=co2_status(co2),
         co2_session_target=co2_session_target,
+        co2_session_need=co2_session_need,
         room_status_color=room_color,
         room_recommendation_key=room_recommendation_key,
         room_reason_key="room_perspective",
         room_reason_args=room_reason_args,
         primary_need=need,
+        decision_need=decision_need,
         safety_lock=hard_mode is not None,
         surface_relative_humidity=(round(surface_rh, 1) if surface_rh is not None else None),
         mold_risk=mold_risk,

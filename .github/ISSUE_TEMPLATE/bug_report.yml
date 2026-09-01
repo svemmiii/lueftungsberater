@@ -1,0 +1,40 @@
+name: Fehler melden
+description: Einen Fehler im Lüftungsberater melden
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke fürs Testen der Alpha. Bitte gib möglichst genaue Informationen an.
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home-Assistant-Version
+      placeholder: "z. B. 2026.7.4"
+    validations:
+      required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Lüftungsberater-Version
+      placeholder: "z. B. 0.6.1"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Was ist passiert?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Was hättest du erwartet?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevante Logs / Zustände
+      render: text

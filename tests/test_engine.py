@@ -996,3 +996,605 @@ def test_hard_warning_still_wins_over_independent_green_need():
     )
     assert result.safety_lock is True
     assert result.mode == "nina_aussenluftgefahr"
+
+
+def test_regression_more_humidity_does_not_hide_1800ppm_co2():
+    common = dict(
+        indoor_temp=21,
+        outdoor_temp=21,
+        outdoor_humidity=90,
+        target_temp=21,
+        co2=1800,
+    )
+    below = evaluate_room(base(**common, indoor_humidity=64.9))
+    at = evaluate_room(base(**common, indoor_humidity=65.0))
+    assert below.color == "yellow"
+    assert at.color == "yellow"
+    assert below.mode == at.mode == "co2_abwaegung"
+    # At 65 % RH the strongest indoor signal may legitimately become humidity;
+    # the important invariant is that the still-active CO₂ need remains in the
+    # combined decision/session instead of disappearing.
+    assert below.co2_session_need == at.co2_session_need == "co2_high"
+
+
+def test_regression_humidity_threshold_does_not_hide_independent_cooling():
+    common = dict(
+        indoor_temp=28,
+        target_temp=21,
+        outdoor_temp=20,
+        outdoor_humidity=50,
+    )
+    below = evaluate_room(base(**common, indoor_humidity=59.9))
+    at = evaluate_room(base(**common, indoor_humidity=60.0))
+    assert below.color == "green"
+    assert at.color == "green"
+
+
+def test_regression_1399_to_1400_with_rain_never_weakens_recommendation():
+    common = dict(
+        indoor_temp=16,
+        target_temp=21,
+        outdoor_temp=18,
+        indoor_humidity=40,
+        outdoor_humidity=50,
+        rain_now=True,
+    )
+    before = evaluate_room(base(**common, co2=1399))
+    after = evaluate_room(base(**common, co2=1400))
+    rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    assert rank[after.color] >= rank[before.color]
+    assert before.color == after.color == "yellow"
+
+
+def test_critical_co2_with_moderate_air_quality_keeps_green_session_target():
+    result = evaluate_room(base(co2=2000.1, air_quality="moderate"))
+    assert result.mode == "co2_kritisch"
+    assert result.color == "green"
+    assert result.co2_session_target == 850
+
+
+def test_outdoor_co2_is_general_tradeoff_for_cooling_too():
+    result = evaluate_room(
+        base(
+            indoor_temp=27,
+            target_temp=21,
+            outdoor_temp=20,
+            co2=800,
+            outdoor_co2=1500,
+        )
+    )
+    assert result.primary_need == "temperature"
+    assert result.mode == "komfort_abwaegung"
+    assert result.color == "yellow"
+    assert result.reason_args["caution"] == "outdoor_co2"
+
+
+def test_invariant_increasing_co2_never_weakens_recommendation():
+    """More indoor CO2 must not weaken the action with outside fixed."""
+    from itertools import product
+
+    rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    levels = [700, 999, 1000, 1100, 1399, 1400, 1500, 1699, 1700, 2000, 2000.1, 2400]
+    scenarios = product(
+        [16.0, 22.0, 28.0, 31.0],
+        [38.0, 59.9, 60.0, 65.0, 72.0],
+        [-5.0, 18.0, 24.0, 32.0],
+        [30.0, 55.0, 85.0],
+        [None, 900.0, 1200.0, 1550.0],
+        [False, True],
+        ["good", "moderate", "poor"],
+    )
+    for ti, hi, ta, ho, outdoor_co2, rain_now, air_quality in scenarios:
+        previous_rank = None
+        previous = None
+        for co2 in levels:
+            result = evaluate_room(
+                base(
+                    indoor_temp=ti,
+                    indoor_humidity=hi,
+                    outdoor_temp=ta,
+                    outdoor_humidity=ho,
+                    target_temp=21.0,
+                    co2=co2,
+                    outdoor_co2=outdoor_co2,
+                    rain_now=rain_now,
+                    air_quality=air_quality,
+                )
+            )
+            current_rank = rank[result.color]
+            if previous_rank is not None:
+                assert current_rank >= previous_rank, (
+                    f"CO2 increase weakened recommendation: {previous} -> "
+                    f"{(co2, result.color, result.mode)}; "
+                    f"scenario={(ti, hi, ta, ho, outdoor_co2, rain_now, air_quality)}"
+                )
+            previous_rank = current_rank
+            previous = (co2, result.color, result.mode)
+
+
+def test_worse_outdoor_co2_is_visible_even_without_current_airing_need():
+    result = evaluate_room(base(co2=900, outdoor_co2=1500))
+    assert result.mode == "aussen_co2_hoeher"
+    assert result.color == "orange"
+    assert result.reason_key == "outdoor_co2_worse"
+
+
+def test_co2_session_target_never_demands_below_measured_outdoor_co2():
+    result = evaluate_room(base(co2=2200, outdoor_co2=1900))
+    assert result.co2_session_need == "co2_critical"
+    assert result.co2_session_target == 1950
+
+
+def test_neutral_secondary_need_cannot_relax_poor_outdoor_air():
+    common = dict(
+        indoor_temp=22,
+        outdoor_temp=20,
+        outdoor_humidity=65,
+        air_quality="poor",
+    )
+    below = evaluate_room(base(**common, indoor_humidity=59.9))
+    at = evaluate_room(base(**common, indoor_humidity=60.0))
+
+    assert below.color == "orange"
+    assert at.color == "orange"
+    assert below.mode == at.mode == "luftqualitaet_schlecht"
+
+
+def test_additional_caution_never_relaxes_existing_co2_wait_state():
+    common = dict(co2=1500, outdoor_co2=1800)
+    baseline = evaluate_room(base(**common))
+    nina = evaluate_room(base(**common, nina_status="caution"))
+    weather = evaluate_room(base(**common, weather_caution=True))
+
+    assert baseline.color == "orange"
+    assert baseline.mode == "co2_warten"
+    assert nina.color == weather.color == "orange"
+    assert nina.mode == weather.mode == "co2_warten"
+
+
+def test_additional_caution_never_relaxes_strong_outside_keep_closed_state():
+    common = dict(
+        indoor_temp=21,
+        target_temp=21,
+        outdoor_temp=40,
+        indoor_humidity=50,
+        outdoor_humidity=50,
+    )
+    baseline = evaluate_room(base(**common))
+    nina = evaluate_room(base(**common, nina_status="caution"))
+    weather = evaluate_room(base(**common, weather_caution=True))
+
+    assert baseline.color == "red"
+    assert baseline.mode == "aussen_stark_unpassend"
+    assert nina.color == weather.color == "red"
+    assert nina.mode == weather.mode == "aussen_stark_unpassend"
+
+
+def test_temperature_hysteresis_uses_actual_decision_need_not_ui_primary_need():
+    first = evaluate_room(
+        base(
+            indoor_temp=22.1,
+            target_temp=21,
+            indoor_humidity=65,
+            outdoor_temp=20,
+            outdoor_humidity=74,
+        )
+    )
+    assert first.primary_need == "humidity_urgent"
+    assert first.decision_need == "temperature"
+    assert first.mode == "kuehlen"
+
+    follow_up = evaluate_room(
+        base(
+            indoor_temp=21.8,
+            target_temp=21,
+            indoor_humidity=65,
+            outdoor_temp=20,
+            outdoor_humidity=74,
+            previous_mode=first.mode,
+            previous_need=first.decision_need,
+        )
+    )
+    assert follow_up.primary_need == "humidity_urgent"
+    assert follow_up.decision_need == "temperature"
+    assert follow_up.mode == "kuehlen"
+    assert follow_up.color == "green"
+
+
+def test_routine_airing_stays_active_until_five_real_open_minutes():
+    initial = evaluate_room(
+        base(
+            indoor_temp=22,
+            outdoor_temp=22,
+            hours_since_airing=25,
+        )
+    )
+    assert initial.mode == "routine_lueften"
+    assert initial.decision_need == "routine"
+
+    just_opened = evaluate_room(
+        base(
+            indoor_temp=22,
+            outdoor_temp=22,
+            hours_since_airing=25,
+            window_open=True,
+            open_minutes=0.1,
+            previous_mode=initial.mode,
+            previous_need=initial.decision_need,
+        )
+    )
+    assert just_opened.mode == "weiter_lueften"
+    assert just_opened.reason_args["continue_routine"] is True
+
+    after_minimum = evaluate_room(
+        base(
+            indoor_temp=22,
+            outdoor_temp=22,
+            hours_since_airing=25,
+            window_open=True,
+            open_minutes=5.1,
+            previous_mode=just_opened.mode,
+            previous_need=just_opened.decision_need,
+        )
+    )
+    assert after_minimum.mode == "lueftung_fertig"
+
+
+def test_invariant_added_soft_warning_never_improves_opening_rank():
+    """NINA/weather caution may keep or reduce, but never improve, opening advice."""
+    from itertools import product
+
+    opening_rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    scenarios = product(
+        [16.0, 21.0, 28.0, 31.0],
+        [40.0, 59.9, 60.0, 65.0],
+        [-5.0, 20.0, 32.0, 40.0],
+        [35.0, 65.0, 85.0],
+        [None, 900.0, 1500.0, 2200.0],
+        [None, 900.0, 1800.0],
+        ["good", "moderate", "poor"],
+    )
+    for ti, hi, ta, ho, co2, outdoor_co2, air_quality in scenarios:
+        common = dict(
+            indoor_temp=ti,
+            indoor_humidity=hi,
+            outdoor_temp=ta,
+            outdoor_humidity=ho,
+            target_temp=21.0,
+            co2=co2,
+            outdoor_co2=outdoor_co2,
+            air_quality=air_quality,
+        )
+        baseline = evaluate_room(base(**common))
+        for warning in (
+            {"nina_status": "caution"},
+            {"weather_caution": True},
+        ):
+            warned = evaluate_room(base(**common, **warning))
+            assert opening_rank[warned.color] <= opening_rank[baseline.color], (
+                f"Warning improved opening advice: "
+                f"{(baseline.color, baseline.mode)} -> {(warned.color, warned.mode)}; "
+                f"scenario={common}, warning={warning}"
+            )
+
+
+def test_invariant_worse_air_quality_never_improves_opening_rank():
+    """A worse UBA air-quality class must never make opening more attractive."""
+    from itertools import product
+
+    opening_rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    scenarios = product(
+        [16.0, 22.0, 28.0, 31.0],
+        [40.0, 60.0, 65.0],
+        [-5.0, 20.0, 32.0],
+        [35.0, 65.0, 85.0],
+        [None, 1100.0, 1500.0, 2200.0],
+        [None, 900.0, 1800.0],
+    )
+    levels = ["good", "moderate", "poor", "very_poor"]
+    for ti, hi, ta, ho, co2, outdoor_co2 in scenarios:
+        previous_rank = None
+        previous = None
+        for air_quality in levels:
+            result = evaluate_room(
+                base(
+                    indoor_temp=ti,
+                    indoor_humidity=hi,
+                    outdoor_temp=ta,
+                    outdoor_humidity=ho,
+                    target_temp=21.0,
+                    co2=co2,
+                    outdoor_co2=outdoor_co2,
+                    air_quality=air_quality,
+                )
+            )
+            current_rank = opening_rank[result.color]
+            if previous_rank is not None:
+                assert current_rank <= previous_rank, (
+                    f"Worse air quality improved opening advice: "
+                    f"{previous} -> {(air_quality, result.color, result.mode)}; "
+                    f"scenario={(ti, hi, ta, ho, co2, outdoor_co2)}"
+                )
+            previous_rank = current_rank
+            previous = (air_quality, result.color, result.mode)
+
+
+def test_very_poor_air_quality_keeps_severity_with_temperature_need():
+    """An indoor temperature need must not relabel very-poor AQ as moderate."""
+    result = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=22.0,
+            outdoor_temp=20.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=50.0,
+            air_quality="very_poor",
+            air_quality_typical=False,
+            air_quality_unusual=True,
+            air_quality_trend="rising",
+        )
+    )
+    assert result.mode == "luftqualitaet_sehr_schlecht"
+    assert result.color == "red"
+    assert result.reason_key == "air_quality_very_poor"
+
+
+def test_more_urgent_harmful_mold_reason_beats_low_priority_cooling_benefit():
+    """Persistent mold risk must not be hidden by a weaker comfort benefit."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=21.0,
+            indoor_humidity=45.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=80.0,
+            surface_temp=10.0,
+            mold_persistent=True,
+        )
+    )
+    assert result.primary_need == "mold_persistent"
+    assert result.decision_need == "mold_persistent"
+    assert result.mode == "schimmel_warten"
+    assert result.color == "orange"
+
+
+def test_warming_start_and_open_continuation_use_same_overshoot_guard():
+    """Unchanged values must never make a just-started warming session finish."""
+    # Outdoor air more than target + 4 K is intentionally not offered for a
+    # small warming need, because the running-session rule would reject it too.
+    overshoot = evaluate_room(
+        base(
+            indoor_temp=20.0,
+            target_temp=21.0,
+            outdoor_temp=30.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=50.0,
+        )
+    )
+    assert overshoot.mode != "erwaermen"
+    assert overshoot.color != "green"
+
+    initial = evaluate_room(
+        base(
+            indoor_temp=20.0,
+            target_temp=21.0,
+            outdoor_temp=24.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=50.0,
+        )
+    )
+    assert initial.mode == "erwaermen"
+    assert initial.color == "green"
+    assert initial.decision_need == "temperature"
+
+    opened = evaluate_room(
+        base(
+            indoor_temp=20.0,
+            target_temp=21.0,
+            outdoor_temp=24.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=50.0,
+            window_open=True,
+            previous_mode=initial.mode,
+            previous_need=initial.decision_need,
+        )
+    )
+    assert opened.mode == "weiter_lueften"
+    assert opened.color == "green"
+    assert opened.reason_args["continue_warming"] is True
+
+
+def test_three_way_merge_soft_warning_cannot_relax_existing_harmful_mold():
+    """A third warning/caution must not make an existing orange conflict yellower."""
+    common = dict(
+        indoor_temp=22.0,
+        target_temp=20.0,
+        indoor_humidity=40.0,
+        outdoor_temp=16.0,
+        outdoor_humidity=70.0,
+        surface_temp=5.0,
+        co2=1500.0,
+        outdoor_co2=1450.0,
+        air_quality="good",
+    )
+    baseline = evaluate_room(base(**common))
+    assert baseline.mode == "schimmel_warten"
+    assert baseline.color == "orange"
+    assert baseline.decision_need == "mold"
+
+    for warning in (
+        {"nina_status": "caution"},
+        {"weather_caution": True},
+        {"air_quality": "moderate"},
+    ):
+        warned_input = dict(common)
+        warned_input.update(warning)
+        warned = evaluate_room(base(**warned_input))
+        assert warned.mode == "schimmel_warten"
+        assert warned.color == "orange"
+        assert warned.decision_need == "mold"
+
+
+def test_blocked_air_quality_beats_harmful_co2_when_outdoor_co2_worsens():
+    """A red AQ protection state must never be downgraded by orange CO2 harm."""
+    common = dict(
+        indoor_temp=18.0,
+        target_temp=21.0,
+        outdoor_temp=20.0,
+        indoor_humidity=35.0,
+        outdoor_humidity=35.0,
+        co2=1500.0,
+        air_quality="very_poor",
+        air_quality_typical=False,
+        air_quality_unusual=True,
+        air_quality_trend="rising",
+    )
+
+    baseline = evaluate_room(base(**common, outdoor_co2=900.0))
+    worsened = evaluate_room(base(**common, outdoor_co2=1800.0))
+
+    assert baseline.mode == "luftqualitaet_sehr_schlecht"
+    assert baseline.color == "red"
+    assert worsened.mode == "luftqualitaet_sehr_schlecht"
+    assert worsened.color == "red"
+
+
+def test_critical_co2_tradeoff_is_stable_when_weak_routine_need_appears():
+    """A weak 24 h routine reason must not turn critical-CO2 tradeoff yellow -> red."""
+    common = dict(
+        indoor_temp=22.0,
+        target_temp=22.0,
+        indoor_humidity=45.0,
+        outdoor_temp=20.0,
+        outdoor_humidity=45.0,
+        co2=2500.0,
+        outdoor_co2=500.0,
+        air_quality="very_poor",
+        air_quality_typical=False,
+        air_quality_unusual=True,
+        air_quality_trend="rising",
+    )
+
+    before_routine = evaluate_room(base(**common, hours_since_airing=23.9))
+    with_routine = evaluate_room(base(**common, hours_since_airing=24.0))
+
+    assert before_routine.mode == "co2_kritisch_vorsicht"
+    assert before_routine.color == "yellow"
+    assert before_routine.decision_need == "co2_critical"
+    assert before_routine.safety_lock is False
+
+    assert with_routine.mode == "co2_kritisch_vorsicht"
+    assert with_routine.color == "yellow"
+    assert with_routine.decision_need == "co2_critical"
+    assert with_routine.safety_lock is False
+
+    # The same invariant must hold when a weak humidity need appears exactly at
+    # its threshold instead of the routine timer becoming active.
+    below_rh = evaluate_room(
+        base(**{**common, "indoor_humidity": 59.9}, hours_since_airing=23.9)
+    )
+    at_rh = evaluate_room(
+        base(**{**common, "indoor_humidity": 60.0}, hours_since_airing=23.9)
+    )
+    assert below_rh.color == at_rh.color == "yellow"
+    assert below_rh.mode == at_rh.mode == "co2_kritisch_vorsicht"
+
+
+def test_opening_candidates_use_same_urgency_merge_with_or_without_harmful_candidate():
+    """Adding weak routine harm must not change how beneficial/tradeoff are ranked."""
+    common = dict(
+        indoor_temp=21.9,
+        target_temp=21.0,
+        indoor_humidity=66.0,
+        outdoor_temp=19.0,
+        outdoor_humidity=70.0,
+        co2=1200.0,
+        air_quality="moderate",
+    )
+
+    before_routine = evaluate_room(base(**common, hours_since_airing=23.9))
+    with_routine = evaluate_room(base(**common, hours_since_airing=24.0))
+
+    # The routine remains a fallback, so the 24 h transition must not change
+    # whichever concrete sensor reasons are already active.
+    assert before_routine.primary_need == "humidity_urgent"
+    assert before_routine.decision_need == "humidity_urgent"
+    assert before_routine.mode == "feuchte_lueften"
+    assert before_routine.color == "green"
+
+    assert with_routine.primary_need == "humidity_urgent"
+    assert with_routine.decision_need == "humidity_urgent"
+    assert with_routine.mode == "feuchte_lueften"
+    assert with_routine.color == "green"
+
+
+def test_24h_routine_to_1000ppm_never_weakens_green_airing():
+    """The first CO2 band must not erase an already-due useful routine airing."""
+    common = dict(
+        indoor_temp=21.0,
+        target_temp=22.0,
+        indoor_humidity=50.0,
+        outdoor_temp=21.0,
+        outdoor_humidity=50.0,
+        outdoor_co2=950.0,
+        hours_since_airing=24.0,
+    )
+
+    before = evaluate_room(base(**common, co2=999.0))
+    after = evaluate_room(base(**common, co2=1000.0))
+
+    assert before.mode == "routine_lueften"
+    assert before.color == "green"
+    assert after.color == "green"
+    assert after.mode == "co2_lueften_mit_nachteil"
+    assert after.primary_need == "co2_elevated"
+    assert after.decision_need == "co2_elevated"
+
+
+def test_humidity_threshold_with_drying_air_and_moderate_aq_never_weakens_green_co2():
+    """Useful humidity airing must not make 59.9 -> 60.0 % RH green -> yellow."""
+    common = dict(
+        indoor_temp=22.0,
+        target_temp=22.0,
+        outdoor_temp=20.0,
+        outdoor_humidity=50.0,
+        co2=1100.0,
+        outdoor_co2=900.0,
+        air_quality="moderate",
+    )
+
+    below = evaluate_room(base(**common, indoor_humidity=59.9))
+    at = evaluate_room(base(**common, indoor_humidity=60.0))
+
+    assert below.mode == "co2_lueften"
+    assert below.color == "green"
+    assert at.absolute_humidity_difference > 0.5
+    assert at.color == "green"
+    assert at.mode == "feuchte_lueften"
+    assert at.primary_need == "humidity"
+    assert at.decision_need == "humidity"
+
+
+def test_co2_closing_exception_does_not_let_weaker_tradeoff_skip_priority_merge():
+    """Outdoor-CO2 harm must not inherit indoor-band urgency and bypass the merge."""
+    common = dict(
+        indoor_humidity=50.0,
+        target_temp=22.0,
+        outdoor_temp=20.0,
+        outdoor_humidity=50.0,
+        co2=1500.0,
+        outdoor_co2=1700.0,
+    )
+
+    before = evaluate_room(base(**common, indoor_temp=22.9))
+    at_temp_need = evaluate_room(base(**common, indoor_temp=23.0))
+
+    assert before.mode == "co2_warten"
+    assert before.color == "orange"
+    assert at_temp_need.primary_need == "co2_high"
+    # The new temperature reason is a genuine yellow trade-off. The unchanged
+    # outdoor-CO2 disadvantage no longer becomes artificially "more urgent"
+    # merely because indoor CO2 is in the high band.
+    assert at_temp_need.decision_need == "temperature"
+    assert at_temp_need.mode == "komfort_abwaegung"
+    assert at_temp_need.color == "yellow"

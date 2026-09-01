@@ -360,3 +360,19 @@ def test_final_hour_may_become_more_cautious():
     )
     assert chosen.status == "conditional"
     assert remembered is not None and remembered.status == "conditional"
+
+
+def test_worse_outdoor_co2_makes_long_night_opening_conditional():
+    result = evaluate_night_ventilation(
+        now=NOW,
+        indoor_temp=25,
+        indoor_humidity=50,
+        target_temp=22,
+        outdoor_temp=21,
+        outdoor_humidity=50,
+        indoor_co2=800,
+        outdoor_co2=1200,
+        hourly_forecast=forecast(temps=[20, 19, 18, 18, 19, 20]),
+    )
+    assert result.status == "conditional"
+    assert result.reason_args["outdoor_co2_disadvantage"] is True

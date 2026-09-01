@@ -9,12 +9,20 @@ import re
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import (
+    UnitOfPrecipitationDepth,
+    UnitOfSpeed,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from homeassistant.util.unit_conversion import TemperatureConverter
+from homeassistant.util.unit_conversion import (
+    DistanceConverter,
+    SpeedConverter,
+    TemperatureConverter,
+)
 
 from .const import (
     CONF_MANUAL_OUTDOOR,
@@ -304,18 +312,44 @@ def _provider_domain_for_entity(
     return config_entry.domain if config_entry else None
 
 
-def _wind_to_kmh(value: Any, unit: str | None) -> float:
-    number = _float(value) or 0.0
-    unit = (unit or "km/h").lower()
+def _wind_to_kmh(value: Any, unit: str | None) -> float | None:
+    """Normalize a Home Assistant wind value to km/h.
 
-    if unit in {"m/s", "mps"}:
-        return number * 3.6
-    if unit in {"mph", "mi/h"}:
-        return number * 1.60934
-    if unit in {"kn", "kt", "knot", "knots"}:
-        return number * 1.852
+    Weather entities expose converted values plus their explicit unit.  Use
+    Home Assistant's own converter so Beaufort and ft/s stay correct and a
+    provider with broken/unknown unit metadata can never be interpreted as
+    km/h by accident.
+    """
+    number = _float(value)
+    if number is None or unit is None:
+        return None
+    try:
+        return float(
+            SpeedConverter.convert(
+                number,
+                unit,
+                UnitOfSpeed.KILOMETERS_PER_HOUR,
+            )
+        )
+    except (HomeAssistantError, TypeError, ValueError):
+        return None
 
-    return number
+
+def _precipitation_to_mm(value: Any, unit: str | None) -> float | None:
+    """Normalize accumulated forecast precipitation to millimetres."""
+    number = _float(value)
+    if number is None or unit is None:
+        return None
+    try:
+        return float(
+            DistanceConverter.convert(
+                number,
+                unit,
+                UnitOfPrecipitationDepth.MILLIMETERS,
+            )
+        )
+    except (HomeAssistantError, TypeError, ValueError):
+        return None
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -496,6 +530,7 @@ def _normalize_hourly_forecast(
     state = hass.states.get(weather_entity_id)
     temperature_unit = state.attributes.get("temperature_unit") if state else None
     wind_unit = state.attributes.get("wind_speed_unit") if state else None
+    precipitation_unit = state.attributes.get("precipitation_unit") if state else None
     normalized: list[dict[str, Any]] = []
     for raw in items[:36]:
         if not isinstance(raw, dict):
@@ -508,19 +543,28 @@ def _normalize_hourly_forecast(
             "datetime": dt_util.as_local(stamp),
             "temperature": temp,
         }
-        for key in ("humidity", "precipitation_probability", "precipitation"):
+        for key in ("humidity", "precipitation_probability"):
             value = _float(raw.get(key))
             if value is not None:
                 item[key] = value
+        precipitation = _precipitation_to_mm(
+            raw.get("precipitation"), precipitation_unit
+        )
+        if precipitation is not None:
+            item["precipitation"] = precipitation
         condition = raw.get("condition")
         if isinstance(condition, str) and condition:
             item["condition"] = condition
         wind = _float(raw.get("wind_speed"))
         gust = _float(raw.get("wind_gust_speed"))
         if wind is not None:
-            item["wind_speed"] = _wind_to_kmh(wind, wind_unit)
+            normalized_wind = _wind_to_kmh(wind, wind_unit)
+            if normalized_wind is not None:
+                item["wind_speed"] = normalized_wind
         if gust is not None:
-            item["wind_gust_speed"] = _wind_to_kmh(gust, wind_unit)
+            normalized_gust = _wind_to_kmh(gust, wind_unit)
+            if normalized_gust is not None:
+                item["wind_gust_speed"] = normalized_gust
         normalized.append(item)
     return normalized
 
@@ -828,14 +872,15 @@ def weather_assessment(
     wind_unit = state.attributes.get("wind_speed_unit")
     wind = _wind_to_kmh(state.attributes.get("wind_speed"), wind_unit)
     gust = _wind_to_kmh(state.attributes.get("wind_gust_speed"), wind_unit)
-    result.wind_speed_kmh = wind if wind > 0 else None
-    result.wind_gust_kmh = gust if gust > 0 else None
+    result.wind_speed_kmh = wind if wind is not None and wind > 0 else None
+    result.wind_gust_kmh = gust if gust is not None and gust > 0 else None
+    wind_kmh = wind or 0.0
+    gust_kmh = gust or 0.0
 
     # These are ventilation/window-safety thresholds, not claims about the
-    # DWD warning colour. Bft 6 (39 km/h mean wind) starts as caution; from
-    # roughly Bft 7 / storm-force gusts an open window itself becomes a
-    # meaningful disadvantage, so the advisor may recommend keeping it shut.
-    if condition in WEATHER_DANGER_CONDITIONS or wind >= 75 or gust >= 105:
+    # DWD warning colour. Around 50 km/h mean wind (roughly Bft 7) or 65 km/h
+    # gusts an open window itself becomes a meaningful disadvantage.
+    if condition in WEATHER_DANGER_CONDITIONS or wind_kmh >= 75 or gust_kmh >= 105:
         result.weather_danger = True
         result.weather_caution = False
 
@@ -846,14 +891,14 @@ def weather_assessment(
         elif condition == "exceptional":
             result.weather_reason_key = "weather_exceptional_danger"
         else:
-            speed = gust if gust >= 105 else wind
+            speed = gust_kmh if gust_kmh >= 105 else wind_kmh
             result.weather_reason_key = "weather_wind_danger"
             result.weather_reason_args = {"speed_kmh": speed}
-    elif wind >= 50 or gust >= 65:
+    elif wind_kmh >= 50 or gust_kmh >= 65:
         # With the four-stage advisor this is a clear disadvantage (orange),
         # not automatically the same as a hard red weather hazard.
         result.weather_caution = True
-        speed = gust if gust >= 65 else wind
+        speed = gust_kmh if gust_kmh >= 65 else wind_kmh
         result.weather_reason_key = "weather_wind_caution"
         result.weather_reason_args = {"speed_kmh": speed}
 

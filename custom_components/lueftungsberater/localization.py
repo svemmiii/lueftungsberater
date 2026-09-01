@@ -233,6 +233,22 @@ def _continue_reason(args: dict[str, Any], lang: str, unit: str) -> str:
                 "tr": f"oda {ti} seviyesinden {target} hedefine doğru ısınmaya devam edebilir",
             }[lang]
         )
+    if args.get("continue_routine"):
+        open_minutes = _number(args.get("open_minutes"), lang, 1)
+        minimum = _number(args.get("routine_min_minutes"), lang, 0)
+        if args.get("open_minutes") is None:
+            text = {
+                "de": f"die Routinelüftung soll mindestens etwa {minimum} Minuten laufen",
+                "en": f"the routine airing should run for at least about {minimum} minutes",
+                "tr": f"rutin havalandırma en az yaklaşık {minimum} dakika sürmeli",
+            }[lang]
+        else:
+            text = {
+                "de": f"die Routinelüftung läuft erst seit {open_minutes} Minuten und soll mindestens etwa {minimum} Minuten dauern",
+                "en": f"the routine airing has only run for {open_minutes} minutes and should last at least about {minimum} minutes",
+                "tr": f"rutin havalandırma yalnızca {open_minutes} dakikadır sürüyor ve en az yaklaşık {minimum} dakika sürmeli",
+            }[lang]
+        parts.append(text)
 
     if not parts:
         return {
@@ -734,9 +750,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
         })[lang]
     elif caution == "outdoor_co2":
         outside = {
-            "de": " Auch draußen ist CO₂ hoch, daher wäre der Luftaustausch dafür nur begrenzt wirksam.",
-            "en": " Outdoor CO₂ is high as well, so air exchange would have only limited effect on it.",
-            "tr": " Dışarıdaki CO₂ de yüksek; bu nedenle hava değişiminin etkisi sınırlı olur.",
+            "de": " Der gemessene CO₂-Wert draußen ist im Vergleich ungünstig; der Luftaustausch bringt dafür nur begrenzt etwas.",
+            "en": " The measured outdoor CO₂ level is unfavorable by comparison, so air exchange offers only limited benefit for it.",
+            "tr": " Ölçülen dış ortam CO₂ değeri karşılaştırmada elverişsiz; bu nedenle hava değişiminin bu açıdan faydası sınırlı olur.",
         }[lang]
     elif caution == "combined":
         outside = {
@@ -859,6 +875,15 @@ def reason_text(
             "de": f"CO₂ liegt bei {ppm}. Lüften ist trotzdem sinnvoll. {detail}",
             "en": f"CO₂ is at {ppm}. Ventilation still makes sense. {detail}",
             "tr": f"CO₂ {ppm}. Buna rağmen havalandırmak mantıklı. {detail}",
+        }[lang]
+
+    if key == "outdoor_co2_worse":
+        indoor = m(a.get("co2"), "ppm", 0)
+        outdoor = m(a.get("outdoor_co2"), "ppm", 0)
+        return {
+            "de": f"Drinnen liegt CO₂ bei {indoor}, draußen bei etwa {outdoor}. Ohne anderen Lüftungsgrund würde ein Luftaustausch den CO₂-Wert derzeit eher verschlechtern.",
+            "en": f"Indoor CO₂ is {indoor} and outdoor CO₂ is about {outdoor}. Without another reason to air, exchanging air would currently tend to worsen the CO₂ level.",
+            "tr": f"İçeride CO₂ {indoor}, dışarıda ise yaklaşık {outdoor}. Başka bir havalandırma nedeni yoksa hava değişimi şu anda CO₂ seviyesini kötüleştirme eğiliminde olur.",
         }[lang]
 
     if key == "outside_strongly_unhelpful":

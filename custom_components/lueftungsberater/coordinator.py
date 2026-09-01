@@ -118,7 +118,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._unsubs: list[Callable[[], None]] = []
         self._started = False
         self._previous_mode: str | None = None
-        self._previous_need: str | None = None
+        self._previous_decision_need: str | None = None
         self._previous_mode_at: datetime | None = None
         self._co2_hysteresis = Co2HysteresisState()
         self._co2_minimum_airing = Co2MinimumAiringState()
@@ -135,12 +135,17 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
     async def _restore_memory(self) -> None:
         stored = await self._memory_store.async_load() or {}
         mode = stored.get("mode")
-        need = stored.get("primary_need")
+        need = stored.get("decision_need")
+        if not isinstance(need, str) or not need:
+            # v0.9.0 pre-release builds stored the UI-oriented primary_need
+            # here. Read it once as a migration fallback, then persist the
+            # decision-oriented value on the next save.
+            need = stored.get("primary_need")
         stamp = _parse_dt(stored.get("updated_at"))
         now_utc = dt_util.utcnow()
         if isinstance(mode, str) and mode and stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL:
             self._previous_mode = mode
-            self._previous_need = need if isinstance(need, str) and need else None
+            self._previous_decision_need = need if isinstance(need, str) and need else None
             self._previous_mode_at = stamp
 
         co2_memory = stored.get("co2_hysteresis")
@@ -238,7 +243,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
     def _memory_payload(self) -> dict[str, Any]:
         return {
             "mode": self._previous_mode,
-            "primary_need": self._previous_need,
+            "decision_need": self._previous_decision_need,
             "updated_at": self._previous_mode_at.isoformat() if self._previous_mode_at else None,
             "co2_hysteresis": self._co2_hysteresis.as_dict(),
             "co2_minimum_airing": self._co2_minimum_airing.as_dict(),
@@ -365,11 +370,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if snapshot.result is None:
             return
         mode = snapshot.result.mode
-        need = snapshot.result.primary_need
-        if mode == self._previous_mode and need == self._previous_need:
+        need = snapshot.result.decision_need
+        if mode == self._previous_mode and need == self._previous_decision_need:
             return
         self._previous_mode = mode
-        self._previous_need = need
+        self._previous_decision_need = need
         self._previous_mode_at = dt_util.utcnow()
         self._queue_memory_save()
 
@@ -400,7 +405,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             source = previous
 
         result = source.result
-        if result is None or not result.primary_need.startswith("co2_"):
+        if result is None or result.co2_session_need is None:
             return False
 
         mode = result.mode
@@ -408,8 +413,13 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         eligible = (
             mode in _CO2_MINIMUM_GREEN_START_MODES
             or mode in _CO2_MINIMUM_CAUTION_START_MODES
+            # A different indoor reason may be the visible green reason while
+            # the independently evaluated CO₂ need benefits from the same air
+            # exchange. The engine only exposes a CO₂ session target when that
+            # CO₂ candidate itself is actionable.
+            or (result.color == "green" and result.co2_session_target is not None)
             # If the window was already open when CO₂ became the new reason,
-            # the normal engine rewrites a green CO₂ mode to weiter_lueften.
+            # the normal engine rewrites a green mode to weiter_lueften.
             or (mode == "weiter_lueften" and source is snapshot)
         )
         if not eligible:
@@ -428,7 +438,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if target_ppm is None:
             target_ppm = co2_session_target(
                 co2=source.values.get("co2_ppm"),
-                primary_need=result.primary_need,
+                primary_need=result.co2_session_need,
                 mode=mode,
             )
         self._co2_hysteresis.start_airing_session(target_ppm=target_ppm)
@@ -474,9 +484,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             else self._previous_mode
         )
         previous_need = (
-            self.data.result.primary_need
+            self.data.result.decision_need
             if self.data is not None and self.data.result is not None
-            else self._previous_need
+            else self._previous_decision_need
         )
         now_utc = dt_util.utcnow()
         co2, window_open = room_co2_window_values(self.hass, self.entry, self.subentry)
@@ -726,7 +736,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         # stale decisions from being resurrected.
         if self.data is not None and self.data.result is not None:
             self._previous_mode = self.data.result.mode
-            self._previous_need = self.data.result.primary_need
+            self._previous_decision_need = self.data.result.decision_need
             self._previous_mode_at = dt_util.utcnow()
         await self._memory_store.async_save(self._memory_payload())
         await super().async_shutdown()

@@ -336,8 +336,13 @@ def evaluate_night_ventilation(
         humidity_advantage = typical_ah < indoor_ah - AH_NEUTRAL
 
     co2_difference = None
+    outdoor_co2_disadvantage = False
     if indoor_co2 is not None and outdoor_co2 is not None:
         co2_difference = indoor_co2 - outdoor_co2
+        # A long, mostly unattended opening should not be presented as an
+        # unqualified good opportunity when measured outdoor CO₂ is clearly
+        # worse than indoors.  The 100 ppm gap is only a sensor/noise guard.
+        outdoor_co2_disadvantage = outdoor_co2 >= indoor_co2 + 100.0
 
     args = {
         "indoor_temp": indoor_temp,
@@ -359,6 +364,7 @@ def evaluate_night_ventilation(
         "co2": indoor_co2,
         "outdoor_co2": outdoor_co2,
         "co2_difference": co2_difference,
+        "outdoor_co2_disadvantage": outdoor_co2_disadvantage,
     }
 
     # A true protection reason is stronger than a planning hint. Very poor LQI
@@ -381,6 +387,7 @@ def evaluate_night_ventilation(
         or nina_status == "caution"
         or max_wind_level == 1
         or air_quality in {"moderate", "poor", "very_poor"}
+        or outdoor_co2_disadvantage
     )
 
     later = not starts_now

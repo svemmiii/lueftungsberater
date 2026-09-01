@@ -18,6 +18,7 @@ class RoomInput:
     co2: float | None = None
     outdoor_co2: float | None = None
     window_open: bool = False
+    open_minutes: float | None = None
     hours_since_airing: float | None = None
     rain_now: bool = False
     rain_soon: bool = False
@@ -74,11 +75,13 @@ class VentilationResult:
     absolute_humidity_difference: float
     co2_status: str
     co2_session_target: float | None = None
+    co2_session_need: str | None = None
     room_status_color: str = "green"
     room_recommendation_key: str = "room_good"
     room_reason_key: str = "room_perspective"
     room_reason_args: dict[str, Any] = field(default_factory=dict)
     primary_need: str = "none"
+    decision_need: str = "none"
     safety_lock: bool = False
     surface_relative_humidity: float | None = None
     mold_risk: bool = False

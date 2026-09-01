@@ -837,3 +837,46 @@ def test_unknown_forecast_temperature_unit_is_ignored():
     from custom_components.lueftungsberater.providers import _forecast_temperature_to_celsius
 
     assert _forecast_temperature_to_celsius(75, "definitely-not-a-temperature-unit") is None
+
+
+def test_wind_normalizer_supports_beaufort_and_feet_per_second():
+    from homeassistant.const import UnitOfSpeed
+    from custom_components.lueftungsberater.providers import _wind_to_kmh
+
+    beaufort = _wind_to_kmh(8, UnitOfSpeed.BEAUFORT)
+    feet_per_second = _wind_to_kmh(10, UnitOfSpeed.FEET_PER_SECOND)
+    assert beaufort is not None and 60 < beaufort < 80
+    assert feet_per_second is not None and abs(feet_per_second - 10.9728) < 0.01
+
+
+def test_wind_normalizer_rejects_unknown_units_instead_of_assuming_kmh():
+    from custom_components.lueftungsberater.providers import _wind_to_kmh
+
+    assert _wind_to_kmh(50, "bananas/hour") is None
+    assert _wind_to_kmh(50, None) is None
+
+
+def test_forecast_precipitation_inches_are_normalized_to_mm():
+    from homeassistant.const import UnitOfPrecipitationDepth, UnitOfSpeed, UnitOfTemperature
+    from custom_components.lueftungsberater.providers import _normalize_hourly_forecast
+
+    stamp = datetime(2026, 9, 1, 18, 0, tzinfo=timezone.utc)
+    hass = FakeHass(
+        {
+            WEATHER: FakeState(
+                "rainy",
+                {
+                    "temperature_unit": UnitOfTemperature.CELSIUS,
+                    "wind_speed_unit": UnitOfSpeed.KILOMETERS_PER_HOUR,
+                    "precipitation_unit": UnitOfPrecipitationDepth.INCHES,
+                },
+            )
+        }
+    )
+    rows = _normalize_hourly_forecast(
+        hass,
+        WEATHER,
+        [{"datetime": stamp.isoformat(), "temperature": 20, "precipitation": 0.1}],
+    )
+    assert len(rows) == 1
+    assert abs(rows[0]["precipitation"] - 2.54) < 0.001

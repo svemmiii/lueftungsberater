@@ -1,5 +1,57 @@
 # Changelog
 
+## v0.9.0
+
+### Letzte Schwellen- und Konfliktregressionen geschlossen
+- Der **24-h-Routine-Fallback bleibt ein Fallback**, verliert seinen bereits vorhandenen positiven Lüftungsnutzen aber nicht mehr exakt beim Sprung **999 → 1000 ppm**. Wenn die Routine unter denselben Außenbedingungen sinnvoll grün wäre und der erste CO₂-Bereich nur wegen begrenztem Außen-CO₂-Nutzen eine Abwägung erzeugt, bleibt CO₂ der Entscheidungstreiber und die Empfehlung wird als grünes Lüften **mit Nachteil** fortgeführt. Die Routine wird dafür nicht wieder als normaler Peer in den Merger aufgenommen.
+- An der **59,9 → 60,0-%-Feuchtegrenze** kann ein neu aktiver Feuchtebedarf eine bereits grüne Empfehlung nicht mehr allein wegen **mäßiger** Außenluftqualität auf Gelb abschwächen, wenn die Außenluft die Feuchte tatsächlich verbessert und keine zusätzliche NINA-/Wetter-/Außen-CO₂-Warnung dagegen spricht. `poor`/`very_poor` bleiben unverändert restriktiver.
+- Ein `co2_warten` wegen **höherem gemessenem Außen-CO₂** übernimmt für den Konfliktvergleich nicht mehr künstlich die Dringlichkeit des gerade aktiven 1000-/1400-/2000-ppm-Innenbands. Der Außen-CO₂-Nachteil behält damit bei unveränderten Außenwerten dieselbe Konfliktstärke; ein zusätzlicher gelber Komfortgrund wird über die normale Prioritätslogik bewertet statt durch einen pauschalen CO₂-Sonderweg.
+- Drei neue Regressionstests sichern genau diese Übergänge ab. Die bestehenden Monotonie-/Warnungs-/Mehrfachgründe-Tests bleiben unverändert aktiv.
+
+### Zusammenführung und Entscheidungs-Memory stabilisiert
+- Der Konflikt-Merger löst den **vollständigen Kandidatensatz in einem Schritt** auf: stärkster Öffnungsgrund gegen stärksten Gegengrund, jeweils nach Dringlichkeit und bei Gleichstand nach Schutzstufe. Ein dritter schwächerer Grund kann dadurch nicht mehr zufällig bestimmen, welche anderen Kandidaten überhaupt miteinander verglichen werden.
+- `beneficial` und echte `tradeoff`-Kandidaten werden **immer mit derselben Dringlichkeitslogik** ausgewählt – unabhängig davon, ob gleichzeitig ein orangefarbener Gegengrund existiert. Dadurch kann ein zusätzlicher schwacher Kandidat nicht mehr den Auswahlalgorithmus wechseln; z. B. bleibt eine dringlichere Feuchte-Abwägung gegenüber einem schwächeren grünen CO₂-Grund auch an der 24-h-Grenze gelb.
+- Die **24-h-Routine ist jetzt tatsächlich ein Fallback**: Sie wird nur als eigener Bedarf aktiviert, wenn kein konkreter CO₂-/Feuchte-/Schimmel-/Temperaturgrund vorliegt. Damit kann „seit 24 Stunden nicht gelüftet“ eine bereits laufende echte Entscheidung weder verschärfen noch abschwächen.
+- Kritisches CO₂ gegen ungewöhnlich sehr schlechte Außenluft bleibt stabil eine echte Abwägung, auch wenn ein schwacher Zusatzgrund an einer Schwelle hinzukommt (z. B. 23,9 → 24,0 h oder 59,9 → 60,0 % rF).
+- Der Merger trennt echte **Hard Safety Locks** (NINA-/Wetter-`danger`, weiterhin außerhalb des normalen Mergers) von stark schädlichen gemessenen Außenbedingungen. Ungewöhnlich **sehr schlechte Außenluft** bleibt ein starker roter Gegengrund, ist aber kein absoluter Lock: kritisches CO₂ mit höherer Dringlichkeit kann weiterhin eine echte gelbe Abwägung ergeben.
+- Außenwarnungen/AQ werden als **globale Gegenseite** einmal in den Kandidatensatz eingebracht und hängen nicht mehr davon ab, ob zufällig noch Routine, Temperatur oder Feuchte als zweiter Bedarf aktiv wird. Dadurch kann z. B. das Erreichen von 24,0 h eine CO₂-/AQ-Entscheidung nicht allein durch das Auftauchen eines neuen Kandidaten umstufen.
+- Bei gleich dringlichen Gegengründen wird die Schutzbedeutung stabil berücksichtigt: Oberflächen-/Schimmelrisiko hat Vorrang vor gleich starken Komfortgründen, während CO₂ und normale Feuchte weiterhin eine echte gelbe Abwägung bilden können.
+- Der Mehrfachgründe-Merger unterscheidet intern jetzt **beneficial / tradeoff / neutral / harmful / strong_harmful** statt gelbe oder rote Zustände allein nach ihrer Farbe gleichzusetzen. Ein neutraler Zusatzgrund wie `feuchte_neutral` kann dadurch keine bereits vorhandene Empfehlung „besser geschlossen“ mehr aufweichen; `strong_harmful` bleibt zugleich klar von einem echten Safety-Lock getrennt.
+- Zusätzliche NINA-/Wetter-Vorsicht wird monoton angewendet: Eine neue Außenwarnung darf eine bestehende restriktivere Entscheidung nicht öffnungsfreundlicher machen. Insbesondere bleiben Fälle wie **1500 ppm innen / 1800 ppm außen** bei `co2_warten`, auch wenn zusätzlich eine Vorsichtsmeldung hinzukommt.
+- `primary_need` bleibt der stärkste Innenraum-/Anzeigegrund. Neu getrennt davon wird `decision_need` als tatsächlicher Entscheidungstreiber geführt und für die Zustands-Memory verwendet. Dadurch behält z. B. eine laufende Temperaturentscheidung ihre eigene Hysterese, auch wenn Feuchte gleichzeitig der stärkere UI-Grund ist.
+- Die gespeicherte Decision-Memory liest ältere v0.9.0-Vorab-Builds mit `primary_need` einmalig als Fallback, speichert danach aber den getrennten `decision_need`.
+- Die 24-h-Routinelüftung beendet sich bei vorhandenem Fensterkontakt nicht mehr unmittelbar nach dem Öffnen. Sie bleibt bis **mindestens fünf reale Offen-Minuten** aktiv und passt damit zur bereits bestehenden Bestätigungsschwelle des Airing-Trackers.
+- Neue Regression-/Invariantentests sichern ab, dass zusätzliche weiche Außenwarnungen die Öffnungsempfehlung niemals verbessern und dass die Routinelüftung sowie die getrennte Temperatur-Hysterese stabil bleiben.
+- Die **Schwere der Außenluftqualität bleibt im Mehrfachgründe-Pfad erhalten**: `poor`/`very_poor` werden nicht mehr zu einem generischen Luftqualitäts-Hinweis zusammengefaltet und anschließend fälschlich als `luftqualitaet_maessig` oder bloße gelbe Abwägung ausgegeben.
+- Konflikte zwischen gleichzeitig nützlichen und schädlichen Lüftungsgründen berücksichtigen jetzt deren Dringlichkeit. Ein niedriger priorisierter Komfortgrund kann damit z. B. einen **persistenten Schimmel-Gegengrund** nicht mehr blind mit Grün überstimmen. Die bestehende CO₂-Monotonie bleibt als ausdrückliche Ausnahme erhalten: eine höhere CO₂-Stufe darf eine unabhängig sichere Lüftungsmöglichkeit nicht schwächen.
+- `erwaermen` verwendet beim Start dieselbe physikalische Obergrenze wie bei einer laufenden Lüftung: Außenluft darf höchstens **Solltemperatur + 4 K** betragen. Damit kann die Karte bei unveränderten Sensorwerten nicht mehr erst „zum Erwärmen öffnen“ und unmittelbar nach dem Öffnen „fertig“ melden; auch die `weiter_lueften`-Begründung nutzt dieselbe Bedingung.
+
+### Mehrere Lüftungsgründe werden gemeinsam bewertet
+- Die Engine ermittelt weiterhin einen nachvollziehbaren Hauptgrund für Anzeige und Dringlichkeit, vergisst aber **gleichzeitig aktive Nebengründe nicht mehr**. CO₂, Feuchte/Oberflächenfeuchte und Temperatur werden jeweils gegen dieselben Außenbedingungen geprüft und die Ergebnisse anschließend zusammengeführt. Die 24-h-Routine bleibt davon getrennt ein reiner Fallback, wenn kein konkreter Innenraumgrund aktiv ist.
+- Dadurch kann ein zusätzlicher Innenraumfehler eine unabhängig sinnvolle Lüftungsmöglichkeit nicht mehr allein durch einen Prioritätswechsel verschwinden lassen. Reproduzierte Grenzfälle wie **1800 ppm + 64,9 → 65,0 % rF** sowie ein Sprung an der 60-%-Feuchtegrenze bleiben handlungslogisch stabil.
+- CO₂ bleibt bei einer tatsächlich CO₂-relevanten Lüftung bewusst der Sitzungs-/Hysterese-Treiber, auch wenn ein zweiter Innenraumgrund das Öffnen zusätzlich rechtfertigt. Die bestehende Mindestlüftung und Wiedereinschaltlogik gehen dadurch bei Mehrfachgründen nicht verloren.
+- Regressionstests sichern zusätzlich die Invariante ab, dass **1399 → 1400 ppm bei ansonsten identischen Bedingungen und Regen** die Empfehlung nicht mehr abschwächen darf.
+
+### CO₂-Ziele und Außen-CO₂ korrigiert
+- Kritisches CO₂ mit nur einem weichen Außenhinweis (z. B. mäßiger Luftqualität) behält bei weiterhin grüner `co2_kritisch`-Entscheidung das passende Sitzungziel. Ein unsichtbarer Sprung von **850 auf 1850 ppm** nur durch einen weichen Hinweis ist entfernt.
+- Der 1700+-CO₂-Zweig verwendet für starke Feuchtenachteile kontinuierliche absolute Feuchtedifferenzen statt eines zusätzlichen harten 65-%-Sprungs.
+- Ein gemessener Außen-CO₂-Wert, der deutlich schlechter als innen ist, wird als **allgemeiner weicher Außenluft-Nachteil** berücksichtigt. Das gilt nun auch für Kühlung, Feuchtelüftung, Routine und die längere Nachtlüftungsstrategie sowie für Situationen ohne aktuellen Innenraum-Lüftungsgrund.
+- Ein CO₂-Sitzungsziel wird bei vorhandenem Außen-CO₂ nicht mehr physikalisch unerreichbar unter einen ungünstig hohen Außenwert gelegt; wenn Außenluft den Innenwert trotzdem verbessern kann, wird das Ziel vorsichtig oberhalb des gemessenen Außenwerts begrenzt.
+
+### Einheiten und Forecast robuster
+- Wind wird über Home Assistants `SpeedConverter` normalisiert. **Beaufort und ft/s** werden damit korrekt unterstützt; unbekannte Einheiten werden verworfen statt stillschweigend als km/h interpretiert.
+- Forecast-Niederschlagsmengen werden auf **Millimeter** normalisiert, sodass Weather-Entities mit `in` nicht mehr gegen mm-Schwellen verglichen werden.
+- Die README beschreibt die tatsächlich verwendete Windstufe jetzt konsistent mit den Codegrenzen.
+
+### Sensor-Ausfälle erfinden keine Zeit mehr
+- Ein laufender Fensterkontakt darf kurz `unknown`/`unavailable` sein, aber nur innerhalb einer **2-Minuten-Grace**. Danach endet die bestätigte Offenzeit am letzten sicher bekannten Zeitpunkt; unbekannte Minuten können dadurch keine 5-Minuten-Lüftung vortäuschen.
+- Beim optionalen Oberflächenfeuchte-Tracking werden fehlende Messwerte höchstens kurz toleriert. Nach **10 Minuten ohne gültigen Wert** wird eine kritische Phase am letzten bestätigten Messpunkt pausiert, statt Sensor-Downtime als gemessene Expositionszeit weiterzuzählen.
+
+### Tests / CI / Release
+- Neue Regressionstests decken Mehrfachgründe, CO₂-Monotonie, das kritische 850/1850-Ziel, Außen-CO₂ bei Kühlung/Nachtlüftung, Beaufort/ft/s, Inch-Niederschlag sowie lange `unknown`-/`unavailable`-Phasen ab.
+- GitHub Actions prüft das Frontend-JavaScript jetzt zusätzlich mit `node --check`, bevor der Python-Teststack läuft.
+- Versionsangaben in Manifest und Python-Konstanten stehen gemeinsam auf **0.9.0**.
+
 ## v0.8.1
 
 ### Lüftungsbedarf-Ampel ruhiger und eindeutiger

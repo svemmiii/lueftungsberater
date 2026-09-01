@@ -21,6 +21,7 @@ from .const import (
     MOLD_HISTORY_RETENTION,
     MOLD_HISTORY_WINDOW,
     MOLD_CURRENT_LONG,
+    MOLD_UNKNOWN_GRACE,
     MOLD_REPEATED_DAY_MIN,
     MOLD_REPEATED_DAYS,
     STORAGE_VERSION,
@@ -51,6 +52,7 @@ class RoomMoldTracker:
         self.entry = entry
         self.subentry = subentry
         self.critical_since: datetime | None = None
+        self.last_valid_at: datetime | None = None
         self.intervals: list[tuple[datetime, datetime]] = []
         self._store: Store[dict[str, Any]] = Store(
             hass,
@@ -62,6 +64,11 @@ class RoomMoldTracker:
         """Restore the local rolling exposure context."""
         stored = await self._store.async_load() or {}
         self.critical_since = _parse_dt(stored.get("critical_since"))
+        self.last_valid_at = _parse_dt(stored.get("last_valid_at"))
+        # Old stores did not keep the last confirmed sample time.  Prefer a
+        # conservative restart over inventing hours of critical exposure.
+        if self.critical_since is not None and self.last_valid_at is None:
+            self.last_valid_at = self.critical_since
         raw_intervals = stored.get("intervals", [])
         if isinstance(raw_intervals, list):
             for item in raw_intervals:
@@ -81,6 +88,9 @@ class RoomMoldTracker:
             "critical_since": (
                 self.critical_since.isoformat() if self.critical_since else None
             ),
+            "last_valid_at": (
+                self.last_valid_at.isoformat() if self.last_valid_at else None
+            ),
             "intervals": [
                 [start.isoformat(), end.isoformat()]
                 for start, end in self.intervals
@@ -98,35 +108,75 @@ class RoomMoldTracker:
             (start, end) for start, end in self.intervals if end >= cutoff
         ]
 
-    def observe(self, surface_rh: float | None, now: datetime | None = None) -> None:
-        """Observe one derived surface RH value.
+    def _close_stale_active_interval(self, now: datetime) -> bool:
+        """Pause an active interval once valid samples have been missing too long."""
+        if self.critical_since is None or self.last_valid_at is None:
+            return False
+        if now - self.last_valid_at <= MOLD_UNKNOWN_GRACE:
+            return False
+        if self.last_valid_at > self.critical_since:
+            self.intervals.append((self.critical_since, self.last_valid_at))
+        self.critical_since = None
+        self._prune(now)
+        return True
 
-        Missing data does not end an active interval: an unavailable optional
-        sensor is unknown, not evidence that the surface has dried.
+    def observe(self, surface_rh: float | None, now: datetime | None = None) -> None:
+        """Observe one derived surface RH value without inventing missing time.
+
+        A short sensor gap is tolerated so a single missed sample does not split
+        an exposure interval.  Once the last real value is older than the grace
+        window, the active interval is closed at the last confirmed sample.
         """
-        if surface_rh is None:
-            return
         now = now or dt_util.utcnow()
         self._prune(now)
+
+        stale_closed = self._close_stale_active_interval(now)
+        if surface_rh is None:
+            if stale_closed:
+                self._schedule_save()
+            return
+
         critical = surface_rh >= 80.0
+        changed = stale_closed
 
         if critical and self.critical_since is None:
             self.critical_since = now
-            self._schedule_save()
+            changed = True
         elif not critical and self.critical_since is not None:
             self.intervals.append((self.critical_since, now))
             self.critical_since = None
             self._prune(now)
+            changed = True
+
+        # Persist the last actual sample while a critical interval is active so
+        # a restart cannot turn downtime into measured exposure.
+        if critical:
+            self.last_valid_at = now
+            changed = True
+        else:
+            self.last_valid_at = now
+
+        if changed:
             self._schedule_save()
+
+    def _active_interval_end(self, now: datetime) -> datetime | None:
+        if self.critical_since is None or self.last_valid_at is None:
+            return None
+        # Between normal 5-minute samples the last state may reasonably be held.
+        # Beyond the 10-minute grace, only actually confirmed time is retained.
+        if now - self.last_valid_at <= MOLD_UNKNOWN_GRACE:
+            return now
+        return self.last_valid_at
 
     @property
     def current_critical_minutes(self) -> float:
         if self.critical_since is None:
             return 0.0
-        return max(
-            0.0,
-            (dt_util.utcnow() - self.critical_since).total_seconds() / 60.0,
-        )
+        now = dt_util.utcnow()
+        end = self._active_interval_end(now)
+        if end is None:
+            return 0.0
+        return max(0.0, (end - self.critical_since).total_seconds() / 60.0)
 
     @property
     def critical_minutes_24h(self) -> float:
@@ -141,9 +191,10 @@ class RoomMoldTracker:
                 seconds += (overlap_end - overlap_start).total_seconds()
 
         if self.critical_since is not None:
+            active_end = self._active_interval_end(now)
             overlap_start = max(self.critical_since, window_start)
-            if now > overlap_start:
-                seconds += (now - overlap_start).total_seconds()
+            if active_end is not None and active_end > overlap_start:
+                seconds += (active_end - overlap_start).total_seconds()
 
         return max(0.0, seconds / 60.0)
 
@@ -154,7 +205,9 @@ class RoomMoldTracker:
         totals: dict[str, float] = {}
         intervals = list(self.intervals)
         if self.critical_since is not None:
-            intervals.append((self.critical_since, now))
+            active_end = self._active_interval_end(now)
+            if active_end is not None and active_end > self.critical_since:
+                intervals.append((self.critical_since, active_end))
 
         for start, end in intervals:
             start = max(start, cutoff)

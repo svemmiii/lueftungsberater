@@ -557,6 +557,7 @@ def build_room_snapshot(
         co2=values["co2_ppm"],
         outdoor_co2=values.get("outdoor_co2_ppm"),
         window_open=bool(values["window_open"]),
+        open_minutes=values.get("open_minutes"),
         hours_since_airing=values["hours_since_last_airing"],
         rain_now=(weather.rain_now or legacy_rain_now),
         rain_soon=(weather.rain_soon or legacy_rain_soon),

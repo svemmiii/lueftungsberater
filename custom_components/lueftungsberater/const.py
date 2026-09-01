@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.8.1"
+INTEGRATION_VERSION = "0.9.0"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 
@@ -92,6 +92,7 @@ CONF_HOURS_SINCE_AIRING = "hours_since_airing_entity"
 
 DEFAULT_TARGET_TEMP = 21.0
 MIN_CONFIRMED_AIRING = timedelta(minutes=5)
+WINDOW_UNKNOWN_GRACE = timedelta(minutes=2)
 CO2_GRACE_PERIOD = timedelta(seconds=60)
 
 # The mould tracker is optional and only exists when a surface-temperature
@@ -99,6 +100,7 @@ CO2_GRACE_PERIOD = timedelta(seconds=60)
 # escalates softly for long current exposure or repeated affected days; these
 # are product-side hints, not medical/DIN thresholds or proof of mould growth.
 MOLD_SAMPLE_INTERVAL = timedelta(minutes=5)
+MOLD_UNKNOWN_GRACE = timedelta(minutes=10)
 MOLD_HISTORY_WINDOW = timedelta(hours=24)
 MOLD_HISTORY_RETENTION = timedelta(days=7)
 # Product-side persistence hints only; not medical/DIN thresholds.

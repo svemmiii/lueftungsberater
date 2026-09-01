@@ -21,6 +21,7 @@ from .const import (
     DOMAIN,
     MIN_CONFIRMED_AIRING,
     STORAGE_VERSION,
+    WINDOW_UNKNOWN_GRACE,
 )
 
 _UNKNOWN = {"unknown", "unavailable", "none", ""}
@@ -54,6 +55,8 @@ class RoomAiringTracker:
         self._unsub_state = None
         self._unsub_tick = None
         self._unsub_fallback = None
+        self._unsub_unknown_grace = None
+        self._unknown_since: datetime | None = None
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.airing.{entry.entry_id}.{subentry.subentry_id}"
         )
@@ -93,16 +96,25 @@ class RoomAiringTracker:
         stored = await self._store.async_load() or {}
         self.last_confirmed_airing = _parse_dt(stored.get("last_confirmed_airing"))
         stored_open_since = _parse_dt(stored.get("open_since"))
+        stored_unknown_since = _parse_dt(stored.get("unknown_since"))
 
         any_open, all_known = self._contact_state()
         if any_open:
             self.open_since = stored_open_since or dt_util.utcnow()
+            self._unknown_since = None
         elif not all_known:
             # Startup often exposes contacts as unknown for a moment. Preserve a
-            # running session until the contacts give a definitive answer.
+            # running session briefly, but never let an unknown state count as
+            # confirmed airing without a time limit.
             self.open_since = stored_open_since
+            self._unknown_since = (
+                stored_unknown_since
+                if stored_open_since is not None
+                else None
+            ) or (dt_util.utcnow() if stored_open_since is not None else None)
         else:
             self.open_since = None
+            self._unknown_since = None
 
         if self.windows:
             self._unsub_state = async_track_state_change_event(
@@ -117,6 +129,7 @@ class RoomAiringTracker:
             self._unsub_state = None
         self._cancel_tick()
         self._cancel_fallback()
+        self._cancel_unknown_grace()
         await self._async_save()
 
     def _cancel_tick(self) -> None:
@@ -129,10 +142,61 @@ class RoomAiringTracker:
             self._unsub_fallback()
             self._unsub_fallback = None
 
+    def _cancel_unknown_grace(self) -> None:
+        if self._unsub_unknown_grace:
+            self._unsub_unknown_grace()
+            self._unsub_unknown_grace = None
+
+    def _schedule_unknown_grace(self) -> None:
+        self._cancel_unknown_grace()
+        if self.open_since is None or self._unknown_since is None:
+            return
+        deadline = self._unknown_since + WINDOW_UNKNOWN_GRACE
+        now = dt_util.utcnow()
+        if deadline <= now:
+            self._async_unknown_grace_expired(now)
+            return
+        self._unsub_unknown_grace = async_track_point_in_utc_time(
+            self.hass, self._async_unknown_grace_expired, deadline
+        )
+
+    def _finish_open_session(self, end: datetime) -> None:
+        if self.open_since is None:
+            self._unknown_since = None
+            return
+        duration = max(timedelta(0), end - self.open_since)
+        if duration >= MIN_CONFIRMED_AIRING:
+            self.last_confirmed_airing = end
+        self.open_since = None
+        self._unknown_since = None
+
+    @callback
+    def _async_unknown_grace_expired(self, now: datetime) -> None:
+        self._unsub_unknown_grace = None
+        any_open, all_known = self._contact_state()
+        if (
+            self.open_since is not None
+            and not any_open
+            and not all_known
+            and self._unknown_since is not None
+            and now >= self._unknown_since + WINDOW_UNKNOWN_GRACE
+        ):
+            # We only know that the window was definitely open up to the start
+            # of the unknown period.  End there instead of turning unknown time
+            # into a successful airing session.
+            self._finish_open_session(self._unknown_since)
+            self.hass.async_create_task(self._async_save())
+        self._sync_timers()
+        async_dispatcher_send(
+            self.hass, tracker_signal(self.entry.entry_id, self.subentry.subentry_id)
+        )
+
     def _sync_timers(self) -> None:
-        """Tick only while open; when closed wake exactly at the 24h fallback."""
-        any_open, _all_known = self._contact_state()
+        """Run timers only for states that can still change the recommendation."""
+        any_open, all_known = self._contact_state()
         if any_open and self.open_since is not None:
+            self._cancel_unknown_grace()
+            self._unknown_since = None
             self._cancel_fallback()
             if self._unsub_tick is None:
                 self._unsub_tick = async_track_time_interval(
@@ -141,6 +205,15 @@ class RoomAiringTracker:
             return
 
         self._cancel_tick()
+        if not all_known and self.open_since is not None:
+            self._cancel_fallback()
+            if self._unknown_since is None:
+                self._unknown_since = dt_util.utcnow()
+            if self._unsub_unknown_grace is None:
+                self._schedule_unknown_grace()
+            return
+
+        self._cancel_unknown_grace()
         self._cancel_fallback()
         if self.last_confirmed_airing is None:
             return
@@ -168,18 +241,31 @@ class RoomAiringTracker:
     def _async_window_changed(self, _event: Event) -> None:
         now = dt_util.utcnow()
         any_open, all_known = self._contact_state()
+        changed = False
 
-        if any_open and self.open_since is None:
-            self.open_since = now
+        if any_open:
+            if self.open_since is None:
+                self.open_since = now
+                changed = True
+            if self._unknown_since is not None:
+                self._unknown_since = None
+                changed = True
+        elif not all_known and self.open_since is not None:
+            if self._unknown_since is None:
+                self._unknown_since = now
+                changed = True
+        elif all_known and self.open_since is not None:
+            # If the contact was unknown before becoming definitively closed,
+            # use the last definitely-open instant as the conservative end.
+            end = self._unknown_since or now
+            self._finish_open_session(end)
+            changed = True
+        elif all_known and self._unknown_since is not None:
+            self._unknown_since = None
+            changed = True
+
+        if changed:
             self.hass.async_create_task(self._async_save())
-        elif not any_open and all_known and self.open_since is not None:
-            duration = now - self.open_since
-            if duration >= MIN_CONFIRMED_AIRING:
-                self.last_confirmed_airing = now
-            self.open_since = None
-            self.hass.async_create_task(self._async_save())
-        # If no contact is open but one is unknown/unavailable, deliberately
-        # keep open_since. Unknown is not proof that the window was closed.
 
         self._sync_timers()
         async_dispatcher_send(
@@ -190,6 +276,7 @@ class RoomAiringTracker:
         await self._store.async_save(
             {
                 "open_since": self.open_since.isoformat() if self.open_since else None,
+                "unknown_since": self._unknown_since.isoformat() if self._unknown_since else None,
                 "last_confirmed_airing": self.last_confirmed_airing.isoformat() if self.last_confirmed_airing else None,
             }
         )

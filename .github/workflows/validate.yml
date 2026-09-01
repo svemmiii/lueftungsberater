@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Hassfest validation
         uses: home-assistant/actions/hassfest@master
@@ -37,7 +37,16 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Check frontend JavaScript syntax
+        run: |
+          find custom_components/lueftungsberater -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Set up Python
         uses: actions/setup-python@v7
