@@ -202,11 +202,8 @@ async def test_warning_source_options_include_none_nina_and_dwd(
         _warning_source_options,
     )
     from custom_components.lueftungsberater.const import (
-        CONF_NOTIFY_TRIGGERS,
         CONF_WARNING_SOURCE,
         CONF_WEATHER,
-        NOTIFY_TRIGGER_AIR_DANGER,
-        NOTIFY_TRIGGER_WEATHER_DANGER,
         WARNING_SOURCE_NONE,
     )
 

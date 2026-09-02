@@ -1,4 +1,13 @@
-from custom_components.lueftungsberater.api import REMOTE_ATTRIBUTE_KEYS, _export_attributes
+from types import SimpleNamespace
+
+import pytest
+from homeassistant.components.http import KEY_HASS, KEY_HASS_USER
+
+from custom_components.lueftungsberater.api import (
+    REMOTE_ATTRIBUTE_KEYS,
+    LueftungsberaterSnapshotView,
+    _export_attributes,
+)
 
 
 def test_remote_export_does_not_include_local_entity_ids_or_original_warning() -> None:
@@ -33,3 +42,19 @@ def test_remote_allow_list_stays_current_only() -> None:
     assert "original_warning_text" not in REMOTE_ATTRIBUTE_KEYS
     assert "localized_texts" not in REMOTE_ATTRIBUTE_KEYS
     assert "display_mode" in REMOTE_ATTRIBUTE_KEYS
+    assert "forecast_data_status" in REMOTE_ATTRIBUTE_KEYS
+
+
+@pytest.mark.asyncio
+async def test_snapshot_http_api_rejects_non_admin_user() -> None:
+    class Request(dict):
+        remote = "100.64.0.10"
+        query = {}
+
+    request = Request({
+        KEY_HASS: SimpleNamespace(),
+        KEY_HASS_USER: SimpleNamespace(is_admin=False),
+    })
+    request.app = request
+    response = await LueftungsberaterSnapshotView().get(request)
+    assert response.status == 403

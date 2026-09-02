@@ -55,6 +55,7 @@ def test_pending_release_timer_resets_if_co2_returns_to_900():
 def test_open_co2_session_finishes_only_after_two_stable_minutes_at_850_or_less():
     state = Co2HysteresisState()
     start = datetime(2026, 8, 26, 20, 0, tzinfo=UTC)
+    assert state.start_airing_session(target_ppm=850)
     first = state.evaluate(
         now=start, co2=850, window_open=True,
         previous_mode="weiter_lueften", previous_need="co2_elevated",
@@ -77,6 +78,7 @@ def test_open_co2_session_finishes_only_after_two_stable_minutes_at_850_or_less(
 def test_finish_timer_resets_if_co2_rises_above_850():
     state = Co2HysteresisState()
     start = datetime(2026, 8, 26, 20, 0, tzinfo=UTC)
+    assert state.start_airing_session(target_ppm=850)
     state.evaluate(
         now=start, co2=845, window_open=True,
         previous_mode="weiter_lueften", previous_need="co2_elevated",
@@ -93,6 +95,24 @@ def test_finish_timer_resets_if_co2_rises_above_850():
     assert restarted.airing_active and not restarted.finish_ready
     assert restarted.next_check_seconds is not None
     assert restarted.next_check_seconds > 110
+
+
+def test_open_window_never_auto_starts_a_session_from_previous_mode():
+    """Only the coordinator may start an explicit session from an engine target."""
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
+
+    decision = state.evaluate(
+        now=start,
+        co2=2500,
+        window_open=True,
+        previous_mode="co2_kritisch",
+        previous_need="co2_critical",
+    )
+
+    assert decision.airing_active is False
+    assert state.session_active is False
+    assert state.session_target_ppm is None
 
 
 def test_hysteresis_timestamps_roundtrip_for_restart_memory():

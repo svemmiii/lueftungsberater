@@ -13,7 +13,6 @@ import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
@@ -92,6 +91,60 @@ async def async_host_is_tailscale(hass: HomeAssistant, host: str, port: int) -> 
     return bool(addresses) and all(_ip_is_tailscale(address) for address in addresses)
 
 
+async def _async_resolve_tailscale_addresses(
+    hass: HomeAssistant, host: str, port: int
+) -> tuple[str, ...]:
+    """Resolve once and return only an entirely Tailscale-bound result."""
+    clean = host.strip().strip("[]")
+    if _ip_is_tailscale(clean):
+        return (clean,)
+    try:
+        addresses = await hass.async_add_executor_job(_resolve_host, clean, port)
+    except OSError:
+        return ()
+    if not addresses or not all(_ip_is_tailscale(address) for address in addresses):
+        return ()
+    return tuple(sorted(addresses))
+
+
+class _PinnedResolver(aiohttp.abc.AbstractResolver):
+    """Resolve a single hostname to the addresses already security-checked."""
+
+    def __init__(self, host: str, addresses: tuple[str, ...]) -> None:
+        self._host = host.strip().strip("[]").lower()
+        self._addresses = addresses
+
+    def update_addresses(self, addresses: tuple[str, ...]) -> None:
+        """Replace the checked address set used for future connections."""
+        self._addresses = addresses
+
+    async def resolve(
+        self, host: str, port: int = 0, family: socket.AddressFamily = socket.AF_UNSPEC
+    ) -> list[dict[str, Any]]:
+        if host.strip().strip("[]").lower() != self._host:
+            raise OSError("Pinned resolver refused an unexpected hostname")
+        results = []
+        for address in self._addresses:
+            ip = ipaddress.ip_address(address)
+            address_family = socket.AF_INET6 if ip.version == 6 else socket.AF_INET
+            if family not in {socket.AF_UNSPEC, address_family}:
+                continue
+            results.append(
+                {
+                    "hostname": host,
+                    "host": address,
+                    "port": port,
+                    "family": address_family,
+                    "proto": 0,
+                    "flags": 0,
+                }
+            )
+        return results
+
+    async def close(self) -> None:
+        return None
+
+
 def remote_base_url(config: dict[str, Any]) -> str:
     """Build the remote Home Assistant base URL."""
     host = str(config[CONF_REMOTE_HOST]).strip().strip("[]")
@@ -111,14 +164,16 @@ async def async_fetch_remote_snapshot(
     config: dict[str, Any],
     *,
     discovery: bool = False,
+    session: aiohttp.ClientSession | None = None,
+    resolver: _PinnedResolver | None = None,
 ) -> dict[str, Any]:
     """Fetch the remote snapshot, optionally as unfiltered room discovery."""
     host = str(config[CONF_REMOTE_HOST])
     port = int(config.get(CONF_REMOTE_PORT, DEFAULT_REMOTE_PORT))
-    if not await async_host_is_tailscale(hass, host, port):
+    pinned_addresses = await _async_resolve_tailscale_addresses(hass, host, port)
+    if not pinned_addresses:
         raise RemoteConnectionError("Remote host no longer resolves to a Tailscale address")
 
-    session = async_get_clientsession(hass)
     url = f"{remote_base_url(config)}{REMOTE_PATH}"
     headers = {
         "Authorization": f"Bearer {config[CONF_REMOTE_TOKEN]}",
@@ -135,21 +190,35 @@ async def async_fetch_remote_snapshot(
         selected = [str(item) for item in config.get(CONF_REMOTE_SELECTED_ROOMS, []) or []]
         params["rooms"] = ",".join(selected)
 
+    async def _request(client: aiohttp.ClientSession) -> Any:
+        response = await client.get(url, headers=headers, params=params)
+        async with response:
+            if response.status == 401:
+                raise RemoteAuthError("Remote Home Assistant rejected the token")
+            if response.status == 403:
+                raise RemoteConnectionError(
+                    "Remote snapshot endpoint requires an administrator token and direct Tailscale source"
+                )
+            if response.status >= 400:
+                raise RemoteConnectionError(
+                    f"Remote Home Assistant returned HTTP {response.status}"
+                )
+            return await response.json(content_type=None)
+
     try:
         async with asyncio.timeout(10):
-            response = await session.get(url, headers=headers, params=params)
-            async with response:
-                if response.status == 401:
-                    raise RemoteAuthError("Remote Home Assistant rejected the token")
-                if response.status == 403:
-                    raise RemoteConnectionError(
-                        "Remote snapshot endpoint requires a direct Tailscale source"
-                    )
-                if response.status >= 400:
-                    raise RemoteConnectionError(
-                        f"Remote Home Assistant returned HTTP {response.status}"
-                    )
-                payload = await response.json(content_type=None)
+            if session is not None:
+                if resolver is None:
+                    raise RemoteConnectionError("Persistent remote session has no pinned resolver")
+                resolver.update_addresses(pinned_addresses)
+                payload = await _request(session)
+            else:
+                one_shot_resolver = _PinnedResolver(host, pinned_addresses)
+                connector = aiohttp.TCPConnector(
+                    resolver=one_shot_resolver, use_dns_cache=False
+                )
+                async with aiohttp.ClientSession(connector=connector) as one_shot:
+                    payload = await _request(one_shot)
     except RemoteConnectionError:
         raise
     except (TimeoutError, aiohttp.ClientError, ValueError) as err:
@@ -210,10 +279,23 @@ class LueftungsberaterRemoteCoordinator(DataUpdateCoordinator[RemoteData]):
         self.entry = entry
         self._last_success_monotonic: float | None = None
         self._reported_unavailable = False
+        host = str(entry.data[CONF_REMOTE_HOST])
+        self._resolver = _PinnedResolver(host, ())
+        self._session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(
+                resolver=self._resolver,
+                use_dns_cache=False,
+            )
+        )
 
     async def _async_update_data(self) -> RemoteData:
         try:
-            payload = await async_fetch_remote_snapshot(self.hass, dict(self.entry.data))
+            payload = await async_fetch_remote_snapshot(
+                self.hass,
+                dict(self.entry.data),
+                session=self._session,
+                resolver=self._resolver,
+            )
         except (RemoteAuthError, RemoteConnectionError) as err:
             if self._last_success_monotonic is not None:
                 elapsed = time.monotonic() - self._last_success_monotonic
@@ -281,4 +363,6 @@ async def async_stop_remote_coordinator(hass: HomeAssistant, entry: ConfigEntry)
     config entry, so removing our runtime reference is enough here.
     """
     store = hass.data.get(DOMAIN, {}).get(DATA_REMOTE_COORDINATORS, {})
-    store.pop(entry.entry_id, None)
+    coordinator = store.pop(entry.entry_id, None)
+    if coordinator is not None:
+        await coordinator._session.close()

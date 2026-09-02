@@ -405,9 +405,11 @@ def _active_needs(
 ) -> list[tuple[str, int]]:
     """Return all currently active indoor needs in deterministic priority order."""
     needs: list[tuple[str, int]] = []
+    # Session memory is deliberately not part of current-need detection.
+    # A running CO2 session remembers a finish target, but the fresh decision
+    # must be derived from current measurements only.
     co2_allowed = consider_co2 and (
-        co2_airing_active
-        or co2_rearm_threshold is None
+        co2_rearm_threshold is None
         or (co2 is not None and co2 >= co2_rearm_threshold)
     )
 
@@ -419,7 +421,6 @@ def _active_needs(
         co2 >= 1000
         or (_previous_co2_context(previous_mode, previous_need) and co2 >= 900)
         or co2_pending_hold
-        or co2_airing_active
     ):
         needs.append(("co2_elevated", 1))
 
@@ -1034,6 +1035,71 @@ def _co2_mode_for_need(
     raise ValueError(f"Unsupported CO2 need: {need}")
 
 
+def _apply_candidate_weather_context(
+    *,
+    need: str,
+    urgency: int,
+    mode: str,
+    caution_kind: str | None,
+    data: RoomInput,
+    outdoor_temp: float,
+) -> tuple[str, str | None]:
+    """Apply rain/forecast context to one candidate before the merge.
+
+    Weather overlap depends on the candidate's own expected airing duration.
+    Applying it here prevents a later winner change from making the exact same
+    rain/forecast suddenly more or less relevant. Hard locks are handled
+    outside the normal candidate merge and are therefore intentionally absent.
+    """
+    adjusted_mode = mode
+    adjusted_caution = caution_kind
+
+    if _rain_relevant(data, adjusted_mode, outdoor_temp):
+        if adjusted_mode == "co2_kritisch":
+            # Critical CO2 may still justify a short exchange in rain.
+            adjusted_caution = "rain"
+        elif adjusted_mode in {
+            "co2_lueften",
+            "co2_lueften_mit_nachteil",
+            "feuchte_lueften",
+            "schimmel_lueften",
+            "schimmel_langzeit_lueften",
+            "kuehlen",
+            "erwaermen",
+            "routine_lueften",
+        }:
+            adjusted_mode = (
+                "co2_abwaegung"
+                if need.startswith("co2_") and urgency >= 2
+                else "komfort_abwaegung"
+            )
+            adjusted_caution = "rain"
+
+    if _short_term_weather_worsening_relevant(data, mode, outdoor_temp):
+        forecast_kind = str(data.short_term_weather_kind or "weather")
+        forecast_is_stronger_than_rain = forecast_kind in {
+            "thunderstorm",
+            "hail",
+            "severe_weather",
+            "wind",
+        }
+        if adjusted_caution != "rain" or forecast_is_stronger_than_rain:
+            if adjusted_mode == "co2_kritisch":
+                adjusted_mode = "co2_kritisch_vorsicht"
+                adjusted_caution = "weather_forecast"
+            elif _color(adjusted_mode) == "green":
+                adjusted_mode = (
+                    "co2_abwaegung"
+                    if need.startswith("co2_")
+                    else "komfort_abwaegung"
+                )
+                adjusted_caution = "weather_forecast"
+            elif _color(adjusted_mode) == "yellow" and adjusted_caution is None:
+                adjusted_caution = "weather_forecast"
+
+    return adjusted_mode, adjusted_caution
+
+
 def evaluate_room(data: RoomInput) -> VentilationResult:
     ti, hi, ta = data.indoor_temp, data.indoor_humidity, data.outdoor_temp
     target = data.target_temp
@@ -1044,15 +1110,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     hours = data.hours_since_airing or 0.0
     previous_mode = data.previous_mode or ""
     previous_need = data.previous_need or ""
-
-    co2_critical = co2 is not None and co2 > 2000
-    co2_high = co2 is not None and co2 >= 1400
-    co2_elevated = co2 is not None and (
-        co2 >= 1000
-        or (_previous_co2_context(previous_mode, previous_need) and co2 >= 900)
-        or data.co2_pending_hold
-        or data.co2_airing_active
-    )
 
     surface_rh = surface_relative_humidity(ti, hi, data.surface_temp)
     mold_risk = surface_rh is not None and (
@@ -1141,10 +1198,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                     humidity_drawback_strong=humidity_drawback_strong,
                     outdoor_co2_limited=outdoor_co2_limited,
                 )
-                if co2_candidate_need is None:
-                    co2_candidate_need = candidate_need
-                    co2_candidate_mode = candidate_mode
-                    co2_candidate_caution = candidate_caution
             else:
                 candidate_mode, candidate_caution = _non_co2_mode_for_need(
                     need=candidate_need,
@@ -1156,6 +1209,20 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                     diff=diff,
                     previous_mode=previous_mode,
                 )
+            candidate_mode, candidate_caution = _apply_candidate_weather_context(
+                need=candidate_need,
+                urgency=candidate_urgency,
+                mode=candidate_mode,
+                caution_kind=candidate_caution,
+                data=data,
+                outdoor_temp=ta,
+            )
+            if candidate_need.startswith("co2_") and co2_candidate_need is None:
+                # Keep session metadata aligned with the same weather-aware CO2
+                # candidate that participates in the merge.
+                co2_candidate_need = candidate_need
+                co2_candidate_mode = candidate_mode
+                co2_candidate_caution = candidate_caution
             candidates.append(
                 (candidate_need, candidate_urgency, candidate_mode, candidate_caution)
             )
@@ -1212,11 +1279,12 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 opening_candidates,
                 key=lambda item: (
                     item[1],
-                    # CO2 monotonicity and independent-benefit stability: at
-                    # equal urgency an already useful green reason must not be
-                    # weakened merely because a peer need enters a yellow band.
-                    1 if _action_semantic(item[2]) == "beneficial" else 0,
+                    # At equal urgency, preserve the health/protection ordering
+                    # before preferring a green over a yellow opening signal.
+                    # This prevents a weather-sensitive mold reason from being
+                    # hidden merely because a peer CO2 reason can still air.
                     _need_protection_level(item[0]),
+                    1 if _action_semantic(item[2]) == "beneficial" else 0,
                 ),
             )
             if opening_candidates
@@ -1224,6 +1292,31 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         )
 
         opening = opening_conflict
+        if (
+            opening_conflict is not None
+            and _action_semantic(opening_conflict[2]) == "tradeoff"
+            and opening_conflict[3] in {"rain", "weather_forecast"}
+            and beneficial
+        ):
+            # A longer ideal airing may overlap approaching rain/forecast while
+            # a shorter independent green reason still fits safely beforehand.
+            # Do not let that duration-only caution make the overall advice less
+            # opening-friendly when the green peer has equal or higher health
+            # protection. Higher-protection reasons such as mold remain cautious.
+            best_green = max(
+                beneficial,
+                key=lambda item: (
+                    _need_protection_level(item[0]),
+                    item[1],
+                ),
+            )
+            if (
+                opening_conflict[0] in {"humidity", "humidity_urgent"}
+                or _need_protection_level(best_green[0])
+                >= _need_protection_level(opening_conflict[0])
+            ):
+                opening = best_green
+
         if (
             opening_conflict is not None
             and opening_conflict[0].startswith("co2_")
@@ -1443,7 +1536,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             and _action_semantic(co2_candidate_mode) == "tradeoff"
         ):
             decision_need = need
-            decision_urgency = urgency
             mode = "co2_lueften_mit_nachteil"
             caution_kind = co2_candidate_caution or "combined"
 
@@ -1461,13 +1553,12 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         # "none" so later short-term weather post-processing can still replace a
         # mild outside inconvenience with the more relevant imminent warning.
         decision_need = "none"
-        decision_urgency = 0
 
     # Rain is a practical window-opening disadvantage, never a proxy for
     # moisture physics. Only near-term rain that can overlap the actual airing
     # is relevant. Strong reasons can still justify a short exchange.
     rain_relevant = _rain_relevant(data, mode, ta)
-    if hard_mode is None and rain_relevant:
+    if hard_mode is None and not active_needs and rain_relevant:
         if mode == "co2_kritisch":
             # Light/current rain does not erase a very strong indoor-air need.
             # Keep green but use a short, explicit rain reason.
@@ -1490,7 +1581,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     short_term_weather_relevant = _short_term_weather_worsening_relevant(
         data, mode, ta
     )
-    if hard_mode is None and short_term_weather_relevant:
+    if hard_mode is None and not active_needs and short_term_weather_relevant:
         # A concrete current/radar rain signal remains the more immediate reason.
         forecast_kind = str(data.short_term_weather_kind or "weather")
         forecast_is_stronger_than_rain = forecast_kind in {
@@ -1544,21 +1635,19 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             if co2_session_target is not None:
                 co2_session_need = co2_candidate_need
 
-    # CO₂-driven airing is treated as an explicit user session, not as a fresh
-    # threshold decision on every sensor update. The finish target is fixed when
-    # the user starts airing and follows the CO₂ band that justified the action:
-    # normally 850 ppm, 1250 ppm for a 1400-ppm high-band start, 1550 ppm when
-    # the >=1700 trade-off override was needed, and 1850 ppm for a critical start.
-    # The last 50 ppm above that target are shown as a yellow near-target band.
+    # An explicit CO₂ session remembers its finish target and hysteresis, but it
+    # must not force the current recommendation back to green. Rain, forecast,
+    # temperature/humidity drawbacks, measured air quality and other live
+    # outdoor conditions have already been evaluated above. Only when the fresh
+    # decision is still green may the session rewrite that green mode to
+    # ``weiter_lueften`` (or the near-target/finished state). This keeps the
+    # fixed CO₂ goal without masking a newly/currently worse opening situation.
     if (
         data.window_open
         and hard_mode is None
         and data.co2_airing_active
         and co2 is not None
-        and air_penalty < 2
-        and data.nina_status != "caution"
-        and not data.weather_caution
-        and not outdoor_co2_limited
+        and _color(mode) == "green"
     ):
         finish_target = data.co2_finish_target or 850.0
         near_target = data.co2_near_target or (finish_target + 50.0)

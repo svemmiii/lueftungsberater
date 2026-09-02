@@ -19,7 +19,6 @@ from .co2 import co2_tracker_signal
 from .co2_hysteresis import (
     Co2HysteresisState,
     Co2MinimumAiringState,
-    co2_session_target,
 )
 from .const import (
     CONF_CO2,
@@ -405,7 +404,14 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             source = previous
 
         result = source.result
-        if result is None or result.co2_session_need is None:
+        if (
+            result is None
+            or result.co2_session_need is None
+            or result.co2_session_target is None
+        ):
+            # ``None`` is an intentional engine decision: there is no explicit
+            # reachable CO₂ finish target for this opening opportunity. Never
+            # recreate a generic 850/1250/1850 ppm target here.
             return False
 
         mode = result.mode
@@ -435,12 +441,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         # the same user action.  Start an explicit session now so later mode
         # changes (for example 1400 -> 1399 ppm) cannot forget the CO₂ goal.
         target_ppm = result.co2_session_target
-        if target_ppm is None:
-            target_ppm = co2_session_target(
-                co2=source.values.get("co2_ppm"),
-                primary_need=result.co2_session_need,
-                mode=mode,
-            )
         self._co2_hysteresis.start_airing_session(target_ppm=target_ppm)
 
         tracker = get_tracker(self.hass, self.entry, self.subentry)

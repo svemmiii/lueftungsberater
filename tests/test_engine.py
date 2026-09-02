@@ -363,7 +363,7 @@ def test_humidity_hysteresis_keeps_active_drying_advice_stable():
     assert fresh.mode != "feuchte_lueften"
 
 
-def test_open_window_co2_hysteresis_uses_900_to_850_finish_band():
+def test_open_window_co2_session_memory_does_not_create_a_fresh_need_below_900():
     continuing = evaluate_room(
         base(
             co2=930,
@@ -403,12 +403,14 @@ def test_open_window_co2_hysteresis_uses_900_to_850_finish_band():
         )
     )
     assert continuing.mode == "weiter_lueften"
+    # Below the 900-ppm continuation band, session memory no longer injects a
+    # synthetic co2_elevated need. Current outdoor conditions may therefore
+    # finish or discourage the airing exactly as a fresh evaluation would.
+    assert transition.mode == "lueftung_fertig"
     assert transition.color == "yellow"
-    assert transition.mode == "co2_abwaegung"
-    assert transition.reason_args["caution"] == "near_target"
-    assert waiting_at_target.mode == "co2_abwaegung"
-    assert released.mode == "lueftung_fertig"
-
+    assert waiting_at_target.mode == "aussen_zu_kalt"
+    assert waiting_at_target.color == "orange"
+    assert released.mode == "aussen_zu_kalt"
 
 def test_cold_outdoor_air_cools_warm_room_toward_personal_target():
     r = evaluate_room(
@@ -542,11 +544,11 @@ def test_agreed_matrix_7_critical_co2_can_outweigh_hotter_wetter_air():
     assert r.color == "green"
 
 
-def test_co2_session_transitions_green_to_yellow_then_outdoor_disadvantage_after_close():
+def test_co2_session_transitions_green_to_yellow_without_masking_outdoor_disadvantage():
+    # With still-good current outdoor conditions, the fixed session target
+    # transitions normally from keep-open green to the near-target yellow band.
     green = evaluate_room(
         base(
-            outdoor_temp=31,
-            outdoor_humidity=34,
             co2=930,
             window_open=True,
             previous_mode="weiter_lueften",
@@ -556,8 +558,6 @@ def test_co2_session_transitions_green_to_yellow_then_outdoor_disadvantage_after
     )
     yellow = evaluate_room(
         base(
-            outdoor_temp=31,
-            outdoor_humidity=34,
             co2=880,
             window_open=True,
             previous_mode="weiter_lueften",
@@ -565,13 +565,17 @@ def test_co2_session_transitions_green_to_yellow_then_outdoor_disadvantage_after
             co2_airing_active=True,
         )
     )
+    # Once the current outside situation itself argues against opening, session
+    # memory must not force it back to green.
     orange = evaluate_room(
         base(
             outdoor_temp=31,
             outdoor_humidity=34,
-            co2=850,
-            window_open=False,
-            previous_mode="lueftung_fertig",
+            co2=930,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
         )
     )
     assert green.color == "green"
@@ -1598,3 +1602,149 @@ def test_co2_closing_exception_does_not_let_weaker_tradeoff_skip_priority_merge(
     assert at_temp_need.decision_need == "temperature"
     assert at_temp_need.mode == "komfort_abwaegung"
     assert at_temp_need.color == "yellow"
+
+
+def test_active_co2_session_after_minimum_keeps_current_hot_outdoor_tradeoff():
+    """Session memory must not turn unchanged hot outdoor conditions yellow -> green."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=38.0,
+            outdoor_humidity=50.0,
+            co2=1500.0,
+            window_open=True,
+            open_minutes=6.0,
+            previous_mode="co2_mindestlueftung_vorsicht",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+
+    assert result.color == "yellow"
+    assert result.mode == "co2_abwaegung"
+    assert result.mode != "weiter_lueften"
+
+
+def test_active_co2_session_after_minimum_does_not_override_new_rain():
+    """Rain after minute five must remain visible instead of being forced green."""
+    result = evaluate_room(
+        base(
+            co2=1500.0,
+            window_open=True,
+            open_minutes=6.0,
+            rain_now=True,
+            previous_mode="co2_mindestlueftung",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+
+    assert result.color == "yellow"
+    assert result.mode == "co2_abwaegung"
+    assert result.mode != "weiter_lueften"
+
+
+def test_active_co2_session_after_minimum_does_not_override_new_forecast_warning():
+    """An imminent weather deterioration remains a tradeoff after minimum airing."""
+    result = evaluate_room(
+        base(
+            co2=1500.0,
+            window_open=True,
+            open_minutes=6.0,
+            short_term_weather_change="worsening",
+            short_term_weather_kind="thunderstorm",
+            short_term_weather_minutes=10.0,
+            previous_mode="co2_mindestlueftung",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+
+    assert result.color == "yellow"
+    assert result.mode == "co2_abwaegung"
+    assert result.mode != "weiter_lueften"
+
+
+def test_post_minimum_co2_session_never_relaxes_fresh_current_evaluation():
+    common = dict(
+        co2=880.0,
+        window_open=True,
+        open_minutes=6.0,
+        previous_mode="co2_mindestlueftung",
+        previous_need="co2_elevated",
+        indoor_temp=20.0,
+        target_temp=22.0,
+        outdoor_temp=18.0,
+        outdoor_humidity=50.0,
+    )
+    fresh = evaluate_room(base(**common, co2_airing_active=False))
+    active = evaluate_room(
+        base(
+            **common,
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+    rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    assert rank[active.color] <= rank[fresh.color]
+    assert active.mode == fresh.mode
+
+
+def test_imminent_rain_aq_change_cannot_turn_mold_tradeoff_green():
+    common = dict(
+        indoor_temp=22.0,
+        indoor_humidity=65.0,
+        target_temp=22.0,
+        outdoor_temp=20.0,
+        outdoor_humidity=50.0,
+        co2=2500.0,
+        surface_temp=5.0,
+        mold_persistent=True,
+        rain_soon=True,
+    )
+    good = evaluate_room(base(**common, air_quality="good"))
+    moderate = evaluate_room(base(**common, air_quality="moderate"))
+    assert good.color == "yellow"
+    assert moderate.color == "yellow"
+
+
+def test_imminent_rain_never_weakens_2000_to_2000_point_1_co2_step():
+    common = dict(
+        indoor_temp=22.0,
+        indoor_humidity=65.0,
+        outdoor_temp=-8.0,
+        outdoor_humidity=50.0,
+        rain_soon=True,
+        rain_minutes_until=13.5,
+    )
+    at = evaluate_room(base(**common, co2=2000.0))
+    above = evaluate_room(base(**common, co2=2000.1))
+    rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    assert rank[above.color] >= rank[at.color]
+
+
+def test_imminent_rain_does_not_reintroduce_humidity_threshold_regression():
+    common = dict(
+        indoor_temp=22.0,
+        target_temp=22.0,
+        outdoor_temp=20.0,
+        outdoor_humidity=50.0,
+        co2=1100.0,
+        outdoor_co2=900.0,
+        air_quality="moderate",
+        rain_soon=True,
+        rain_minutes_until=8.0,
+    )
+    below = evaluate_room(base(**common, indoor_humidity=59.9))
+    at = evaluate_room(base(**common, indoor_humidity=60.0))
+    rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    assert rank[at.color] >= rank[below.color]

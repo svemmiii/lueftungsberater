@@ -1193,9 +1193,9 @@ def night_advice_text(
         }[lang]
     if key == "night_later":
         return {
-            "de": f"🌙 Später lüften: Ab etwa {start} wird es draußen deutlich {change}. Bis dahin kannst du die Fenster geschlossen lassen.",
-            "en": f"🌙 Air later: from around {start}, it should become noticeably {change} outside. Keep the windows closed until then.",
-            "tr": f"🌙 Daha sonra havalandır: yaklaşık {start} itibarıyla dışarısı belirgin şekilde {change} olacak. O zamana kadar pencereleri kapalı tutabilirsin.",
+            "de": f"🌙 Später lüften: Zwischen etwa {start} und {end} wird es draußen deutlich {change}. Bis dahin kannst du die Fenster geschlossen lassen.",
+            "en": f"🌙 Air later: between around {start} and {end}, it should be noticeably {change} outside. Keep the windows closed until then.",
+            "tr": f"🌙 Daha sonra havalandır: yaklaşık {start} ile {end} arasında dışarısı belirgin şekilde {change} olacak. O zamana kadar pencereleri kapalı tutabilirsin.",
         }[lang]
     if key in {"night_now_conditional", "night_later_conditional"}:
         details: list[str] = []
@@ -1216,9 +1216,9 @@ def night_advice_text(
         }[lang]
         if key == "night_later_conditional":
             return {
-                "de": f"🌙 Später könnte sich Lüften lohnen: Ab etwa {start} wird es draußen {change}. Allerdings: {detail}.",
-                "en": f"🌙 Ventilation may make sense later: from around {start}, it should be {change} outside. However: {detail}.",
-                "tr": f"🌙 Daha sonra havalandırmak işe yarayabilir: yaklaşık {start} itibarıyla dışarısı {change} olacak. Ancak: {detail}.",
+                "de": f"🌙 Später könnte sich Lüften lohnen: Zwischen etwa {start} und {end} wird es draußen {change}. Allerdings: {detail}.",
+                "en": f"🌙 Ventilation may make sense later: between around {start} and {end}, it should be {change} outside. However: {detail}.",
+                "tr": f"🌙 Daha sonra havalandırmak işe yarayabilir: yaklaşık {start} ile {end} arasında dışarısı {change} olacak. Ancak: {detail}.",
             }[lang]
         return {
             "de": f"🌙 Heute Nacht könnte Lüften sinnvoll sein, allerdings mit Einschränkungen: {detail}.",

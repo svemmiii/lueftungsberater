@@ -89,6 +89,21 @@ def test_night_advice_text_is_localized() -> None:
         assert "03:00" in text
 
 
+def test_later_night_advice_includes_start_and_end_in_all_languages() -> None:
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "start_time": "2026-08-26T01:00:00+02:00",
+        "end_time": "2026-08-26T03:00:00+02:00",
+        "thermal_need": True,
+    }
+    for key in ("night_later", "night_later_conditional"):
+        for language in ("de", "en", "tr"):
+            text = night_advice_text(key, args, language, "°C")
+            assert "01:00" in text
+            assert "03:00" in text
+
+
 def test_room_perspective_text_is_short_and_localized_in_all_languages() -> None:
     from custom_components.lueftungsberater.localization import recommendation_text
 

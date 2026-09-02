@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.9.1 - Alpha (Release-Audit-Nachbesserung)
+
+- Stunden-Forecasts werden nach maximal 60 Minuten nicht mehr für Kurzfrist- oder Nachtentscheidungen verwendet; der Zustand wird als `fresh`, `stale` oder `unavailable` diagnostizierbar.
+- Erfolgreiche leere Forecastantworten verwerfen den alten Cache bewusst.
+- Forecast-Feuchte und Niederschlagswahrscheinlichkeit werden auf 0–100 % begrenzt; negative Niederschlags- und Windwerte werden ignoriert.
+- Spätere Nachtlüftung nennt in Deutsch, Englisch und Türkisch jetzt Beginn und Ende des berechneten Zeitfensters.
+- Remote-Verbindungen pinnen die vorab geprüften Tailscale-Adressen für den eigentlichen Request und kontrollieren zusätzlich die Peer-IP, bevor die Antwort verarbeitet wird.
+- Der Home-Assistant-Pytest-Stack ist für reproduzierbare CI-Läufe auf eine konkrete Version festgelegt.
+- Der gepinnte Remote-Resolver ist jetzt die alleinige Zielbindung; kleine, bereits gepufferte aiohttp-Antworten werden nicht mehr fälschlich wegen einer bereits freigegebenen `response.connection` abgewiesen.
+- Snapshot-HTTP-Zugriffe und die lokale WebSocket-Remoteübersicht erfordern nun einen Home-Assistant-Administrator. Die Raumfreigabe bleibt die zweite ausdrückliche Zugriffsschranke.
+- Der Forecast-Status wird auch an Remote-Karten übertragen und bei fehlenden oder veralteten Prognosen sichtbar angezeigt.
+- Deutlich in der Zukunft liegende Cache-Zeitstempel gelten als veraltet.
+- Ruff F/E9 ist als CI-Gate ergänzt; tote Variablen, ungenutzte Importe und der Wildcard-Import wurden bereinigt.
+
+## v0.9.1
+
+### Letzte Session-/Wetter-Monotonie korrigiert
+- Eine laufende CO₂-Sitzung erzeugt nach der Mindestlüftung **keinen künstlichen aktuellen `co2_elevated`-Bedarf mehr**. Die frische Entscheidung basiert zuerst ausschließlich auf den aktuellen Messwerten; die Session merkt nur noch Ziel/Hysterese und darf eine aktuelle Orange-/Rot-/Gelb-Bewertung nicht öffnungsfreundlicher machen.
+- Regen und kurzfristiger Forecast werden bei aktiven Innenraumgründen jetzt **pro Kandidat vor dem Merge** anhand der jeweils eigenen erwarteten Lüftungsdauer bewertet. Ein späterer Wechsel des Gewinner-Grunds kann dadurch nicht mehr dasselbe Wetter plötzlich anders gewichten.
+- Bei gleich dringlichen Öffnungsgründen bleibt die Schutzpriorität erhalten: ein wetterbedingt vorsichtiger Schimmelgrund wird nicht von einem grünen Peer verdeckt. Gleichzeitig darf ein nur wegen seiner längeren Idealdauer gelber normaler Feuchte-Kandidat eine bereits vorhandene kürzere sichere Grün-Möglichkeit nicht verschlechtern.
+- Neue Regressionstests decken die post-minimum-Session-Invariante, `good → moderate` mit bevorstehendem Regen, die CO₂-Schwelle `2000 → 2000,1 ppm` mit Regen sowie die 59,9/60,0-%-Feuchteschwelle mit Wetterüberschneidung ab.
+
+### CO₂-Sitzungen / Coordinator korrigiert
+- Eine CO₂-Lüftungssitzung wird beim Öffnen des Fensters nur noch an **einer** Stelle gestartet: Der Room-Coordinator übernimmt ausschließlich das zuvor von der Engine berechnete `co2_session_target` und `co2_session_need`. Der alte automatische Compatibility-Start in der Hysterese berechnet beim Öffnen kein eigenes 850-/1250-/1850-ppm-Ziel mehr.
+- Ein bewusstes `co2_session_target=None` bleibt jetzt verbindlich **keine explizite CO₂-Session**. Damit kann z. B. bei 1000 ppm innen und 950 ppm außen kein nachträglich erfundenes 850-ppm-Ziel entstehen, das mit dieser Außenluft nicht erreichbar wäre.
+- Dynamische Engine-Ziele bleiben beim Fensteröffnen unverändert erhalten, einschließlich 850, 1250, 1550, 1850 ppm und außen-CO₂-angepasster Ziele.
+- Nach Ablauf der fünfminütigen Mindestlüftung merkt die CO₂-Session weiterhin ihr festes Ziel und die Abschlusshysterese, **erzwingt aber nicht mehr pauschal Grün**. Die aktuelle Engine-Bewertung von Regen, kurzfristigem Forecast, Temperatur-/Feuchtenachteilen, Luftqualität, NINA/Wetter und Außen-CO₂ darf die laufende Lüftung weiterhin auf Gelb/Orange/Rot einstufen.
+- Die Session überschreibt nur noch eine aktuell weiterhin grüne Entscheidung zu `weiter_lueften` bzw. zum gelben Near-Target-/Fertig-Zustand. Ein ursprünglich vorsichtiger oder später verschlechterter Fall wird dadurch nicht allein durch Zeitablauf öffnungsfreundlicher.
+- Neue Regressionstests sichern den fehlenden Hysterese-Autostart, die exakte Coordinator-Zielübernahme, `target=None` sowie Regen-/Forecast-/Temperatur-Nachteile nach der Mindestzeit ab.
+
 ## v0.9.0
 
 ### Letzte Schwellen- und Konfliktregressionen geschlossen

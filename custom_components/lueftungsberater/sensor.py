@@ -19,9 +19,7 @@ from .const import (
     CONF_MANUAL_OUTDOOR,
     CONF_SURFACE_TEMP,
     CONF_NINA_STATUS,
-    CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_CO2,
-    CONF_OUTDOOR_TEMP,
     CONF_WEATHER_DANGER,
     CONF_WEATHER_REASON,
     CONF_WINDOWS,
@@ -295,6 +293,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "wind_speed_kmh": weather.wind_speed_kmh,
             "wind_gust_kmh": weather.wind_gust_kmh,
             "rain_minutes_until": weather.rain_minutes_until,
+            "forecast_data_status": weather.forecast_data_status,
             "short_term_weather_change": weather.short_term_change,
             "short_term_weather_kind": weather.short_term_kind,
             "short_term_weather_minutes": (

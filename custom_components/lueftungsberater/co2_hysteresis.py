@@ -406,27 +406,15 @@ class Co2HysteresisState:
                 ),
             )
 
-        # Compatibility path for an already-open CO₂ session restored from an
-        # older release that did not persist an explicit session flag.  Use the
-        # previous CO₂ band to choose the new dynamic target once, then keep it.
-        if self.completed_for_open_window:
-            return Co2HysteresisDecision(
-                rearm_threshold_ppm=self.rearm_threshold_ppm,
-                next_check_seconds=rearm_check,
-            )
-
-        target = co2_session_target(
-            co2=co2,
-            primary_need=previous_need,
-            mode=previous_mode,
-        )
-        self.start_airing_session(target_ppm=target)
-        return self.evaluate(
-            now=now,
-            co2=co2,
-            window_open=window_open,
-            previous_mode=previous_mode,
-            previous_need=previous_need,
+        # An open window alone must never manufacture a CO₂ session. The engine
+        # computes the situation-specific target while the window is still
+        # closed, and the room coordinator is the single owner that starts the
+        # explicit session when the user follows that recommendation. This is
+        # important for targets adapted to outdoor conditions and for deliberate
+        # ``target=None`` decisions where no reachable explicit CO₂ goal exists.
+        return Co2HysteresisDecision(
+            rearm_threshold_ppm=self.rearm_threshold_ppm,
+            next_check_seconds=rearm_check,
         )
 
 

@@ -181,6 +181,7 @@ OFFICIAL_CLOSE_ACTIONS = (
 
 _LOGGER = logging.getLogger(__name__)
 HOURLY_FORECAST_CACHE_MAX_AGE = timedelta(minutes=15)
+HOURLY_FORECAST_MAX_USABLE_AGE = timedelta(minutes=60)
 NINA_DETAILS_CACHE_MAX_AGE = timedelta(minutes=5)
 SHORT_TERM_FORECAST_WINDOW = timedelta(minutes=60)
 
@@ -215,6 +216,7 @@ class WeatherAssessment:
     air_quality_values: dict[str, float] = field(default_factory=dict)
     hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
     hourly_forecast_updated: datetime | None = None
+    forecast_data_status: str = "unavailable"
     short_term_change: str | None = None
     short_term_kind: str | None = None
     short_term_minutes: float | None = None
@@ -545,12 +547,12 @@ def _normalize_hourly_forecast(
         }
         for key in ("humidity", "precipitation_probability"):
             value = _float(raw.get(key))
-            if value is not None:
+            if value is not None and 0 <= value <= 100:
                 item[key] = value
         precipitation = _precipitation_to_mm(
             raw.get("precipitation"), precipitation_unit
         )
-        if precipitation is not None:
+        if precipitation is not None and precipitation >= 0:
             item["precipitation"] = precipitation
         condition = raw.get("condition")
         if isinstance(condition, str) and condition:
@@ -559,11 +561,11 @@ def _normalize_hourly_forecast(
         gust = _float(raw.get("wind_gust_speed"))
         if wind is not None:
             normalized_wind = _wind_to_kmh(wind, wind_unit)
-            if normalized_wind is not None:
+            if normalized_wind is not None and normalized_wind >= 0:
                 item["wind_speed"] = normalized_wind
         if gust is not None:
             normalized_gust = _wind_to_kmh(gust, wind_unit)
-            if normalized_gust is not None:
+            if normalized_gust is not None and normalized_gust >= 0:
                 item["wind_gust_speed"] = normalized_gust
         normalized.append(item)
     return normalized
@@ -571,17 +573,26 @@ def _normalize_hourly_forecast(
 
 def _cached_hourly_forecast(
     hass: HomeAssistant, entry: ConfigEntry
-) -> tuple[list[dict[str, Any]], datetime | None]:
+) -> tuple[list[dict[str, Any]], datetime | None, str]:
     entry_id = getattr(entry, "entry_id", None)
     domain_data = getattr(hass, "data", {})
     if not entry_id or not isinstance(domain_data, dict):
-        return [], None
+        return [], None, "unavailable"
     cache = domain_data.get(DOMAIN, {}).get(DATA_FORECAST_CACHE, {}).get(entry_id)
     if not isinstance(cache, dict):
-        return [], None
+        return [], None, "unavailable"
     items = cache.get("forecast")
     updated = cache.get("updated")
-    return (list(items) if isinstance(items, list) else [], updated if isinstance(updated, datetime) else None)
+    if not isinstance(updated, datetime):
+        return [], None, "unavailable"
+    try:
+        age = dt_util.utcnow() - updated
+    except TypeError:
+        return [], updated, "stale"
+    if age < -timedelta(minutes=5) or age > HOURLY_FORECAST_MAX_USABLE_AGE:
+        return [], updated, "stale"
+    forecast = list(items) if isinstance(items, list) else []
+    return forecast, updated, "fresh" if forecast else "unavailable"
 
 
 def _window_weather_profile(
@@ -704,8 +715,9 @@ async def async_refresh_hourly_forecast(
     entity_response = response.get(weather_entity_id) if isinstance(response, dict) else None
     raw_forecast = entity_response.get("forecast") if isinstance(entity_response, dict) else None
     normalized = _normalize_hourly_forecast(hass, weather_entity_id, raw_forecast)
-    if normalized:
-        store[entry.entry_id] = {"updated": now, "forecast": normalized}
+    # A successful empty response is authoritative. Keeping old points here
+    # would silently turn an unavailable forecast into a stale prediction.
+    store[entry.entry_id] = {"updated": now, "forecast": normalized}
 
 def _discover_dwd_radar_entities(
     hass: HomeAssistant,
@@ -781,9 +793,11 @@ def weather_assessment(
         hass,
         weather_entity_id,
     )
-    result.hourly_forecast, result.hourly_forecast_updated = _cached_hourly_forecast(
-        hass, entry
-    )
+    (
+        result.hourly_forecast,
+        result.hourly_forecast_updated,
+        result.forecast_data_status,
+    ) = _cached_hourly_forecast(hass, entry)
 
     temp_override = _manual_override(entry, CONF_OUTDOOR_TEMP)
     humidity_override = _manual_override(entry, CONF_OUTDOOR_HUMIDITY)
@@ -1278,11 +1292,11 @@ def _nina_slot_sensor_values(
         state = hass.states.get(entity_id)
         if state is None or state.state in {"unknown", "unavailable", "none", ""}:
             continue
-        for field in ("headline", "severity"):
-            suffix = f"-{field}"
+        for detail_field in ("headline", "severity"):
+            suffix = f"-{detail_field}"
             if unique_id.endswith(suffix):
                 slot_id = unique_id[: -len(suffix)]
-                details.setdefault(slot_id, {})[field] = str(state.state)
+                details.setdefault(slot_id, {})[detail_field] = str(state.state)
                 break
     return details
 
@@ -1367,7 +1381,6 @@ def _evaluate_nina_like_entities(
             ),
             "",
         )
-        alltext = " ".join((headline, description, actions))
         air_state = _evaluate_air_warning(
             headline,
             description,

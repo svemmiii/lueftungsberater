@@ -22,6 +22,8 @@ const LB_I18N = {
     "co2.critical": "kritisch",
     "co2.unknown": "unbekannt",
     "weather_service": "Wetterdienst",
+    "forecast.stale": "Wetterprognose veraltet · Nacht- und Kurzfristhinweise pausiert",
+    "forecast.unavailable": "Stündliche Wetterprognose nicht verfügbar",
     "history_open": "Verlauf öffnen",
     "setup.title": "Raum auswählen",
     "setup.description": "Wähle im visuellen Editor einen Lüftungsassistent-Raum aus.",
@@ -115,6 +117,8 @@ const LB_I18N = {
     "co2.critical": "critical",
     "co2.unknown": "unknown",
     "weather_service": "weather service",
+    "forecast.stale": "Weather forecast is stale · night and short-term guidance paused",
+    "forecast.unavailable": "Hourly weather forecast unavailable",
     "history_open": "Open history",
     "setup.title": "Select a room",
     "setup.description": "Choose a Fresh Air Assistant room in the visual editor.",
@@ -208,6 +212,8 @@ const LB_I18N = {
     "co2.critical": "kritik",
     "co2.unknown": "bilinmiyor",
     "weather_service": "hava durumu hizmeti",
+    "forecast.stale": "Hava tahmini eski · gece ve kısa vadeli öneriler duraklatıldı",
+    "forecast.unavailable": "Saatlik hava tahmini kullanılamıyor",
     "history_open": "Geçmişi aç",
     "setup.title": "Oda seç",
     "setup.description": "Görsel düzenleyiciden bir Fresh Air Assistant odası seç.",
@@ -713,6 +719,14 @@ class LueftungsberaterCard extends HTMLElement {
           html: this._metric(lbT(this._hass, "co2.unavailable"), a.source_co2, lbT(this._hass, "co2.open")),
         });
       }
+    }
+
+    if (a.forecast_data_status === "stale" || a.forecast_data_status === "unavailable") {
+      rows.push({
+        icon: "mdi:weather-cloudy-alert",
+        cls: "data-warning",
+        html: this._escape(lbT(this._hass, `forecast.${a.forecast_data_status}`)),
+      });
     }
 
     const showNight = Boolean(nightText) && a.night_ventilation_status && a.night_ventilation_status !== "unavailable";

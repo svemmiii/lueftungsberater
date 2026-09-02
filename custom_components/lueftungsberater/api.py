@@ -9,7 +9,7 @@ import time
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
-from homeassistant.components.http import KEY_HASS, HomeAssistantView
+from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistantView
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
@@ -70,6 +70,7 @@ REMOTE_ATTRIBUTE_KEYS = {
     "wind_speed_kmh",
     "wind_gust_kmh",
     "rain_minutes_until",
+    "forecast_data_status",
     "short_term_weather_change",
     "short_term_weather_kind",
     "short_term_weather_minutes",
@@ -104,6 +105,11 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
         if not request.remote or not _ip_is_tailscale(str(request.remote)):
             return self.json_message(
                 "Tailscale connection required",
+                status_code=HTTPStatus.FORBIDDEN,
+            )
+        if not request[KEY_HASS_USER].is_admin:
+            return self.json_message(
+                "Administrator token required",
                 status_code=HTTPStatus.FORBIDDEN,
             )
 
@@ -471,6 +477,7 @@ def websocket_localize(
 @websocket_api.websocket_command(
     {vol.Required("type"): "lueftungsberater/remote_overview"}
 )
+@websocket_api.require_admin
 @callback
 def websocket_remote_overview(
     hass: HomeAssistant,

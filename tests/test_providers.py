@@ -880,3 +880,57 @@ def test_forecast_precipitation_inches_are_normalized_to_mm():
     )
     assert len(rows) == 1
     assert abs(rows[0]["precipitation"] - 2.54) < 0.001
+
+
+def test_forecast_rejects_implausible_percentages_and_negative_values():
+    from homeassistant.const import UnitOfPrecipitationDepth, UnitOfSpeed, UnitOfTemperature
+    from custom_components.lueftungsberater.providers import _normalize_hourly_forecast
+
+    stamp = datetime(2026, 9, 1, 18, 0, tzinfo=timezone.utc)
+    hass = FakeHass({WEATHER: FakeState("sunny", {
+        "temperature_unit": UnitOfTemperature.CELSIUS,
+        "wind_speed_unit": UnitOfSpeed.KILOMETERS_PER_HOUR,
+        "precipitation_unit": UnitOfPrecipitationDepth.MILLIMETERS,
+    })})
+    rows = _normalize_hourly_forecast(hass, WEATHER, [{
+        "datetime": stamp.isoformat(), "temperature": 20, "humidity": -1,
+        "precipitation_probability": 150, "precipitation": -2,
+        "wind_speed": -4, "wind_gust_speed": -8,
+    }])
+    assert len(rows) == 1
+    assert set(rows[0]) == {"datetime", "temperature"}
+
+
+def test_stale_forecast_cache_is_not_returned():
+    from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
+    from custom_components.lueftungsberater.providers import _cached_hourly_forecast
+
+    now = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
+    entry = SimpleNamespace(entry_id="entry-1")
+    hass = SimpleNamespace(data={DOMAIN: {DATA_FORECAST_CACHE: {"entry-1": {
+        "updated": now - timedelta(hours=2),
+        "forecast": [{"datetime": now + timedelta(hours=2), "temperature": 18}],
+    }}}})
+    with patch("custom_components.lueftungsberater.providers.dt_util.utcnow", return_value=now):
+        rows, updated, status = _cached_hourly_forecast(hass, entry)
+    assert rows == []
+    assert updated == now - timedelta(hours=2)
+    assert status == "stale"
+
+
+def test_forecast_cache_from_far_future_is_treated_as_stale():
+    from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
+    from custom_components.lueftungsberater.providers import _cached_hourly_forecast
+
+    now = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
+    entry = SimpleNamespace(entry_id="entry-1")
+    future = now + timedelta(hours=2)
+    hass = SimpleNamespace(data={DOMAIN: {DATA_FORECAST_CACHE: {"entry-1": {
+        "updated": future,
+        "forecast": [{"datetime": future, "temperature": 18}],
+    }}}})
+    with patch("custom_components.lueftungsberater.providers.dt_util.utcnow", return_value=now):
+        rows, updated, status = _cached_hourly_forecast(hass, entry)
+    assert rows == []
+    assert updated == future
+    assert status == "stale"
