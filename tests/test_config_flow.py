@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from custom_components.lueftungsberater.config_flow import SECTION_GENERAL, _remote_summary
 
 
