@@ -438,6 +438,7 @@ def test_v072_notification_choices_are_split_between_assistant_and_room():
         ROOM_NOTIFY_TRIGGER_OPTIONS,
     )
     from custom_components.lueftungsberater.const import (
+        NOTIFY_TRIGGER_AIR_DANGER,
         NOTIFY_TRIGGER_AIRING_FINISHED,
         NOTIFY_TRIGGER_AIRING_RECOMMENDED,
     )
