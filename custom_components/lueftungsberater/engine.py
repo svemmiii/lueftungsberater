@@ -1237,7 +1237,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     outdoor_co2_limited = _co2_outdoor_limited(data)
 
     decision_need = need
-    decision_urgency = urgency
     co2_candidate_need: str | None = None
     co2_candidate_mode: str | None = None
     co2_candidate_caution: str | None = None
@@ -1563,7 +1562,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             else:
                 selected = ("none", 0, "normal", None)
 
-        decision_need, decision_urgency, mode, caution_kind = selected
+        decision_need, _, mode, caution_kind = selected
 
         # The 24-hour routine remains a fallback and therefore never re-enters
         # the normal multi-need candidate set. Its already-established positive
@@ -1620,7 +1619,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             and _action_semantic(co2_candidate_mode) == "tradeoff"
         ):
             decision_need = need
-            decision_urgency = urgency
             mode = "co2_lueften_mit_nachteil"
             caution_kind = co2_candidate_caution or "combined"
 
