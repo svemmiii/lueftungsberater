@@ -48,6 +48,9 @@ jobs:
         run: |
           find custom_components/lueftungsberater -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
+      - name: Test bounded frontend text cache
+        run: node tests/frontend_cache_test.mjs
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -56,7 +59,11 @@ jobs:
       - name: Install Home Assistant test stack
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "pytest-homeassistant-custom-component==0.13.360" "ruff==0.12.11"
+          python -m pip install "pytest-homeassistant-custom-component==0.13.363" ruff
+
+      - name: Ruff critical checks
+        run: |
+          ruff check custom_components/lueftungsberater tests --select F,E9
 
       - name: Show test versions
         run: |
@@ -66,5 +73,46 @@ jobs:
 
       - name: Run unit tests
         run: |
-          python -m ruff check custom_components tests --select F,E9
           python -m pytest -v tests
+
+  pytest-latest:
+    name: Pytest latest HA stack
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install latest Home Assistant test stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade "pytest-homeassistant-custom-component"
+      - name: Run unit tests against latest
+        run: |
+          python -m pytest -q tests
+
+  pytest-minimum-ha:
+    name: Pytest minimum HA 2026.6
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install Home Assistant 2026.6 test stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pytest-homeassistant-custom-component==0.13.336"
+      - name: Verify minimum Home Assistant version
+        run: |
+          python -c "from importlib.metadata import version; assert version('homeassistant') == '2026.6.0', version('homeassistant'); print('homeassistant', version('homeassistant'))"
+      - name: Run unit tests against minimum supported HA
+        run: |
+          python -m pytest -q tests

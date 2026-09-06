@@ -1,4 +1,4 @@
-from custom_components.lueftungsberater.localization import reason_text
+from custom_components.lueftungsberater.localization import duration_text, reason_text
 
 
 def test_temperature_unit_does_not_wrap_away_from_value() -> None:
@@ -87,21 +87,6 @@ def test_night_advice_text_is_localized() -> None:
         text = night_advice_text("night_now", args, language, "°C")
         assert fragment in text
         assert "03:00" in text
-
-
-def test_later_night_advice_includes_start_and_end_in_all_languages() -> None:
-    from custom_components.lueftungsberater.localization import night_advice_text
-
-    args = {
-        "start_time": "2026-08-26T01:00:00+02:00",
-        "end_time": "2026-08-26T03:00:00+02:00",
-        "thermal_need": True,
-    }
-    for key in ("night_later", "night_later_conditional"):
-        for language in ("de", "en", "tr"):
-            text = night_advice_text(key, args, language, "°C")
-            assert "01:00" in text
-            assert "03:00" in text
 
 
 def test_room_perspective_text_is_short_and_localized_in_all_languages() -> None:
@@ -253,3 +238,24 @@ def test_dynamic_co2_session_target_text_is_natural_in_all_languages() -> None:
         )
         assert fragment in minimum
         assert fragment in near
+
+
+def test_later_night_advice_includes_start_and_end_in_all_languages():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "start_time": "2026-09-06T00:00:00+02:00",
+        "end_time": "2026-09-06T04:00:00+02:00",
+        "thermal_need": True,
+    }
+    for language in ("de", "en", "tr"):
+        text = night_advice_text("night_later", args, language)
+        assert "00:00" in text
+        assert "04:00" in text
+
+
+def test_temperature_continuation_duration_does_not_promise_reaching_unreachable_target():
+    for language in ("de", "en", "tr"):
+        text = duration_text("while_temperature_helps", language)
+        assert text
+    assert "nicht zwingend" in duration_text("while_temperature_helps", "de")

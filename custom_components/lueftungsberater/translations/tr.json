@@ -158,7 +158,8 @@
       "not_tailscale": "Bu adres tanınan bir Tailscale bağlantısına çözülmüyor.",
       "invalid_auth": "Uzaktaki Home Assistant erişim belirtecini kabul etmedi.",
       "cannot_connect": "Uzaktaki Home Assistant'a bu Tailscale adresi üzerinden ulaşılamıyor.",
-      "select_room": "En az bir paylaşılan oda seç."
+      "select_room": "En az bir paylaşılan oda seç.",
+      "admin_required": "Bu uzak bağlantıda kullanılan Home Assistant kullanıcısının yönetici olması gerekir."
     },
     "abort": {
       "already_configured": "Bu uzak Home Assistant zaten bağlı.",
@@ -338,6 +339,10 @@
       "abort": {
         "already_configured": "Bu ada sahip bir oda zaten var.",
         "remote_read_only": "Uzak/Tailscale bağlantıları salt okunurdur. Odalar yalnızca yerel bir Fresh Air Assistant'a eklenebilir."
+      },
+      "error": {
+        "room_name_empty": "Lütfen bir oda adı girin.",
+        "room_name_duplicate": "Bu oda adı bu örnekte zaten kullanılıyor."
       }
     }
   },

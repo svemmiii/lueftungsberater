@@ -8,11 +8,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.storage import Store
 
 from .const import (
     DATA_RECORDER_RETENTION,
     DOMAIN,
     RECORDER_RETENTION_DAYS,
+    STORAGE_VERSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,28 +24,120 @@ _PURGE_SERVICE = "purge_entities"
 _PURGE_HOUR = 5
 _PURGE_MINUTE = 30
 
+# Only these entities carry history that is useful on its own. The remaining
+# helper/derived entities are still available live, but keeping their state
+# timelines duplicates source sensors or a value already exposed by the advisor.
+_RETAINED_HISTORY_SUFFIXES = (
+    "_advisor",
+    "_absolute_humidity",
+    "_last_airing",
+    "_critical_danger",
+)
 
-def _selected_entity_ids(entries: Iterable[Any]) -> list[str]:
-    """Return Lüftungsassistent entity IDs from registry entries."""
-    return sorted(
-        {
-            str(item.entity_id)
-            for item in entries
-            if getattr(item, "platform", None) == DOMAIN
-            and getattr(item, "entity_id", None)
-        }
+
+def _selected_entries(entries: Iterable[Any]) -> list[Any]:
+    """Return entity-registry rows owned by this integration."""
+    return [
+        item
+        for item in entries
+        if getattr(item, "platform", None) == DOMAIN
+        and getattr(item, "entity_id", None)
+    ]
+
+
+def _partition_history(entries: Iterable[Any]) -> tuple[list[str], list[str]]:
+    """Split useful retained history from live-only/redundant helper history."""
+    retained: set[str] = set()
+    transient: set[str] = set()
+    for item in _selected_entries(entries):
+        entity_id = str(item.entity_id)
+        unique_id = str(getattr(item, "unique_id", "") or "")
+        if unique_id.endswith(_RETAINED_HISTORY_SUFFIXES):
+            retained.add(entity_id)
+        else:
+            transient.add(entity_id)
+    return sorted(retained), sorted(transient)
+
+
+async def _async_purge_ids(
+    hass: HomeAssistant,
+    entity_ids: Iterable[str],
+    *,
+    keep_days: int,
+) -> None:
+    ids = sorted({str(entity_id) for entity_id in entity_ids if entity_id})
+    if not ids or not hass.services.has_service(_RECORDER_DOMAIN, _PURGE_SERVICE):
+        return
+    await hass.services.async_call(
+        _RECORDER_DOMAIN,
+        _PURGE_SERVICE,
+        {"entity_id": ids, "keep_days": keep_days},
+        blocking=False,
     )
+
+
+def _index_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    return Store(
+        hass,
+        STORAGE_VERSION,
+        f"{DOMAIN}.recorder_entities.{entry_id}",
+    )
+
+
+async def async_refresh_recorder_entity_index(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    """Remember current entity IDs and purge history of entities removed later.
+
+    Home Assistant clears registry rows when a room subentry is deleted. Keeping
+    this tiny list lets the next reload still target the former entity IDs and
+    prevents removed rooms from escaping this integration's retention policy.
+    """
+    registry = er.async_get(hass)
+    current = {
+        str(item.entity_id)
+        for item in _selected_entries(
+            er.async_entries_for_config_entry(registry, entry.entry_id)
+        )
+    }
+    store = _index_store(hass, entry.entry_id)
+    stored = await store.async_load() or {}
+    previous_raw = stored.get("entity_ids", [])
+    previous = {
+        str(entity_id)
+        for entity_id in previous_raw
+        if isinstance(entity_id, str) and entity_id
+    }
+    removed = previous - current
+    if removed:
+        await _async_purge_ids(hass, removed, keep_days=0)
+    await store.async_save({"entity_ids": sorted(current)})
+
+
+async def async_remove_recorder_entity_index(
+    hass: HomeAssistant,
+    entry_id: str,
+) -> None:
+    """Purge known Lüftungsassistent states when the config entry is removed."""
+    store = _index_store(hass, entry_id)
+    stored = await store.async_load() or {}
+    entity_ids = stored.get("entity_ids", [])
+    if isinstance(entity_ids, list):
+        await _async_purge_ids(hass, entity_ids, keep_days=0)
+    await store.async_remove()
 
 
 async def async_purge_recorder_history(
     hass: HomeAssistant,
     entry_ids: set[str] | None = None,
 ) -> None:
-    """Keep at most RECORDER_RETENTION_DAYS for our own Recorder states.
+    """Keep useful history bounded and discard redundant helper timelines.
 
-    This never creates or owns a second history store. It only asks Home
-    Assistant Recorder to purge old state rows for exact entity IDs belonging
-    to currently loaded Lüftungsassistent config entries.
+    The advisor/action state, indoor absolute humidity, last confirmed airing
+    and hard-safety binary sensor keep RECORDER_RETENTION_DAYS. Other derived
+    Lüftungsassistent entities are live helpers and are purged with keep_days=0
+    during the daily maintenance run instead of duplicating source history.
     """
     if not hass.services.has_service(_RECORDER_DOMAIN, _PURGE_SERVICE):
         _LOGGER.debug("Recorder purge_entities is unavailable; skipping retention")
@@ -57,26 +151,21 @@ async def async_purge_recorder_history(
         return
 
     registry = er.async_get(hass)
-    entity_ids: set[str] = set()
+    retained_ids: set[str] = set()
+    transient_ids: set[str] = set()
     for entry_id in entry_ids:
-        entity_ids.update(
-            _selected_entity_ids(
-                er.async_entries_for_config_entry(registry, entry_id)
-            )
+        retained, transient = _partition_history(
+            er.async_entries_for_config_entry(registry, entry_id)
         )
+        retained_ids.update(retained)
+        transient_ids.update(transient)
 
-    if not entity_ids:
-        return
-
-    await hass.services.async_call(
-        _RECORDER_DOMAIN,
-        _PURGE_SERVICE,
-        {
-            "entity_id": sorted(entity_ids),
-            "keep_days": RECORDER_RETENTION_DAYS,
-        },
-        blocking=False,
+    await _async_purge_ids(
+        hass,
+        retained_ids,
+        keep_days=RECORDER_RETENTION_DAYS,
     )
+    await _async_purge_ids(hass, transient_ids, keep_days=0)
 
 
 @callback

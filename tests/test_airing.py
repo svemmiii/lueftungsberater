@@ -36,6 +36,7 @@ async def test_open_session_survives_unknown_contact_during_restart(
     await tracker.async_initialize()
 
     assert tracker.open_since == opened_at
+    assert tracker.is_open is True
 
     # Once the contact really reports open, the original start time is kept.
     hass.states.async_set("binary_sensor.living_window", "on")
@@ -104,9 +105,62 @@ async def test_long_unknown_contact_time_is_not_counted_as_successful_airing(
     unknown_since = tracker._unknown_since
     assert unknown_since is not None
     tracker._cancel_unknown_grace()
+    assert tracker.is_open is True
     tracker._async_unknown_grace_expired(unknown_since + timedelta(minutes=3))
     await hass.async_block_till_done()
 
+    assert tracker.is_open is False
     assert tracker.open_since is None
     assert tracker.last_confirmed_airing is None
+    await tracker.async_stop()
+
+
+async def test_confirmed_close_dispatches_only_after_last_airing_is_updated(
+    hass, enable_custom_integrations
+) -> None:
+    """A close event must not publish stale hours-since-airing to the coordinator."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+    from custom_components.lueftungsberater.airing import tracker_signal
+
+    opened_at = dt_util.utcnow() - timedelta(minutes=8)
+    entry = SimpleNamespace(entry_id="advisor")
+    room = SimpleNamespace(
+        subentry_id="living",
+        data={CONF_WINDOWS: ["binary_sensor.living_window"]},
+    )
+
+    class FakeStore:
+        async def async_load(self):
+            return {
+                "open_since": opened_at.isoformat(),
+                "last_confirmed_airing": None,
+            }
+
+        async def async_save(self, _data):
+            return None
+
+    hass.states.async_set("binary_sensor.living_window", "on")
+    tracker = RoomAiringTracker(hass, entry, room)
+    tracker._store = FakeStore()
+    await tracker.async_initialize()
+
+    observed = []
+
+    def _capture():
+        observed.append((tracker.is_open, tracker.last_confirmed_airing))
+
+    unsub = async_dispatcher_connect(
+        hass, tracker_signal(entry.entry_id, room.subentry_id), _capture
+    )
+    hass.states.async_set("binary_sensor.living_window", "off")
+    await hass.async_block_till_done()
+
+    assert observed
+    assert observed[-1][0] is False
+    assert observed[-1][1] is not None
+    assert tracker.hours_since_last_airing is not None
+    assert tracker.hours_since_last_airing < 0.01
+
+    unsub()
     await tracker.async_stop()

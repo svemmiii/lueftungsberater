@@ -202,8 +202,11 @@ async def test_warning_source_options_include_none_nina_and_dwd(
         _warning_source_options,
     )
     from custom_components.lueftungsberater.const import (
+        CONF_NOTIFY_TRIGGERS,
         CONF_WARNING_SOURCE,
         CONF_WEATHER,
+        NOTIFY_TRIGGER_AIR_DANGER,
+        NOTIFY_TRIGGER_WEATHER_DANGER,
         WARNING_SOURCE_NONE,
     )
 
@@ -448,3 +451,52 @@ def test_v072_notification_choices_are_split_between_assistant_and_room():
         NOTIFY_TRIGGER_AIRING_RECOMMENDED,
         NOTIFY_TRIGGER_AIRING_FINISHED,
     ]
+
+
+def test_room_name_validation_rejects_empty_and_case_insensitive_duplicate():
+    from types import SimpleNamespace
+    from custom_components.lueftungsberater.config_flow import _room_name_error
+    from custom_components.lueftungsberater.const import SUBENTRY_TYPE_ROOM
+
+    entry = SimpleNamespace(
+        subentries={
+            "room-1": SimpleNamespace(
+                subentry_id="room-1",
+                subentry_type=SUBENTRY_TYPE_ROOM,
+                title="Wohnzimmer",
+            )
+        }
+    )
+    assert _room_name_error(entry, "") == "room_name_empty"
+    assert _room_name_error(entry, "wohnzimmer") == "room_name_duplicate"
+    assert _room_name_error(entry, "Büro") is None
+    assert _room_name_error(entry, "Wohnzimmer", exclude_subentry_id="room-1") is None
+
+
+def test_v091_room_identity_migration_minor_version_is_enabled():
+    from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
+
+    assert LueftungsberaterConfigFlow.MINOR_VERSION >= 9
+
+
+async def test_remote_non_admin_error_is_reported_separately():
+    from unittest.mock import AsyncMock, patch
+    from custom_components.lueftungsberater.config_flow import _test_remote
+    from custom_components.lueftungsberater.remote import RemoteAdminRequiredError
+
+    hass = SimpleNamespace()
+    data = {"remote_host": "100.64.0.42", "remote_port": 8123}
+    with (
+        patch(
+            "custom_components.lueftungsberater.config_flow.async_host_is_tailscale",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "custom_components.lueftungsberater.config_flow.async_fetch_remote_snapshot",
+            AsyncMock(side_effect=RemoteAdminRequiredError("admin required")),
+        ),
+    ):
+        error, payload = await _test_remote(hass, data)
+
+    assert error == "admin_required"
+    assert payload is None

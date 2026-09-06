@@ -22,8 +22,6 @@ const LB_I18N = {
     "co2.critical": "kritisch",
     "co2.unknown": "unbekannt",
     "weather_service": "Wetterdienst",
-    "forecast.stale": "Wetterprognose veraltet · Nacht- und Kurzfristhinweise pausiert",
-    "forecast.unavailable": "Stündliche Wetterprognose nicht verfügbar",
     "history_open": "Verlauf öffnen",
     "setup.title": "Raum auswählen",
     "setup.description": "Wähle im visuellen Editor einen Lüftungsassistent-Raum aus.",
@@ -57,6 +55,8 @@ const LB_I18N = {
     "co2.grace": "Sensor kurz nicht verfügbar, letzter gültiger Wert",
     "co2.unavailable": "CO₂-Sensor nicht verfügbar · Bewertung vorübergehend ohne CO₂",
     "co2.open": "CO₂-Sensor öffnen",
+    "forecast.stale": "Wetterprognose veraltet · Nacht-/Kurzzeitprognose wird nicht verwendet",
+    "forecast.unavailable": "Wetterprognose nicht verfügbar",
     "warning.open": "Warn-/Quelldaten öffnen",
     "why": "Warum diese Empfehlung?",
     "night.title": "Nachtlüften",
@@ -117,8 +117,6 @@ const LB_I18N = {
     "co2.critical": "critical",
     "co2.unknown": "unknown",
     "weather_service": "weather service",
-    "forecast.stale": "Weather forecast is stale · night and short-term guidance paused",
-    "forecast.unavailable": "Hourly weather forecast unavailable",
     "history_open": "Open history",
     "setup.title": "Select a room",
     "setup.description": "Choose a Fresh Air Assistant room in the visual editor.",
@@ -152,6 +150,8 @@ const LB_I18N = {
     "co2.grace": "Sensor briefly unavailable, using the last valid value",
     "co2.unavailable": "CO₂ sensor unavailable · assessment temporarily continues without CO₂",
     "co2.open": "Open CO₂ sensor",
+    "forecast.stale": "Weather forecast is stale · night/short-term forecast is not being used",
+    "forecast.unavailable": "Weather forecast unavailable",
     "warning.open": "Open warning / source data",
     "why": "Why this recommendation?",
     "night.title": "Night ventilation",
@@ -212,8 +212,6 @@ const LB_I18N = {
     "co2.critical": "kritik",
     "co2.unknown": "bilinmiyor",
     "weather_service": "hava durumu hizmeti",
-    "forecast.stale": "Hava tahmini eski · gece ve kısa vadeli öneriler duraklatıldı",
-    "forecast.unavailable": "Saatlik hava tahmini kullanılamıyor",
     "history_open": "Geçmişi aç",
     "setup.title": "Oda seç",
     "setup.description": "Görsel düzenleyiciden bir Fresh Air Assistant odası seç.",
@@ -247,6 +245,8 @@ const LB_I18N = {
     "co2.grace": "Sensör kısa süreliğine kullanılamıyor; son geçerli değer kullanılıyor",
     "co2.unavailable": "CO₂ sensörü kullanılamıyor · değerlendirme geçici olarak CO₂ olmadan devam ediyor",
     "co2.open": "CO₂ sensörünü aç",
+    "forecast.stale": "Hava tahmini eski · gece/kısa vadeli tahmin kullanılmıyor",
+    "forecast.unavailable": "Hava tahmini kullanılamıyor",
     "warning.open": "Uyarı / kaynak verisini aç",
     "why": "Bu önerinin nedeni ne?",
     "night.title": "Gece havalandırması",
@@ -316,8 +316,28 @@ function lbT(hass, key, values = {}) {
   return text;
 }
 
+const LB_TEXT_CACHE_MAX_ENTRIES = 256;
 const LB_TEXT_CACHE = new Map();
 const LB_TEXT_PENDING = new Map();
+
+function lbTextCacheGet(key) {
+  const value = LB_TEXT_CACHE.get(key);
+  if (value === undefined) return null;
+  // Refresh insertion order so the bounded Map behaves as a small LRU cache.
+  LB_TEXT_CACHE.delete(key);
+  LB_TEXT_CACHE.set(key, value);
+  return value;
+}
+
+function lbTextCacheSet(key, value) {
+  if (LB_TEXT_CACHE.has(key)) LB_TEXT_CACHE.delete(key);
+  LB_TEXT_CACHE.set(key, value);
+  while (LB_TEXT_CACHE.size > LB_TEXT_CACHE_MAX_ENTRIES) {
+    const oldestKey = LB_TEXT_CACHE.keys().next().value;
+    if (oldestKey === undefined) break;
+    LB_TEXT_CACHE.delete(oldestKey);
+  }
+}
 
 function lbTextCacheKey(hass, attributes) {
   return JSON.stringify([
@@ -335,7 +355,7 @@ function lbTextCacheKey(hass, attributes) {
 function lbLocalizedEntityTexts(hass, attributes, onReady) {
   if (!hass || !attributes) return null;
   const key = lbTextCacheKey(hass, attributes);
-  const cached = LB_TEXT_CACHE.get(key);
+  const cached = lbTextCacheGet(key);
   if (cached) return cached;
   if (!LB_TEXT_PENDING.has(key) && typeof hass.callWS === "function") {
     const request = hass.callWS({
@@ -350,7 +370,7 @@ function lbLocalizedEntityTexts(hass, attributes, onReady) {
       night_ventilation_args: attributes.night_ventilation_args || {},
     })
       .then((bundle) => {
-        if (bundle && typeof bundle === "object") LB_TEXT_CACHE.set(key, bundle);
+        if (bundle && typeof bundle === "object") lbTextCacheSet(key, bundle);
         LB_TEXT_PENDING.delete(key);
         if (typeof onReady === "function") onReady();
       })
@@ -721,11 +741,12 @@ class LueftungsberaterCard extends HTMLElement {
       }
     }
 
-    if (a.forecast_data_status === "stale" || a.forecast_data_status === "unavailable") {
+    const forecastStatus = a.forecast_data_status || null;
+    if (forecastStatus === "stale" || forecastStatus === "unavailable") {
       rows.push({
-        icon: "mdi:weather-cloudy-alert",
+        icon: forecastStatus === "stale" ? "mdi:weather-clock" : "mdi:weather-cloudy-alert",
         cls: "data-warning",
-        html: this._escape(lbT(this._hass, `forecast.${a.forecast_data_status}`)),
+        html: lbT(this._hass, forecastStatus === "stale" ? "forecast.stale" : "forecast.unavailable"),
       });
     }
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -15,31 +15,8 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .airing import get_tracker
 from .air_quality import get_air_quality_tracker
 from .co2 import get_co2_tracker
-from .const import (
-    CONF_CLIMATE,
-    CONF_CO2,
-    CONF_INDOOR_HUMIDITY,
-    CONF_INDOOR_TEMP,
-    CONF_MANUAL_OUTDOOR,
-    CONF_NIGHT_END_TIME,
-    CONF_NIGHT_START_HOUR,
-    CONF_NIGHT_START_TIME,
-    CONF_NINA_STATUS,
-    CONF_OUTDOOR_CO2,
-    CONF_RAIN_NOW,
-    CONF_RAIN_SOON,
-    CONF_SURFACE_TEMP,
-    CONF_TARGET_TEMP,
-    CONF_WARNING_SOURCE,
-    CONF_WEATHER_DANGER,
-    CONF_WEATHER_REASON,
-    CONF_WINDOWS,
-    DEFAULT_NIGHT_END_TIME,
-    DEFAULT_NIGHT_START_HOUR,
-    DEFAULT_TARGET_TEMP,
-    WARNING_SOURCE_NONE,
-)
-from .engine import co2_outdoor_context, evaluate_room, surface_relative_humidity
+from .const import *
+from .engine import co2_outdoor_context, co2_status, evaluate_room, surface_relative_humidity
 from .models import RoomInput, VentilationResult
 from .mold import get_mold_tracker
 from .night import evaluate_night_ventilation
@@ -86,9 +63,16 @@ def _plausible_humidity(value: Any) -> float | None:
 
 
 def _plausible_co2(value: Any) -> float | None:
-    """Reject only physically impossible CO2 ppm values, not dangerous ones."""
+    """Return a room-plausible CO2 value and reject common numeric fault codes.
+
+    Real occupied/outdoor air cannot contain 0 ppm CO2. Several sensors emit
+    0 during boot or fault states instead of ``unavailable``; treating that as
+    real data would incorrectly satisfy an airing target and bypass the CO2
+    grace logic. Keep the upper bound permissive so genuinely dangerous values
+    are never hidden.
+    """
     number = _finite_number(value)
-    if number is None or not 0.0 <= number <= 1_000_000.0:
+    if number is None or not 250.0 <= number <= 1_000_000.0:
         return None
     return number
 
@@ -375,9 +359,13 @@ def room_source_entities(
         val = subentry.data.get(key)
         if isinstance(val, str) and val:
             entities.add(val)
-    for val in subentry.data.get(CONF_WINDOWS, []) or []:
-        if val:
-            entities.add(val)
+    # Window contacts are deliberately *not* registered here. The
+    # RoomAiringTracker owns those state-change events and dispatches only after
+    # it has updated ``open_since`` / ``last_confirmed_airing``. Listening to
+    # the same contact directly in the room coordinator can publish a transient
+    # snapshot with ``window_open=False`` but the old hours-since-airing value
+    # before the tracker confirms the just-finished >=5 minute session. That
+    # creates the exact UI flicker "you can close" -> close -> "air again".
     return entities
 
 
@@ -413,6 +401,167 @@ def _time_minutes(value: object, default: str) -> int:
 def _night_end_minutes(subentry: ConfigSubentry) -> int:
     """Return configured local display end as minutes after midnight."""
     return _time_minutes(subentry.data.get(CONF_NIGHT_END_TIME), DEFAULT_NIGHT_END_TIME)
+
+
+def _warning_context(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    weather: WeatherAssessment,
+    warnings: WarningAssessment,
+) -> dict[str, Any]:
+    """Return one severity-consistent warning context for the engine.
+
+    Severity and explanation must originate from the same decisive source. A
+    weaker provider caution must never supply the text for a hard danger that
+    actually came from the weather entity (or vice versa).
+    """
+    if warning_source_configured(entry):
+        normalized_nina = warnings.nina_status
+        nina_reason_key = warnings.nina_reason_key
+        nina_reason_args = dict(warnings.nina_reason_args)
+        nina_original_reason = warnings.nina_original_reason
+        provider_weather_caution = warnings.weather_caution
+        provider_weather_danger = warnings.weather_danger
+        provider_weather_reason_key = warnings.weather_reason_key
+        provider_weather_reason_args = dict(warnings.weather_reason_args)
+        provider_weather_original_reason = warnings.weather_original_reason
+    else:
+        nina_state = _text(hass, entry.data.get(CONF_NINA_STATUS)) or "none"
+        normalized_nina = {
+            "gefahr": "danger",
+            "danger": "danger",
+            "on": "danger",
+            "vorsicht": "caution",
+            "caution": "caution",
+            "warning": "caution",
+            "keine": "none",
+            "none": "none",
+            "off": "none",
+        }.get(nina_state.lower(), "none")
+        nina_reason_key = None
+        nina_reason_args = {}
+        nina_original_reason = _text(hass, entry.data.get(CONF_NINA_STATUS))
+        provider_weather_caution = False
+        provider_weather_danger = False
+        provider_weather_reason_key = None
+        provider_weather_reason_args = {}
+        provider_weather_original_reason = None
+
+    legacy_weather_danger = _is_on(hass, entry.data.get(CONF_WEATHER_DANGER))
+    legacy_weather_reason = _text(hass, entry.data.get(CONF_WEATHER_REASON))
+
+    # Pick the explanation from a source that has the same selected severity.
+    # An explicitly selected warning provider gets priority when it is itself a
+    # danger; otherwise the weather entity's hard danger must not inherit a
+    # provider's weaker caution wording.
+    danger_sources = []
+    if provider_weather_danger:
+        danger_sources.append((
+            provider_weather_reason_key or "weather_danger",
+            provider_weather_reason_args,
+            provider_weather_original_reason,
+        ))
+    if weather.weather_danger:
+        danger_sources.append((
+            weather.weather_reason_key or "weather_danger",
+            dict(weather.weather_reason_args),
+            weather.weather_original_reason,
+        ))
+    if legacy_weather_danger:
+        danger_sources.append(("weather_danger", {}, legacy_weather_reason))
+
+    if danger_sources:
+        weather_danger = True
+        weather_caution = False
+        weather_reason_key, weather_reason_args, weather_original_reason = danger_sources[0]
+    else:
+        weather_danger = False
+        caution_sources = []
+        if provider_weather_caution:
+            caution_sources.append((
+                provider_weather_reason_key or "weather_caution",
+                provider_weather_reason_args,
+                provider_weather_original_reason,
+            ))
+        if weather.weather_caution:
+            caution_sources.append((
+                weather.weather_reason_key or "weather_caution",
+                dict(weather.weather_reason_args),
+                weather.weather_original_reason,
+            ))
+        weather_caution = bool(caution_sources)
+        if caution_sources:
+            weather_reason_key, weather_reason_args, weather_original_reason = caution_sources[0]
+        else:
+            weather_reason_key, weather_reason_args, weather_original_reason = (None, {}, None)
+
+    return {
+        "nina_status": normalized_nina,
+        "nina_reason_key": nina_reason_key,
+        "nina_reason_args": nina_reason_args,
+        "nina_original_reason": nina_original_reason,
+        "weather_caution": weather_caution,
+        "weather_danger": weather_danger,
+        "weather_reason_key": weather_reason_key,
+        "weather_reason_args": weather_reason_args,
+        "weather_original_reason": weather_original_reason,
+    }
+
+
+def _incomplete_data_safety_result(
+    values: dict[str, Any],
+    context: dict[str, Any],
+) -> VentilationResult | None:
+    """Preserve hard close-window instructions even with missing sensors."""
+    if context["nina_status"] == "danger":
+        mode = "nina_aussenluftgefahr"
+        reason_key = context["nina_reason_key"] or "nina_air_danger"
+        reason_args = dict(context["nina_reason_args"])
+        original_reason = context["nina_original_reason"]
+    elif context["weather_danger"]:
+        mode = "wettergefahr"
+        reason_key = context["weather_reason_key"] or "weather_danger"
+        reason_args = dict(context["weather_reason_args"])
+        original_reason = context["weather_original_reason"]
+    else:
+        return None
+
+    window_open = bool(values.get("window_open"))
+    recommendation_key = "close_now" if window_open else "keep_closed"
+    return VentilationResult(
+        color="red",
+        mode=mode,
+        recommendation_key=recommendation_key,
+        reason_key=reason_key,
+        reason_args=reason_args,
+        duration_key="not_needed",
+        duration_args={},
+        original_reason=original_reason,
+        indoor_absolute_humidity=None,  # type: ignore[arg-type]
+        outdoor_absolute_humidity=None,  # type: ignore[arg-type]
+        absolute_humidity_difference=None,  # type: ignore[arg-type]
+        co2_status=co2_status(values.get("co2_ppm")),
+        room_status_color="red",
+        room_recommendation_key=recommendation_key,
+        room_reason_key=reason_key,
+        room_reason_args=dict(reason_args),
+        primary_need="safety",
+        decision_need="safety",
+        safety_lock=True,
+        surface_relative_humidity=values.get("surface_relative_humidity"),
+        mold_persistent=bool(values.get("mold_persistent")),
+        mold_current_critical_minutes=values.get("mold_current_critical_minutes"),
+        mold_critical_minutes_24h=values.get("mold_critical_minutes_24h"),
+        air_quality=str(values.get("air_quality_index") or "unknown"),
+        air_quality_pollutant=values.get("air_quality_pollutant"),
+        air_quality_value=values.get("air_quality_value"),
+        outdoor_co2=values.get("outdoor_co2_ppm"),
+        air_quality_baseline_value=values.get("air_quality_baseline_value"),
+        air_quality_typical=values.get("air_quality_typical"),
+        air_quality_unusual=bool(values.get("air_quality_unusual")),
+        air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
+        air_quality_history_samples=int(values.get("air_quality_history_samples") or 0),
+    )
 
 
 def build_room_snapshot(
@@ -470,73 +619,24 @@ def build_room_snapshot(
         values["mold_persistent"] = False
     values["surface_relative_humidity"] = surface_rh
 
+    warning_context = _warning_context(hass, entry, weather, warnings)
+    normalized_nina = warning_context["nina_status"]
+    nina_reason_key = warning_context["nina_reason_key"]
+    nina_reason_args = dict(warning_context["nina_reason_args"])
+    nina_original_reason = warning_context["nina_original_reason"]
+    weather_caution = bool(warning_context["weather_caution"])
+    weather_danger = bool(warning_context["weather_danger"])
+    weather_reason_key = warning_context["weather_reason_key"]
+    weather_reason_args = dict(warning_context["weather_reason_args"])
+    weather_original_reason = warning_context["weather_original_reason"]
+
     if None in (ti, hi, ta, ha):
-        return RoomSnapshot(None, values, weather, warnings)
-
-    if warning_source_configured(entry):
-        normalized_nina = warnings.nina_status
-        nina_reason_key = warnings.nina_reason_key
-        nina_reason_args = dict(warnings.nina_reason_args)
-        nina_original_reason = warnings.nina_original_reason
-        provider_weather_caution = warnings.weather_caution
-        provider_weather_danger = warnings.weather_danger
-        provider_weather_reason_key = warnings.weather_reason_key
-        provider_weather_reason_args = dict(warnings.weather_reason_args)
-        provider_weather_original_reason = warnings.weather_original_reason
-    else:
-        nina_state = _text(hass, entry.data.get(CONF_NINA_STATUS)) or "none"
-        normalized_nina = {
-            "gefahr": "danger",
-            "danger": "danger",
-            "on": "danger",
-            "vorsicht": "caution",
-            "caution": "caution",
-            "warning": "caution",
-            "keine": "none",
-            "none": "none",
-            "off": "none",
-        }.get(nina_state.lower(), "none")
-        nina_reason_key = None
-        nina_reason_args = {}
-        nina_original_reason = _text(hass, entry.data.get(CONF_NINA_STATUS))
-        provider_weather_caution = False
-        provider_weather_danger = False
-        provider_weather_reason_key = None
-        provider_weather_reason_args = {}
-        provider_weather_original_reason = None
-
-    legacy_weather_danger = _is_on(
-        hass,
-        entry.data.get(CONF_WEATHER_DANGER),
-    )
-    legacy_weather_reason = _text(
-        hass,
-        entry.data.get(CONF_WEATHER_REASON),
-    )
-
-    weather_danger = (
-        weather.weather_danger
-        or provider_weather_danger
-        or legacy_weather_danger
-    )
-    weather_caution = (
-        not weather_danger
-        and (weather.weather_caution or provider_weather_caution)
-    )
-    weather_reason_key = (
-        provider_weather_reason_key
-        or weather.weather_reason_key
-    )
-    weather_reason_args = (
-        provider_weather_reason_args
-        if provider_weather_reason_key
-        else dict(weather.weather_reason_args)
-    )
-    weather_original_reason = (
-        provider_weather_original_reason
-        or legacy_weather_reason
-        or weather.weather_original_reason
-    )
+        # Hard official/weather protection is independent of comfort sensors.
+        # Missing temperature/humidity makes the normal ventilation model
+        # incomplete, but it must never turn an already-known close-window
+        # instruction into safety_lock=False.
+        safety_result = _incomplete_data_safety_result(values, warning_context)
+        return RoomSnapshot(safety_result, values, weather, warnings)
 
     legacy_rain_now = _is_on(hass, entry.data.get(CONF_RAIN_NOW))
     legacy_rain_soon = _is_on(hass, entry.data.get(CONF_RAIN_SOON))

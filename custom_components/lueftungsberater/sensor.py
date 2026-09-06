@@ -19,7 +19,9 @@ from .const import (
     CONF_MANUAL_OUTDOOR,
     CONF_SURFACE_TEMP,
     CONF_NINA_STATUS,
+    CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_CO2,
+    CONF_OUTDOOR_TEMP,
     CONF_WEATHER_DANGER,
     CONF_WEATHER_REASON,
     CONF_WINDOWS,
@@ -107,7 +109,6 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         super().__init__(entry, subentry, coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_advisor"
         self._attr_name = None
-        self._derived_entity_cache: dict[str, str | None] | None = None
 
     @property
     def native_value(self):
@@ -158,27 +159,29 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "absolute_humidity_difference": f"{self.subentry.subentry_id}_absolute_humidity_difference",
             "co2_status": f"{self.subentry.subentry_id}_co2_status",
         }
-        if self._derived_entity_cache is None:
-            self._derived_entity_cache = {
-                key: registry.async_get_entity_id("sensor", DOMAIN, unique_id)
-                for key, unique_id in unique_ids.items()
-            }
-        else:
-            # User renames are rare, but do not keep a stale cached entity id.
-            # A first render can also happen before the sibling entities have
-            # finished registering, so retry entries which were initially None.
-            for key, entity_id in tuple(self._derived_entity_cache.items()):
-                if entity_id is None or registry.async_get(entity_id) is None:
-                    self._derived_entity_cache[key] = registry.async_get_entity_id(
-                        "sensor", DOMAIN, unique_ids[key]
-                    )
+        def _enabled_derived_entity_id(unique_id: str) -> str | None:
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+            if entity_id is None:
+                return None
+            registry_entry = registry.async_get(entity_id)
+            if registry_entry is None or registry_entry.disabled_by is not None:
+                return None
+            return entity_id
 
-        airing_entity = self._derived_entity_cache["airing"]
-        last_airing_entity = self._derived_entity_cache["last_airing"]
-        absolute_humidity_entity = self._derived_entity_cache["absolute_humidity"]
-        outdoor_absolute_humidity_entity = self._derived_entity_cache["absolute_humidity_outside"]
-        absolute_humidity_difference_entity = self._derived_entity_cache["absolute_humidity_difference"]
-        co2_status_entity = self._derived_entity_cache["co2_status"]
+        # Diagnostic/helper siblings are disabled by default for new installs.
+        # Only expose a clickable More-Info target when the sibling entity is
+        # actually enabled; the card still receives the live derived value from
+        # this advisor's unrecorded attributes either way.
+        derived_entities = {
+            key: _enabled_derived_entity_id(unique_id)
+            for key, unique_id in unique_ids.items()
+        }
+        airing_entity = derived_entities["airing"]
+        last_airing_entity = derived_entities["last_airing"]
+        absolute_humidity_entity = derived_entities["absolute_humidity"]
+        outdoor_absolute_humidity_entity = derived_entities["absolute_humidity_outside"]
+        absolute_humidity_difference_entity = derived_entities["absolute_humidity_difference"]
+        co2_status_entity = derived_entities["co2_status"]
 
         language = self.hass.config.language
         temperature_unit = str(self.hass.config.units.temperature_unit)
@@ -293,7 +296,6 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "wind_speed_kmh": weather.wind_speed_kmh,
             "wind_gust_kmh": weather.wind_gust_kmh,
             "rain_minutes_until": weather.rain_minutes_until,
-            "forecast_data_status": weather.forecast_data_status,
             "short_term_weather_change": weather.short_term_change,
             "short_term_weather_kind": weather.short_term_kind,
             "short_term_weather_minutes": (
@@ -301,6 +303,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 if weather.short_term_minutes is not None
                 else None
             ),
+            "forecast_data_status": weather.forecast_data_status,
             "night_ventilation_status": values.get("night_ventilation_status", "unavailable"),
             "night_ventilation_key": night_key,
             "night_ventilation_args": night_args,
@@ -417,7 +420,9 @@ class RoomAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity):
 
 
 class RoomOutdoorAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity):
-    """Absolute outdoor humidity with its own recorder history."""
+    """Live absolute outdoor humidity helper (disabled by default)."""
+
+    _attr_entity_registry_enabled_default = False
 
     _attr_icon = "mdi:water-outline"
     _attr_native_unit_of_measurement = "g/m³"
@@ -437,6 +442,8 @@ class RoomOutdoorAbsoluteHumiditySensor(LueftungsberaterRoomEntity, SensorEntity
 class RoomAbsoluteHumidityDifferenceSensor(LueftungsberaterRoomEntity, SensorEntity):
     """Absolute humidity difference between indoor and outdoor air."""
 
+    _attr_entity_registry_enabled_default = False
+
     _attr_icon = "mdi:water-sync"
     _attr_native_unit_of_measurement = "g/m³"
     _attr_suggested_display_precision = 1
@@ -454,6 +461,8 @@ class RoomAbsoluteHumidityDifferenceSensor(LueftungsberaterRoomEntity, SensorEnt
 
 class RoomCo2StatusSensor(LueftungsberaterRoomEntity, SensorEntity):
     """Human-readable CO2 assessment for a configured CO2 sensor."""
+
+    _attr_entity_registry_enabled_default = False
 
     _unrecorded_attributes = frozenset({"ppm", "data_status"})
 
@@ -481,6 +490,8 @@ class RoomCo2StatusSensor(LueftungsberaterRoomEntity, SensorEntity):
 
 class RoomAiringStatusSensor(LueftungsberaterRoomEntity, SensorEntity):
     """Current airing/window state."""
+
+    _attr_entity_registry_enabled_default = False
 
     _unrecorded_attributes = frozenset({MATCH_ALL})
 
@@ -560,6 +571,8 @@ class RoomLastAiringSensor(LueftungsberaterRoomEntity, SensorEntity):
 
 class RoomHoursSinceAiringSensor(LueftungsberaterRoomEntity, SensorEntity):
     """Hours elapsed since the last confirmed airing."""
+
+    _attr_entity_registry_enabled_default = False
 
     _attr_translation_key = "hours_since_airing"
     _attr_native_unit_of_measurement = "h"

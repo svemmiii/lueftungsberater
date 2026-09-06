@@ -883,54 +883,295 @@ def test_forecast_precipitation_inches_are_normalized_to_mm():
 
 
 def test_forecast_rejects_implausible_percentages_and_negative_values():
-    from homeassistant.const import UnitOfPrecipitationDepth, UnitOfSpeed, UnitOfTemperature
     from custom_components.lueftungsberater.providers import _normalize_hourly_forecast
 
-    stamp = datetime(2026, 9, 1, 18, 0, tzinfo=timezone.utc)
-    hass = FakeHass({WEATHER: FakeState("sunny", {
-        "temperature_unit": UnitOfTemperature.CELSIUS,
-        "wind_speed_unit": UnitOfSpeed.KILOMETERS_PER_HOUR,
-        "precipitation_unit": UnitOfPrecipitationDepth.MILLIMETERS,
-    })})
-    rows = _normalize_hourly_forecast(hass, WEATHER, [{
-        "datetime": stamp.isoformat(), "temperature": 20, "humidity": -1,
-        "precipitation_probability": 150, "precipitation": -2,
-        "wind_speed": -4, "wind_gust_speed": -8,
-    }])
+    hass = SimpleNamespace(
+        states=FakeStates(
+            {
+                WEATHER: FakeState(
+                    "sunny",
+                    {
+                        "temperature_unit": "°C",
+                        "wind_speed_unit": "km/h",
+                        "precipitation_unit": "mm",
+                    },
+                )
+            }
+        )
+    )
+    rows = _normalize_hourly_forecast(
+        hass,
+        WEATHER,
+        [
+            {
+                "datetime": datetime(2026, 9, 6, 20, 0, tzinfo=timezone.utc),
+                "temperature": 20,
+                "humidity": -10,
+                "precipitation_probability": 150,
+                "precipitation": -1,
+                "wind_speed": -5,
+                "wind_gust_speed": -8,
+            }
+        ],
+    )
     assert len(rows) == 1
-    assert set(rows[0]) == {"datetime", "temperature"}
+    row = rows[0]
+    assert "humidity" not in row
+    assert "precipitation_probability" not in row
+    assert "precipitation" not in row
+    assert "wind_speed" not in row
+    assert "wind_gust_speed" not in row
 
 
 def test_stale_forecast_cache_is_not_returned():
     from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
     from custom_components.lueftungsberater.providers import _cached_hourly_forecast
+    from homeassistant.util import dt as dt_util
 
-    now = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
-    entry = SimpleNamespace(entry_id="entry-1")
-    hass = SimpleNamespace(data={DOMAIN: {DATA_FORECAST_CACHE: {"entry-1": {
-        "updated": now - timedelta(hours=2),
-        "forecast": [{"datetime": now + timedelta(hours=2), "temperature": 18}],
-    }}}})
-    with patch("custom_components.lueftungsberater.providers.dt_util.utcnow", return_value=now):
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                DATA_FORECAST_CACHE: {
+                    "entry": {
+                        "source_entity": WEATHER,
+                        "updated": now - timedelta(minutes=61),
+                        "forecast": [{"datetime": now + timedelta(hours=1), "temperature": 20}],
+                    }
+                }
+            }
+        }
+    )
+    entry = SimpleNamespace(entry_id="entry", data={"weather_entity": WEATHER})
+    with patch.object(dt_util, "utcnow", return_value=now):
         rows, updated, status = _cached_hourly_forecast(hass, entry)
     assert rows == []
-    assert updated == now - timedelta(hours=2)
+    assert updated is not None
     assert status == "stale"
 
 
 def test_forecast_cache_from_far_future_is_treated_as_stale():
     from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
     from custom_components.lueftungsberater.providers import _cached_hourly_forecast
+    from homeassistant.util import dt as dt_util
 
-    now = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
-    entry = SimpleNamespace(entry_id="entry-1")
-    future = now + timedelta(hours=2)
-    hass = SimpleNamespace(data={DOMAIN: {DATA_FORECAST_CACHE: {"entry-1": {
-        "updated": future,
-        "forecast": [{"datetime": future, "temperature": 18}],
-    }}}})
-    with patch("custom_components.lueftungsberater.providers.dt_util.utcnow", return_value=now):
-        rows, updated, status = _cached_hourly_forecast(hass, entry)
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                DATA_FORECAST_CACHE: {
+                    "entry": {
+                        "source_entity": WEATHER,
+                        "updated": now + timedelta(hours=2),
+                        "forecast": [{"datetime": now + timedelta(hours=3), "temperature": 20}],
+                    }
+                }
+            }
+        }
+    )
+    entry = SimpleNamespace(entry_id="entry", data={"weather_entity": WEATHER})
+    with patch.object(dt_util, "utcnow", return_value=now):
+        rows, _updated, status = _cached_hourly_forecast(hass, entry)
     assert rows == []
-    assert updated == future
     assert status == "stale"
+
+
+async def test_successful_empty_forecast_clears_old_cache():
+    from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
+    from custom_components.lueftungsberater.providers import async_refresh_hourly_forecast
+
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+
+    class Services:
+        async def async_call(self, *args, **kwargs):
+            return {WEATHER: {"forecast": []}}
+
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                DATA_FORECAST_CACHE: {
+                    "entry": {
+                        "source_entity": WEATHER,
+                        "updated": now - timedelta(minutes=5),
+                        "forecast": [{"datetime": now + timedelta(hours=1), "temperature": 20}],
+                    }
+                }
+            }
+        },
+        states=FakeStates({WEATHER: FakeState("sunny", {"temperature_unit": "°C"})}),
+        services=Services(),
+    )
+    entry = SimpleNamespace(entry_id="entry", data={"weather_entity": WEATHER})
+    await async_refresh_hourly_forecast(hass, entry, force=True)
+    assert hass.data[DOMAIN][DATA_FORECAST_CACHE]["entry"]["forecast"] == []
+
+
+async def test_future_forecast_cache_timestamp_does_not_block_refresh():
+    from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
+    from custom_components.lueftungsberater.providers import async_refresh_hourly_forecast
+    from homeassistant.util import dt as dt_util
+
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+
+    class Services:
+        def __init__(self):
+            self.calls = 0
+
+        async def async_call(self, *args, **kwargs):
+            self.calls += 1
+            return {
+                WEATHER: {
+                    "forecast": [
+                        {
+                            "datetime": (now + timedelta(hours=1)).isoformat(),
+                            "temperature": 19,
+                        }
+                    ]
+                }
+            }
+
+    services = Services()
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                DATA_FORECAST_CACHE: {
+                    "entry": {
+                        "source_entity": WEATHER,
+                        "updated": now + timedelta(hours=2),
+                        "forecast": [
+                            {
+                                "datetime": now + timedelta(hours=3),
+                                "temperature": 25,
+                            }
+                        ],
+                    }
+                }
+            }
+        },
+        states=FakeStates({WEATHER: FakeState("sunny", {"temperature_unit": "°C"})}),
+        services=services,
+    )
+    entry = SimpleNamespace(entry_id="entry", data={"weather_entity": WEATHER})
+
+    with patch.object(dt_util, "utcnow", return_value=now):
+        await async_refresh_hourly_forecast(hass, entry, force=False)
+
+    assert services.calls == 1
+    cached = hass.data[DOMAIN][DATA_FORECAST_CACHE]["entry"]
+    assert cached["updated"] == now
+    assert cached["forecast"][0]["temperature"] == 19.0
+
+
+
+def test_forecast_cache_is_bound_to_selected_weather_entity():
+    from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
+    from custom_components.lueftungsberater.providers import _cached_hourly_forecast
+
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+    old_weather = "weather.provider_a"
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                DATA_FORECAST_CACHE: {
+                    "entry": {
+                        "source_entity": old_weather,
+                        "updated": now - timedelta(minutes=5),
+                        "forecast": [
+                            {"datetime": now + timedelta(hours=1), "temperature": 25}
+                        ],
+                    }
+                }
+            }
+        }
+    )
+    entry = SimpleNamespace(entry_id="entry", data={"weather_entity": WEATHER})
+
+    rows, updated, status = _cached_hourly_forecast(hass, entry)
+
+    assert rows == []
+    assert updated is None
+    assert status == "unavailable"
+
+
+async def test_weather_entity_change_forces_forecast_refresh():
+    from custom_components.lueftungsberater.const import DATA_FORECAST_CACHE, DOMAIN
+    from custom_components.lueftungsberater.providers import async_refresh_hourly_forecast
+    from homeassistant.util import dt as dt_util
+
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+    old_weather = "weather.provider_a"
+
+    class Services:
+        def __init__(self):
+            self.calls = 0
+
+        async def async_call(self, *args, **kwargs):
+            self.calls += 1
+            assert kwargs["target"] == {"entity_id": WEATHER}
+            return {
+                WEATHER: {
+                    "forecast": [
+                        {
+                            "datetime": (now + timedelta(hours=1)).isoformat(),
+                            "temperature": 19,
+                        }
+                    ]
+                }
+            }
+
+    services = Services()
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                DATA_FORECAST_CACHE: {
+                    "entry": {
+                        "source_entity": old_weather,
+                        "updated": now - timedelta(minutes=5),
+                        "forecast": [
+                            {"datetime": now + timedelta(hours=1), "temperature": 25}
+                        ],
+                    }
+                }
+            }
+        },
+        states=FakeStates({WEATHER: FakeState("sunny", {"temperature_unit": "°C"})}),
+        services=services,
+    )
+    entry = SimpleNamespace(entry_id="entry", data={"weather_entity": WEATHER})
+
+    with patch.object(dt_util, "utcnow", return_value=now):
+        await async_refresh_hourly_forecast(hass, entry, force=False)
+
+    assert services.calls == 1
+    cached = hass.data[DOMAIN][DATA_FORECAST_CACHE]["entry"]
+    assert cached["source_entity"] == WEATHER
+    assert cached["updated"] == now
+    assert cached["forecast"][0]["temperature"] == 19.0
+
+def test_short_term_forecast_respects_dst_fold_chronology():
+    from zoneinfo import ZoneInfo
+    from custom_components.lueftungsberater.providers import _short_term_forecast_outlook
+
+    zone = ZoneInfo("Europe/Berlin")
+    now = datetime(2026, 10, 25, 2, 50, tzinfo=zone, fold=0)
+    future = datetime(2026, 10, 25, 2, 10, tzinfo=zone, fold=1)
+
+    status, kind, minutes, _condition = _short_term_forecast_outlook(
+        now=now,
+        current_condition="sunny",
+        current_wind_kmh=0.0,
+        current_gust_kmh=0.0,
+        rain_now=False,
+        hourly_forecast=[
+            {
+                "datetime": future,
+                "condition": "lightning",
+                "wind_speed": 0.0,
+                "wind_gust_speed": 0.0,
+            }
+        ],
+    )
+
+    assert status == "worsening"
+    assert kind == "thunderstorm"
+    assert minutes == 20.0

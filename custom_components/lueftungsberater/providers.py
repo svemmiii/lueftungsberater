@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import math
 import re
@@ -216,7 +216,7 @@ class WeatherAssessment:
     air_quality_values: dict[str, float] = field(default_factory=dict)
     hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
     hourly_forecast_updated: datetime | None = None
-    forecast_data_status: str = "unavailable"
+    forecast_data_status: str = "not_configured"  # not_configured | fresh | stale | unavailable
     short_term_change: str | None = None
     short_term_kind: str | None = None
     short_term_minutes: float | None = None
@@ -547,12 +547,12 @@ def _normalize_hourly_forecast(
         }
         for key in ("humidity", "precipitation_probability"):
             value = _float(raw.get(key))
-            if value is not None and 0 <= value <= 100:
+            if value is not None and 0.0 <= value <= 100.0:
                 item[key] = value
         precipitation = _precipitation_to_mm(
             raw.get("precipitation"), precipitation_unit
         )
-        if precipitation is not None and precipitation >= 0:
+        if precipitation is not None and precipitation >= 0.0:
             item["precipitation"] = precipitation
         condition = raw.get("condition")
         if isinstance(condition, str) and condition:
@@ -561,11 +561,11 @@ def _normalize_hourly_forecast(
         gust = _float(raw.get("wind_gust_speed"))
         if wind is not None:
             normalized_wind = _wind_to_kmh(wind, wind_unit)
-            if normalized_wind is not None and normalized_wind >= 0:
+            if normalized_wind is not None and normalized_wind >= 0.0:
                 item["wind_speed"] = normalized_wind
         if gust is not None:
             normalized_gust = _wind_to_kmh(gust, wind_unit)
-            if normalized_gust is not None and normalized_gust >= 0:
+            if normalized_gust is not None and normalized_gust >= 0.0:
                 item["wind_gust_speed"] = normalized_gust
         normalized.append(item)
     return normalized
@@ -581,18 +581,40 @@ def _cached_hourly_forecast(
     cache = domain_data.get(DOMAIN, {}).get(DATA_FORECAST_CACHE, {}).get(entry_id)
     if not isinstance(cache, dict):
         return [], None, "unavailable"
+
+    weather_entity_id = entry.data.get(CONF_WEATHER)
+    if (
+        not isinstance(weather_entity_id, str)
+        or not weather_entity_id
+        or cache.get("source_entity") != weather_entity_id
+    ):
+        # A forecast is only valid for the weather entity that produced it.
+        # Reconfigure keeps the config-entry id stable, so without this source
+        # binding an otherwise fresh cache from the previous provider could be
+        # combined with current conditions from the newly selected provider.
+        return [], None, "unavailable"
+
     items = cache.get("forecast")
     updated = cache.get("updated")
     if not isinstance(updated, datetime):
         return [], None, "unavailable"
+
+    now = dt_util.utcnow()
     try:
-        age = dt_util.utcnow() - updated
+        age = now - updated
     except TypeError:
         return [], updated, "stale"
-    if age < -timedelta(minutes=5) or age > HOURLY_FORECAST_MAX_USABLE_AGE:
+
+    # A far-future cache timestamp is just as untrustworthy as an old one. A
+    # small negative offset can happen from clock adjustments, so only reject a
+    # future timestamp once it exceeds the same one-hour usability window.
+    if age > HOURLY_FORECAST_MAX_USABLE_AGE or age < -HOURLY_FORECAST_MAX_USABLE_AGE:
         return [], updated, "stale"
+
     forecast = list(items) if isinstance(items, list) else []
-    return forecast, updated, "fresh" if forecast else "unavailable"
+    if not forecast:
+        return [], updated, "unavailable"
+    return forecast, updated, "fresh"
 
 
 def _window_weather_profile(
@@ -652,18 +674,27 @@ def _short_term_forecast_outlook(
         rain_now=rain_now,
     )
     end = now + SHORT_TERM_FORECAST_WINDOW
+    now_key = now.astimezone(timezone.utc) if now.tzinfo is not None else now
+    end_key = end.astimezone(timezone.utc) if end.tzinfo is not None else end
 
-    points: list[tuple[datetime, dict[str, Any]]] = []
+    # Compare forecast points on an absolute timeline. During the repeated
+    # autumn hour, Python's direct comparison/subtraction of two aware
+    # datetimes carrying the same tzinfo ignores ``fold`` and can treat a
+    # chronologically future point as already past.
+    points: list[tuple[datetime, datetime, dict[str, Any]]] = []
     for raw in hourly_forecast:
         stamp = raw.get("datetime")
         if not isinstance(stamp, datetime):
             continue
-        if stamp <= now or stamp > end:
+        stamp_key = (
+            stamp.astimezone(timezone.utc) if stamp.tzinfo is not None else stamp
+        )
+        if stamp_key <= now_key or stamp_key > end_key:
             continue
-        points.append((stamp, raw))
+        points.append((stamp_key, stamp, raw))
     points.sort(key=lambda item: item[0])
 
-    for stamp, raw in points:
+    for stamp_key, stamp, raw in points:
         level, kind = _window_weather_profile(
             raw.get("condition"),
             _float(raw.get("wind_speed")),
@@ -671,7 +702,7 @@ def _short_term_forecast_outlook(
         )
         if level == current_level:
             continue
-        minutes = max(0.0, (stamp - now).total_seconds() / 60.0)
+        minutes = max(0.0, (stamp_key - now_key).total_seconds() / 60.0)
         if level > current_level:
             return "worsening", kind or "weather", minutes, str(raw.get("condition") or "") or None
         return "improving", current_kind or "weather", minutes, str(raw.get("condition") or "") or None
@@ -694,10 +725,25 @@ async def async_refresh_hourly_forecast(
     store = domain_data.setdefault(DATA_FORECAST_CACHE, {})
     cached = store.get(entry.entry_id)
     now = dt_util.utcnow()
-    if not force and isinstance(cached, dict):
+    if (
+        not force
+        and isinstance(cached, dict)
+        and cached.get("source_entity") == weather_entity_id
+    ):
         updated = cached.get("updated")
-        if isinstance(updated, datetime) and now - updated < HOURLY_FORECAST_CACHE_MAX_AGE:
-            return
+        if isinstance(updated, datetime):
+            try:
+                age = now - updated
+            except TypeError:
+                age = None
+            # Only a genuinely recent past timestamp from the same weather
+            # entity may suppress a refresh. A reconfigured weather source or
+            # a future timestamp must self-heal by fetching fresh data.
+            if (
+                age is not None
+                and timedelta(0) <= age < HOURLY_FORECAST_CACHE_MAX_AGE
+            ):
+                return
 
     try:
         response = await hass.services.async_call(
@@ -715,9 +761,15 @@ async def async_refresh_hourly_forecast(
     entity_response = response.get(weather_entity_id) if isinstance(response, dict) else None
     raw_forecast = entity_response.get("forecast") if isinstance(entity_response, dict) else None
     normalized = _normalize_hourly_forecast(hass, weather_entity_id, raw_forecast)
-    # A successful empty response is authoritative. Keeping old points here
-    # would silently turn an unavailable forecast into a stale prediction.
-    store[entry.entry_id] = {"updated": now, "forecast": normalized}
+    # A successful empty response is authoritative: keeping an older forecast
+    # would make the advisor act on data the provider has explicitly stopped
+    # supplying. Temporary request failures keep the previous cache only until
+    # the independent 60-minute usability limit marks it stale.
+    store[entry.entry_id] = {
+        "source_entity": weather_entity_id,
+        "updated": now,
+        "forecast": normalized,
+    }
 
 def _discover_dwd_radar_entities(
     hass: HomeAssistant,
@@ -1292,11 +1344,11 @@ def _nina_slot_sensor_values(
         state = hass.states.get(entity_id)
         if state is None or state.state in {"unknown", "unavailable", "none", ""}:
             continue
-        for detail_field in ("headline", "severity"):
-            suffix = f"-{detail_field}"
+        for field in ("headline", "severity"):
+            suffix = f"-{field}"
             if unique_id.endswith(suffix):
                 slot_id = unique_id[: -len(suffix)]
-                details.setdefault(slot_id, {})[detail_field] = str(state.state)
+                details.setdefault(slot_id, {})[field] = str(state.state)
                 break
     return details
 

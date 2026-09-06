@@ -1,18 +1,58 @@
 # Changelog
 
-## 0.9.1 - Alpha (Release-Audit-Nachbesserung)
+## v0.9.2
 
-- Stunden-Forecasts werden nach maximal 60 Minuten nicht mehr für Kurzfrist- oder Nachtentscheidungen verwendet; der Zustand wird als `fresh`, `stale` oder `unavailable` diagnostizierbar.
-- Erfolgreiche leere Forecastantworten verwerfen den alten Cache bewusst.
-- Forecast-Feuchte und Niederschlagswahrscheinlichkeit werden auf 0–100 % begrenzt; negative Niederschlags- und Windwerte werden ignoriert.
-- Spätere Nachtlüftung nennt in Deutsch, Englisch und Türkisch jetzt Beginn und Ende des berechneten Zeitfensters.
-- Remote-Verbindungen pinnen die vorab geprüften Tailscale-Adressen für den eigentlichen Request und kontrollieren zusätzlich die Peer-IP, bevor die Antwort verarbeitet wird.
-- Der Home-Assistant-Pytest-Stack ist für reproduzierbare CI-Läufe auf eine konkrete Version festgelegt.
-- Der gepinnte Remote-Resolver ist jetzt die alleinige Zielbindung; kleine, bereits gepufferte aiohttp-Antworten werden nicht mehr fälschlich wegen einer bereits freigegebenen `response.connection` abgewiesen.
-- Snapshot-HTTP-Zugriffe und die lokale WebSocket-Remoteübersicht erfordern nun einen Home-Assistant-Administrator. Die Raumfreigabe bleibt die zweite ausdrückliche Zugriffsschranke.
-- Der Forecast-Status wird auch an Remote-Karten übertragen und bei fehlenden oder veralteten Prognosen sichtbar angezeigt.
-- Deutlich in der Zukunft liegende Cache-Zeitstempel gelten als veraltet.
-- Ruff F/E9 ist als CI-Gate ergänzt; tote Variablen, ungenutzte Importe und der Wildcard-Import wurden bereinigt.
+### Fenster-Auf/Zu- und Grenzwert-Stabilisierung
+- Die Raumansicht bewertet für ihre Ampelfarbe jetzt den **stärksten tatsächlichen Anzeigegrund aus allen aktiven Innenraumgründen**, statt bei einem internen Gleichstand nur den zuerst sortierten Bedarf zu verwenden. Dadurch kann z. B. eine milde CO₂-Hysterese einen deutlich größeren Temperaturbedarf nicht mehr als grün „kann schließen“ verdecken und anschließend beim Schließen plötzlich orange sichtbar werden. Die eigentliche Merge-/Entscheidungslogik bleibt davon unverändert.
+- Fensterkontakte werden vom Room-Coordinator nicht mehr zusätzlich direkt neben dem `RoomAiringTracker` beobachtet. Der Tracker verarbeitet Öffnen/Schließen zuerst, aktualisiert `open_since` bzw. `last_confirmed_airing` und löst danach die Raum-Neuberechnung aus. Damit kann beim Schließen nach einer bestätigten ≥5-Minuten-Lüftung kein Zwischenzustand mit bereits geschlossenem Fenster, aber noch altem 24-h-Routinealter veröffentlicht werden.
+- Temperaturgeführtes `weiter_lueften` zeigt nicht mehr pauschal „bis die Lüftungsziele erreicht sind“. Wenn nur Temperatur weiterläuft, lautet die Dauer sinngemäß **solange die Außenluft noch sinnvoll Richtung Soll hilft – nicht zwingend bis zum Sollwert**. Beispiel: 24 °C innen, 18 °C Soll, 23 °C außen endet bereits, sobald der nützliche Temperaturgradient aufgebraucht ist; die Engine erwartet nicht, dass Lüften allein 18 °C erreicht.
+- Neue Sequenz-/Grenzwerttests prüfen Fenster offen → weiterlüften → fertig → schließen sowie Temperatur-, Feuchte-, CO₂- und 5-Minuten-Routinegrenzen.
+
+### Hysterese-Kontext von `weiter_lueften` getrennt
+- Der generische Laufmodus `weiter_lueften` überträgt die niedrigeren **Fortsetzungsgrenzen** nicht mehr auf einen anderen Lüftungsgrund. Die 60→58-%-Feuchtehysterese gilt nur nach einer tatsächlich feuchtegeführten Entscheidung, die 80→78-%-Oberflächenhysterese nur nach einer Schimmelentscheidung und die niedrigere Temperatur-Fortsetzungsgrenze nur nach einer temperaturgeführten Sitzung.
+- Dadurch kann eine reine Temperaturlüftung bei 59 % Raumfeuchte nach Erreichen des Temperaturziels nicht plötzlich als neue Feuchtelüftung weiterlaufen; ebenso erzeugen 79 % Oberflächen-rF nach einer Temperatur-Sitzung keinen neuen Schimmelgrund. Die jeweils echte Feuchte-/Schimmel-/Temperaturhysterese bleibt unverändert erhalten.
+- `primary_need` wird wieder mit dem tatsächlich verwendeten stärksten **Raum-/Anzeigegrund** synchronisiert; `decision_need` bleibt davon getrennt der Grund, der die Fensterentscheidung und Zustands-Memory steuert.
+- Neue Regressionstests prüfen die Kontexttrennung in beide Richtungen sowie die Fortsetzung echter Feuchte-, Schimmel- und Temperatur-Sitzungen.
+
+### Forecast-Quellenbindung und Frontend-Cache
+- Der gemeinsame stündliche Forecast-Cache speichert jetzt zusätzlich die konkrete `weather_entity_id`, die ihn erzeugt hat. Nach einem Reconfigure auf einen anderen Wetteranbieter kann dadurch kein bis zu 15 Minuten alter Forecast der vorherigen Weather-Entity mit den aktuellen Messwerten der neuen Quelle vermischt werden. Ein Quellenwechsel erzwingt sofort einen neuen Forecastabruf; ein alter Cache ohne passende Quellenbindung wird nicht verwendet.
+- Der globale Übersetzungs-/Textcache der Lovelace-Karte ist auf **256 Einträge** begrenzt und arbeitet als kleiner LRU-Cache. Dynamische `reason_args` wie CO₂-, Feuchte- oder Temperaturwerte können auf dauerhaft laufenden Wandtablets damit keinen unbegrenzt wachsenden `Map`-Speicher mehr erzeugen.
+- Regressionstests prüfen sowohl den Forecast-Quellenwechsel als auch das Größenlimit und die LRU-Verdrängung des Frontend-Caches.
+
+### Remote-, Forecast- und Release-Hardening
+- Die lokale WebSocket-Remoteübersicht `lueftungsberater/remote_overview` ist wieder **Administrator-only**. Damit gelten für Remote-Snapshots auf HTTP-Quellseite und lokaler WebSocket-Anzeige wieder konsistente Admin-Rechte.
+- Ein erreichbarer Remote-Peer mit gültigem, aber nicht administrativem Token wird im Config Flow jetzt ausdrücklich als **Administratorrechte erforderlich** gemeldet, statt fälschlich wie eine nicht erreichbare Tailscale-Adresse auszusehen.
+- Ein Forecast-Cache mit Zeitstempel deutlich in der Zukunft kann seinen eigenen Refresh nicht mehr blockieren. Nur ein tatsächlich jüngerer vergangener Cache innerhalb der 15-Minuten-Refresh-Grenze darf eine neue Abfrage unterdrücken.
+- Der normale Kurzzeit-Wetterausblick vergleicht Forecastpunkte jetzt wie die Nachtlogik über eine absolute UTC-Zeitachse. Dadurch werden Forecastpunkte in der zweiten `02:xx`-Stunde beim Herbst-DST-Wechsel nicht mehr als vermeintliche Vergangenheit verworfen.
+- Die README trennt Legacy-Protokollkompatibilität ab v0.6.10 ausdrücklich von der vollständigen aktuellen Remote-Härtung und empfiehlt für Remote-Betrieb dieselbe aktuelle Version auf beiden Home-Assistant-Installationen.
+- Der vollständige reguläre v0.9.1-Changelogabschnitt ist wieder in der Versionshistorie enthalten; die v0.9.2-Aussage zur vollständigen Remote-Härtung entspricht damit auch beim lokalen WebSocket-Pfad wieder dem Code.
+- CI ergänzt einen eigenen Testjob gegen den zur Mindestversion Home Assistant 2026.6.0 gehörenden `pytest-homeassistant-custom-component`-Stand 0.13.336; Release-, Latest-HA- und Mindestversionsprüfung bleiben dadurch getrennt sichtbar.
+
+
+### Runtime-, Safety- und Datenhygiene-Hardening
+- Die bereits in der finalen v0.9.1 vorhandene **Remote-/Forecast-Härtung** ist in diesem Build wieder vollständig enthalten: gepinnter Tailscale-Resolver, Admin-Sperre des Snapshot-Endpunkts, 60-Minuten-Forecast-TTL, Cache-Löschung bei erfolgreicher Leerantwort, Forecast-Plausibilitätsfilter und `fresh/stale/unavailable`-Diagnose.
+- Der Herbst-DST-Vergleich erfolgt chronologisch über UTC und respektiert dadurch `fold` während der doppelt vorkommenden 02-Uhr-Stunde; spätere Nachttexte nennen wieder Start **und** Ende.
+- Beim Entfernen des letzten Lüftungsassistent-Eintrags wird zusätzlich die automatisch angelegte Lovelace-JavaScript-Ressource entfernt.
+- Harte amtliche Fenster-schließen-/Wettergefahren bleiben jetzt **auch bei fehlenden Temperatur- oder Feuchtesensoren** aktiv. Der Runtime-Pfad baut in diesem Fall weiterhin ein rotes `safety_lock`-Ergebnis, sodass Hauptsensor, Safety-Binary-Sensor und Warnbenachrichtigung die bekannte Schutzanweisung nicht mehr wegen `incomplete_data` verlieren.
+- Bei mehreren Wetter-/Warnquellen werden **Severity und Begründung aus derselben maßgeblichen Warnstufe** gewählt. Eine schwächere Wind-Vorsicht kann damit nicht mehr den Erklärungstext einer gleichzeitig wirksamen harten Gewitter-/Gefahrensperre liefern.
+- Die 2-Minuten-Grace eines kurz `unknown`/`unavailable` gewordenen Fensterkontakts gilt jetzt konsistent auch für CO₂-Hysterese und Mindestlüftung: Solange die Grace läuft, bleibt der Tracker logisch `open`; erst nach Ablauf wird die Session am letzten sicher offenen Zeitpunkt beendet.
+- Der 24-h-Routine/CO₂-Sonderpfad wendet nun denselben Regen-/Forecast-Kontext wie normale Kandidaten an. Dadurch bleibt auch die zuvor offene Monotonielücke (z. B. **1050 → 1100 ppm** bei fälliger Routine, Regen und begrenztem Außen-CO₂-Nutzen) geschlossen.
+- CO₂-Werte unter **250 ppm** werden als unplausible Sensor-/Bootwerte verworfen. Insbesondere `0 ppm` kann damit keine laufende CO₂-Grace oder Sitzung fälschlich als extrem gute Raumluft erscheinen lassen.
+- Die frei konfigurierbare Nachtzeit behandelt Sommer-/Winterzeit-Wechsel explizit: nicht existente lokale `02:xx`-Zeiten werden beim Spring-forward vorwärts normalisiert, doppelte Herbstzeiten verwenden für Start/Ende konsistente Folds.
+- Raumtitel sind nur noch **editierbare Labels**, nicht mehr persistente Subentry-Unique-IDs. Alte name-basierte Room-Unique-IDs werden per Migration entfernt; leere und innerhalb einer Instanz doppelte Raumnamen werden im Flow abgefangen.
+- Beim Löschen eines Raums werden seine kompakten Airing-/CO₂-/Decision-/Mold-Stores aufgeräumt. Beim Entfernen der gesamten Integration werden auch die verbleibenden integrationsspezifischen Stores gelöscht.
+- Recorder-Historie wurde minimiert: Nur Hauptempfehlung, Innen-Absolutfeuchte, letzte bestätigte Lüftung und harte Gefahrenanzeige behalten bis zu 20 Tage Verlauf. Redundante Hilfs-/Status-Entities sind bei neuen Installationen standardmäßig deaktiviert und werden, falls aktiviert, täglich mit `keep_days=0` aus der Historie bereinigt. Ehemalige Entity-IDs gelöschter Räume werden über einen kleinen Index noch einmal gezielt gepurgt.
+- Unerwartete `RuntimeError` beim Registrieren des Frontend-Pfads werden nicht mehr kommentarlos verschluckt; normale Mehrfach-Setups werden über einen Domain-Status dedupliziert.
+- Die Bugreport-Vorlage nennt wieder die aktuelle 0.9.2-Linie. Die Remote-Sicherheitsbeschreibung ist vereinheitlicht: Der Client bindet Requests an zuvor vollständig verifizierte Tailscale-Zieladressen über den gepinnten Resolver; serverseitig verlangt der Snapshot-Endpunkt weiterhin Tailscale-Quelladresse plus Home-Assistant-Authentifizierung/Admin-Rechte. Eine zusätzliche Response-Peer-IP-Inspektion wird nicht behauptet.
+
+## v0.9.1 - Alpha (Release-Audit-Nachbesserung)
+
+- Stündliche Forecastdaten besitzen zusätzlich zur 15-Minuten-Refresh-Grenze eine maximale **Entscheidungsnutzungsdauer von 60 Minuten**. Ältere oder deutlich in der Zukunft datierte Caches werden als `stale` behandelt und nicht mehr in Kurzzeit-/Nachtentscheidungen eingespeist.
+- Ein erfolgreicher leerer Forecast ersetzt einen älteren Cache ausdrücklich durch eine leere Vorhersage. Unplausible Prozentwerte außerhalb 0..100 sowie negative Niederschlags-, Wind- und Böenwerte werden verworfen.
+- Die Karte unterscheidet Forecastdaten diagnostisch als `fresh`, `stale` oder `unavailable`.
+- Tailscale-Remote prüft alle Zieladressen und bindet den tatsächlichen HTTP-Request anschließend an genau diese verifizierten Adressen über einen eigenen Resolver ohne DNS-Cache. Der Snapshot-Endpunkt verlangt zusätzlich zur Tailscale-Quelle einen authentifizierten **Home-Assistant-Administrator**.
+- Nachttexte nennen bei späteren Zeitfenstern wieder **Start und Ende** des sinnvollen Abschnitts.
+- Der Release-CI-Gate enthält Ruff für kritische `F`/`E9`-Fehler. Der normale Release-Teststack ist reproduzierbar gepinnt; ein separater geplanter Job testet weiterhin gegen den jeweils aktuellen Home-Assistant-Teststack.
 
 ## v0.9.1
 

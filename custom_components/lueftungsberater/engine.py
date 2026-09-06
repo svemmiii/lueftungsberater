@@ -8,6 +8,7 @@ ventilation needs against the same outdoor conditions, then a combined action.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from .models import RoomInput, VentilationResult
 
@@ -108,6 +109,28 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
     }:
         return _normal_airing_duration(outdoor_temp)
     return "not_needed"
+
+
+def _display_duration_key(
+    mode: str, outdoor_temp: float, reason_args: dict[str, Any]
+) -> str:
+    """Return the user-facing duration without overstating a reachable target.
+
+    A temperature-only ``weiter_lueften`` session is intentionally stopped once
+    outdoor air no longer has a useful temperature gradient.  It does *not*
+    promise that ventilation alone can reach the configured thermostat target
+    when outdoor air itself is still warmer/colder than that target.
+    """
+    if mode == "weiter_lueften":
+        temperature_only = bool(
+            reason_args.get("continue_cooling") or reason_args.get("continue_warming")
+        ) and not any(
+            bool(reason_args.get(key))
+            for key in ("continue_co2", "continue_moisture", "continue_routine")
+        )
+        if temperature_only:
+            return "while_temperature_helps"
+    return _duration_key(mode, outdoor_temp)
 
 
 def _duration_max_minutes(mode: str, outdoor_temp: float) -> float:
@@ -384,6 +407,40 @@ def _temperature_moves_away(ti: float, ta: float, target: float) -> bool:
     return abs(ta - target) >= 2.0 and abs(ta - ti) >= 2.0
 
 
+
+
+def _previous_humidity_context(previous_mode: str, previous_need: str) -> bool:
+    """Return whether the previous decision was genuinely humidity-driven.
+
+    ``weiter_lueften`` is a generic running-airing mode.  Its lower humidity
+    continuation threshold is only valid when the decision memory says that
+    humidity actually caused the running session.
+    """
+    return previous_mode == "feuchte_lueften" or (
+        previous_mode == "weiter_lueften"
+        and previous_need in {"humidity", "humidity_urgent"}
+    )
+
+
+def _previous_mold_context(previous_mode: str, previous_need: str) -> bool:
+    """Return whether the previous decision was genuinely mold-driven."""
+    return previous_mode in {
+        "schimmel_lueften",
+        "schimmel_langzeit_lueften",
+        "schimmel_warten",
+        "schimmel_neutral",
+    } or (
+        previous_mode == "weiter_lueften"
+        and previous_need in {"mold", "mold_persistent"}
+    )
+
+
+def _previous_temperature_context(previous_mode: str, previous_need: str) -> bool:
+    """Return whether the previous decision was genuinely temperature-driven."""
+    return previous_mode in {"kuehlen", "erwaermen"} or (
+        previous_mode == "weiter_lueften" and previous_need == "temperature"
+    )
+
 def _active_needs(
     *,
     co2: float | None,
@@ -435,7 +492,7 @@ def _active_needs(
     if hi >= 65:
         needs.append(("humidity_urgent", 2))
     elif hi >= 60 or (
-        previous_mode in {"feuchte_lueften", "weiter_lueften"}
+        _previous_humidity_context(previous_mode, previous_need)
         and hi >= 58
         and diff >= AH_CONTINUE
     ):
@@ -450,13 +507,13 @@ def _active_needs(
         temperature_delta >= (TEMP_NEED_OFF if temperature_hysteresis else TEMP_NEED_ON)
         and _temperature_moves_toward_target(ti, ta, target)
     )
-    temperature_continue = window_open and previous_mode in {
-        "kuehlen",
-        "erwaermen",
-        "weiter_lueften",
-    } and (
-        (ti > target + 0.2 and ta <= ti - 0.5)
-        or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
+    temperature_continue = (
+        window_open
+        and _previous_temperature_context(previous_mode, previous_need)
+        and (
+            (ti > target + 0.2 and ta <= ti - 0.5)
+            or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
+        )
     )
     if temperature_start or temperature_continue:
         needs.append(("temperature", 1))
@@ -525,7 +582,7 @@ def _non_co2_mode_for_need(
 
     if need in {"humidity_urgent", "humidity"}:
         continuation = (
-            previous_mode in {"feuchte_lueften", "weiter_lueften"}
+            _previous_humidity_context(previous_mode, data.previous_need or "")
             and hi >= 58
             and diff >= AH_CONTINUE
         )
@@ -560,8 +617,25 @@ def _non_co2_mode_for_need(
         return "feuchte_neutral", None
 
     if need in {"heat", "humid_heat", "temperature"}:
-        helps = _temperature_moves_toward_target(ti, ta, target) or (
-            need == "heat" and ta <= ti - 1
+        temperature_continuation = (
+            need == "temperature"
+            and data.window_open
+            and _previous_temperature_context(
+                previous_mode, data.previous_need or ""
+            )
+            and (
+                (ti > target + 0.2 and ta <= ti - 0.5)
+                or (
+                    ti < target - 0.2
+                    and ta >= ti + 0.5
+                    and ta <= target + 4.0
+                )
+            )
+        )
+        helps = (
+            _temperature_moves_toward_target(ti, ta, target)
+            or temperature_continuation
+            or (need == "heat" and ta <= ti - 1)
         )
         if not helps:
             return "normal", None
@@ -1111,17 +1185,19 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     previous_mode = data.previous_mode or ""
     previous_need = data.previous_need or ""
 
+    co2_critical = co2 is not None and co2 > 2000
+    co2_high = co2 is not None and co2 >= 1400
+    co2_elevated = co2 is not None and (
+        co2 >= 1000
+        or (_previous_co2_context(previous_mode, previous_need) and co2 >= 900)
+        or data.co2_pending_hold
+    )
+
     surface_rh = surface_relative_humidity(ti, hi, data.surface_temp)
     mold_risk = surface_rh is not None and (
         surface_rh >= 80.0
         or (
-            previous_mode in {
-                "schimmel_lueften",
-                "schimmel_langzeit_lueften",
-                "schimmel_warten",
-                "schimmel_neutral",
-                "weiter_lueften",
-            }
+            _previous_mold_context(previous_mode, previous_need)
             and surface_rh >= 78.0
         )
     )
@@ -1144,8 +1220,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         co2_airing_active=data.co2_airing_active,
         co2_rearm_threshold=data.co2_rearm_threshold,
     )
-    # Strongest indoor signal remains the room/display perspective. The actual
-    # recommendation below is merged from every independently evaluated need.
+    # ``need`` is the strongest merge/tie-break signal.  The public
+    # ``primary_need`` is synchronized with the actual room-display need near
+    # the end, while ``decision_need`` remembers what drove the recommendation.
     need, urgency = active_needs[0] if active_needs else ("none", 0)
 
     # A true protection instruction is outside the normal four-colour scale.
@@ -1498,19 +1575,21 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
 
         # The 24-hour routine remains a fallback and therefore never re-enters
         # the normal multi-need candidate set. Its already-established positive
-        # airing value must nevertheless not disappear exactly when the first,
-        # low CO2 band becomes active. If routine airing would be green under the
-        # same outside conditions and elevated CO2 only says "trade-off" because
-        # outdoor CO2 offers limited reduction, preserve the recommendation as a
-        # green CO2 airing with an explicit disadvantage. Higher CO2 bands and
-        # real outside warnings are unaffected.
+        # airing value must nevertheless not disappear merely because CO2
+        # becomes an explicit need. Evaluate the *same* weather-aware routine
+        # opportunity as a monotonic baseline, but only when CO2 is the sole
+        # concrete indoor reason. This prevents 999->1000 as well as later
+        # 1050->1100/1399->1400 discontinuities without letting routine override
+        # humidity, mold or temperature conflicts. Orange/red CO2 judgements are
+        # never promoted; only genuine yellow opening trade-offs may inherit the
+        # independently safe green airing opportunity.
         if (
             hours >= 24.0
-            and decision_need == "co2_elevated"
-            and mode == "co2_abwaegung"
-            and caution_kind == "outdoor_co2"
+            and decision_need.startswith("co2_")
+            and _action_semantic(mode) == "tradeoff"
+            and all(need_name.startswith("co2_") for need_name, _ in active_needs)
         ):
-            routine_mode, _routine_caution = _non_co2_mode_for_need(
+            routine_mode, routine_caution = _non_co2_mode_for_need(
                 need="routine",
                 data=data,
                 hi=hi,
@@ -1520,8 +1599,21 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 diff=diff,
                 previous_mode=previous_mode,
             )
+            routine_mode, routine_caution = _apply_candidate_weather_context(
+                need="routine",
+                urgency=1,
+                mode=routine_mode,
+                caution_kind=routine_caution,
+                data=data,
+                outdoor_temp=ta,
+            )
             if _action_semantic(routine_mode) == "beneficial":
-                mode = "co2_lueften_mit_nachteil"
+                mode = (
+                    "co2_kritisch"
+                    if decision_need == "co2_critical"
+                    else "co2_lueften_mit_nachteil"
+                )
+
 
         # When CO₂ is the strongest indoor signal and its own judgement is a
         # genuine yellow trade-off, an independently green reason proves that
@@ -1536,6 +1628,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             and _action_semantic(co2_candidate_mode) == "tradeoff"
         ):
             decision_need = need
+            decision_urgency = urgency
             mode = "co2_lueften_mit_nachteil"
             caution_kind = co2_candidate_caution or "combined"
 
@@ -1553,6 +1646,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         # "none" so later short-term weather post-processing can still replace a
         # mild outside inconvenience with the more relevant imminent warning.
         decision_need = "none"
+        decision_urgency = 0
 
     # Rain is a practical window-opening disadvantage, never a proxy for
     # moisture physics. Only near-term rain that can overlap the actual airing
@@ -1676,41 +1770,50 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         )
         caution_kind = "minimum_airing"
 
-    # If a window is already open, keep green goals going, mark a finished
-    # neutral session as done, and preserve red/yellow trade-off modes so the
-    # user sees why closing may now be sensible.
+    # Continuation thresholds are hysteresis, not alternative start thresholds.
+    # ``weiter_lueften`` is shared by CO₂, humidity, mold, temperature and
+    # routine airing, so a lower continuation band may only be inherited when
+    # the corresponding need is actually active in the fresh decision/context.
+    active_need_names = {active_need for active_need, _ in active_needs}
+    humidity_context = _previous_humidity_context(previous_mode, previous_need)
+    humidity_active = bool(
+        active_need_names & {"humidity", "humidity_urgent"}
+    )
+    mold_active = bool(active_need_names & {"mold", "mold_persistent"})
+    temperature_active = "temperature" in active_need_names
+
+    continue_co2 = co2 is not None and (
+        (not data.co2_finish_ready)
+        if data.co2_airing_active
+        else co2 >= 1000
+    )
+    continue_humidity = humidity_active and (
+        (hi >= 60 and diff > AH_NEUTRAL)
+        or (humidity_context and hi >= 58 and diff >= AH_CONTINUE)
+    )
+    continue_mold = mold_active and mold_risk and diff > AH_NEUTRAL
+    continue_moisture = continue_humidity or continue_mold
+    continue_cooling = (
+        temperature_active and ti > target + 0.2 and ta <= ti - 0.5
+    )
+    continue_warming = (
+        temperature_active
+        and ti < target - 0.2
+        and ta >= ti + 0.5
+        and ta <= target + 4.0
+    )
+    continue_routine = (
+        decision_need == "routine"
+        and (data.open_minutes is None or data.open_minutes < 5.0)
+    )
+
+    # If a window is already open, keep genuinely active green goals going,
+    # mark a finished neutral session as done, and preserve red/yellow trade-off
+    # modes so the user sees why closing may now be sensible.
     if data.window_open:
         if mode == "co2_mindestlueftung":
             pass
         elif _color(mode) == "green":
-            continue_co2 = co2 is not None and (
-                (not data.co2_finish_ready)
-                if data.co2_airing_active
-                else co2 >= 1000
-            )
-            continue_moisture = (
-                (hi >= 60 and diff > AH_NEUTRAL)
-                or (
-                    previous_mode == "weiter_lueften"
-                    and hi >= 58
-                    and diff >= AH_CONTINUE
-                )
-                or (mold_risk and diff > AH_NEUTRAL)
-            )
-            # Once temperature-driven airing has started, keep it active until
-            # the personal target is effectively reached. A small 0.2 K margin
-            # avoids flicker from sensor noise while preventing the old behaviour
-            # where cooling was declared finished noticeably above target.
-            continue_cooling = ti > target + 0.2 and ta <= ti - 0.5
-            continue_warming = ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4
-            # A routine-airing recommendation is only considered fulfilled
-            # after a real minimum exchange time. The airing tracker confirms
-            # sessions at five minutes; mirror that threshold here so the UI
-            # cannot say "done" seconds after the user opens the window.
-            continue_routine = (
-                decision_need == "routine"
-                and (data.open_minutes is None or data.open_minutes < 5.0)
-            )
             if (
                 continue_co2
                 or continue_moisture
@@ -1795,19 +1898,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 if data.co2_airing_active
                 else co2 >= 1000
             ),
-            "continue_moisture": (
-                (hi >= 60 and diff > AH_NEUTRAL)
-                or (previous_mode == "weiter_lueften" and hi >= 58 and diff >= AH_CONTINUE)
-                or (mold_risk and diff > AH_NEUTRAL)
-            ),
-            "continue_cooling": ti > target + 0.2 and ta <= ti - 0.5,
-            "continue_warming": (
-                ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0
-            ),
-            "continue_routine": (
-                decision_need == "routine"
-                and (data.open_minutes is None or data.open_minutes < 5.0)
-            ),
+            "continue_moisture": continue_moisture,
+            "continue_cooling": continue_cooling,
+            "continue_warming": continue_warming,
+            "continue_routine": continue_routine,
             "open_minutes": data.open_minutes,
             "routine_min_minutes": 5.0,
             "co2": co2,
@@ -1953,11 +2047,27 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     else:
         reason_key, reason_args = "normal", {}
 
-    room_urgency = _room_display_urgency(need, data)
-    room_color = _room_status_color(room_urgency, color, need)
+    # The merge priority and the room-display priority are deliberately not
+    # identical.  For example, an elevated-CO2 hysteresis candidate and a large
+    # temperature deviation can both have merge urgency 1, while the room view
+    # correctly rates the large temperature deviation as level 2.  Using only
+    # ``need`` here could therefore render the open-window room card green /
+    # "can close" even though a stronger secondary indoor reason was still
+    # actively keeping the window-open decision green.  Select the strongest
+    # *display* need across the complete active set, preserving the established
+    # active-needs order only as a tie-break.
+    room_need = need
+    room_urgency = _room_display_urgency(room_need, data)
+    for candidate_need, _candidate_urgency in active_needs:
+        candidate_room_urgency = _room_display_urgency(candidate_need, data)
+        if candidate_room_urgency > room_urgency:
+            room_need = candidate_need
+            room_urgency = candidate_room_urgency
+
+    room_color = _room_status_color(room_urgency, color, room_need)
     room_recommendation_key = _room_recommendation_key(room_color, data.window_open)
     room_reason_args = {
-        "need": need,
+        "need": room_need,
         "level": room_urgency,
         "ventilation_color": color,
         "mode": mode,
@@ -1984,7 +2094,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         recommendation_key=recommendation_key,
         reason_key=reason_key,
         reason_args=reason_args,
-        duration_key=_duration_key(mode, ta),
+        duration_key=_display_duration_key(mode, ta, reason_args),
         duration_args={},
         original_reason=original_reason,
         indoor_absolute_humidity=round(ahi, 2),
@@ -1997,7 +2107,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         room_recommendation_key=room_recommendation_key,
         room_reason_key="room_perspective",
         room_reason_args=room_reason_args,
-        primary_need=need,
+        primary_need=room_need,
         decision_need=decision_need,
         safety_lock=hard_mode is not None,
         surface_relative_humidity=(round(surface_rh, 1) if surface_rh is not None else None),

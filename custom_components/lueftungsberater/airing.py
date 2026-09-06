@@ -78,7 +78,22 @@ class RoomAiringTracker:
 
     @property
     def is_open(self) -> bool:
-        return self._contact_state()[0]
+        """Return the effective open state including the short unknown grace.
+
+        A contact that briefly becomes ``unknown``/``unavailable`` must not be
+        interpreted as an immediate close by the CO2 state machines. The
+        airing tracker already preserves ``open_since`` for WINDOW_UNKNOWN_GRACE;
+        expose the same conservative state here so all consumers share one
+        definition of "still open". Once the grace expires,
+        _async_unknown_grace_expired() ends the session at the last definitely
+        open instant.
+        """
+        any_open, all_known = self._contact_state()
+        if any_open:
+            return True
+        if all_known or self.open_since is None or self._unknown_since is None:
+            return False
+        return dt_util.utcnow() < self._unknown_since + WINDOW_UNKNOWN_GRACE
 
     @property
     def current_open_minutes(self) -> float | None:

@@ -66,6 +66,7 @@ RECOMMENDATIONS = {
 DURATIONS = {
     "de": {
         "until_targets": "Bis die noch offenen Lüftungsziele erreicht sind",
+        "while_temperature_helps": "Solange die Außenluft die Raumtemperatur noch sinnvoll Richtung Sollwert bewegt – nicht zwingend bis zum Sollwert",
         "can_end": "Die Lüftung kann jetzt beendet werden",
         "brief_observation": "Etwa 5 Minuten – dabei die Situation im Blick behalten",
         "co2_recheck": "5–10 Minuten, danach CO₂ erneut prüfen",
@@ -86,6 +87,7 @@ DURATIONS = {
     },
     "en": {
         "until_targets": "Until the remaining ventilation targets are reached",
+        "while_temperature_helps": "While outdoor air still moves the room temperature usefully toward the target — not necessarily all the way to the target",
         "can_end": "You can close the windows now",
         "brief_observation": "About 5 minutes, while keeping an eye on the conditions",
         "co2_recheck": "5–10 minutes, then check CO₂ again",
@@ -106,6 +108,7 @@ DURATIONS = {
     },
     "tr": {
         "until_targets": "Kalan havalandırma hedeflerine ulaşılana kadar",
+        "while_temperature_helps": "Dış hava oda sıcaklığını hedefe doğru anlamlı biçimde taşımaya devam ettiği sürece — hedefe mutlaka tamamen ulaşmak gerekmez",
         "can_end": "Artık pencereleri kapatabilirsin",
         "brief_observation": "Yaklaşık 5 dakika; bu sırada durumu takip et",
         "co2_recheck": "5–10 dakika, ardından CO₂ seviyesini yeniden kontrol et",

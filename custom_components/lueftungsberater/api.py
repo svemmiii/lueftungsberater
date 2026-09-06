@@ -70,10 +70,10 @@ REMOTE_ATTRIBUTE_KEYS = {
     "wind_speed_kmh",
     "wind_gust_kmh",
     "rain_minutes_until",
-    "forecast_data_status",
     "short_term_weather_change",
     "short_term_weather_kind",
     "short_term_weather_minutes",
+    "forecast_data_status",
     "night_ventilation_status",
     "night_ventilation_key",
     "night_ventilation_args",
@@ -99,7 +99,7 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
 
     async def get(self, request):
         # Authentication is necessary but not sufficient for this endpoint: remote
-        # snapshots are intentionally available only across a real Tailscale path.
+        # snapshots are intentionally available only from the address ranges used by Tailscale.
         # The client also validates the destination before every request, making the
         # restriction bidirectional instead of merely a config-flow convention.
         if not request.remote or not _ip_is_tailscale(str(request.remote)):
@@ -107,9 +107,11 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
                 "Tailscale connection required",
                 status_code=HTTPStatus.FORBIDDEN,
             )
-        if not request[KEY_HASS_USER].is_admin:
+
+        user = request.get(KEY_HASS_USER)
+        if user is None or not bool(getattr(user, "is_admin", False)):
             return self.json_message(
-                "Administrator token required",
+                "Administrator access required",
                 status_code=HTTPStatus.FORBIDDEN,
             )
 
@@ -474,11 +476,11 @@ def websocket_localize(
     )
 
 
+@callback
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {vol.Required("type"): "lueftungsberater/remote_overview"}
 )
-@websocket_api.require_admin
-@callback
 def websocket_remote_overview(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,

@@ -363,6 +363,209 @@ def test_humidity_hysteresis_keeps_active_drying_advice_stable():
     assert fresh.mode != "feuchte_lueften"
 
 
+
+
+def test_temperature_session_does_not_invent_humidity_hysteresis_below_start_threshold():
+    """Generic weiter_lueften must not turn 59 % into a new humidity session."""
+    closed = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=21.0,
+            outdoor_temp=20.0,
+            indoor_humidity=59.0,
+            outdoor_humidity=40.0,
+            co2=700.0,
+        )
+    )
+    assert closed.mode == "kuehlen"
+    assert closed.decision_need == "temperature"
+
+    opened = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=21.0,
+            outdoor_temp=20.0,
+            indoor_humidity=59.0,
+            outdoor_humidity=40.0,
+            co2=700.0,
+            window_open=True,
+            previous_mode=closed.mode,
+            previous_need=closed.decision_need,
+        )
+    )
+    assert opened.mode == "weiter_lueften"
+    assert opened.decision_need == "temperature"
+
+    finished_temperature = evaluate_room(
+        base(
+            indoor_temp=21.1,
+            target_temp=21.0,
+            outdoor_temp=20.0,
+            indoor_humidity=59.0,
+            outdoor_humidity=40.0,
+            co2=700.0,
+            window_open=True,
+            previous_mode=opened.mode,
+            previous_need=opened.decision_need,
+        )
+    )
+    assert finished_temperature.mode == "lueftung_fertig"
+    assert finished_temperature.decision_need != "humidity"
+    assert finished_temperature.primary_need != "humidity"
+    assert finished_temperature.reason_args.get("continue_moisture") is not True
+
+
+def test_temperature_session_does_not_invent_mold_hysteresis_below_start_threshold():
+    """A 79 % surface RH may only be held if mold actually drove the prior session."""
+    closed = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=21.0,
+            outdoor_temp=20.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=40.0,
+            surface_temp=16.6,  # ~79 % surface RH: below the 80 % start threshold
+            co2=700.0,
+        )
+    )
+    assert closed.mode == "kuehlen"
+    assert closed.mold_risk is False
+
+    opened = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=21.0,
+            outdoor_temp=20.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=40.0,
+            surface_temp=16.6,
+            co2=700.0,
+            window_open=True,
+            previous_mode=closed.mode,
+            previous_need=closed.decision_need,
+        )
+    )
+    assert opened.mode == "weiter_lueften"
+    assert opened.decision_need == "temperature"
+    assert opened.mold_risk is False
+
+    cooling_exhausted = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=21.0,
+            outdoor_temp=23.7,
+            indoor_humidity=50.0,
+            outdoor_humidity=40.0,
+            surface_temp=16.6,
+            co2=700.0,
+            window_open=True,
+            previous_mode=opened.mode,
+            previous_need=opened.decision_need,
+        )
+    )
+    assert cooling_exhausted.mode == "lueftung_fertig"
+    assert cooling_exhausted.mold_risk is False
+    assert cooling_exhausted.decision_need not in {"mold", "mold_persistent"}
+
+
+def test_real_humidity_session_keeps_58_percent_continuation_hysteresis():
+    """The fix must preserve the intended 60 -> 58 % humidity hysteresis."""
+    result = evaluate_room(
+        base(
+            indoor_humidity=59.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=64.0,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="humidity",
+        )
+    )
+    assert result.mode == "weiter_lueften"
+    assert result.decision_need == "humidity"
+    assert result.reason_args["continue_moisture"] is True
+
+
+def test_real_mold_session_keeps_78_percent_surface_hysteresis():
+    """The fix must preserve the intended 80 -> 78 % mold hysteresis."""
+    result = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=24.0,
+            outdoor_temp=20.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=40.0,
+            surface_temp=16.6,  # ~79 %
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="mold",
+        )
+    )
+    assert result.mold_risk is True
+    assert result.decision_need == "mold"
+    assert result.mode == "weiter_lueften"
+    assert result.reason_args["continue_moisture"] is True
+
+
+def test_non_temperature_session_does_not_inherit_temperature_continuation_band():
+    """A generic weiter_lueften from another reason must not start at 0.4 K delta."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.4,
+            target_temp=22.0,
+            outdoor_temp=16.0,
+            indoor_humidity=50.0,
+            outdoor_humidity=50.0,
+            co2=850.0,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+        )
+    )
+    assert result.mode == "lueftung_fertig"
+    assert result.decision_need != "temperature"
+    assert result.reason_args.get("continue_cooling") is not True
+
+
+
+
+def test_real_temperature_session_keeps_lower_running_gradient_without_making_it_a_start_rule():
+    """0.5 K outdoor help is a continuation band only for temperature sessions."""
+    running = evaluate_room(
+        base(
+            indoor_temp=21.2,
+            target_temp=21.8,
+            outdoor_temp=21.75,  # +0.55 K: enough to continue, below +0.7 K start help
+            indoor_humidity=50.0,
+            outdoor_humidity=50.0,
+            co2=700.0,
+            window_open=True,
+            open_minutes=8.0,
+            previous_mode="weiter_lueften",
+            previous_need="temperature",
+        )
+    )
+    assert running.mode == "weiter_lueften"
+    assert running.decision_need == "temperature"
+    assert running.reason_args["continue_warming"] is True
+
+    unrelated_context = evaluate_room(
+        base(
+            indoor_temp=21.2,
+            target_temp=21.8,
+            outdoor_temp=21.75,
+            indoor_humidity=50.0,
+            outdoor_humidity=50.0,
+            co2=700.0,
+            window_open=True,
+            open_minutes=8.0,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+        )
+    )
+    assert unrelated_context.mode == "lueftung_fertig"
+    assert unrelated_context.decision_need != "temperature"
+
+
 def test_open_window_co2_session_memory_does_not_create_a_fresh_need_below_900():
     continuing = evaluate_room(
         base(
@@ -466,6 +669,7 @@ def test_open_window_keeps_cooling_until_target_is_effectively_reached():
             outdoor_humidity=50,
             window_open=True,
             previous_mode="weiter_lueften",
+            previous_need="temperature",
         )
     )
     assert r.color == "green"
@@ -1748,3 +1952,221 @@ def test_imminent_rain_does_not_reintroduce_humidity_threshold_regression():
     at = evaluate_room(base(**common, indoor_humidity=60.0))
     rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
     assert rank[at.color] >= rank[below.color]
+
+
+def test_24h_routine_bridge_keeps_co2_monotonic_with_rain_and_outdoor_co2():
+    """1050 -> 1100 ppm must not weaken advice in the 24 h rain bridge."""
+    common = dict(
+        indoor_temp=21.0,
+        target_temp=21.0,
+        indoor_humidity=50.0,
+        outdoor_temp=20.0,
+        outdoor_humidity=50.0,
+        outdoor_co2=950.0,
+        hours_since_airing=25.0,
+        rain_now=True,
+    )
+    rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    values = [999.0, 1000.0, 1050.0, 1100.0, 1399.0, 1400.0, 2000.1]
+    results = [evaluate_room(base(**common, co2=value)) for value in values]
+    for earlier, later in zip(results, results[1:]):
+        assert rank[later.color] >= rank[earlier.color], (
+            earlier.mode, earlier.color, later.mode, later.color
+        )
+
+
+def test_24h_routine_bridge_does_not_override_existing_temperature_conflict():
+    """The routine compatibility bridge applies only when routine was the sole prior need."""
+    common = dict(
+        indoor_temp=26.13,
+        indoor_humidity=51.67,
+        outdoor_temp=-1.04,
+        outdoor_humidity=46.57,
+        target_temp=21.05,
+        outdoor_co2=950.0,
+        hours_since_airing=25.0,
+        rain_minutes_until=15.0,
+    )
+    rank = {"red": 0, "orange": 1, "yellow": 2, "green": 3}
+    results = [evaluate_room(base(**common, co2=value)) for value in (999.0, 1000.0, 1050.0, 1100.0)]
+    assert all(rank[later.color] >= rank[earlier.color] for earlier, later in zip(results, results[1:]))
+
+
+def test_room_view_uses_strongest_display_need_during_multi_need_airing():
+    """A mild CO2 hysteresis tie must not hide a much larger temperature need.
+
+    This reproduces the ugly room-card transition where the open-window card
+    could say green / "can close" while the actual ventilation decision was
+    still keeping the window open for a large temperature deviation.  Once CO2
+    left its hysteresis band, the temperature reason became visible and the
+    card jumped to orange.  The room perspective now considers all active
+    indoor needs and therefore stays consistent throughout the sequence.
+    """
+    common = dict(
+        indoor_temp=16.88,
+        target_temp=24.73,
+        outdoor_temp=24.31,
+        indoor_humidity=28.75,
+        outdoor_humidity=25.34,
+        hours_since_airing=2,
+    )
+
+    closed = evaluate_room(base(**common, co2=1200, window_open=False))
+    assert closed.mode == "erwaermen"
+    assert closed.decision_need == "temperature"
+    assert closed.primary_need == "temperature"
+    assert closed.room_status_color == "orange"
+    assert closed.room_reason_args["need"] == "temperature"
+
+    opened = evaluate_room(
+        base(
+            **common,
+            co2=1200,
+            window_open=True,
+            open_minutes=1,
+            previous_mode=closed.mode,
+            previous_need=closed.decision_need,
+        )
+    )
+    assert opened.mode == "weiter_lueften"
+    assert opened.room_status_color == "orange"
+    assert opened.room_recommendation_key == "keep_open"
+
+    co2_dropped = evaluate_room(
+        base(
+            **common,
+            co2=984,
+            window_open=True,
+            open_minutes=8,
+            previous_mode=opened.mode,
+            previous_need=opened.decision_need,
+        )
+    )
+    assert co2_dropped.mode == "weiter_lueften"
+    assert co2_dropped.room_status_color == "orange"
+    assert co2_dropped.room_recommendation_key == "keep_open"
+
+
+def test_temperature_airing_with_unreachable_target_ends_when_outdoor_help_is_exhausted():
+    """24 -> 18 °C with 23 °C outdoors must not promise reaching 18 °C.
+
+    Ventilation can only move the room toward outdoor temperature.  The running
+    session should continue while there is a useful >=0.5 K gradient and finish
+    before pretending that the configured 18 °C target itself can be reached.
+    """
+    running = evaluate_room(
+        base(
+            indoor_temp=24.0,
+            target_temp=18.0,
+            outdoor_temp=23.0,
+            indoor_humidity=52.8,
+            outdoor_humidity=49.0,
+            co2=648,
+            window_open=True,
+            open_minutes=1,
+            previous_mode="weiter_lueften",
+            previous_need="temperature",
+        )
+    )
+    assert running.mode == "weiter_lueften"
+    assert running.reason_args["continue_cooling"] is True
+    assert running.duration_key == "while_temperature_helps"
+
+    finished = evaluate_room(
+        base(
+            indoor_temp=23.49,
+            target_temp=18.0,
+            outdoor_temp=23.0,
+            indoor_humidity=52.8,
+            outdoor_humidity=49.0,
+            co2=648,
+            window_open=True,
+            open_minutes=10,
+            previous_mode="weiter_lueften",
+            previous_need="temperature",
+        )
+    )
+    assert finished.mode == "lueftung_fertig"
+    assert finished.room_recommendation_key == "can_close"
+
+    closed = evaluate_room(
+        base(
+            indoor_temp=23.49,
+            target_temp=18.0,
+            outdoor_temp=23.0,
+            indoor_humidity=52.8,
+            outdoor_humidity=49.0,
+            co2=648,
+            window_open=False,
+            previous_mode=finished.mode,
+            previous_need=finished.decision_need,
+        )
+    )
+    assert closed.recommendation_key != "open_now"
+    assert closed.room_status_color == "green"
+    assert closed.room_recommendation_key == "room_good"
+
+
+def test_can_close_then_same_measurements_never_escalate_on_close_across_boundaries():
+    """Closing after a real can-close state must not immediately ask to reopen.
+
+    Exercise the exact boundaries most likely to flicker: temperature start /
+    stop and useful-gradient bands, humidity 58/60/65 %, CO2 900/1000/1400/
+    2000 ppm and the five-minute airing boundary.  This is deliberately a grid
+    rather than a single hand-picked regression example.
+    """
+    checked = 0
+    temperature_deltas = (0.19, 0.21, 0.59, 0.61, 0.99, 1.01, 2.99, 3.01)
+    helpful_gradients = (0.49, 0.51, 0.69, 0.71)
+    humidities = (57.9, 58.0, 59.9, 60.0, 64.9, 65.0)
+    co2_values = (849, 850, 899, 900, 999, 1000, 1399, 1400, 2000, 2001)
+
+    for sign in (-1, 1):
+        for delta in temperature_deltas:
+            target = 21.0
+            ti = target + sign * delta
+            for gradient in helpful_gradients:
+                ta = ti - sign * gradient
+                for humidity in humidities:
+                    for co2 in co2_values:
+                        opened = evaluate_room(
+                            base(
+                                indoor_temp=ti,
+                                target_temp=target,
+                                outdoor_temp=ta,
+                                indoor_humidity=humidity,
+                                outdoor_humidity=50.0,
+                                co2=co2,
+                                window_open=True,
+                                open_minutes=5.01,
+                                previous_mode="weiter_lueften",
+                                previous_need="temperature",
+                            )
+                        )
+                        if opened.room_recommendation_key != "can_close":
+                            continue
+                        checked += 1
+                        closed = evaluate_room(
+                            base(
+                                indoor_temp=ti,
+                                target_temp=target,
+                                outdoor_temp=ta,
+                                indoor_humidity=humidity,
+                                outdoor_humidity=50.0,
+                                co2=co2,
+                                window_open=False,
+                                previous_mode=opened.mode,
+                                previous_need=opened.decision_need,
+                            )
+                        )
+                        # The room-air perspective may deliberately allow a
+                        # mild underlying ventilation opportunity (for example
+                        # slightly elevated CO2) while still saying the room is
+                        # fine.  What must never happen is the user-visible
+                        # green "can close" state jumping to orange/red solely
+                        # because the contact changed to closed.
+                        assert closed.room_status_color not in {"orange", "red"}
+                        if opened.recommendation_key == "can_close":
+                            assert closed.recommendation_key != "open_now"
+
+    assert checked > 100

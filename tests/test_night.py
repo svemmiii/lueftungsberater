@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from custom_components.lueftungsberater.night import (
     NightAdvice,
     evaluate_night_ventilation,
     stabilize_night_advice,
+    display_interval,
 )
 
 TZ = ZoneInfo("Europe/Berlin")
@@ -376,3 +377,32 @@ def test_worse_outdoor_co2_makes_long_night_opening_conditional():
     )
     assert result.status == "conditional"
     assert result.reason_args["outdoor_co2_disadvantage"] is True
+
+
+def test_spring_dst_nonexistent_0230_start_normalizes_forward():
+    now = datetime(2026, 3, 29, 3, 45, tzinfo=TZ)
+    interval = display_interval(now, 2 * 60 + 30, 4 * 60 + 30)
+    assert interval is not None
+    start, end = interval
+    assert (start.hour, start.minute) == (3, 30)
+    assert (end.hour, end.minute) == (4, 30)
+
+
+def test_autumn_dst_ambiguous_bound_uses_first_start_and_second_end():
+    first_0240 = datetime(2026, 10, 25, 2, 40, tzinfo=TZ, fold=0)
+    interval = display_interval(first_0240, 2 * 60 + 30, 2 * 60 + 45)
+    assert interval is not None
+    start, end = interval
+    assert start.fold == 0
+    assert end.fold == 1
+
+
+def test_autumn_dst_interval_remains_active_across_repeated_hour():
+    """02:30 fold=0 -> 02:45 fold=1 must include the whole repeated-hour span."""
+    first_0250 = datetime(2026, 10, 25, 2, 50, tzinfo=TZ, fold=0)
+    interval = display_interval(first_0250, 2 * 60 + 30, 2 * 60 + 45)
+    assert interval is not None
+    start, end = interval
+    assert start.fold == 0
+    assert end.fold == 1
+    assert start.astimezone(timezone.utc) < first_0250.astimezone(timezone.utc) < end.astimezone(timezone.utc)

@@ -40,7 +40,11 @@ def _state_to_float(state: Any) -> float | None:
         number = float(raw)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(number) or not 0.0 <= number <= 1_000_000.0:
+    # 0 ppm (and similarly tiny values) is a common numeric boot/fault code,
+    # not plausible room/outdoor air. Treat it like unavailable so the existing
+    # short grace period can preserve the last real sample instead of falsely
+    # completing a CO2 airing session.
+    if not math.isfinite(number) or not 250.0 <= number <= 1_000_000.0:
         return None
     return number
 
@@ -167,7 +171,7 @@ class RoomCo2Tracker:
         except (TypeError, ValueError):
             stored_value = None
         if stored_value is not None and (
-            not math.isfinite(stored_value) or not 0.0 <= stored_value <= 1_000_000.0
+            not math.isfinite(stored_value) or not 250.0 <= stored_value <= 1_000_000.0
         ):
             stored_value = None
         stored_valid_at = self._parse_dt(stored.get("last_valid_at"))

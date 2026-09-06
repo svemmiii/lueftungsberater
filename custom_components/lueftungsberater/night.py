@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
 
@@ -39,6 +39,11 @@ def _advice_rank(advice: NightAdvice) -> int:
     )
 
 
+def _timeline(value: datetime) -> datetime:
+    """Return a chronological comparison value that respects ``fold``."""
+    return value.astimezone(timezone.utc) if value.tzinfo is not None else value
+
+
 def _advance_held_advice(advice: NightAdvice, now: datetime) -> NightAdvice:
     """Turn a stored 'later' hint into 'now' once its planned start passed."""
     args = dict(advice.reason_args)
@@ -49,7 +54,7 @@ def _advance_held_advice(advice: NightAdvice, now: datetime) -> NightAdvice:
             start = datetime.fromisoformat(raw_start)
         except ValueError:
             start = None
-    if start is not None and start.tzinfo is not None and start <= now:
+    if start is not None and start.tzinfo is not None and _timeline(start) <= _timeline(now):
         if advice.status == "later":
             args["start_time"] = now.isoformat()
             return NightAdvice("now", "night_now", args)
@@ -81,7 +86,7 @@ def stabilize_night_advice(
         # the previous base plan. A late all-clear can therefore fall back to it.
         return raw, previous
 
-    in_final_hour = interval_end - now <= NIGHT_FINAL_HOLD
+    in_final_hour = _timeline(interval_end) - _timeline(now) <= NIGHT_FINAL_HOLD
     if in_final_hour:
         if previous is None:
             # Do not invent a brand-new positive strategy shortly before the
@@ -99,6 +104,52 @@ def stabilize_night_advice(
     return raw, previous
 
 
+def _local_wall_time(
+    day: datetime,
+    minute_of_day: int,
+    *,
+    end_bound: bool = False,
+) -> datetime:
+    """Build a DST-safe local wall time for the date represented by ``day``.
+
+    Spring-forward gaps are normalized to the first corresponding valid time
+    after the gap. During the repeated autumn hour the first occurrence is used
+    for starts and the second for ends, so a configured interval never becomes
+    shorter merely because the clock repeats.
+    """
+    hour, minute = divmod(minute_of_day, 60)
+    first = day.replace(hour=hour, minute=minute, second=0, microsecond=0, fold=0)
+    if first.tzinfo is None:
+        return first
+    second = first.replace(fold=1)
+    zone = first.tzinfo
+    target = (first.year, first.month, first.day, hour, minute)
+
+    def _roundtrip(candidate: datetime) -> tuple[datetime, bool]:
+        back = candidate.astimezone(timezone.utc).astimezone(zone)
+        valid = (back.year, back.month, back.day, back.hour, back.minute) == target
+        return back, valid
+
+    back0, valid0 = _roundtrip(first)
+    back1, valid1 = _roundtrip(second)
+    if valid0 and valid1 and first.utcoffset() != second.utcoffset():
+        return second if end_bound else first
+    if valid0:
+        return first
+    if valid1:
+        return second
+
+    # Non-existent spring-forward time. Prefer the normalized instant after the
+    # gap rather than silently mapping the user's 02:xx setting backwards.
+    options = [back0, back1]
+    after = [
+        item
+        for item in options
+        if (item.year, item.month, item.day, item.hour, item.minute) > target
+    ]
+    return min(after or options, key=lambda item: item.astimezone(timezone.utc))
+
+
 def display_interval(
     now: datetime,
     start_minute: int,
@@ -111,16 +162,13 @@ def display_interval(
     """
     start_minute = max(0, min(1439, int(start_minute)))
     end_minute = max(0, min(1439, int(end_minute)))
-    start_hour, start_min = divmod(start_minute, 60)
-    end_hour, end_min = divmod(end_minute, 60)
-
     for offset in (-1, 0):
         day = now + timedelta(days=offset)
-        start = day.replace(hour=start_hour, minute=start_min, second=0, microsecond=0)
-        end = day.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
-        if end_minute <= start_minute:
-            end += timedelta(days=1)
-        if start <= now < end:
+        start = _local_wall_time(day, start_minute, end_bound=False)
+        end_day = day + timedelta(days=1) if end_minute <= start_minute else day
+        end = _local_wall_time(end_day, end_minute, end_bound=True)
+        now_key = _timeline(now)
+        if _timeline(start) <= now_key < _timeline(end):
             return start, end
     return None
 
@@ -159,10 +207,14 @@ def _wind_level(item: dict[str, Any]) -> int:
 def _consecutive_segments(points: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     if not points:
         return []
-    points = sorted(points, key=lambda item: item["datetime"])
+    points = sorted(points, key=lambda item: _timeline(item["datetime"]))
     segments: list[list[dict[str, Any]]] = [[points[0]]]
     for item in points[1:]:
-        if item["datetime"] - segments[-1][-1]["datetime"] <= timedelta(minutes=90):
+        if (
+            _timeline(item["datetime"])
+            - _timeline(segments[-1][-1]["datetime"])
+            <= timedelta(minutes=90)
+        ):
             segments[-1].append(item)
         else:
             segments.append([item])
@@ -222,7 +274,7 @@ def evaluate_night_ventilation(
             number = float(temp)
         except (TypeError, ValueError):
             continue
-        if now <= stamp <= end + NIGHT_FORECAST_BUFFER:
+        if _timeline(now) <= _timeline(stamp) <= _timeline(end + NIGHT_FORECAST_BUFFER):
             item = dict(raw)
             item["temperature"] = number
             points.append(item)
@@ -282,7 +334,7 @@ def evaluate_night_ventilation(
     segments = [
         segment
         for segment in _consecutive_segments(candidate_points)
-        if len(segment) >= 2 and segment[0]["datetime"] < end
+        if len(segment) >= 2 and _timeline(segment[0]["datetime"]) < _timeline(end)
     ]
     if not segments:
         return NightAdvice()
@@ -298,7 +350,9 @@ def evaluate_night_ventilation(
     # not an instruction to open the window at 22:00. Recommend "now" only
     # when live outdoor values already help and the forecast confirms that this
     # useful period continues. Otherwise name the later forecast start.
-    starts_now = current_useful and forecast_start_time <= now + timedelta(minutes=90)
+    starts_now = current_useful and _timeline(forecast_start_time) <= _timeline(
+        now + timedelta(minutes=90)
+    )
     start_time = now if starts_now else forecast_start_time
 
     forecast_ah: list[float] = []

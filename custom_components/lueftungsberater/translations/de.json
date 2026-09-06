@@ -158,7 +158,8 @@
       "not_tailscale": "Die Adresse gehört nicht zu einer erkannten Tailscale-Verbindung.",
       "invalid_auth": "Der Access Token wurde vom entfernten Home Assistant abgelehnt.",
       "cannot_connect": "Der entfernte Home Assistant ist über diese Tailscale-Adresse nicht erreichbar.",
-      "select_room": "Wähle mindestens einen freigegebenen Raum aus."
+      "select_room": "Wähle mindestens einen freigegebenen Raum aus.",
+      "admin_required": "Der verwendete Home-Assistant-Benutzer benötigt Administratorrechte für die Remote-Verbindung."
     },
     "abort": {
       "already_configured": "Dieser entfernte Home Assistant ist bereits verbunden.",
@@ -338,6 +339,10 @@
       "abort": {
         "already_configured": "Ein Raum mit diesem Namen existiert bereits.",
         "remote_read_only": "Remote-/Tailscale-Verbindungen sind schreibgeschützt. Räume können nur einem lokalen Lüftungsassistenten hinzugefügt werden."
+      },
+      "error": {
+        "room_name_empty": "Bitte gib einen Raumnamen ein.",
+        "room_name_duplicate": "Dieser Raumname wird in dieser Instanz bereits verwendet."
       }
     }
   },

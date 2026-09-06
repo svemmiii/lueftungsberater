@@ -122,6 +122,7 @@ ROOM_NOTIFY_TRIGGER_OPTIONS = [
 
 
 from .remote import (
+    RemoteAdminRequiredError,
     RemoteAuthError,
     RemoteConnectionError,
     async_fetch_remote_snapshot,
@@ -622,6 +623,8 @@ async def _test_remote(
         payload = await async_fetch_remote_snapshot(hass, data, discovery=True)
     except RemoteAuthError:
         return "invalid_auth", None
+    except RemoteAdminRequiredError:
+        return "admin_required", None
     except RemoteConnectionError:
         return "cannot_connect", None
     return None, payload
@@ -726,7 +729,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 8
+    MINOR_VERSION = 9
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
@@ -992,6 +995,26 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return {SUBENTRY_TYPE_ROOM: RoomSubentryFlow}
 
 
+def _room_name_error(
+    entry: ConfigEntry,
+    name: str,
+    *,
+    exclude_subentry_id: str | None = None,
+) -> str | None:
+    """Validate a human room title without using it as persistent identity."""
+    if not name:
+        return "room_name_empty"
+    folded = name.casefold()
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
+            continue
+        if subentry.subentry_id == exclude_subentry_id:
+            continue
+        if str(subentry.title).strip().casefold() == folded:
+            return "room_name_duplicate"
+    return None
+
+
 class RoomSubentryFlow(ConfigSubentryFlow):
     """Room subentry flow."""
 
@@ -999,24 +1022,43 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         entry = self._get_entry()
         if entry_kind(entry) != ENTRY_KIND_LOCAL or entry.data.get(CONF_REMOTE_HOST):
             return self.async_abort(reason="remote_read_only")
+        errors: dict[str, str] = {}
         if user_input is not None:
             flat_input = _flatten_room_input(user_input)
-            name = str(flat_input[CONF_ROOM_NAME]).strip()
-            data = _normalize_room_input(self.hass, user_input)
-            return self.async_create_entry(title=name, data=data, unique_id=name.casefold())
-        return self.async_show_form(step_id="user", data_schema=_room_schema(self.hass))
+            name = str(flat_input.get(CONF_ROOM_NAME, "")).strip()
+            if error := _room_name_error(entry, name):
+                errors["base"] = error
+            else:
+                data = _normalize_room_input(self.hass, user_input)
+                # Room names are user-editable labels, not stable identifiers.
+                # The ConfigSubentry's generated subentry_id is the durable
+                # identity used by all entities/devices/stores.
+                return self.async_create_entry(title=name, data=data)
+        return self.async_show_form(
+            step_id="user", data_schema=_room_schema(self.hass), errors=errors
+        )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
         entry = self._get_entry()
         subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
         if user_input is not None:
             flat_input = _flatten_room_input(user_input)
-            name = str(flat_input[CONF_ROOM_NAME]).strip()
-            data = _normalize_room_input(self.hass, user_input)
-            return self.async_update_and_abort(entry, subentry, title=name, data=data)
+            name = str(flat_input.get(CONF_ROOM_NAME, "")).strip()
+            if error := _room_name_error(
+                entry, name, exclude_subentry_id=subentry.subentry_id
+            ):
+                errors["base"] = error
+            else:
+                data = _normalize_room_input(self.hass, user_input)
+                return self.async_update_and_abort(
+                    entry, subentry, title=name, data=data, unique_id=None
+                )
 
         schema = self.add_suggested_values_to_schema(
             _room_schema(self.hass),
             _room_form_defaults(self.hass, dict(subentry.data)),
         )
-        return self.async_show_form(step_id="reconfigure", data_schema=schema)
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=schema, errors=errors
+        )

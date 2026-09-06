@@ -8,6 +8,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.collection import ItemNotFound
 
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
 from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air_quality_tracker
@@ -16,8 +17,14 @@ from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .compat import pin_subentry_capabilities
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
 from .history import async_cleanup_legacy_room_history
-from .recorder_maintenance import async_register_recorder_retention
+from .recorder_maintenance import (
+    async_purge_recorder_history,
+    async_refresh_recorder_entity_index,
+    async_register_recorder_retention,
+    async_remove_recorder_entity_index,
+)
 from .outside import async_get_or_create_outside_coordinator, async_stop_outside_coordinator
+from .storage_cleanup import async_cleanup_orphaned_room_stores, async_remove_entry_stores
 from .coordinator import (
     async_get_or_create_room_coordinator,
     async_stop_entry_coordinators,
@@ -34,6 +41,7 @@ from .const import (
     CONF_ROOM_NOTIFY_TRIGGERS,
     DEFAULT_NIGHT_START_HOUR,
     DEFAULT_NIGHT_END_TIME,
+    DOMAIN,
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     NOTIFY_TRIGGER_AIRING_RECOMMENDED,
@@ -62,12 +70,23 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     """Serve and automatically register the dashboard cards."""
     frontend_dir = Path(__file__).parent / "frontend"
 
-    try:
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(FRONTEND_URL, str(frontend_dir), False)]
-        )
-    except RuntimeError:
-        pass
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if not domain_data.get("frontend_static_path_registered"):
+        try:
+            await hass.http.async_register_static_paths(
+                [StaticPathConfig(FRONTEND_URL, str(frontend_dir), False)]
+            )
+        except RuntimeError:
+            # Do not hide unexpected HTTP registration failures. Multiple config
+            # entries/reloads are handled by our own domain flag, so a remaining
+            # RuntimeError is diagnostic information worth surfacing. The core
+            # integration can still load; only the custom card path may be broken.
+            _LOGGER.exception(
+                "Unable to register Lüftungsassistent frontend path %s",
+                FRONTEND_URL,
+            )
+            return
+        domain_data["frontend_static_path_registered"] = True
 
     lovelace = hass.data.get(LOVELACE_DATA)
     if lovelace is None:
@@ -109,6 +128,35 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
             "Updated Lüftungsassistent dashboard cards to frontend %s",
             FRONTEND_VERSION,
         )
+
+
+async def _async_remove_frontend_resource_if_unused(hass: HomeAssistant) -> None:
+    """Remove the auto-created Lovelace resource after the last entry is gone."""
+    if hass.config_entries.async_entries(DOMAIN):
+        return
+
+    lovelace = hass.data.get(LOVELACE_DATA)
+    if lovelace is None or lovelace.resource_mode != MODE_STORAGE:
+        return
+
+    resources = lovelace.resources
+    await resources.async_get_info()
+    base_url = f"{FRONTEND_URL}/{FRONTEND_FILE}"
+    for resource in list(resources.async_items()):
+        resource_url = str(resource.get("url", ""))
+        if resource_url.split("?", 1)[0] != base_url:
+            continue
+        try:
+            await resources.async_delete_item(resource["id"])
+        except (KeyError, ValueError, ItemNotFound):
+            _LOGGER.warning(
+                "Unable to remove Lüftungsassistent Lovelace resource %s",
+                resource,
+                exc_info=True,
+            )
+        else:
+            _LOGGER.info("Removed Lüftungsassistent dashboard card resource")
+        break
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -221,6 +269,22 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass.config_entries.async_update_subentry(entry, subentry, data=data)
         updates["minor_version"] = 8
 
+
+    if entry.version == 1 and entry.minor_version < 9:
+        # Older room subentries used the editable room title as unique_id. Home
+        # Assistant requires unique IDs to be stable and not user-changeable.
+        # Room entities already use the generated subentry_id, so clear the
+        # obsolete name-based subentry unique IDs without changing any entity
+        # identity or stored room data.
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
+                continue
+            if subentry.unique_id is not None:
+                hass.config_entries.async_update_subentry(
+                    entry, subentry, unique_id=None
+                )
+        updates["minor_version"] = 9
+
     # Pin before async_update_entry: the update event serializes the ConfigEntry
     # for the frontend, so its supported_subentry_types must already be correct.
     pin_subentry_capabilities(entry)
@@ -259,6 +323,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return True
 
     await async_cleanup_legacy_room_history(hass)
+    # A removed room no longer has runtime objects on reload; clean its compact
+    # per-room stores before creating the remaining trackers.
+    await async_cleanup_orphaned_room_stores(hass, entry)
     entry.async_on_unload(async_register_recorder_retention(hass, entry))
 
     await async_get_or_create_air_quality_tracker(hass, entry)
@@ -272,6 +339,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await async_get_or_create_room_coordinator(hass, entry, subentry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # The entity registry is complete only after platform setup. Remember it so
+    # removed-room entity IDs can still be purged on the next reload, and apply
+    # the compact history policy once immediately instead of waiting until 05:30.
+    await async_refresh_recorder_entity_index(hass, entry)
+    await async_purge_recorder_history(hass, {entry.entry_id})
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     return True
 
@@ -299,3 +371,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_stop_entry_mold_trackers(hass, entry)
         async_clear_nina_details_cache(hass, entry)
     return unloaded
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove persistent data owned by an uninstalled config entry."""
+    if entry_kind(entry) == ENTRY_KIND_REMOTE:
+        async_clear_remote_device_sync_cache(hass, entry)
+        async_clear_nina_details_cache(hass, entry)
+        await _async_remove_frontend_resource_if_unused(hass)
+        return
+
+    # The config entry has already been removed from Home Assistant here. The
+    # recorder index therefore supplies former entity IDs which the registry can
+    # no longer enumerate. Purge those first, then remove every compact Store.
+    await async_remove_recorder_entity_index(hass, entry.entry_id)
+    await async_remove_entry_stores(hass, entry.entry_id)
+    async_clear_nina_details_cache(hass, entry)
+    await _async_remove_frontend_resource_if_unused(hass)
+
