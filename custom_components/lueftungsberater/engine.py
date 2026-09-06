@@ -1185,14 +1185,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     previous_mode = data.previous_mode or ""
     previous_need = data.previous_need or ""
 
-    co2_critical = co2 is not None and co2 > 2000
-    co2_high = co2 is not None and co2 >= 1400
-    co2_elevated = co2 is not None and (
-        co2 >= 1000
-        or (_previous_co2_context(previous_mode, previous_need) and co2 >= 900)
-        or data.co2_pending_hold
-    )
-
     surface_rh = surface_relative_humidity(ti, hi, data.surface_temp)
     mold_risk = surface_rh is not None and (
         surface_rh >= 80.0
@@ -1646,7 +1638,6 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         # "none" so later short-term weather post-processing can still replace a
         # mild outside inconvenience with the more relevant imminent warning.
         decision_need = "none"
-        decision_urgency = 0
 
     # Rain is a practical window-opening disadvantage, never a proxy for
     # moisture physics. Only near-term rain that can overlap the actual airing

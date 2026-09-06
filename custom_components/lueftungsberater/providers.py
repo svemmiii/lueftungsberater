@@ -1344,11 +1344,11 @@ def _nina_slot_sensor_values(
         state = hass.states.get(entity_id)
         if state is None or state.state in {"unknown", "unavailable", "none", ""}:
             continue
-        for field in ("headline", "severity"):
-            suffix = f"-{field}"
+        for detail_field in ("headline", "severity"):
+            suffix = f"-{detail_field}"
             if unique_id.endswith(suffix):
                 slot_id = unique_id[: -len(suffix)]
-                details.setdefault(slot_id, {})[field] = str(state.state)
+                details.setdefault(slot_id, {})[detail_field] = str(state.state)
                 break
     return details
 
