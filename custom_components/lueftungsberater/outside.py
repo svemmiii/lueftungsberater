@@ -154,6 +154,13 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
 
 
     @callback
+    def _create_background_task(self, target, name: str):
+        # Home Assistant 2026.6+ provides lifecycle-bound task creation on
+        # ConfigEntry. The integration's declared minimum already guarantees
+        # this API, so do not fall back to hass.async_create_task (which could
+        # outlive entry unload).
+        return self.entry.async_create_background_task(self.hass, target, name)
+
     def _replace_source_listener(self) -> None:
         """Subscribe to the currently discovered outside/provider entities."""
         sources = _configured_outside_entities(self.entry)
@@ -178,7 +185,10 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
     async def _async_refresh_after_registry_change(self) -> None:
         try:
             await self.async_request_refresh()
-            self._replace_source_listener()
+            # Unload may have happened while the refresh awaited provider I/O.
+            # Never recreate listeners after shutdown.
+            if self._started:
+                self._replace_source_listener()
         finally:
             self._registry_refresh_pending = False
 
@@ -193,7 +203,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         if registry_entry is not None and registry_entry.config_entry_id == self.entry.entry_id:
             return
         self._registry_refresh_pending = True
-        self.hass.async_create_task(
+        self._create_background_task(
             self._async_refresh_after_registry_change(),
             f"Lüftungsberater provider discovery {self.entry.entry_id}",
         )
@@ -201,14 +211,18 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
     @callback
     def _handle_forecast_tick(self, _now) -> None:
         """Refresh the shared short-term/night forecast cache."""
-        self.hass.async_create_task(
+        if not self._started:
+            return
+        self._create_background_task(
             self.async_request_refresh(),
             f"Lüftungsberater forecast outside refresh {self.entry.entry_id}",
         )
 
     @callback
     def _handle_nina_detail_tick(self, _now) -> None:
-        self.hass.async_create_task(
+        if not self._started:
+            return
+        self._create_background_task(
             self.async_request_refresh(),
             f"Lüftungsberater NINA detail refresh {self.entry.entry_id}",
         )
@@ -217,12 +231,17 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
     def _handle_source_change(self, _event: Event) -> None:
         # Warning details and forecasts may require async provider calls, so use
         # the coordinator refresh path instead of recomputing each room inline.
-        self.hass.async_create_task(
+        if not self._started:
+            return
+        self._create_background_task(
             self.async_request_refresh(),
             f"Lüftungsberater outside update {self.entry.entry_id}",
         )
 
     async def async_shutdown(self) -> None:
+        # Prevent already-queued callbacks from scheduling fresh work while the
+        # coordinator tears down its listeners.
+        self._started = False
         if self._source_unsub is not None:
             self._source_unsub()
             self._source_unsub = None
@@ -230,7 +249,6 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         while self._unsubs:
             self._unsubs.pop()()
         self._registry_refresh_pending = False
-        self._started = False
         await super().async_shutdown()
 
 

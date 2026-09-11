@@ -33,7 +33,18 @@ from .localization import (
 )
 from .remote import _ip_is_tailscale, get_remote_coordinator
 
+REMOTE_CLIENT_ID_MAX_LENGTH = 128
+REMOTE_CLIENT_NAME_MAX_LENGTH = 128
+REMOTE_CLIENTS_PER_ROOM_MAX = 32
+
+
+def _normalize_remote_client_value(value: Any, fallback: str, max_length: int) -> str:
+    text = str(value or fallback).strip()[:max_length]
+    return text or fallback
+
+
 REMOTE_ATTRIBUTE_KEYS = {
+    "availability",
     "room_name",
     "status",
     "display_mode",
@@ -132,26 +143,80 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
                 item for item in str(selected_param).split(",") if item
             }
 
+        try:
+            requested_protocol = int(request.query.get("protocol", "2"))
+        except (TypeError, ValueError):
+            requested_protocol = 2
+        response_protocol = REMOTE_PROTOCOL_VERSION if requested_protocol >= 3 else 2
+
         instances = _local_instances(
             hass,
             requested_unit,
             remote_export=True,
             selected_room_keys=selected_room_keys,
         )
+        instances = _remote_instances_for_protocol(instances, response_protocol)
 
         if not discovery:
-            client_id = str(request.query.get("client_id") or "legacy")
-            client_name = str(request.query.get("client_name") or "Remote Home Assistant")
+            client_id = _normalize_remote_client_value(
+                request.query.get("client_id"),
+                "legacy",
+                REMOTE_CLIENT_ID_MAX_LENGTH,
+            )
+            client_name = _normalize_remote_client_value(
+                request.query.get("client_name"),
+                "Remote Home Assistant",
+                REMOTE_CLIENT_NAME_MAX_LENGTH,
+            )
             _record_remote_access(hass, instances, client_id, client_name)
 
         return self.json(
             {
-                "protocol": REMOTE_PROTOCOL_VERSION,
+                "protocol": response_protocol,
                 "home_assistant_name": hass.config.location_name,
                 "instances": instances,
             }
         )
 
+
+
+def _remote_instances_for_protocol(
+    instances: list[dict[str, Any]], protocol: int
+) -> list[dict[str, Any]]:
+    """Return a protocol-compatible snapshot without silently unknown night keys.
+
+    Protocol 2 predates ``short_only``/``not_recommended``. Older clients do not
+    send a requested protocol, so keep the room snapshot usable but suppress only
+    night advice they cannot localize. Protocol 3 receives the full semantics.
+    """
+    if protocol >= 3:
+        return instances
+
+    compatible: list[dict[str, Any]] = []
+    for instance in instances:
+        instance_copy = dict(instance)
+        rooms_copy: list[dict[str, Any]] = []
+        rooms = instance.get("rooms", [])
+        if isinstance(rooms, list):
+            for room in rooms:
+                if not isinstance(room, dict):
+                    continue
+                room_copy = dict(room)
+                attrs = room.get("attributes")
+                if isinstance(attrs, dict):
+                    attrs_copy = dict(attrs)
+                    if attrs_copy.get("night_ventilation_status") in {
+                        "short_only",
+                        "not_recommended",
+                    }:
+                        attrs_copy["night_ventilation_status"] = "unavailable"
+                        attrs_copy["night_ventilation_key"] = None
+                        attrs_copy["night_ventilation_args"] = {}
+                    room_copy["attributes"] = attrs_copy
+                rooms_copy.append(room_copy)
+        instance_copy["rooms"] = rooms_copy
+        compatible.append(instance_copy)
+    return compatible
 
 def _record_remote_access(
     hass: HomeAssistant,
@@ -175,6 +240,24 @@ def _record_remote_access(
                 continue
             key = f"{instance_id}:{room_id}"
             clients = store.setdefault(key, {})
+            if client_id not in clients and len(clients) >= REMOTE_CLIENTS_PER_ROOM_MAX:
+                # Bound transient remote-access bookkeeping even for a buggy or
+                # hostile authenticated admin client that rotates client IDs.
+                def _last_seen(item: str) -> float:
+                    info = clients.get(item)
+                    if not isinstance(info, dict):
+                        return 0.0
+                    try:
+                        return float(info.get("last_seen", 0))
+                    except (TypeError, ValueError):
+                        return 0.0
+
+                oldest_id = min(clients, key=_last_seen)
+                oldest = clients.pop(oldest_id, None)
+                if isinstance(oldest, dict):
+                    cancel = oldest.get("cancel_expiry")
+                    if callable(cancel):
+                        cancel()
             previous = clients.get(client_id)
             if isinstance(previous, dict):
                 cancel = previous.get("cancel_expiry")
@@ -289,6 +372,25 @@ def _export_attributes(
     return attrs
 
 
+def _loading_remote_room_attributes(entry, subentry) -> dict[str, Any]:
+    """Return an explicit loading snapshot without inventing live room state."""
+    return {
+        "availability": "loading",
+        "instance_id": entry.entry_id,
+        "instance_name": entry.title,
+        "room_name": subentry.title,
+        "status": "yellow",
+        "recommendation_key": "unknown",
+        "mode": "incomplete_data",
+        "reason_key": "incomplete_data",
+        "reason_args": {},
+        "duration_key": "incomplete_data",
+        "window_open": None,
+        "has_window_contacts": bool(subentry.data.get("window_entities")),
+        "has_co2": bool(subentry.data.get("co2_entity")),
+    }
+
+
 def _local_instances(
     hass: HomeAssistant,
     temperature_unit: str,
@@ -321,25 +423,11 @@ def _local_instances(
                 continue
 
             if state is None:
-                # The room configuration is still useful metadata even when its
-                # entities are not loaded or its sensor hardware is absent. Remote
-                # overviews therefore keep the user-defined room name instead of
-                # falling back to generic "Room 1" labels.
-                attributes: dict[str, Any] = {
-                    "instance_id": entry.entry_id,
-                    "instance_name": entry.title,
-                    "room_name": subentry.title,
-                    "status": "yellow",
-                    "recommendation_key": "unknown",
-                    "mode": "incomplete_data",
-                    "reason_key": "incomplete_data",
-                    "reason_args": {},
-                    "duration_key": "incomplete_data",
-                    "window_open": False,
-                    "has_window_contacts": bool(subentry.data.get("window_entities")),
-                    "has_co2": bool(subentry.data.get("co2_entity")),
-                }
-                room_state = "unknown"
+                # Preserve room metadata during setup/reload, but never invent a
+                # concrete window state or safety state when no coherent advisor
+                # snapshot exists yet.
+                attributes = _loading_remote_room_attributes(entry, subentry)
+                room_state = "unavailable"
             else:
                 attributes = dict(state.attributes)
                 room_state = state.state

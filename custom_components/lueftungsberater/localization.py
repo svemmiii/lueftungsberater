@@ -1173,73 +1173,198 @@ def night_advice_text(
     end = _clock(a.get("end_time"), lang)
     thermal = bool(a.get("thermal_need"))
     humidity = bool(a.get("humidity_need"))
-    drier = bool(a.get("humidity_advantage"))
+    current_drier = bool(
+        a.get("current_humidity_advantage", a.get("humidity_advantage", False))
+    )
+    forecast_drier = bool(
+        a.get("forecast_humidity_advantage", a.get("humidity_advantage", False))
+    )
+    current_cooler = bool(a.get("current_thermal_advantage", thermal))
+    forecast_cooler = bool(a.get("forecast_thermal_advantage", thermal))
+    t = lambda value: _temperature(value, lang, temperature_unit)
 
-    if thermal and drier:
-        change = {
-            "de": "kühler und trockener",
-            "en": "cooler and drier",
-            "tr": "daha serin ve daha kuru",
-        }[lang]
-    elif thermal:
-        change = {"de": "kühler", "en": "cooler", "tr": "daha serin"}[lang]
-    elif humidity:
-        change = {"de": "trockener", "en": "drier", "tr": "daha kuru"}[lang]
-    else:
-        change = {"de": "passender", "en": "better", "tr": "daha uygun"}[lang]
+    def _change(*, current: bool) -> str:
+        cooler = current_cooler if current else forecast_cooler
+        drier = current_drier if current else forecast_drier
+        if cooler and drier:
+            return {"de": "kühler und trockener", "en": "cooler and drier", "tr": "daha serin ve daha kuru"}[lang]
+        if cooler:
+            return {"de": "kühler", "en": "cooler", "tr": "daha serin"}[lang]
+        if drier:
+            return {"de": "trockener", "en": "drier", "tr": "daha kuru"}[lang]
+        return {"de": "passender", "en": "better", "tr": "daha uygun"}[lang]
+
+    def _drawback_details(scope: str = "both") -> list[str]:
+        details: list[str] = []
+        include_current = scope in {"current", "both"}
+        include_forecast = scope in {"forecast", "both"}
+        rain = (include_current and a.get("current_rain_risk", a.get("rain_risk"))) or (
+            include_forecast and a.get("forecast_rain_risk", a.get("rain_risk"))
+        )
+        if rain:
+            details.append({"de": "Regen möglich", "en": "rain is possible", "tr": "yağmur olabilir"}[lang])
+        humidity_bad = (include_current and a.get("current_humidity_disadvantage")) or (
+            include_forecast and a.get("forecast_humidity_disadvantage")
+        )
+        if humidity_bad:
+            details.append({"de": "Außenluft eher feuchter", "en": "outdoor air is more humid", "tr": "dış hava daha nemli"}[lang])
+        thermal_bad = (include_current and a.get("current_thermal_disadvantage")) or (
+            include_forecast and a.get("forecast_thermal_disadvantage")
+        )
+        if thermal_bad:
+            details.append({"de": "Außenluft verschlechtert die Temperatur", "en": "outdoor air worsens the temperature", "tr": "dış hava sıcaklık açısından durumu kötüleştiriyor"}[lang])
+        if a.get("weather_caution"):
+            details.append({"de": "Wetterhinweis aktiv", "en": "a weather advisory is active", "tr": "hava durumu uyarısı aktif"}[lang])
+        if a.get("air_warning"):
+            details.append({"de": "Außenluft-Hinweis aktiv", "en": "an outdoor-air advisory is active", "tr": "dış hava uyarısı aktif"}[lang])
+        wind_level = 0
+        if include_current:
+            current_wind = a.get("current_wind_level")
+            # Backward-compatible fallback for older/localization-only payloads
+            # where max_wind_level represented the current drawback. Do not use
+            # it when an explicit forecast wind level is present, because that
+            # would blur current and future conditions again.
+            if current_wind is None and "forecast_max_wind_level" not in a:
+                current_wind = a.get("max_wind_level")
+            wind_level = max(wind_level, int(current_wind or 0))
+        if include_forecast:
+            wind_level = max(
+                wind_level,
+                int(a.get("forecast_max_wind_level", a.get("max_wind_level")) or 0),
+            )
+        if wind_level == 1:
+            details.append({"de": "starker Wind", "en": "strong wind", "tr": "kuvvetli rüzgâr"}[lang])
+        if str(a.get("air_quality")) in {"moderate", "poor", "very_poor"}:
+            details.append({"de": "Außenluft belastet", "en": "outdoor air is polluted", "tr": "dış hava kirli"}[lang])
+        if a.get("outdoor_co2_disadvantage"):
+            details.append({"de": "Außen-CO₂ höher als innen", "en": "outdoor CO₂ is higher than indoors", "tr": "dış CO₂ iç mekândan daha yüksek"}[lang])
+        if include_current and a.get("live_restrictive"):
+            details.append({"de": "Hauptberatung rät aktuell vom Öffnen ab", "en": "the main advisor currently recommends against opening", "tr": "ana danışman şu anda pencereyi açmayı önermiyor"}[lang])
+        return details
+
 
     if key == "night_now":
+        change = _change(current=True)
         return {
             "de": f"🌙 Heute Nacht lüften: Draußen ist es bereits {change}. Bis etwa {end} bleiben die Bedingungen voraussichtlich günstig.",
             "en": f"🌙 Ventilate tonight: it is already {change} outside. Conditions should remain suitable until around {end}.",
             "tr": f"🌙 Bu gece havalandır: dışarısı şimdiden {change}. Koşulların yaklaşık {end} saatine kadar uygun kalması bekleniyor.",
         }[lang]
+
     if key == "night_later":
+        change = _change(current=False)
+        if a.get("live_open_now"):
+            return {
+                "de": f"🌙 Das längere Nachtfenster beginnt voraussichtlich zwischen etwa {start} und {end}. Für den aktuellen Lüftungsbedarf gilt aber weiterhin die Hauptkarte – nicht bis dahin geschlossen halten.",
+                "en": f"🌙 The longer night-airing window is expected between around {start} and {end}. For the current ventilation need, keep following the main card rather than keeping the windows closed until then.",
+                "tr": f"🌙 Daha uzun gece havalandırma aralığının yaklaşık {start} ile {end} arasında başlaması bekleniyor. Mevcut havalandırma ihtiyacı için o zamana kadar pencereleri kapalı tutmak yerine ana kartı izlemeye devam et.",
+            }[lang]
         return {
             "de": f"🌙 Später lüften: Zwischen etwa {start} und {end} wird es draußen deutlich {change}. Bis dahin kannst du die Fenster geschlossen lassen.",
             "en": f"🌙 Air later: between around {start} and {end}, it should be noticeably {change} outside. Keep the windows closed until then.",
             "tr": f"🌙 Daha sonra havalandır: yaklaşık {start} ile {end} arasında dışarısı belirgin şekilde {change} olacak. O zamana kadar pencereleri kapalı tutabilirsin.",
         }[lang]
+
     if key in {"night_now_conditional", "night_later_conditional"}:
-        details: list[str] = []
-        if a.get("rain_risk"):
-            details.append({"de": "Regen möglich", "en": "rain is possible", "tr": "yağmur olabilir"}[lang])
-        if a.get("humidity_disadvantage"):
-            details.append({"de": "Außenluft eher feuchter", "en": "outdoor air is more humid", "tr": "dış hava daha nemli"}[lang])
-        if a.get("weather_caution"):
-            details.append({"de": "Wetterhinweis aktiv", "en": "a weather advisory is active", "tr": "hava durumu uyarısı aktif"}[lang])
-        if a.get("air_warning"):
-            details.append({"de": "Außenluft-Hinweis aktiv", "en": "an outdoor-air advisory is active", "tr": "dış hava uyarısı aktif"}[lang])
-        if str(a.get("air_quality")) in {"moderate", "poor", "very_poor"}:
-            details.append({"de": "Außenluft belastet", "en": "outdoor air is polluted", "tr": "dış hava kirli"}[lang])
+        details = _drawback_details(
+            "forecast" if key == "night_later_conditional" else "both"
+        )
         detail = ", ".join(details) or {
             "de": "ein paar Punkte sprechen dagegen",
             "en": "there are a few drawbacks",
             "tr": "bazı noktalar buna karşı",
         }[lang]
         if key == "night_later_conditional":
+            change = _change(current=False)
+            live_note = ""
+            if a.get("live_open_now"):
+                live_note = {
+                    "de": " Den aktuellen Lüftungshinweis der Hauptkarte trotzdem jetzt beachten.",
+                    "en": " Still follow the main card's current ventilation advice now.",
+                    "tr": " Yine de ana kartın mevcut havalandırma önerisini şimdi dikkate al.",
+                }[lang]
             return {
-                "de": f"🌙 Später könnte sich Lüften lohnen: Zwischen etwa {start} und {end} wird es draußen {change}. Allerdings: {detail}.",
-                "en": f"🌙 Ventilation may make sense later: between around {start} and {end}, it should be {change} outside. However: {detail}.",
-                "tr": f"🌙 Daha sonra havalandırmak işe yarayabilir: yaklaşık {start} ile {end} arasında dışarısı {change} olacak. Ancak: {detail}.",
+                "de": f"🌙 Später könnte sich längeres Lüften lohnen: Zwischen etwa {start} und {end} wird es draußen {change}. Allerdings: {detail}.{live_note}",
+                "en": f"🌙 Longer ventilation may make sense later: between around {start} and {end}, it should be {change} outside. However: {detail}.{live_note}",
+                "tr": f"🌙 Daha uzun havalandırma daha sonra işe yarayabilir: yaklaşık {start} ile {end} arasında dışarısı {change} olacak. Ancak: {detail}.{live_note}",
             }[lang]
         return {
             "de": f"🌙 Heute Nacht könnte Lüften sinnvoll sein, allerdings mit Einschränkungen: {detail}.",
             "en": f"🌙 Ventilation tonight may make sense, but there are some drawbacks: {detail}.",
             "tr": f"🌙 Bu gece havalandırmak mantıklı olabilir, ancak bazı kısıtlamalar var: {detail}.",
         }[lang]
+
+    if key == "night_short_only":
+        direction = str(a.get("temperature_limit_direction") or "")
+        limit = _clock(a.get("limit_time"), lang)
+        has_limit = limit != "?"
+        if direction == "cold":
+            suffix = {
+                "de": (f" Ab etwa {limit} wird es für langes Offenlassen deutlich zu kalt." if has_limit else " Für langes Offenlassen ist die Außenluft zu kalt bzw. der Temperaturunterschied zu groß."),
+                "en": (f" From around {limit}, it becomes too cold for leaving the window open for long." if has_limit else " The outdoor air is too cold, or the temperature difference too large, for leaving the window open for long."),
+                "tr": (f" Yaklaşık {limit} saatinden itibaren pencereyi uzun süre açık bırakmak için hava fazla soğuk olacak." if has_limit else " Pencereyi uzun süre açık bırakmak için dış hava fazla soğuk veya sıcaklık farkı fazla büyük."),
+            }[lang]
+        elif direction == "warm":
+            suffix = {
+                "de": (f" Ab etwa {limit} wird es für langes Offenlassen deutlich zu warm." if has_limit else " Für langes Offenlassen ist die Außenluft zu warm bzw. der Temperaturunterschied zu groß."),
+                "en": (f" From around {limit}, it becomes too warm for leaving the window open for long." if has_limit else " The outdoor air is too warm, or the temperature difference too large, for leaving the window open for long."),
+                "tr": (f" Yaklaşık {limit} saatinden itibaren pencereyi uzun süre açık bırakmak için hava fazla sıcak olacak." if has_limit else " Pencereyi uzun süre açık bırakmak için dış hava fazla sıcak veya sıcaklık farkı fazla büyük."),
+            }[lang]
+        else:
+            suffix = {
+                "de": " Der Forecast bestätigt aber kein ausreichend langes, zusammenhängendes und mildes Zeitfenster.",
+                "en": " However, the forecast does not confirm a sufficiently long, continuous, mild window.",
+                "tr": " Ancak tahmin yeterince uzun, kesintisiz ve ılıman bir zaman aralığını doğrulamıyor.",
+            }[lang]
+
+        current_thermal = bool(a.get("current_thermal_advantage"))
+        current_drying = bool(a.get("current_humidity_advantage", a.get("humidity_advantage", False)))
+        if current_thermal and current_drying:
+            lead = {"de": "🌙 Jetzt kurz lüften kann gut abkühlen und trocknen.", "en": "🌙 A short airing now can cool and dry the room effectively.", "tr": "🌙 Şimdi kısa süre havalandırmak odayı etkili şekilde serinletip kurutabilir."}[lang]
+        elif current_thermal:
+            lead = {"de": "🌙 Jetzt kurz lüften kann gut abkühlen.", "en": "🌙 A short airing now can cool the room effectively.", "tr": "🌙 Şimdi kısa süre havalandırmak odayı etkili şekilde serinletebilir."}[lang]
+        elif current_drying:
+            lead = {"de": "🌙 Kurzes Lüften kann jetzt beim Trocknen helfen.", "en": "🌙 A short airing now can help dry the room.", "tr": "🌙 Şimdi kısa süre havalandırmak odanın kurumasına yardımcı olabilir."}[lang]
+        else:
+            lead = {"de": "🌙 Kurzes Lüften kann jetzt sinnvoll sein.", "en": "🌙 A short airing now can make sense.", "tr": "🌙 Şimdi kısa süre havalandırmak mantıklı olabilir."}[lang]
+
+        details = _drawback_details("current")
+        caveat = ""
+        if details:
+            caveat = {
+                "de": f" Zusätzlich beachten: {', '.join(details)}.",
+                "en": f" Also keep in mind: {', '.join(details)}.",
+                "tr": f" Ayrıca şunlara dikkat et: {', '.join(details)}.",
+            }[lang]
+        return f"{lead}{suffix}{caveat}"
+
+    if key == "night_not_recommended":
+        has_helpful = bool(a.get("has_helpful_forecast"))
+        direction = str(a.get("temperature_limit_direction") or "")
+        if a.get("live_open_now"):
+            return {
+                "de": "🌙 Für längeres Nachtlüften gibt es heute kein verlässliches Zeitfenster. Der aktuelle Lüftungshinweis der Hauptkarte gilt davon unabhängig weiter.",
+                "en": "🌙 There is no reliable long night-airing window tonight. The current ventilation advice on the main card still applies independently.",
+                "tr": "🌙 Bu gece uzun süreli havalandırma için güvenilir bir zaman aralığı yok. Ana karttaki mevcut havalandırma önerisi bundan bağımsız olarak geçerli kalır.",
+            }[lang]
+        if has_helpful and direction == "cold":
+            return {"de": "🌙 Heute keine längere Nachtlüftung: Später wäre die Außenluft zwar hilfreich, wird dafür aber zu kalt. Bei Bedarf lieber kurz stoßlüften.", "en": "🌙 No long night airing tonight: the outdoor air would become useful later, but also too cold. Use a short airing if needed.", "tr": "🌙 Bu gece uzun süre havalandırma önerilmiyor: dış hava daha sonra yararlı olacak ancak fazla soğuyacak. Gerekirse kısa süre havalandır."}[lang]
+        if has_helpful and direction == "warm":
+            return {"de": "🌙 Heute keine längere Nachtlüftung: Die Außenluft wäre zwar zum Trocknen hilfreich, ist für langes Offenlassen aber zu warm. Bei Bedarf lieber kurz stoßlüften.", "en": "🌙 No long night airing tonight: the outdoor air could help with drying, but is too warm for leaving the window open for long. Use a short airing if needed.", "tr": "🌙 Bu gece uzun süre havalandırma önerilmiyor: dış hava kurutmaya yardımcı olabilir ancak pencereyi uzun süre açık bırakmak için fazla sıcak. Gerekirse kısa süre havalandır."}[lang]
+        if a.get("no_contiguous_window"):
+            if thermal and humidity:
+                return {"de": "🌙 Heute gibt es kein ausreichend langes zusammenhängendes Nachtfenster, das gleichzeitig sinnvoll kühlt und die Feuchtesituation nicht verschlechtert.", "en": "🌙 There is no sufficiently long continuous night window that both cools usefully and avoids worsening humidity.", "tr": "🌙 Bu gece hem anlamlı şekilde serinleten hem de nem durumunu kötüleştirmeyen yeterince uzun kesintisiz bir zaman aralığı yok."}[lang]
+            return {"de": "🌙 Es gibt einzelne hilfreiche Phasen, aber kein ausreichend langes zusammenhängendes Zeitfenster für längeres Nachtlüften.", "en": "🌙 There are some helpful periods, but no sufficiently long continuous window for long night airing.", "tr": "🌙 Bazı yararlı dönemler var, ancak uzun gece havalandırması için yeterince uzun kesintisiz bir zaman aralığı yok."}[lang]
+        if thermal and humidity:
+            return {"de": "🌙 Heute bringt längeres Nachtlüften insgesamt wenig: Weder Kühlung noch Trocknung sind über längere Zeit verlässlich günstig.", "en": "🌙 Long night airing is unlikely to help much overall tonight: neither cooling nor drying is reliably favorable for long enough.", "tr": "🌙 Bu gece uzun süre havalandırmak genel olarak pek fayda sağlamayacak: ne serinletme ne de kurutma yeterince uzun süre güvenilir biçimde uygun."}[lang]
+        if thermal:
+            return {"de": f"🌙 Heute bringt längeres Nachtlüften zum Kühlen wenig: Draußen wird es voraussichtlich nicht ausreichend kühler als die aktuell {t(a.get('indoor_temp'))} im Raum.", "en": f"🌙 Long night airing is unlikely to help much with cooling tonight: outside is not expected to become sufficiently cooler than the current indoor temperature of {t(a.get('indoor_temp'))}.", "tr": f"🌙 Bu gece uzun süre havalandırmak serinletme açısından pek fayda sağlamayacak: dışarının mevcut {t(a.get('indoor_temp'))} iç sıcaklıktan yeterince daha serin olması beklenmiyor."}[lang]
+        return {"de": "🌙 Heute bringt längeres Nachtlüften zum Trocknen wenig: Die Außenluft wird voraussichtlich nicht verlässlich trockener als die Raumluft.", "en": "🌙 Long night airing is unlikely to help much with drying tonight: outdoor air is not expected to be reliably drier than the indoor air.", "tr": "🌙 Bu gece uzun süre havalandırmak kurutma açısından pek fayda sağlamayacak: dış havanın iç havadan güvenilir biçimde daha kuru olması beklenmiyor."}[lang]
+
     if key == "night_blocked":
-        return {
-            "de": "🌙 Heute Nacht lieber nicht länger lüften: Wind, Wetter oder eine Warnung sprechen klar dagegen.",
-            "en": "🌙 Better avoid long airing tonight: wind, weather, or an active warning clearly argues against it.",
-            "tr": "🌙 Bu gece uzun süre havalandırmamak daha iyi: rüzgâr, hava koşulları veya aktif bir uyarı buna açıkça karşı.",
-        }[lang]
+        return {"de": "🌙 Heute Nacht lieber nicht länger lüften: Wind, Wetter oder eine Warnung sprechen klar dagegen.", "en": "🌙 Better avoid long airing tonight: wind, weather, or an active warning clearly argues against it.", "tr": "🌙 Bu gece uzun süre havalandırmamak daha iyi: rüzgâr, hava koşulları veya aktif bir uyarı buna açıkça karşı."}[lang]
     if key == "night_air_too_bad":
-        return {
-            "de": "🌙 Heute Nacht lieber nicht länger lüften: Die Außenluft ist gerade sehr stark belastet.",
-            "en": "🌙 Better avoid long airing tonight: outdoor air is heavily polluted right now.",
-            "tr": "🌙 Bu gece uzun süre havalandırmamak daha iyi: dış hava şu anda çok kirli.",
-        }[lang]
+        return {"de": "🌙 Heute Nacht lieber nicht länger lüften: Die Außenluft ist gerade sehr stark belastet.", "en": "🌙 Better avoid long airing tonight: outdoor air is heavily polluted right now.", "tr": "🌙 Bu gece uzun süre havalandırmamak daha iyi: dış hava şu anda çok kirli."}[lang]
     return ""
 
 

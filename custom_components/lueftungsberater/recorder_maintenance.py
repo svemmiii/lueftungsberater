@@ -177,16 +177,29 @@ def async_register_recorder_retention(
     domain_data = hass.data.setdefault(DOMAIN, {})
     state = domain_data.setdefault(
         DATA_RECORDER_RETENTION,
-        {"entry_ids": set(), "unsub": None},
+        {"entry_ids": set(), "entries": {}, "unsub": None, "task": None},
     )
     entry_ids: set[str] = state["entry_ids"]
     entry_ids.add(entry.entry_id)
+    entries: dict[str, ConfigEntry] = state.setdefault("entries", {})
+    entries[entry.entry_id] = entry
+    state.setdefault("task", None)
 
     if state["unsub"] is None:
 
         @callback
         def _run_daily(_now) -> None:
-            hass.async_create_task(
+            current = hass.data.get(DOMAIN, {}).get(DATA_RECORDER_RETENTION)
+            if not current or not current.get("entry_ids"):
+                return
+            running = current.get("task")
+            if running is not None and not running.done():
+                return
+            owner = next(iter(current.get("entries", {}).values()), None)
+            if owner is None:
+                return
+            current["task"] = owner.async_create_background_task(
+                hass,
                 async_purge_recorder_history(hass),
                 "Lüftungsassistent Recorder retention",
             )
@@ -208,10 +221,14 @@ def async_register_recorder_retention(
         if not current:
             return
         current["entry_ids"].discard(entry.entry_id)
+        current.get("entries", {}).pop(entry.entry_id, None)
         if current["entry_ids"]:
             return
         if current.get("unsub") is not None:
             current["unsub"]()
+        task = current.get("task")
+        if task is not None and not task.done():
+            task.cancel()
         hass.data.get(DOMAIN, {}).pop(DATA_RECORDER_RETENTION, None)
 
     return _unregister

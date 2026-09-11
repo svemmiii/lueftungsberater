@@ -1,4 +1,5 @@
 """Tests for Lüftungsassistent Recorder retention."""
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -138,3 +139,43 @@ async def test_removed_entity_ids_are_purged_from_recorder_index(hass, monkeypat
         }
     ]
     assert store.saved == {"entity_ids": ["sensor.current_advisor"]}
+
+
+@pytest.mark.asyncio
+async def test_daily_retention_task_is_cancelled_when_last_entry_unloads(hass, monkeypatch):
+    callbacks = []
+    unsubscribed = []
+    started = asyncio.Event()
+
+    def _track(_hass, action, **_kwargs):
+        callbacks.append(action)
+        return lambda: unsubscribed.append(True)
+
+    async def _purge(_hass):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(maintenance, "async_track_time_change", _track)
+    monkeypatch.setattr(maintenance, "async_purge_recorder_history", _purge)
+
+    class FakeEntry:
+        entry_id = "entry_a"
+
+        def async_create_background_task(self, _hass, coro, name):
+            return hass.async_create_background_task(coro, name)
+
+    unregister = maintenance.async_register_recorder_retention(hass, FakeEntry())
+    assert len(callbacks) == 1
+
+    callbacks[0](None)
+    await started.wait()
+    state = hass.data[DOMAIN][maintenance.DATA_RECORDER_RETENTION]
+    task = state["task"]
+    assert task is not None and not task.done()
+
+    unregister()
+    await asyncio.sleep(0)
+
+    assert task.cancelled()
+    assert unsubscribed == [True]
+    assert maintenance.DATA_RECORDER_RETENTION not in hass.data[DOMAIN]

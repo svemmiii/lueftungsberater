@@ -1,6 +1,7 @@
 """Internal airing-session tracking for rooms with window contacts."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -57,9 +58,37 @@ class RoomAiringTracker:
         self._unsub_fallback = None
         self._unsub_unknown_grace = None
         self._unknown_since: datetime | None = None
+        self._active = False
+        self._save_tasks: set[asyncio.Task[Any]] = set()
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.airing.{entry.entry_id}.{subentry.subentry_id}"
         )
+
+    def _create_background_task(self, target, name: str):
+        # Home Assistant 2026.6+ provides lifecycle-bound task creation on
+        # ConfigEntry. The integration's declared minimum already guarantees
+        # this API, so do not fall back to hass.async_create_task (which could
+        # outlive entry unload).
+        return self.entry.async_create_background_task(self.hass, target, name)
+
+    def _queue_save(self) -> None:
+        task = self._create_background_task(
+            self._async_save(),
+            f"Lüftungsberater airing save {self.subentry.subentry_id}",
+        )
+        if isinstance(task, asyncio.Task):
+            self._save_tasks.add(task)
+            task.add_done_callback(self._save_tasks.discard)
+
+    async def _drain_save_tasks(self) -> None:
+        tasks = tuple(self._save_tasks)
+        if not tasks:
+            return
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._save_tasks.clear()
 
     def _contact_state(self) -> tuple[bool, bool]:
         """Return (any_open, all_contacts_known)."""
@@ -131,6 +160,7 @@ class RoomAiringTracker:
             self.open_since = None
             self._unknown_since = None
 
+        self._active = True
         if self.windows:
             self._unsub_state = async_track_state_change_event(
                 self.hass, self.windows, self._async_window_changed
@@ -139,12 +169,16 @@ class RoomAiringTracker:
         await self._async_save()
 
     async def async_stop(self) -> None:
+        self._active = False
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None
         self._cancel_tick()
         self._cancel_fallback()
         self._cancel_unknown_grace()
+        # Cancel any older fire-and-forget Store writes before the final save so
+        # an earlier snapshot cannot finish after shutdown and overwrite it.
+        await self._drain_save_tasks()
         await self._async_save()
 
     def _cancel_tick(self) -> None:
@@ -188,6 +222,8 @@ class RoomAiringTracker:
     @callback
     def _async_unknown_grace_expired(self, now: datetime) -> None:
         self._unsub_unknown_grace = None
+        if not self._active:
+            return
         any_open, all_known = self._contact_state()
         if (
             self.open_since is not None
@@ -200,7 +236,7 @@ class RoomAiringTracker:
             # of the unknown period.  End there instead of turning unknown time
             # into a successful airing session.
             self._finish_open_session(self._unknown_since)
-            self.hass.async_create_task(self._async_save())
+            self._queue_save()
         self._sync_timers()
         async_dispatcher_send(
             self.hass, tracker_signal(self.entry.entry_id, self.subentry.subentry_id)
@@ -241,6 +277,8 @@ class RoomAiringTracker:
 
     @callback
     def _async_tick(self, _now: datetime) -> None:
+        if not self._active:
+            return
         async_dispatcher_send(
             self.hass, tracker_signal(self.entry.entry_id, self.subentry.subentry_id)
         )
@@ -248,12 +286,16 @@ class RoomAiringTracker:
     @callback
     def _async_fallback_due(self, _now: datetime) -> None:
         self._unsub_fallback = None
+        if not self._active:
+            return
         async_dispatcher_send(
             self.hass, tracker_signal(self.entry.entry_id, self.subentry.subentry_id)
         )
 
     @callback
     def _async_window_changed(self, _event: Event) -> None:
+        if not self._active:
+            return
         now = dt_util.utcnow()
         any_open, all_known = self._contact_state()
         changed = False
@@ -280,7 +322,7 @@ class RoomAiringTracker:
             changed = True
 
         if changed:
-            self.hass.async_create_task(self._async_save())
+            self._queue_save()
 
         self._sync_timers()
         async_dispatcher_send(

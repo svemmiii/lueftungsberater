@@ -213,6 +213,7 @@ async def async_fetch_remote_snapshot(
         "temperature_unit": str(hass.config.units.temperature_unit),
         "client_id": str(config.get(CONF_REMOTE_CLIENT_ID) or "legacy"),
         "client_name": str(hass.config.location_name or "Home Assistant"),
+        "protocol": str(REMOTE_PROTOCOL_VERSION),
     }
     if discovery:
         params["discovery"] = "1"
@@ -255,7 +256,7 @@ async def async_fetch_remote_snapshot(
     if not isinstance(payload, dict):
         raise RemoteConnectionError("Remote response is not an object")
     protocol = payload.get("protocol")
-    if protocol not in {1, REMOTE_PROTOCOL_VERSION}:
+    if protocol not in {1, 2, REMOTE_PROTOCOL_VERSION}:
         raise RemoteConnectionError("Unsupported remote snapshot protocol")
     instances = payload.get("instances")
     if not isinstance(instances, list):

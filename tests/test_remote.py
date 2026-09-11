@@ -50,3 +50,10 @@ def test_remote_forbidden_admin_response_is_classified_separately() -> None:
     assert isinstance(admin_error, RemoteAdminRequiredError)
     assert isinstance(source_error, RemoteConnectionError)
     assert not isinstance(source_error, RemoteAdminRequiredError)
+
+
+def test_v093_client_requests_protocol_3() -> None:
+    source = __import__("pathlib").Path(
+        "custom_components/lueftungsberater/remote.py"
+    ).read_text(encoding="utf-8")
+    assert '"protocol": str(REMOTE_PROTOCOL_VERSION)' in source

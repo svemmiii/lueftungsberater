@@ -1,6 +1,7 @@
 """Shared event-driven room coordinator for Lüftungsberater."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import datetime
 import logging
@@ -41,7 +42,7 @@ from .notifications import (
     clear_room_notification_state,
 )
 from .outside import async_get_or_create_outside_coordinator, get_outside_coordinator
-from .night import NIGHT_MAX_TEMP_DELTA, NightAdvice, display_interval, stabilize_night_advice
+from .night import NightAdvice, display_interval, stabilize_night_advice
 from .runtime import RoomSnapshot, build_room_snapshot, room_co2_window_values, room_source_entities
 
 _LOGGER = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self.entry = entry
         self.subentry = subentry
         self._unsubs: list[Callable[[], None]] = []
+        self._notification_tasks: set[asyncio.Task[Any]] = set()
         self._started = False
         self._previous_mode: str | None = None
         self._previous_decision_need: str | None = None
@@ -130,6 +132,32 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             STORAGE_VERSION,
             f"{DOMAIN}.decision.{entry.entry_id}.{subentry.subentry_id}",
         )
+
+    def _create_background_task(self, target, name: str):
+        # Home Assistant 2026.6+ provides lifecycle-bound task creation on
+        # ConfigEntry. The integration's declared minimum already guarantees
+        # this API, so do not fall back to hass.async_create_task (which could
+        # outlive entry unload).
+        return self.entry.async_create_background_task(self.hass, target, name)
+
+    def _queue_notification(self, snapshot: RoomSnapshot) -> None:
+        task = self._create_background_task(
+            async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),
+            f"Lüftungsberater notification check {self.subentry.subentry_id}",
+        )
+        if isinstance(task, asyncio.Task):
+            self._notification_tasks.add(task)
+            task.add_done_callback(self._notification_tasks.discard)
+
+    async def _drain_notification_tasks(self) -> None:
+        tasks = tuple(self._notification_tasks)
+        if not tasks:
+            return
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._notification_tasks.clear()
 
     async def _restore_memory(self) -> None:
         stored = await self._memory_store.async_load() or {}
@@ -212,7 +240,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 and end is not None
                 and start <= now_local < end
                 and isinstance(status, str)
-                and status in {"now", "later", "conditional", "blocked"}
+                and status in {"now", "later", "conditional", "short_only", "not_recommended", "blocked"}
                 and isinstance(reason_key, str)
                 and isinstance(reason_args, dict)
             ):
@@ -319,21 +347,20 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         ti = values.get("temperature_inside")
         hi = values.get("humidity_inside")
         target = values.get("target_temperature")
-        ta = values.get("temperature_outside")
         planning_need = (
             ti is not None
             and hi is not None
             and target is not None
             and (float(ti) > float(target) + 0.5 or float(hi) >= 60.0)
         )
-        current_delta_ok = (
-            ti is None
-            or ta is None
-            or abs(float(ta) - float(ti)) <= NIGHT_MAX_TEMP_DELTA
-        )
-        if not planning_need or not current_delta_ok:
+        if not planning_need:
             self._clear_night_memory()
             return snapshot
+
+        # A >9 K delta now yields ``short_only`` instead of making the night card
+        # disappear. Keep that state eligible for the same final-hour memory as
+        # the long-opening states.
+        current_delta_ok = True
 
         memory_valid = (
             self._night_memory is not None
@@ -689,12 +716,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         )
 
     def _publish_snapshot(self, snapshot: RoomSnapshot) -> None:
+        if not self._started:
+            return
         self._remember_snapshot(snapshot)
         self.async_set_updated_data(snapshot)
-        self.hass.async_create_task(
-            async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),
-            f"Lüftungsberater notification check {self.subentry.subentry_id}",
-        )
+        self._queue_notification(snapshot)
 
     @callback
     def _handle_night_start(self, _now: datetime) -> None:
@@ -703,7 +729,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if outside is None:
             self._handle_tracker_change()
             return
-        self.hass.async_create_task(
+        self._create_background_task(
             outside.async_request_refresh(),
             f"Lüftungsberater night forecast {self.subentry.subentry_id}",
         )
@@ -722,13 +748,18 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._publish_snapshot(self._build_snapshot())
 
     async def async_shutdown(self) -> None:
+        # Flip the lifecycle flag before yielding so any already-queued event
+        # callback becomes a no-op while shutdown drains outstanding jobs.
+        self._started = False
         if self._co2_hysteresis_unsub is not None:
             self._co2_hysteresis_unsub()
             self._co2_hysteresis_unsub = None
         while self._unsubs:
             self._unsubs.pop()()
+        # Event-triggered notification jobs can otherwise outlive our own
+        # coordinator cleanup until ConfigEntry unload processing runs.
+        await self._drain_notification_tasks()
         clear_room_notification_state(self.hass, self.entry.entry_id, self.subentry.subentry_id)
-        self._started = False
         # A clean Home Assistant restart should not discard a long-stable
         # hysteresis mode merely because the last mode *change* happened more
         # than DECISION_MEMORY_TTL ago. Refresh the tiny memory timestamp only

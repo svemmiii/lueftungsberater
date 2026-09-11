@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.9.3
+
+### Release-Audit-Nachbesserungen
+- Der interne **+1-h-Nachtforecast-Buffer** dient weiterhin zur Erkennung eines bis zum konfigurierten Nachtende reichenden Segments, beeinflusst aber nicht mehr Wind, Regen, Feuchte-/Temperatur-Nachteile oder Min-/Max-Werte des tatsächlich angezeigten Lüftungsfensters. Wetter erst nach dem sichtbaren `end_time` kann die Empfehlung davor damit nicht mehr blockieren oder verfälschen.
+- Kurzfristige harte **Live-Sperren** durch gefährlichen aktuellen Wind oder ungewöhnlich sehr schlechte aktuelle Außenluft werden wie NINA-/Wetter-Sicherheitsblöcke angezeigt, ersetzen in der Final Hour aber nicht mehr den zuvor stabilen Nachtplan. Ein unsicherer Forecast innerhalb des tatsächlichen Fensters darf den Plan weiterhin verschärfen.
+- Der domainweite Recorder-Retention-Job startet seinen Purge-Task jetzt über einen aktuell geladenen **ConfigEntry-Task-Lifecycle**, merkt den laufenden Task zusätzlich domainweit und bricht ihn beim Entladen des letzten Lüftungsassistent-ConfigEntries ab. Damit bleibt kein bereits gestarteter Maintenance-Task nach vollständigem Domain-Unload ungebunden zurück.
+- Regressionstests sichern die End-of-window-Buffergrenze, temporäre Wind-/Air-Quality-Sperren und den Recorder-Unload ab.
+
+### Nachtlüftung verständlicher und temperaturbewusster
+- Die Nachtkarte verschwindet bei vorhandenem Temperatur- oder Feuchtebedarf nicht mehr kommentarlos, nur weil kein ausreichend langes, mildes Forecast-Fenster gefunden wird. Neue Zustände unterscheiden **kurz lüften sinnvoll** (`short_only`) von **längeres Nachtlüften heute nicht empfohlen** (`not_recommended`).
+- Die bestehende **9-K-Grenze** bleibt als konservative Schutzgrenze für längeres, weitgehend unbeaufsichtigtes Offenlassen erhalten. Jenseits dieser Grenze kann kurzes Lüften weiterhin sinnvoll sein; die Nachtkarte erklärt dann, dass die Außenluft zwar kühlt oder trocknet, für langes Offenlassen aber zu kalt bzw. zu warm wird.
+- Wird es nach einer aktuell guten Kühlphase im Forecast bald zu kalt, nennt die Nachtkarte den Übergang sinngemäß: **jetzt kurz nutzen, später nicht länger offen lassen**. Dadurch wird z. B. eine Nacht mit 23,7 °C innen, 15,5 °C aktuell außen und etwa 14 °C ab 23 Uhr nicht mehr einfach als `unavailable` versteckt.
+- Bei Kühlbedarf und einer Nacht, die voraussichtlich **nicht mindestens etwa 0,7 K kühler** als der Raum wird, zeigt die Karte nun ausdrücklich, dass längeres Nachtlüften thermisch wenig bringt, statt ohne Erklärung zu verschwinden.
+- Auch bei reinem Feuchtebedarf kann ein sehr großer Temperaturunterschied jetzt als **kurz lüften statt lang offen lassen** dargestellt werden; dadurch bleibt der Feuchtenutzen sichtbar, ohne die Temperaturwirkung zu ignorieren.
+- Harte NINA-/Wetter-Sperren und ungewöhnlich sehr schlechte Außenluft bleiben stärker als diese Komforthinweise. Unsicherer Wind wird nicht zu einem freundlichen Kurzlüftungs-Hinweis heruntergestuft.
+- Die Final-Hour-Stabilisierung kennt die neuen Nachtzustände und darf eine bestehende positive Nachtstrategie weiterhin verschärfen, wenn die aktuellen Bedingungen schlechter werden.
+- Neue Nacht-/Localization-Regressionstests decken die 9-K-Grenze, den Übergang von einem kurzen geeigneten Fenster zu „zu kalt“, warme Nächte ohne Kühlfenster, trockene aber deutlich zu warme Außenluft sowie die Texte in DE/EN/TR ab.
+
+### Nachtplanung gegen Live-Beratung gehärtet
+- Nachtsegmente werden nicht mehr nach dem Prinzip **„irgendein aktiver Grund profitiert“** zusammengeklebt. Temperatur- und Feuchtenutzen werden grundgebunden über die ganze zusammenhängende Forecaststrecke verfolgt; ein gleichzeitig aktiver anderer Bedarf darf dabei nicht aktiv verschlechtert werden. Abwechselndes „eine Stunde kühlt / nächste Stunde trocknet“ ergibt daher kein künstlich durchgehend gutes Nachtfenster mehr.
+- Aktuelle und zukünftige Feuchtewirkung sind getrennt (`current_*` vs. `forecast_*`). Ein trockener Forecast darf deshalb nicht mehr den Satz **„bereits trockener“** erzeugen, wenn die Außenluft aktuell tatsächlich feuchter ist. Für ein langes Fenster zählt bei Feuchte außerdem die problematische Einzelstunde; ein Median darf eine nasse Zwischenstunde nicht mehr wegmitteln.
+- Die Nachtkarte kennt die aktuelle Live-Empfehlung. Ein aktuelles **geschlossen halten** kann nicht gleichzeitig zu `night_now`/freundlichem `short_only` führen. Umgekehrt sagt ein späteres Kühlfenster bei akutem CO₂ nicht mehr „bis dahin geschlossen lassen“, sondern verweist ausdrücklich auf die weiterhin gültige Hauptkarte.
+- `starts_now` darf keinen bekannten schlechten Zwischen-Forecast überspringen. Zwischen „jetzt“ und dem späteren Segment müssen alle bekannten Punkte für denselben Lüftungsgrund kompatibel bleiben.
+- Weiche Gegengründe wie Regen, Weather-/NINA-Caution, Windstufe 1, belastete Außenluft und ungünstiger Außen-CO₂-Wert werden auch bei `short_only` konkret angezeigt statt verschwiegen.
+- `night_not_recommended` unterscheidet jetzt **einzelne hilfreiche Phasen ohne zusammenhängendes Fenster** von „nie ausreichend kühl/trocken“ und erklärt Mehrfachbedarf nicht mehr zwangsläufig nur mit Kühlung.
+
+### Nacht-Memory und Langzeitgrenzen korrigiert
+- Ein gespeicherter Plan wird nur gehalten, solange seine **eigene `end_time`** noch in der Zukunft liegt. Ein altes 23:00–01:00-Fenster kann deshalb um 05:20 nicht mehr als `now` wiederbelebt werden.
+- `short_only` nimmt vollständig an der Final-Hour-Stabilisierung teil. Eine Temperaturdifferenz >9 K löscht den Night-Memory nicht mehr bereits vor der eigentlichen Statusstabilisierung.
+- Nach Clipping auf die konfigurierte Endzeit muss für einen Status zum **längeren Nachtlüften** noch mindestens 60 Minuten sichtbares Fenster übrig sein.
+- Die 9-K-Grenze bleibt die absolute Langzeit-Produktgrenze, wird aber um eine **zielabhängige Überschwing-Grenze** ergänzt. Ein winziger Kühlbedarf rechtfertigt dadurch nicht mehr stundenlang extrem kalte Außenluft; bei echtem großen Kühlbedarf bleibt entsprechend mehr Spielraum. Reiner Feuchtebedarf bekommt einen engeren Bereich um den Sollwert, damit sehr trockene aber massiv zu warme/kalte Luft nicht als langes unbeaufsichtigtes Fenster empfohlen wird.
+
+### Runtime-/Remote-Lifecycle-Hardening
+- OutsideCoordinator prüft nach asynchronem Registry-Refresh erneut seinen Startzustand und kann nach `async_shutdown()` keinen Source-Listener mehr neu abonnieren. Seine Provider-Refresh-Tasks werden – wie von aktuellen Home-Assistant-Config-Entries vorgesehen – lifecycle-gebunden erstellt.
+- Eventbasierte Notification-Checks und Airing-Speicheraufgaben werden über den Config-Entry-Task-Lifecycle erzeugt. Zusätzlich räumt der jeweilige Coordinator/Tracker eigene noch laufende Jobs bereits in `async_shutdown()`/`async_stop()` auf: Notification-State kann dadurch nicht während des Unloads von einem alten Job erneut beschrieben werden, und ein älterer Airing-Save kann den finalen Shutdown-Snapshot nicht nachträglich überschreiben.
+- Remote-Protokoll wurde wegen der neuen Night-v3-Semantik auf **3** erhöht. Der v0.9.3-Client fordert v3 ausdrücklich an und akzeptiert weiterhin ältere Protokolle 1/2; ein älterer Client ohne Protokollangabe erhält serverseitig einen v2-kompatiblen Snapshot, in dem nur die neuen `short_only`/`not_recommended`-Nachtzustände ausgeblendet werden. Rolling Upgrades bleiben damit nutzbar, ohne neue Night-v3-Semantik stillschweigend falsch zu interpretieren.
+- Fehlt während Setup/Reload die lokale Advisor-Entity, exportiert der Remote-Fallback jetzt `availability=loading` und `window_open=null` statt einen geschlossenen Fensterzustand zu erfinden.
+- Remote-Client-ID und -Name werden auf 128 Zeichen begrenzt; pro Raum werden maximal 32 gleichzeitig gemerkte Client-IDs gehalten und bei Überschreitung die ältesten transienten Einträge verworfen.
+
+### Regressionstests erweitert
+- Neue Tests decken abgelaufenen Night-Memory, feuchtere aktuelle Außenluft vs. trockenen Forecast, bekannte schlechte Zwischenstunden, kritisches CO₂ vs. spätes Nachtfenster, weiche `short_only`-Nachteile, alternierende Temperatur-/Feuchtenutzen, problematische Einzelstunden, Final-Hour-`short_only`, zielabhängige Langzeitgrenzen, Mindestfensterdauer und trocken-heiße Außenluft bei gleichzeitigem Kühlbedarf ab.
+- Zusätzliche Cross-Card-Fuzztests prüfen, dass eine restriktive Live-Hauptkarte niemals gleichzeitig `night_now` oder freundliches `short_only` erzeugt und dass Nachtfenster chronologisch gültig bleiben.
+
+### Versionierung
+- Manifest, gemeinsame `INTEGRATION_VERSION`, Frontend-Cache-Buster-Test und Bugreport-Vorlage stehen auf **0.9.3**. Historische Versionsangaben im Changelog bleiben selbstverständlich bei der Version, zu der sie gehören.
+
 ## v0.9.2
 
 ### Fenster-Auf/Zu- und Grenzwert-Stabilisierung

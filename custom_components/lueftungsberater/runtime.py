@@ -664,36 +664,6 @@ def build_room_snapshot(
     legacy_rain_now = _is_on(hass, entry.data.get(CONF_RAIN_NOW))
     legacy_rain_soon = _is_on(hass, entry.data.get(CONF_RAIN_SOON))
 
-    night_advice = evaluate_night_ventilation(
-        now=dt_util.now(),
-        indoor_temp=ti,
-        indoor_humidity=hi,
-        target_temp=values["target_temperature"],
-        indoor_co2=values.get("co2_ppm"),
-        outdoor_co2=values.get("outdoor_co2_ppm"),
-        outdoor_temp=ta,
-        outdoor_humidity=ha,
-        rain_now=(weather.rain_now or legacy_rain_now),
-        wind_speed_kmh=weather.wind_speed_kmh,
-        wind_gust_kmh=weather.wind_gust_kmh,
-        start_minute=_night_start_minutes(subentry),
-        end_minute=_night_end_minutes(subentry),
-        hourly_forecast=weather.hourly_forecast,
-        air_quality=weather.air_quality_index,
-        nina_status=normalized_nina,
-        weather_caution=weather_caution,
-        weather_danger=weather_danger,
-        air_quality_typical=values.get("air_quality_typical"),
-        air_quality_unusual=bool(values.get("air_quality_unusual")),
-        air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
-    )
-    values["night_ventilation_status"] = night_advice.status
-    values["night_ventilation_key"] = night_advice.reason_key
-    values["night_ventilation_args"] = dict(night_advice.reason_args)
-    # Internal coordinator metadata only; sensor.py deliberately does not expose
-    # this extra flag as an entity attribute.
-    values["_night_ventilation_safety_block"] = night_advice.safety_block
-
     room_input = RoomInput(
         indoor_temp=ti,
         indoor_humidity=hi,
@@ -749,6 +719,41 @@ def build_room_snapshot(
     # without adding recorder attributes or a second decision path.
     values["_co2_outdoor_context"] = co2_outdoor_context(room_input)
     result = evaluate_room(room_input)
+
+    # Build the night card after the live advisor. The night planner may plan a
+    # longer/later window, but it must never contradict the current room action
+    # (for example "keep closed" vs. "open now" or vice versa).
+    night_advice = evaluate_night_ventilation(
+        now=dt_util.now(),
+        indoor_temp=ti,
+        indoor_humidity=hi,
+        target_temp=values["target_temperature"],
+        indoor_co2=values.get("co2_ppm"),
+        outdoor_co2=values.get("outdoor_co2_ppm"),
+        outdoor_temp=ta,
+        outdoor_humidity=ha,
+        rain_now=(weather.rain_now or legacy_rain_now),
+        wind_speed_kmh=weather.wind_speed_kmh,
+        wind_gust_kmh=weather.wind_gust_kmh,
+        start_minute=_night_start_minutes(subentry),
+        end_minute=_night_end_minutes(subentry),
+        hourly_forecast=weather.hourly_forecast,
+        air_quality=weather.air_quality_index,
+        nina_status=normalized_nina,
+        weather_caution=weather_caution,
+        weather_danger=weather_danger,
+        air_quality_typical=values.get("air_quality_typical"),
+        air_quality_unusual=bool(values.get("air_quality_unusual")),
+        air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
+        live_recommendation_key=result.recommendation_key,
+        live_mode=result.mode,
+    )
+    values["night_ventilation_status"] = night_advice.status
+    values["night_ventilation_key"] = night_advice.reason_key
+    values["night_ventilation_args"] = dict(night_advice.reason_args)
+    # Internal coordinator metadata only; sensor.py deliberately does not expose
+    # this extra flag as an entity attribute.
+    values["_night_ventilation_safety_block"] = night_advice.safety_block
 
     return RoomSnapshot(result, values, weather, warnings)
 

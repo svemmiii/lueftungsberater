@@ -259,3 +259,174 @@ def test_temperature_continuation_duration_does_not_promise_reaching_unreachable
         text = duration_text("while_temperature_helps", language)
         assert text
     assert "nicht zwingend" in duration_text("while_temperature_helps", "de")
+
+
+def test_short_only_night_advice_is_localized_in_all_languages():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "start_time": "2026-09-09T21:20:00+02:00",
+        "end_time": "2026-09-10T07:00:00+02:00",
+        "limit_time": "2026-09-09T23:00:00+02:00",
+        "temperature_limit_direction": "cold",
+        "thermal_need": True,
+        "humidity_need": False,
+        "current_thermal_advantage": True,
+        "indoor_temp": 23.7,
+    }
+    expected = {
+        "de": ("kurz lüften", "23:00"),
+        "en": ("short airing", "23:00"),
+        "tr": ("kısa süre havalandır", "23:00"),
+    }
+    for language, fragments in expected.items():
+        text = night_advice_text("night_short_only", args, language, "°C")
+        for fragment in fragments:
+            assert fragment.lower() in text.lower()
+
+
+def test_not_recommended_night_advice_is_localized_in_all_languages():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "thermal_need": True,
+        "humidity_need": False,
+        "has_helpful_forecast": False,
+        "indoor_temp": 25.0,
+    }
+    for language in ("de", "en", "tr"):
+        text = night_advice_text("night_not_recommended", args, language, "°C")
+        assert text
+
+
+def test_short_only_humidity_text_does_not_claim_cooling_when_outside_is_hotter():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "limit_time": "2026-09-09T21:20:00+02:00",
+        "temperature_limit_direction": "warm",
+        "thermal_need": True,
+        "humidity_need": True,
+        "current_thermal_advantage": False,
+        "humidity_advantage": True,
+        "indoor_temp": 25.0,
+    }
+    text = night_advice_text("night_short_only", args, "de", "°C")
+    assert "Trocknen" in text
+    assert "abkühlen" not in text
+
+
+def test_later_night_text_never_says_keep_closed_when_live_card_says_open_now():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "start_time": "2026-09-10T01:00:00+02:00",
+        "end_time": "2026-09-10T03:00:00+02:00",
+        "thermal_need": True,
+        "forecast_thermal_advantage": True,
+        "live_open_now": True,
+    }
+    text = night_advice_text("night_later", args, "de")
+    assert "Hauptkarte" in text
+    assert "geschlossen lassen" not in text
+
+
+def test_short_only_text_names_wind_and_outdoor_co2_drawbacks():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "temperature_limit_direction": "cold",
+        "thermal_need": True,
+        "current_thermal_advantage": True,
+        "max_wind_level": 1,
+        "outdoor_co2_disadvantage": True,
+    }
+    text = night_advice_text("night_short_only", args, "de")
+    assert "Wind" in text
+    assert "Außen-CO₂" in text
+
+
+def test_not_recommended_text_explains_missing_contiguous_window_not_missing_cooling():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "thermal_need": True,
+        "humidity_need": False,
+        "has_helpful_forecast": True,
+        "no_contiguous_window": True,
+        "indoor_temp": 25.0,
+    }
+    text = night_advice_text("night_not_recommended", args, "de")
+    assert "einzelne hilfreiche Phasen" in text
+    assert "nicht ausreichend kühler" not in text
+
+
+def test_night_now_uses_current_not_future_humidity_wording():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "start_time": "2026-09-09T22:00:00+02:00",
+        "end_time": "2026-09-10T02:00:00+02:00",
+        "thermal_need": True,
+        "humidity_need": True,
+        "current_thermal_advantage": True,
+        "current_humidity_advantage": False,
+        "forecast_humidity_advantage": True,
+    }
+    text = night_advice_text("night_now", args, "de")
+    assert "bereits kühler" in text
+    assert "bereits kühler und trockener" not in text
+
+
+def test_multi_need_not_recommended_text_is_not_monocausal():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    text = night_advice_text(
+        "night_not_recommended",
+        {
+            "thermal_need": True,
+            "humidity_need": True,
+            "has_helpful_forecast": False,
+            "indoor_temp": 25.0,
+        },
+        "de",
+    )
+    assert "Kühlung" in text
+    assert "Trocknung" in text
+
+
+def test_later_conditional_does_not_describe_only_current_humidity_as_future_drawback():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    text = night_advice_text(
+        "night_later_conditional",
+        {
+            "start_time": "2026-09-11T23:00:00+02:00",
+            "end_time": "2026-09-12T02:00:00+02:00",
+            "thermal_need": True,
+            "forecast_thermal_advantage": True,
+            "current_humidity_disadvantage": True,
+            "forecast_humidity_disadvantage": False,
+            "weather_caution": True,
+        },
+        "de",
+    )
+    assert "Wetterhinweis" in text
+    assert "Außenluft eher feuchter" not in text
+
+
+def test_short_only_does_not_describe_only_future_humidity_as_current_drawback():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    text = night_advice_text(
+        "night_short_only",
+        {
+            "thermal_need": True,
+            "current_thermal_advantage": True,
+            "current_humidity_disadvantage": False,
+            "forecast_humidity_disadvantage": True,
+            "temperature_limit_direction": "cold",
+        },
+        "de",
+    )
+    assert "Außenluft eher feuchter" not in text

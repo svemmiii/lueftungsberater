@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.9.2"
+INTEGRATION_VERSION = "0.9.3"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 
@@ -68,7 +68,7 @@ CONF_REMOTE_ROOM_SHARE = "remote_share"
 DEFAULT_REMOTE_PORT = 8123
 REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
 REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
-REMOTE_PROTOCOL_VERSION = 2
+REMOTE_PROTOCOL_VERSION = 3
 FORECAST_REFRESH_INTERVAL = timedelta(minutes=15)
 
 CONF_ROOM_NAME = "room_name"
