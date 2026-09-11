@@ -9,12 +9,25 @@ from custom_components.lueftungsberater.airing import RoomAiringTracker
 from custom_components.lueftungsberater.const import CONF_WINDOWS
 
 
+class _FakeEntry:
+    """Minimal ConfigEntry test double with lifecycle-bound task API."""
+
+    entry_id = "advisor"
+
+    def __init__(self, hass) -> None:
+        self._hass = hass
+
+    def async_create_background_task(self, hass, target, name):
+        assert hass is self._hass
+        return hass.async_create_background_task(target, name)
+
+
 async def test_open_session_survives_unknown_contact_during_restart(
     hass, enable_custom_integrations
 ) -> None:
     """A startup `unknown` contact is not proof that an airing ended."""
     opened_at = dt_util.utcnow() - timedelta(minutes=17)
-    entry = SimpleNamespace(entry_id="advisor")
+    entry = _FakeEntry(hass)
     room = SimpleNamespace(
         subentry_id="living",
         data={CONF_WINDOWS: ["binary_sensor.living_window"]},
@@ -51,7 +64,7 @@ async def test_definitively_closed_contact_discards_stale_open_session(
 ) -> None:
     """A stored open session must not survive a definitive closed state."""
     opened_at = dt_util.utcnow() - timedelta(minutes=17)
-    entry = SimpleNamespace(entry_id="advisor")
+    entry = _FakeEntry(hass)
     room = SimpleNamespace(
         subentry_id="living",
         data={CONF_WINDOWS: ["binary_sensor.living_window"]},
@@ -81,7 +94,7 @@ async def test_long_unknown_contact_time_is_not_counted_as_successful_airing(
 ) -> None:
     """Only definitely-open time may satisfy the five-minute airing minimum."""
     opened_at = dt_util.utcnow() - timedelta(minutes=1)
-    entry = SimpleNamespace(entry_id="advisor")
+    entry = _FakeEntry(hass)
     room = SimpleNamespace(
         subentry_id="living",
         data={CONF_WINDOWS: ["binary_sensor.living_window"]},
@@ -124,7 +137,7 @@ async def test_confirmed_close_dispatches_only_after_last_airing_is_updated(
     from custom_components.lueftungsberater.airing import tracker_signal
 
     opened_at = dt_util.utcnow() - timedelta(minutes=8)
-    entry = SimpleNamespace(entry_id="advisor")
+    entry = _FakeEntry(hass)
     room = SimpleNamespace(
         subentry_id="living",
         data={CONF_WINDOWS: ["binary_sensor.living_window"]},

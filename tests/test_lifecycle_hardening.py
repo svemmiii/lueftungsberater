@@ -110,14 +110,18 @@ async def test_room_coordinator_shutdown_drains_notification_tasks_before_cleari
         lambda *_args: order.append("clear"),
     )
 
+    started = asyncio.Event()
+
     async def _pending_notification():
         try:
-            await asyncio.sleep(60)
+            started.set()
+            await asyncio.Event().wait()
         finally:
             order.append("notification_done")
 
     task = asyncio.create_task(_pending_notification())
     coordinator._notification_tasks.add(task)
+    await started.wait()
     await coordinator.async_shutdown()
 
     assert task.done()
