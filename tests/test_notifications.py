@@ -309,18 +309,35 @@ def _notification_snapshot(mode: str):
 @pytest.mark.asyncio
 async def test_notify_service_is_awaited_before_success_is_recorded(hass, monkeypatch):
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock
 
     from custom_components.lueftungsberater.notifications import _async_send
     from custom_components.lueftungsberater.const import CONF_NOTIFY_TARGET
 
-    call = AsyncMock()
-    monkeypatch.setattr(hass.services, "async_call", call)
+    calls = []
+
+    async def _async_call(
+        _services, domain, service, service_data=None, *, blocking=False, **kwargs
+    ):
+        calls.append(
+            {
+                "domain": domain,
+                "service": service,
+                "service_data": service_data,
+                "blocking": blocking,
+                **kwargs,
+            }
+        )
+        return None
+
+    # ServiceRegistry is slotted/read-only on the instance in real Home Assistant,
+    # so patch the class method instead of assigning hass.services.async_call.
+    monkeypatch.setattr(type(hass.services), "async_call", _async_call)
     entry = SimpleNamespace(data={CONF_NOTIFY_TARGET: "notify.mobile"})
     subentry = SimpleNamespace(title="Living")
 
     assert await _async_send(hass, entry, subentry, NOTIFY_TRIGGER_AIR_DANGER) is True
-    assert call.await_args.kwargs["blocking"] is True
+    assert len(calls) == 1
+    assert calls[0]["blocking"] is True
 
 
 @pytest.mark.asyncio

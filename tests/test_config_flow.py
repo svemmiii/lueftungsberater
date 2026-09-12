@@ -579,6 +579,9 @@ async def test_remote_reauth_updates_token_and_owns_reload_without_update_listen
     fake_flow = SimpleNamespace(
         hass=SimpleNamespace(),
         _get_reauth_entry=lambda: entry,
+        # async_step_reauth_confirm performs the same duplicate-endpoint guard as
+        # the real flow before it reaches async_update_reload_and_abort().
+        _async_current_entries=lambda: [entry],
         async_update_reload_and_abort=lambda target, **kwargs: (
             calls.append((target, kwargs)) or {"type": "abort", "reason": kwargs["reason"]}
         ),
