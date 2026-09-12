@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import hashlib
 import logging
 import math
 import re
@@ -183,6 +184,10 @@ _LOGGER = logging.getLogger(__name__)
 HOURLY_FORECAST_CACHE_MAX_AGE = timedelta(minutes=15)
 HOURLY_FORECAST_MAX_USABLE_AGE = timedelta(minutes=60)
 NINA_DETAILS_CACHE_MAX_AGE = timedelta(minutes=5)
+# A temporary nina.get_details failure must not drop an otherwise still-active
+# safety instruction immediately. Refresh after five minutes, but permit the
+# same warning id to use its last successful details for at most one hour.
+NINA_DETAILS_CACHE_STALE_MAX_AGE = timedelta(hours=1)
 SHORT_TERM_FORECAST_WINDOW = timedelta(minutes=60)
 
 
@@ -1229,12 +1234,12 @@ def _nina_details_bucket(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
 
 
 async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Fetch full NINA details with a small time-bounded cache.
+    """Refresh NINA details without failing open during provider outages.
 
-    Home Assistant exposes long description/recommended actions through
-    ``nina.get_details``. A warning can be updated while its slot/id remains
-    stable, so caching forever by id risks keeping stale protection text. The
-    five-minute TTL is cheap and matches the time scale of official updates.
+    Five minutes is the normal refresh TTL. If NINA temporarily becomes
+    unavailable, keep the last *known active* warning details for at most one
+    hour. An explicit ``off`` state is authoritative and clears immediately; an
+    ``unknown``/``unavailable`` state is not an all-clear.
     """
     source = entry.data.get(CONF_WARNING_SOURCE)
     if not isinstance(source, str) or not source or source == WARNING_SOURCE_NONE:
@@ -1242,28 +1247,68 @@ async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) ->
     source_entry = hass.config_entries.async_get_entry(source)
     if source_entry is None or source_entry.domain != "nina":
         return
-    if not hass.services.has_service("nina", "get_details"):
-        return
 
     entity_ids = _config_entry_entities(hass, source_entry.entry_id)
     active: dict[str, str] = {}
+    uncertain: set[str] = set()
     for entity_id in entity_ids:
         if not entity_id.startswith("binary_sensor."):
             continue
         state = hass.states.get(entity_id)
-        if state is None or state.state != "on":
+        if state is None or state.state in {"unknown", "unavailable", "none", ""}:
+            uncertain.add(entity_id)
             continue
-        warning_id = str(state.attributes.get("id") or "").strip()
+        if state.state != "on":
+            # ``off`` is an authoritative all-clear for this NINA slot.
+            continue
+        warning_id = str(
+            state.attributes.get("id") or state.attributes.get("identifier") or ""
+        ).strip()
         if warning_id:
             active[entity_id] = warning_id
+        else:
+            # An active slot whose identifier is temporarily missing is not an
+            # authoritative all-clear either. Keep only a bounded, identity-
+            # neutral stale record rather than deleting a known safety lock.
+            uncertain.add(entity_id)
 
     bucket = _nina_details_bucket(hass)
     prefix = f"{entry.entry_id}:"
-    active_keys = {f"{prefix}{entity_id}" for entity_id in active}
-    for key in [key for key in bucket if key.startswith(prefix) and key not in active_keys]:
+    now = dt_util.utcnow()
+
+    # Remove cache entries only for authoritative inactivity/removal, a changed
+    # warning identity, or an exhausted bounded stale window. Provider
+    # unavailable/unknown must not be mistaken for ``off``.
+    for key in [item for item in list(bucket) if item.startswith(prefix)]:
+        entity_id = key[len(prefix) :]
+        if entity_id in active:
+            continue
+        cached = bucket.get(key)
+        if entity_id in uncertain and isinstance(cached, dict):
+            cached_at = _parse_datetime(cached.get("cached_at"))
+            active_seen_at = _parse_datetime(cached.get("active_seen_at")) or cached_at
+            state = hass.states.get(entity_id)
+            current_id = ""
+            if state is not None:
+                current_id = str(
+                    state.attributes.get("id")
+                    or state.attributes.get("identifier")
+                    or ""
+                ).strip()
+            same_identity = not current_id or current_id == cached.get("warning_id")
+            cached_age = now - cached_at if cached_at is not None else None
+            active_age = now - active_seen_at if active_seen_at is not None else None
+            if (
+                same_identity
+                and cached_age is not None
+                and active_age is not None
+                and timedelta(0) <= cached_age < NINA_DETAILS_CACHE_STALE_MAX_AGE
+                and timedelta(0) <= active_age < NINA_DETAILS_CACHE_STALE_MAX_AGE
+            ):
+                continue
         bucket.pop(key, None)
 
-    now = dt_util.utcnow()
+    service_available = hass.services.has_service("nina", "get_details")
     for entity_id, warning_id in active.items():
         key = f"{prefix}{entity_id}"
         cached = bucket.get(key)
@@ -1272,13 +1317,31 @@ async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) ->
             if isinstance(cached, dict)
             else None
         )
+        same_warning = (
+            isinstance(cached, dict) and cached.get("warning_id") == warning_id
+        )
+        if same_warning:
+            # The binary sensor still authoritatively says this exact warning is
+            # active, even if fetching its long details later fails.
+            cached["active_seen_at"] = now.isoformat()
+
         if (
-            isinstance(cached, dict)
-            and cached.get("warning_id") == warning_id
+            same_warning
             and cached_at is not None
             and timedelta(0) <= now - cached_at < NINA_DETAILS_CACHE_MAX_AGE
         ):
             continue
+
+        if not service_available:
+            age = now - cached_at if cached_at is not None else None
+            if not (
+                same_warning
+                and age is not None
+                and timedelta(0) <= age < NINA_DETAILS_CACHE_STALE_MAX_AGE
+            ):
+                bucket.pop(key, None)
+            continue
+
         try:
             response = await hass.services.async_call(
                 "nina",
@@ -1290,13 +1353,22 @@ async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) ->
             )
         except Exception:  # noqa: BLE001 - provider failure must never break advice
             _LOGGER.debug("Unable to fetch NINA details for %s", entity_id, exc_info=True)
+            age = now - cached_at if cached_at is not None else None
+            if not (
+                same_warning
+                and age is not None
+                and timedelta(0) <= age < NINA_DETAILS_CACHE_STALE_MAX_AGE
+            ):
+                bucket.pop(key, None)
             continue
+
         details = response.get(entity_id) if isinstance(response, dict) else None
         if isinstance(details, dict):
             bucket[key] = {
                 "warning_id": warning_id,
                 "details": dict(details),
                 "cached_at": now.isoformat(),
+                "active_seen_at": now.isoformat(),
             }
 
 
@@ -1309,9 +1381,34 @@ def async_clear_nina_details_cache(hass: HomeAssistant, entry: ConfigEntry) -> N
         bucket.pop(key, None)
 
 
-def _cached_nina_details(hass: HomeAssistant, entry: ConfigEntry, entity_id: str) -> dict[str, Any]:
-    cached = _nina_details_bucket(hass).get(f"{entry.entry_id}:{entity_id}")
-    details = cached.get("details") if isinstance(cached, dict) else None
+def _cached_nina_record(
+    hass: HomeAssistant, entry: ConfigEntry, entity_id: str
+) -> dict[str, Any]:
+    """Return one still-valid NINA cache record, pruning expired data."""
+    key = f"{entry.entry_id}:{entity_id}"
+    bucket = _nina_details_bucket(hass)
+    cached = bucket.get(key)
+    if not isinstance(cached, dict):
+        return {}
+    cached_at = _parse_datetime(cached.get("cached_at"))
+    active_seen_at = _parse_datetime(cached.get("active_seen_at")) or cached_at
+    now = dt_util.utcnow()
+    if (
+        cached_at is None
+        or active_seen_at is None
+        or not timedelta(0) <= now - cached_at < NINA_DETAILS_CACHE_STALE_MAX_AGE
+        or not timedelta(0) <= now - active_seen_at < NINA_DETAILS_CACHE_STALE_MAX_AGE
+    ):
+        bucket.pop(key, None)
+        return {}
+    return cached
+
+
+def _cached_nina_details(
+    hass: HomeAssistant, entry: ConfigEntry, entity_id: str
+) -> dict[str, Any]:
+    cached = _cached_nina_record(hass, entry, entity_id)
+    details = cached.get("details") if cached else None
     return dict(details) if isinstance(details, dict) else {}
 
 
@@ -1379,35 +1476,60 @@ def _evaluate_nina_like_entities(
     clear_candidates: list[tuple[str, str, str]] = []
 
     for entity_id in entity_ids:
-        state = hass.states.get(entity_id)
-        if state is None or not entity_id.startswith("binary_sensor.") or state.state != "on":
+        if not entity_id.startswith("binary_sensor."):
             continue
-
-        registry_entry = registry.async_get(entity_id) if registry is not None else None
-        slot_id = registry_entry.unique_id if registry_entry else None
-        detail = slot_details.get(slot_id, {}) if isinstance(slot_id, str) else {}
-
-        full = (
-            _cached_nina_details(hass, advisor_entry, entity_id)
+        state = hass.states.get(entity_id)
+        live_active = state is not None and state.state == "on"
+        provider_unknown = state is None or state.state in {
+            "unknown",
+            "unavailable",
+            "none",
+            "",
+        }
+        cached_record = (
+            _cached_nina_record(hass, advisor_entry, entity_id)
             if advisor_entry is not None
             else {}
         )
+        stale_active = provider_unknown and bool(cached_record)
+        if not live_active and not stale_active:
+            continue
+
+        registry_entry = (
+            registry.async_get(entity_id)
+            if live_active and registry is not None
+            else None
+        )
+        slot_id = registry_entry.unique_id if registry_entry else None
+        detail = (
+            slot_details.get(slot_id, {})
+            if live_active and isinstance(slot_id, str)
+            else {}
+        )
+        full = (
+            dict(cached_record.get("details", {}))
+            if isinstance(cached_record.get("details"), dict)
+            else {}
+        )
         headline = (
-            _text(state, "headline")
+            (_text(state, "headline") if live_active else "")
             or detail.get("headline", "")
             or str(full.get("headline") or "")
         )
-        description = _text(state, "description") or str(full.get("description") or "")
+        description = (
+            (_text(state, "description") if live_active else "")
+            or str(full.get("description") or "")
+        )
         actions = " ".join(
             part
             for part in (
-                _text(state, "recommended_actions"),
-                _text(state, "recommended_action"),
-                _text(state, "instruction"),
-                _text(state, "instructions"),
-                _text(state, "recommendation"),
-                _text(state, "recommendations"),
-                _text(state, "advice"),
+                (_text(state, "recommended_actions") if live_active else ""),
+                (_text(state, "recommended_action") if live_active else ""),
+                (_text(state, "instruction") if live_active else ""),
+                (_text(state, "instructions") if live_active else ""),
+                (_text(state, "recommendation") if live_active else ""),
+                (_text(state, "recommendations") if live_active else ""),
+                (_text(state, "advice") if live_active else ""),
                 str(full.get("recommended_actions") or ""),
                 str(full.get("recommended_action") or ""),
                 str(full.get("instruction") or ""),
@@ -1422,9 +1544,9 @@ def _evaluate_nina_like_entities(
             (
                 str(value).strip()
                 for value in (
-                    state.attributes.get("msg_type"),
-                    state.attributes.get("message_type"),
-                    state.attributes.get("msgType"),
+                    state.attributes.get("msg_type") if live_active else None,
+                    state.attributes.get("message_type") if live_active else None,
+                    state.attributes.get("msgType") if live_active else None,
                     full.get("msg_type"),
                     full.get("message_type"),
                     full.get("msgType"),
@@ -1439,10 +1561,14 @@ def _evaluate_nina_like_entities(
             actions,
             message_type,
         )
-        if air_state == "none":
+        if air_state == "none" or (stale_active and air_state != "danger"):
             continue
 
-        warning_id = state.attributes.get("id") or state.attributes.get("identifier")
+        warning_id = (
+            (state.attributes.get("id") or state.attributes.get("identifier"))
+            if live_active
+            else cached_record.get("warning_id")
+        )
         warning_key = str(warning_id) if warning_id else entity_id
         display_text = headline or description or actions or None
 
@@ -1478,6 +1604,36 @@ def _evaluate_nina_like_entities(
 
 
 
+def _dwd_warning_key(state: State, entity_id: str, index: int) -> str:
+    """Return a stable warning identity even when DWD exposes no explicit ID."""
+    explicit = (
+        state.attributes.get(f"warning_{index}_identifier")
+        or state.attributes.get(f"warning_{index}_id")
+        or state.attributes.get(f"warning_{index}_event_id")
+        or state.attributes.get(f"warning_{index}_sent")
+    )
+    if explicit not in (None, ""):
+        return str(explicit)
+
+    # Current DWD warning entities usually have no dedicated immutable ID. Use
+    # the warning's semantic/time identity instead of its mutable list index so
+    # sorting changes do not create a new notification fingerprint.
+    parts = [
+        entity_id,
+        state.attributes.get(f"warning_{index}_event"),
+        state.attributes.get(f"warning_{index}_type"),
+        state.attributes.get(f"warning_{index}_name"),
+        state.attributes.get(f"warning_{index}_start"),
+        state.attributes.get(f"warning_{index}_end"),
+        state.attributes.get(f"warning_{index}_headline"),
+    ]
+    normalized = [" ".join(str(item or "").split()).casefold() for item in parts]
+    if any(normalized[1:]):
+        digest = hashlib.sha256("\x1f".join(normalized).encode("utf-8")).hexdigest()[:24]
+        return f"{entity_id}:dwd:{digest}"
+    return f"{entity_id}:{index}"
+
+
 def _evaluate_dwd_warning_entities(
     hass: HomeAssistant,
     entity_ids: list[str],
@@ -1503,13 +1659,7 @@ def _evaluate_dwd_warning_entities(
         sensor_level = _state_float(state) or 0.0
 
         for index in range(1, count + 1):
-            warning_id = (
-                state.attributes.get(f"warning_{index}_identifier")
-                or state.attributes.get(f"warning_{index}_id")
-                or state.attributes.get(f"warning_{index}_event_id")
-                or state.attributes.get(f"warning_{index}_sent")
-            )
-            warning_key = str(warning_id) if warning_id else f"{entity_id}:{index}"
+            warning_key = _dwd_warning_key(state, entity_id, index)
             name = str(
                 state.attributes.get(f"warning_{index}_name", "")
                 or ""

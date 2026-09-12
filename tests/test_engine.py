@@ -2170,3 +2170,289 @@ def test_can_close_then_same_measurements_never_escalate_on_close_across_boundar
                             assert closed.recommendation_key != "open_now"
 
     assert checked > 100
+
+
+def test_running_co2_session_controls_room_card_until_finish_ready():
+    """Regression: 1440 -> 1399 must not make room view say can_close.
+
+    This reproduces the real default-room-card case with 61.7 % RH. The normal
+    engine already kept the explicit CO2 session alive; the inverted room view
+    must now surface that same session instead of letting the mild humidity band
+    render green / can_close.
+    """
+    common = dict(
+        indoor_temp=22.0,
+        target_temp=22.0,
+        indoor_humidity=61.7,
+        outdoor_temp=20.0,
+        outdoor_humidity=50.0,
+        co2_finish_target=850.0,
+        co2_near_target=900.0,
+    )
+
+    started = evaluate_room(base(**common, co2=1440.0, window_open=False))
+    assert started.room_status_color == "orange"
+    assert started.room_recommendation_key == "room_need"
+
+    minimum = evaluate_room(
+        base(
+            **common,
+            co2=1399.0,
+            window_open=True,
+            open_minutes=1.0,
+            previous_mode="co2_lueften",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_minimum_airing_active=True,
+        )
+    )
+    assert minimum.mode == "co2_mindestlueftung"
+    assert minimum.recommendation_key == "keep_open"
+    assert minimum.room_status_color == "orange"
+    assert minimum.room_recommendation_key == "keep_open"
+    assert minimum.room_reason_key == "co2_minimum_airing"
+    assert minimum.primary_need == "co2_session"
+
+    after_minimum = evaluate_room(
+        base(
+            **common,
+            co2=1399.0,
+            window_open=True,
+            open_minutes=6.0,
+            previous_mode="co2_mindestlueftung",
+            previous_need="co2_high",
+            co2_airing_active=True,
+        )
+    )
+    assert after_minimum.mode == "weiter_lueften"
+    assert after_minimum.recommendation_key == "keep_open"
+    assert after_minimum.room_status_color == "orange"
+    assert after_minimum.room_recommendation_key == "keep_open"
+    assert after_minimum.room_reason_key == "continue_airing"
+
+
+def test_running_co2_session_room_card_is_yellow_near_target_then_green_only_when_ready():
+    common = dict(
+        indoor_temp=22.0,
+        target_temp=22.0,
+        indoor_humidity=45.0,
+        # Keep the outdoor situation genuinely neutral/helpful here. The
+        # near-target CO2 session must not be ended merely because there is no
+        # fresh indoor need, but a real outdoor drawback remains authoritative.
+        outdoor_temp=22.0,
+        outdoor_humidity=45.0,
+        window_open=True,
+        open_minutes=8.0,
+        previous_mode="weiter_lueften",
+        previous_need="co2_elevated",
+        co2_airing_active=True,
+        co2_finish_target=850.0,
+        co2_near_target=900.0,
+    )
+
+    for ppm in (899.0, 880.0, 850.0, 840.0):
+        near = evaluate_room(base(**common, co2=ppm, co2_finish_ready=False))
+        assert near.mode == "co2_abwaegung"
+        assert near.recommendation_key == "short_observation"
+        assert near.room_status_color == "yellow"
+        assert near.room_recommendation_key == "room_keep_brief"
+        assert near.room_reason_key == "co2_tradeoff"
+        assert near.primary_need == "co2_session"
+
+    finished = evaluate_room(base(**common, co2=840.0, co2_finish_ready=True))
+    assert finished.mode == "lueftung_fertig"
+    assert finished.recommendation_key == "can_close"
+    assert finished.room_status_color == "green"
+    assert finished.room_recommendation_key == "can_close"
+    assert finished.room_reason_key == "airing_finished"
+    assert finished.primary_need == "co2_session"
+
+
+def test_running_co2_session_room_card_fix_does_not_depend_on_humidity():
+    for humidity in (45.0, 61.7, 63.0):
+        result = evaluate_room(
+            base(
+                indoor_temp=22.0,
+                target_temp=22.0,
+                indoor_humidity=humidity,
+                outdoor_temp=20.0,
+                outdoor_humidity=50.0,
+                co2=1100.0,
+                window_open=True,
+                open_minutes=7.0,
+                previous_mode="co2_mindestlueftung",
+                previous_need="co2_high",
+                co2_airing_active=True,
+                co2_finish_target=850.0,
+                co2_near_target=900.0,
+            )
+        )
+        assert result.mode == "weiter_lueften"
+        assert result.recommendation_key == "keep_open"
+        assert result.room_status_color == "orange"
+        assert result.room_recommendation_key == "keep_open"
+        assert result.room_reason_key == "continue_airing"
+
+
+def test_running_co2_session_room_view_never_contradicts_keep_open():
+    """Cross-view invariant: room card may not close while engine says keep open."""
+    checked = 0
+    for humidity in (35.0, 45.0, 55.0, 61.7, 63.0, 70.0):
+        for outdoor_temp in (5.0, 15.0, 20.0, 22.0, 26.0, 35.0):
+            for outdoor_humidity in (20.0, 40.0, 60.0, 90.0):
+                for ppm in (840.0, 880.0, 899.0, 920.0, 999.0, 1100.0, 1250.0, 1399.0, 1600.0):
+                    result = evaluate_room(
+                        base(
+                            indoor_temp=22.0,
+                            target_temp=22.0,
+                            indoor_humidity=humidity,
+                            outdoor_temp=outdoor_temp,
+                            outdoor_humidity=outdoor_humidity,
+                            co2=ppm,
+                            window_open=True,
+                            open_minutes=7.0,
+                            previous_mode="weiter_lueften",
+                            previous_need="co2_elevated",
+                            co2_airing_active=True,
+                            co2_finish_target=850.0,
+                            co2_near_target=900.0,
+                            co2_finish_ready=False,
+                        )
+                    )
+                    if result.recommendation_key == "keep_open":
+                        checked += 1
+                        assert result.room_recommendation_key != "can_close"
+                        assert result.room_status_color != "green"
+
+    assert checked > 100
+
+
+def test_co2_finish_ready_never_overrides_independent_temperature_keep_open():
+    """Finishing CO2 only removes CO2; an active cooling reason still wins."""
+    result = evaluate_room(
+        base(
+            indoor_temp=26.0,
+            target_temp=22.0,
+            indoor_humidity=45.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=45.0,
+            co2=840.0,
+            window_open=True,
+            open_minutes=9.0,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+            co2_finish_ready=True,
+        )
+    )
+    assert result.recommendation_key == "keep_open"
+    assert result.mode != "lueftung_fertig"
+    assert result.room_recommendation_key != "can_close"
+    assert result.room_status_color != "green"
+
+
+def test_co2_near_target_never_weakens_independent_humidity_keep_open():
+    """Near-target CO2 may not downgrade a still useful humidity airing."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=22.0,
+            indoor_humidity=70.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=40.0,
+            co2=899.0,
+            window_open=True,
+            open_minutes=9.0,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+            co2_finish_ready=False,
+        )
+    )
+    assert result.recommendation_key == "keep_open"
+    assert result.mode not in {"co2_abwaegung", "lueftung_fertig"}
+    assert result.room_recommendation_key != "can_close"
+
+
+def test_running_co2_session_without_current_measurement_is_never_finished():
+    """Unavailable CO2 after the minimum phase is unknown, never target reached."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=22.0,
+            indoor_humidity=45.0,
+            outdoor_temp=22.0,
+            outdoor_humidity=45.0,
+            co2=None,
+            window_open=True,
+            open_minutes=8.0,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+            co2_finish_ready=False,
+            co2_minimum_airing_active=False,
+        )
+    )
+    assert result.mode == "co2_abwaegung"
+    assert result.recommendation_key == "short_observation"
+    assert result.reason_key == "co2_tradeoff"
+    assert result.reason_args["caution"] == "measurement_unknown"
+    assert result.room_status_color == "yellow"
+    assert result.room_recommendation_key == "room_keep_brief"
+
+
+def test_running_co2_session_missing_measurement_does_not_weaken_other_keep_open_reason():
+    """If another reason still needs airing, missing CO2 leaves it authoritative."""
+    result = evaluate_room(
+        base(
+            indoor_temp=26.0,
+            target_temp=22.0,
+            indoor_humidity=45.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=45.0,
+            co2=None,
+            window_open=True,
+            open_minutes=8.0,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+            co2_finish_ready=False,
+        )
+    )
+    assert result.recommendation_key == "keep_open"
+    assert result.mode != "lueftung_fertig"
+    assert result.room_recommendation_key != "can_close"
+
+
+def test_co2_finish_ready_with_1250_target_does_not_hide_same_urgency_temperature_need():
+    """Even if CO2 still wins the merge, another green need must survive finish."""
+    result = evaluate_room(
+        base(
+            indoor_temp=23.0,
+            target_temp=22.0,
+            indoor_humidity=45.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=45.0,
+            co2=1240.0,
+            window_open=True,
+            open_minutes=10.0,
+            previous_mode="weiter_lueften",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_finish_target=1250.0,
+            co2_near_target=1300.0,
+            co2_finish_ready=True,
+        )
+    )
+    assert result.decision_need == "co2_elevated"
+    assert result.mode != "lueftung_fertig"
+    assert result.recommendation_key == "keep_open"
+    assert result.room_recommendation_key != "can_close"

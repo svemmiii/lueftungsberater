@@ -13,6 +13,7 @@ from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistant
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 
 from .const import (
     DATA_API_REGISTERED,
@@ -174,6 +175,10 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
             {
                 "protocol": response_protocol,
                 "home_assistant_name": hass.config.location_name,
+                # Home Assistant's core UUID is a stable opaque instance ID. It
+                # lets clients recognize the same peer through MagicDNS or a
+                # direct Tailscale IP instead of relying only on host spelling.
+                "home_assistant_instance_id": await async_get_instance_id(hass),
                 "instances": instances,
             }
         )
@@ -282,6 +287,23 @@ def _record_remote_access(
             _refresh_remote_access_entity(hass, instance_id, room_id)
 
 
+@callback
+def async_clear_remote_access(hass: HomeAssistant, entry_id: str) -> None:
+    """Cancel transient remote-access timers owned by one local entry."""
+    store = hass.data.get(DOMAIN, {}).get(DATA_REMOTE_ACCESS, {})
+    prefix = f"{entry_id}:"
+    for key in [item for item in list(store) if item.startswith(prefix)]:
+        clients = store.pop(key, None)
+        if not isinstance(clients, dict):
+            continue
+        for info in clients.values():
+            if not isinstance(info, dict):
+                continue
+            cancel = info.get("cancel_expiry")
+            if callable(cancel):
+                cancel()
+
+
 def _refresh_remote_access_entity(
     hass: HomeAssistant,
     instance_id: str,
@@ -333,7 +355,11 @@ def remote_access_info(
         else:
             stale.append(client_id)
     for client_id in stale:
-        clients.pop(client_id, None)
+        info = clients.pop(client_id, None)
+        if isinstance(info, dict):
+            cancel = info.get("cancel_expiry")
+            if callable(cancel):
+                cancel()
     if not clients:
         store.pop(key, None)
     return bool(active), sorted(set(active))

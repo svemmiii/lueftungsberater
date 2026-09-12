@@ -12,7 +12,8 @@ from homeassistant.helpers.collection import ItemNotFound
 
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
 from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air_quality_tracker
-from .api import async_register_api
+from .areas import async_sync_room_device_areas
+from .api import async_clear_remote_access, async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .compat import pin_subentry_capabilities
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
@@ -23,8 +24,10 @@ from .recorder_maintenance import (
     async_register_recorder_retention,
     async_remove_recorder_entity_index,
 )
+from .notifications import clear_assistant_notification_state
 from .outside import async_get_or_create_outside_coordinator, async_stop_outside_coordinator
 from .storage_cleanup import async_cleanup_orphaned_room_stores, async_remove_entry_stores
+from .safety_state import async_remove_persistent_safety_state
 from .coordinator import (
     async_get_or_create_room_coordinator,
     async_stop_entry_coordinators,
@@ -293,6 +296,31 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+async def _async_cleanup_runtime_after_failed_setup(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Discard runtime objects created by a setup attempt that did not finish."""
+    if entry_kind(entry) == ENTRY_KIND_REMOTE:
+        await async_stop_remote_coordinator(hass, entry)
+        async_clear_remote_device_sync_cache(hass, entry)
+        async_clear_remote_access(hass, entry.entry_id)
+        async_clear_nina_details_cache(hass, entry)
+        return
+
+    # Each stop helper pops before/while shutting down, so this rollback is safe
+    # even when only some factories completed. It is intentionally separate from
+    # async_unload_entry: Home Assistant does not call the integration's normal
+    # unload hook when setup itself raises.
+    await async_stop_entry_coordinators(hass, entry)
+    await async_stop_outside_coordinator(hass, entry)
+    await async_stop_air_quality_tracker(hass, entry)
+    await async_stop_entry_trackers(hass, entry)
+    await async_stop_entry_co2_trackers(hass, entry)
+    await async_stop_entry_mold_trackers(hass, entry)
+    async_clear_remote_access(hass, entry.entry_id)
+    async_clear_nina_details_cache(hass, entry)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one local or Tailscale-remote Lüftungsberater entry."""
     # Keep Home Assistant's per-entry subentry capability cache in sync with
@@ -304,48 +332,85 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     kind = entry_kind(entry)
     if kind == ENTRY_KIND_REMOTE:
-        coordinator = await async_get_or_create_remote_coordinator(hass, entry)
-        # Receiving Home Assistants deliberately keep remote measurements
-        # transient: no mirrored entities, recorder rows or histories are
-        # created. Only lightweight room cards are mirrored into the device
-        # registry so the remote connection remains visible without the old
-        # duplicate Remote-HA -> Lüftungsberater hierarchy.
-        async_sync_remote_room_devices(hass, entry, coordinator.data)
+        try:
+            coordinator = await async_get_or_create_remote_coordinator(hass, entry)
+            # Receiving Home Assistants deliberately keep remote measurements
+            # transient: no mirrored entities, recorder rows or histories are
+            # created. Only lightweight room cards are mirrored into the device
+            # registry so the remote connection remains visible without the old
+            # duplicate Remote-HA -> Lüftungsberater hierarchy.
+            async_sync_remote_room_devices(hass, entry, coordinator.data)
 
-        # A coordinator without entities needs a listener both to keep polling
-        # active and to keep the lightweight room topology in sync.
-        entry.async_on_unload(
-            coordinator.async_add_listener(
-                lambda: async_sync_remote_room_devices(hass, entry, coordinator.data)
+            # A coordinator without entities needs a listener both to keep polling
+            # active and to keep the lightweight room topology in sync. Remote
+            # reauth/reconfigure reloads are owned by the config flow itself; do
+            # not add an update listener here or HA 2026.6+ can double-reload.
+            entry.async_on_unload(
+                coordinator.async_add_listener(
+                    lambda: async_sync_remote_room_devices(
+                        hass, entry, coordinator.data
+                    )
+                )
             )
-        )
+            return True
+        except Exception:
+            await _async_cleanup_runtime_after_failed_setup(hass, entry)
+            raise
+
+    platform_setup_attempted = False
+    try:
+        await async_cleanup_legacy_room_history(hass)
+        # A removed room no longer has runtime objects on reload; clean its compact
+        # per-room stores before creating the remaining trackers.
+        await async_cleanup_orphaned_room_stores(hass, entry)
+        entry.async_on_unload(async_register_recorder_retention(hass, entry))
+
+        await async_get_or_create_air_quality_tracker(hass, entry)
+        await async_get_or_create_outside_coordinator(hass, entry)
+
+        room_coordinators = []
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
+                await async_get_or_create_tracker(hass, entry, subentry)
+                await async_get_or_create_co2_tracker(hass, entry, subentry)
+                await async_get_or_create_mold_tracker(hass, entry, subentry)
+                room_coordinators.append(
+                    await async_get_or_create_room_coordinator(hass, entry, subentry)
+                )
+
+        # Assistant-wide safety notifications inspect every configured room. Release
+        # them only after all coordinators have completed their first refresh so an
+        # as-yet-unstarted room can never be interpreted as a closed room.
+        for coordinator in room_coordinators:
+            coordinator.enable_notifications()
+
+        # Mark the attempt before awaiting: Home Assistant may have forwarded a
+        # subset of platforms before a later platform raises. Roll those partial
+        # forwards back as well, instead of only cleaning up after a completely
+        # successful async_forward_entry_setups() call.
+        platform_setup_attempted = True
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Room devices exist after platform setup. Apply only area choices explicitly
+        # managed by v0.9.4; legacy rooms without an area key are left untouched.
+        async_sync_room_device_areas(hass, entry)
+        # The entity registry is complete only after platform setup. Remember it so
+        # removed-room entity IDs can still be purged on the next reload, and apply
+        # the compact history policy once immediately instead of waiting until 05:30.
+        await async_refresh_recorder_entity_index(hass, entry)
+        await async_purge_recorder_history(hass, {entry.entry_id})
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
-
-    await async_cleanup_legacy_room_history(hass)
-    # A removed room no longer has runtime objects on reload; clean its compact
-    # per-room stores before creating the remaining trackers.
-    await async_cleanup_orphaned_room_stores(hass, entry)
-    entry.async_on_unload(async_register_recorder_retention(hass, entry))
-
-    await async_get_or_create_air_quality_tracker(hass, entry)
-    await async_get_or_create_outside_coordinator(hass, entry)
-
-    for subentry in entry.subentries.values():
-        if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
-            await async_get_or_create_tracker(hass, entry, subentry)
-            await async_get_or_create_co2_tracker(hass, entry, subentry)
-            await async_get_or_create_mold_tracker(hass, entry, subentry)
-            await async_get_or_create_room_coordinator(hass, entry, subentry)
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # The entity registry is complete only after platform setup. Remember it so
-    # removed-room entity IDs can still be purged on the next reload, and apply
-    # the compact history policy once immediately instead of waiting until 05:30.
-    await async_refresh_recorder_entity_index(hass, entry)
-    await async_purge_recorder_history(hass, {entry.entry_id})
-    entry.async_on_unload(entry.add_update_listener(_async_reload))
-    return True
+    except Exception:
+        if platform_setup_attempted:
+            try:
+                await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+            except Exception:  # noqa: BLE001 - preserve the original setup failure
+                _LOGGER.debug(
+                    "Unable to unload platforms after failed Lüftungsberater setup",
+                    exc_info=True,
+                )
+        await _async_cleanup_runtime_after_failed_setup(hass, entry)
+        raise
 
 
 async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -358,6 +423,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry_kind(entry) == ENTRY_KIND_REMOTE:
         await async_stop_remote_coordinator(hass, entry)
         async_clear_remote_device_sync_cache(hass, entry)
+        async_clear_remote_access(hass, entry.entry_id)
         async_clear_nina_details_cache(hass, entry)
         return True
 
@@ -369,11 +435,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_stop_entry_trackers(hass, entry)
         await async_stop_entry_co2_trackers(hass, entry)
         await async_stop_entry_mold_trackers(hass, entry)
+        async_clear_remote_access(hass, entry.entry_id)
         async_clear_nina_details_cache(hass, entry)
     return unloaded
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove persistent data owned by an uninstalled config entry."""
+    # Normal config-entry reloads intentionally retain the in-memory assistant
+    # warning fingerprint to avoid duplicate pushes. Permanent removal is the
+    # point where that transient state must be discarded.
+    clear_assistant_notification_state(hass, entry.entry_id)
+    async_clear_remote_access(hass, entry.entry_id)
+    await async_remove_persistent_safety_state(hass, entry.entry_id)
     if entry_kind(entry) == ENTRY_KIND_REMOTE:
         async_clear_remote_device_sync_cache(hass, entry)
         async_clear_nina_details_cache(hass, entry)

@@ -85,3 +85,28 @@ def test_co2_state_parser_rejects_non_finite_and_implausible_values():
     for raw in ("nan", "inf", "-inf", -1, 0, 249, 1_000_001):
         assert _state_to_float(SimpleNamespace(state=raw)) is None
     assert _state_to_float(SimpleNamespace(state="1400")) == 1400.0
+
+
+async def test_co2_restart_rejects_future_persisted_timestamp(
+    hass, enable_custom_integrations
+) -> None:
+    """Clock rollback/corrupt storage must not make an old CO₂ value look fresh."""
+    now = dt_util.utcnow()
+    entry = SimpleNamespace(entry_id="advisor")
+    room = SimpleNamespace(subentry_id="living", data={CONF_CO2: "sensor.living_co2"})
+    store = FakeStore(
+        {
+            "last_valid_value": 1234.0,
+            "last_valid_at": (now + timedelta(hours=2)).isoformat(),
+            "unavailable_since": (now + timedelta(hours=2)).isoformat(),
+        }
+    )
+
+    hass.states.async_set("sensor.living_co2", "unavailable")
+    tracker = RoomCo2Tracker(hass, entry, room)
+    tracker._store = store
+    await tracker.async_initialize()
+
+    assert tracker.current_value is None
+    assert tracker.data_status == "unavailable"
+    await tracker.async_stop()

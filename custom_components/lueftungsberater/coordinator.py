@@ -38,9 +38,9 @@ from .const import (
 )
 from .notifications import (
     async_handle_room_notification,
-    clear_assistant_notification_state,
     clear_room_notification_state,
 )
+from .time_utils import clamp_not_future, timestamp_is_fresh, utc_timeline
 from .outside import async_get_or_create_outside_coordinator, get_outside_coordinator
 from .night import NightAdvice, display_interval, stabilize_night_advice
 from .runtime import RoomSnapshot, build_room_snapshot, room_co2_window_values, room_source_entities
@@ -117,6 +117,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self.subentry = subentry
         self._unsubs: list[Callable[[], None]] = []
         self._notification_tasks: set[asyncio.Task[Any]] = set()
+        # Initial room refreshes run before every room coordinator exists. Keep
+        # assistant-wide warning notifications suspended until async_setup_entry
+        # explicitly releases all rooms together; otherwise a later room with an
+        # open contact can be mistaken for "all windows closed".
+        self._notifications_enabled = False
         self._started = False
         self._previous_mode: str | None = None
         self._previous_decision_need: str | None = None
@@ -141,6 +146,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         return self.entry.async_create_background_task(self.hass, target, name)
 
     def _queue_notification(self, snapshot: RoomSnapshot) -> None:
+        if not self._notifications_enabled:
+            return
         task = self._create_background_task(
             async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),
             f"Lüftungsberater notification check {self.subentry.subentry_id}",
@@ -148,6 +155,14 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if isinstance(task, asyncio.Task):
             self._notification_tasks.add(task)
             task.add_done_callback(self._notification_tasks.discard)
+
+    def enable_notifications(self) -> None:
+        """Release startup notification barrier once all room snapshots exist."""
+        if self._notifications_enabled:
+            return
+        self._notifications_enabled = True
+        if self.data is not None:
+            self._queue_notification(self.data)
 
     async def _drain_notification_tasks(self) -> None:
         tasks = tuple(self._notification_tasks)
@@ -170,21 +185,27 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             need = stored.get("primary_need")
         stamp = _parse_dt(stored.get("updated_at"))
         now_utc = dt_util.utcnow()
-        if isinstance(mode, str) and mode and stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL:
+        if isinstance(mode, str) and mode and timestamp_is_fresh(now_utc, stamp, DECISION_MEMORY_TTL):
             self._previous_mode = mode
             self._previous_decision_need = need if isinstance(need, str) and need else None
             self._previous_mode_at = stamp
 
         co2_memory = stored.get("co2_hysteresis")
         if isinstance(co2_memory, dict):
-            pending = _parse_dt(co2_memory.get("pending_below_since"))
-            finish = _parse_dt(co2_memory.get("finish_below_since"))
-            rearm_below = _parse_dt(co2_memory.get("rearm_below_since"))
+            pending = clamp_not_future(
+                now_utc, _parse_dt(co2_memory.get("pending_below_since"))
+            )
+            finish = clamp_not_future(
+                now_utc, _parse_dt(co2_memory.get("finish_below_since"))
+            )
+            rearm_below = clamp_not_future(
+                now_utc, _parse_dt(co2_memory.get("rearm_below_since"))
+            )
             # These timers are only a few minutes long. Reuse them only while
             # the surrounding decision memory is still fresh; evaluate() will
             # immediately reset them if the live CO2 context no longer matches.
             memory_fresh = (
-                stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL
+                timestamp_is_fresh(now_utc, stamp, DECISION_MEMORY_TTL)
             )
             self._co2_hysteresis.restore(
                 pending_below_since=pending if memory_fresh else None,
@@ -213,9 +234,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
 
         minimum_memory = stored.get("co2_minimum_airing")
         if isinstance(minimum_memory, dict):
-            started_at = _parse_dt(minimum_memory.get("started_at"))
+            started_at = clamp_not_future(
+                now_utc, _parse_dt(minimum_memory.get("started_at"))
+            )
             baseline_context = minimum_memory.get("baseline_context")
-            if stamp is not None and now_utc - stamp <= DECISION_MEMORY_TTL:
+            if timestamp_is_fresh(now_utc, stamp, DECISION_MEMORY_TTL):
                 self._co2_minimum_airing.restore(
                     started_at=started_at,
                     cautious=bool(minimum_memory.get("cautious")),
@@ -238,7 +261,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             if (
                 start is not None
                 and end is not None
-                and start <= now_local < end
+                and utc_timeline(start) <= utc_timeline(now_local) < utc_timeline(end)
                 and isinstance(status, str)
                 and status in {"now", "later", "conditional", "short_only", "not_recommended", "blocked"}
                 and isinstance(reason_key, str)
@@ -648,16 +671,29 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
     async def _async_update_data(self) -> RoomSnapshot:
         snapshot = self._build_snapshot()
         self._remember_snapshot(snapshot)
-        await async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot)
+        # The first coordinator refresh happens while the entry is still
+        # constructing the remaining rooms. Do not let that path bypass the
+        # assistant-wide startup barrier: notifications are replayed once from
+        # enable_notifications() after every room owns a first snapshot.
+        if self._notifications_enabled:
+            await async_handle_room_notification(
+                self.hass, self.entry, self.subentry, snapshot
+            )
         return snapshot
 
     async def async_start(self) -> None:
         if self._started:
             return
         self._started = True
-        await self._restore_memory()
-        outside = await async_get_or_create_outside_coordinator(self.hass, self.entry)
-        await self.async_config_entry_first_refresh()
+        try:
+            await self._restore_memory()
+            outside = await async_get_or_create_outside_coordinator(self.hass, self.entry)
+            await self.async_config_entry_first_refresh()
+        except Exception:
+            self._started = False
+            while self._unsubs:
+                self._unsubs.pop()()
+            raise
 
         entities = room_source_entities(self.hass, self.entry, self.subentry)
         if entities:
@@ -781,10 +817,18 @@ async def async_get_or_create_room_coordinator(hass: HomeAssistant, entry: Confi
     store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_COORDINATORS, {})
     key = _coordinator_key(entry, subentry)
     coordinator = store.get(key)
-    if coordinator is None:
-        coordinator = LueftungsberaterRoomCoordinator(hass, entry, subentry)
-        store[key] = coordinator
+    if coordinator is not None:
+        return coordinator
+    coordinator = LueftungsberaterRoomCoordinator(hass, entry, subentry)
+    try:
         await coordinator.async_start()
+    except Exception:
+        try:
+            await coordinator.async_shutdown()
+        except Exception:  # noqa: BLE001 - preserve the original setup error
+            _LOGGER.debug("Unable to clean up failed room coordinator setup", exc_info=True)
+        raise
+    store[key] = coordinator
     return coordinator
 
 
@@ -799,4 +843,3 @@ async def async_stop_entry_coordinators(hass: HomeAssistant, entry: ConfigEntry)
         coordinator = store.pop(key, None)
         if coordinator is not None:
             await coordinator.async_shutdown()
-    clear_assistant_notification_state(hass, entry.entry_id)

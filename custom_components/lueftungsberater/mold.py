@@ -14,6 +14,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .time_utils import timestamp_is_fresh, clamp_not_future
+
 from .const import (
     CONF_SURFACE_TEMP,
     DATA_MOLD_TRACKERS,
@@ -63,8 +65,13 @@ class RoomMoldTracker:
     async def async_initialize(self) -> None:
         """Restore the local rolling exposure context."""
         stored = await self._store.async_load() or {}
-        self.critical_since = _parse_dt(stored.get("critical_since"))
-        self.last_valid_at = _parse_dt(stored.get("last_valid_at"))
+        now = dt_util.utcnow()
+        self.critical_since = clamp_not_future(
+            now, _parse_dt(stored.get("critical_since"))
+        )
+        self.last_valid_at = clamp_not_future(
+            now, _parse_dt(stored.get("last_valid_at"))
+        )
         # Old stores did not keep the last confirmed sample time.  Prefer a
         # conservative restart over inventing hours of critical exposure.
         if self.critical_since is not None and self.last_valid_at is None:
@@ -75,9 +82,12 @@ class RoomMoldTracker:
                 if not isinstance(item, (list, tuple)) or len(item) != 2:
                     continue
                 start, end = _parse_dt(item[0]), _parse_dt(item[1])
-                if start is not None and end is not None and end >= start:
+                if start is None or end is None or start > now:
+                    continue
+                end = min(end, now)
+                if end >= start:
                     self.intervals.append((start, end))
-        self._prune(dt_util.utcnow())
+        self._prune(now)
 
     async def async_shutdown(self) -> None:
         """Flush the compact exposure context before unload/reload."""
@@ -112,7 +122,7 @@ class RoomMoldTracker:
         """Pause an active interval once valid samples have been missing too long."""
         if self.critical_since is None or self.last_valid_at is None:
             return False
-        if now - self.last_valid_at <= MOLD_UNKNOWN_GRACE:
+        if timestamp_is_fresh(now, self.last_valid_at, MOLD_UNKNOWN_GRACE):
             return False
         if self.last_valid_at > self.critical_since:
             self.intervals.append((self.critical_since, self.last_valid_at))
@@ -164,7 +174,7 @@ class RoomMoldTracker:
             return None
         # Between normal 5-minute samples the last state may reasonably be held.
         # Beyond the 10-minute grace, only actually confirmed time is retained.
-        if now - self.last_valid_at <= MOLD_UNKNOWN_GRACE:
+        if timestamp_is_fresh(now, self.last_valid_at, MOLD_UNKNOWN_GRACE):
             return now
         return self.last_valid_at
 
@@ -254,8 +264,8 @@ async def async_get_or_create_mold_tracker(
     tracker = store.get(key)
     if tracker is None:
         tracker = RoomMoldTracker(hass, entry, subentry)
-        store[key] = tracker
         await tracker.async_initialize()
+        store[key] = tracker
     return tracker
 
 

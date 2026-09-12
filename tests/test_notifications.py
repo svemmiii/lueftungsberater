@@ -1,3 +1,5 @@
+import pytest
+
 from custom_components.lueftungsberater.const import (
     NOTIFY_TRIGGER_AIR_CAUTION,
     NOTIFY_TRIGGER_AIR_DANGER,
@@ -278,3 +280,80 @@ def test_weather_fingerprint_ignores_air_quality_and_nina_fields():
     ) == _assistant_warning_fingerprint(
         snapshot("very_poor", "danger"), NOTIFY_TRIGGER_WEATHER_DANGER
     )
+
+
+def _notification_snapshot(mode: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        warnings=SimpleNamespace(
+            provider_domain="nina",
+            warning_ids={"warning-123"},
+            nina_status="danger" if mode == "nina_aussenluftgefahr" else "none",
+            nina_reason_key="official_close_instruction",
+            weather_reason_key=None,
+            official_close_instruction=mode == "nina_aussenluftgefahr",
+            warning_notice_kind=None,
+        ),
+        weather=SimpleNamespace(
+            air_quality_index="unknown",
+            air_quality_pollutant=None,
+        ),
+        result=SimpleNamespace(
+            mode=mode,
+            safety_lock=mode == "nina_aussenluftgefahr",
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_notify_service_is_awaited_before_success_is_recorded(hass, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from custom_components.lueftungsberater.notifications import _async_send
+    from custom_components.lueftungsberater.const import CONF_NOTIFY_TARGET
+
+    call = AsyncMock()
+    monkeypatch.setattr(hass.services, "async_call", call)
+    entry = SimpleNamespace(data={CONF_NOTIFY_TARGET: "notify.mobile"})
+    subentry = SimpleNamespace(title="Living")
+
+    assert await _async_send(hass, entry, subentry, NOTIFY_TRIGGER_AIR_DANGER) is True
+    assert call.await_args.kwargs["blocking"] is True
+
+
+@pytest.mark.asyncio
+async def test_hazard_fingerprint_resets_when_hazard_ends_while_window_stays_open(
+    hass, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from custom_components.lueftungsberater.notifications import (
+        _async_handle_assistant_warning_notification,
+    )
+
+    entry = SimpleNamespace(entry_id="entry-notify", title="Home")
+    subentry = SimpleNamespace(subentry_id="room", title="Living")
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        "custom_components.lueftungsberater.notifications._async_send", send
+    )
+    monkeypatch.setattr(
+        "custom_components.lueftungsberater.notifications._room_window_state",
+        lambda *_args: ["Living"],
+    )
+    enabled = {NOTIFY_TRIGGER_AIR_DANGER}
+
+    await _async_handle_assistant_warning_notification(
+        hass, entry, subentry, _notification_snapshot("nina_aussenluftgefahr"), enabled
+    )
+    await _async_handle_assistant_warning_notification(
+        hass, entry, subentry, _notification_snapshot("normal"), enabled
+    )
+    await _async_handle_assistant_warning_notification(
+        hass, entry, subentry, _notification_snapshot("nina_aussenluftgefahr"), enabled
+    )
+
+    assert send.await_count == 2

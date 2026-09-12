@@ -430,3 +430,20 @@ def test_short_only_does_not_describe_only_future_humidity_as_current_drawback()
         "de",
     )
     assert "Außenluft eher feuchter" not in text
+
+
+def test_co2_missing_during_active_session_explains_unconfirmed_target():
+    text = reason_text(
+        "co2_tradeoff",
+        {
+            "co2": None,
+            "co2_target": 850.0,
+            "caution": "measurement_unknown",
+        },
+        "de",
+        "°C",
+    )
+    assert "CO₂-Lüftung läuft noch" in text
+    assert "850" in text
+    assert "nicht bestätigt" in text
+    assert "?\u202fppm" not in text

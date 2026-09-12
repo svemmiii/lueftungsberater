@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.9.3"
+INTEGRATION_VERSION = "0.9.4"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 
@@ -64,6 +64,7 @@ CONF_REMOTE_TOKEN = "remote_access_token"
 CONF_REMOTE_USE_SSL = "remote_use_ssl"
 CONF_REMOTE_SELECTED_ROOMS = "remote_selected_rooms"
 CONF_REMOTE_CLIENT_ID = "remote_client_id"
+CONF_REMOTE_SERVER_ID = "remote_server_id"
 CONF_REMOTE_ROOM_SHARE = "remote_share"
 DEFAULT_REMOTE_PORT = 8123
 REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
@@ -72,6 +73,7 @@ REMOTE_PROTOCOL_VERSION = 3
 FORECAST_REFRESH_INTERVAL = timedelta(minutes=15)
 
 CONF_ROOM_NAME = "room_name"
+CONF_AREA_ID = "area_id"
 CONF_INDOOR_TEMP = "indoor_temperature"
 CONF_INDOOR_HUMIDITY = "indoor_humidity"
 CONF_CO2 = "co2_entity"
@@ -121,7 +123,9 @@ DATA_FORECAST_CACHE = "hourly_forecast_cache"
 DATA_AIR_QUALITY_TRACKERS = "air_quality_trackers"
 DATA_REMOTE_ACCESS = "remote_access"
 DATA_RECORDER_RETENTION = "recorder_retention"
+DATA_SAFETY_STATE = "safety_state"
 RECORDER_RETENTION_DAYS = 20
+SAFETY_FALLBACK_MAX_AGE = timedelta(hours=1)
 AIR_QUALITY_HISTORY_MIN_SAMPLES = 24
 AIR_QUALITY_SAMPLE_MIN_INTERVAL = timedelta(minutes=30)
 AIR_QUALITY_RECENT_SAMPLES = 12

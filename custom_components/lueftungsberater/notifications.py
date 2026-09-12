@@ -136,7 +136,11 @@ async def _async_send(
             "send_message",
             {"message": message, "title": title},
             target={"entity_id": target},
-            blocking=False,
+            # Record the warning fingerprint only after Home Assistant has
+            # actually executed the notify service. With blocking=False a
+            # failing notify target looked successful and the same hazard was
+            # then suppressed forever.
+            blocking=True,
         )
         return True
     except Exception:  # noqa: BLE001 - a notification target must not break advice
@@ -311,7 +315,11 @@ async def _async_handle_assistant_warning_notification(
                 state["closed_official_fingerprint"] = _assistant_warning_fingerprint(
                     snapshot, NOTIFY_TRIGGER_OFFICIAL_WARNING_CLOSED
                 )
-        elif not any_window_open:
+        else:
+            # The fingerprint belongs to one *continuous* hazard episode, not
+            # to the text forever. As soon as the relevant hazard is gone,
+            # clear it even if a window remains open so a later recurrence can
+            # notify again.
             state.pop("hazard_fingerprint", None)
 
         # Optional awareness message while everything is already closed. Send

@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import SectionConfig, section
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
+    AreaSelector,
     BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
@@ -34,7 +35,9 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.util.unit_conversion import TemperatureConverter
 
+from .areas import room_area_name
 from .const import (
+    CONF_AREA_ID,
     CONF_CLIMATE,
     CONF_DISPLAY_MODE,
     CONF_CO2,
@@ -55,6 +58,7 @@ from .const import (
     CONF_REMOTE_USE_SSL,
     CONF_REMOTE_SELECTED_ROOMS,
     CONF_REMOTE_CLIENT_ID,
+    CONF_REMOTE_SERVER_ID,
     CONF_REMOTE_ROOM_SHARE,
     CONF_ROOM_NAME,
     CONF_TARGET_TEMP,
@@ -120,13 +124,13 @@ ROOM_NOTIFY_TRIGGER_OPTIONS = [
 ]
 
 
-
 from .remote import (
     RemoteAdminRequiredError,
     RemoteAuthError,
     RemoteConnectionError,
     async_fetch_remote_snapshot,
     async_host_is_tailscale,
+    normalize_remote_host,
 )
 
 
@@ -408,7 +412,8 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
 
     return vol.Schema(
         {
-            vol.Required(CONF_ROOM_NAME): TextSelector(TextSelectorConfig()),
+            vol.Optional(CONF_AREA_ID): AreaSelector(),
+            vol.Optional(CONF_ROOM_NAME): TextSelector(TextSelectorConfig()),
             vol.Required(SECTION_ROOM_CLIMATE): section(
                 vol.Schema(
                     {
@@ -511,6 +516,8 @@ def _flatten_room_input(user_input: dict[str, Any]) -> dict[str, Any]:
     if SECTION_ROOM_CLIMATE not in user_input:
         return dict(user_input)
     data: dict[str, Any] = {}
+    if CONF_AREA_ID in user_input:
+        data[CONF_AREA_ID] = user_input[CONF_AREA_ID]
     if CONF_ROOM_NAME in user_input:
         data[CONF_ROOM_NAME] = user_input[CONF_ROOM_NAME]
     for section_key in (
@@ -529,6 +536,18 @@ def _flatten_room_input(user_input: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_room_input(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[str, Any]:
     data = _flatten_room_input(user_input)
+    if CONF_ROOM_NAME in data:
+        room_name = str(data[CONF_ROOM_NAME] or "").strip()
+        if room_name:
+            data[CONF_ROOM_NAME] = room_name
+        else:
+            data.pop(CONF_ROOM_NAME, None)
+    if CONF_AREA_ID in data:
+        raw_area_id = data.get(CONF_AREA_ID)
+        if raw_area_id:
+            data[CONF_AREA_ID] = str(raw_area_id).strip()
+        else:
+            data.pop(CONF_AREA_ID, None)
     if CONF_TARGET_TEMP in data:
         data[CONF_TARGET_TEMP] = _stored_temperature(hass, data[CONF_TARGET_TEMP])
     for time_key in (CONF_NIGHT_START_TIME, CONF_NIGHT_END_TIME):
@@ -596,6 +615,9 @@ def _room_form_defaults(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, 
     openings = flat.get(CONF_WINDOWS)
     if openings:
         form[SECTION_ROOM_OPENINGS] = {CONF_WINDOWS: openings}
+    configured_area = flat.get(CONF_AREA_ID)
+    if configured_area and room_area_name(hass, str(configured_area)) is not None:
+        form[CONF_AREA_ID] = str(configured_area)
     return form
 
 
@@ -604,7 +626,7 @@ def _remote_data(user_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     data = dict(user_input)
     name = str(data.pop(CONF_INSTANCE_NAME)).strip()
     data[CONF_ENTRY_KIND] = ENTRY_KIND_REMOTE
-    data[CONF_REMOTE_HOST] = str(data[CONF_REMOTE_HOST]).strip().strip("[]").rstrip("/")
+    data[CONF_REMOTE_HOST] = normalize_remote_host(data[CONF_REMOTE_HOST])
     data[CONF_REMOTE_PORT] = int(data[CONF_REMOTE_PORT])
     data.setdefault(CONF_REMOTE_CLIENT_ID, uuid.uuid4().hex)
     return name, data
@@ -627,6 +649,9 @@ async def _test_remote(
         return "admin_required", None
     except RemoteConnectionError:
         return "cannot_connect", None
+    server_id = str(payload.get("home_assistant_instance_id") or "").strip().lower()
+    if server_id:
+        data[CONF_REMOTE_SERVER_ID] = server_id
     return None, payload
 
 
@@ -672,9 +697,14 @@ def _remote_selection_schema(
 ) -> vol.Schema:
     options = _remote_room_options(payload)
     available = {str(option["value"]) for option in options}
-    defaults = [item for item in (selected or []) if item in available]
-    if not defaults:
+    if selected is None:
+        # First-time setup may conveniently default to every advertised room.
         defaults = sorted(available)
+    else:
+        # Reconfigure must preserve the semantic meaning of the old selection.
+        # If every old ID disappeared, default to none rather than silently
+        # sharing every newly-created room.
+        defaults = [item for item in selected if item in available]
     return vol.Schema(
         {
             vol.Required(CONF_REMOTE_SELECTED_ROOMS, default=defaults): SelectSelector(
@@ -686,6 +716,31 @@ def _remote_selection_schema(
             )
         }
     )
+
+
+def _remote_endpoint_is_duplicate(
+    entries: list[ConfigEntry],
+    data: dict[str, Any],
+    *,
+    exclude_entry_id: str | None = None,
+) -> bool:
+    """Return whether another remote entry targets the same endpoint."""
+    host = normalize_remote_host(data.get(CONF_REMOTE_HOST, ""))
+    port = int(data.get(CONF_REMOTE_PORT, DEFAULT_REMOTE_PORT))
+    server_id = str(data.get(CONF_REMOTE_SERVER_ID) or "").strip().lower()
+    for current in entries:
+        if current.entry_id == exclude_entry_id or entry_kind(current) != ENTRY_KIND_REMOTE:
+            continue
+        current_server_id = str(
+            current.data.get(CONF_REMOTE_SERVER_ID) or ""
+        ).strip().lower()
+        if server_id and current_server_id and current_server_id == server_id:
+            return True
+        current_host = normalize_remote_host(current.data.get(CONF_REMOTE_HOST, ""))
+        current_port = int(current.data.get(CONF_REMOTE_PORT, DEFAULT_REMOTE_PORT))
+        if current_host == host and current_port == port:
+            return True
+    return False
 
 
 def _remote_summary(
@@ -774,14 +829,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             title, data = _remote_data(user_input)
-            duplicate = any(
-                entry_kind(entry) == ENTRY_KIND_REMOTE
-                and entry.data.get(CONF_REMOTE_HOST) == data.get(CONF_REMOTE_HOST)
-                and int(entry.data.get(CONF_REMOTE_PORT, DEFAULT_REMOTE_PORT))
-                == data.get(CONF_REMOTE_PORT)
-                for entry in self._async_current_entries()
-            )
-            if duplicate:
+            if _remote_endpoint_is_duplicate(self._async_current_entries(), data):
                 return self.async_abort(reason="already_configured")
 
             self._pending_remote_title = title
@@ -822,6 +870,13 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             error, payload = "cannot_connect", None
         finally:
             self._remote_test_task = None
+
+        if error is None:
+            pending_data = getattr(self, "_pending_remote_data", None)
+            if isinstance(pending_data, dict) and _remote_endpoint_is_duplicate(
+                self._async_current_entries(), pending_data
+            ):
+                error, payload = "already_configured", None
 
         self._pending_remote_error = error
         if error is None:
@@ -878,6 +933,61 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             last_step=True,
         )
 
+    async def async_step_reauth(self, entry_data: dict[str, Any]):
+        """Start reauthentication for a rejected remote access token."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Validate and store a replacement remote access token."""
+        entry = self._get_reauth_entry()
+        if entry_kind(entry) != ENTRY_KIND_REMOTE:
+            return self.async_abort(reason="reauth_not_supported")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = dict(entry.data)
+            data[CONF_REMOTE_TOKEN] = str(user_input.get(CONF_REMOTE_TOKEN, "")).strip()
+            error, _payload = await _test_remote(self.hass, data)
+            if error is None and _remote_endpoint_is_duplicate(
+                self._async_current_entries(), data, exclude_entry_id=entry.entry_id
+            ):
+                error = "duplicate_remote"
+            if error is None:
+                # Remote entries deliberately do not install an update listener.
+                # A reauth can start after the *initial* setup failed, where no
+                # listener could exist yet, so let the config-flow helper own the
+                # reload. This also avoids the listener + reload-helper double
+                # reload deprecated by Home Assistant 2026.6+.
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={
+                        CONF_REMOTE_TOKEN: data[CONF_REMOTE_TOKEN],
+                        **(
+                            {CONF_REMOTE_SERVER_ID: data[CONF_REMOTE_SERVER_ID]}
+                            if data.get(CONF_REMOTE_SERVER_ID)
+                            else {}
+                        ),
+                    },
+                    reason="reauth_successful",
+                )
+            errors["base"] = error
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_REMOTE_TOKEN): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                )
+            }
+        )
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"remote_name": entry.title},
+        )
+
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
         entry = self._get_reconfigure_entry()
         if entry_kind(entry) == ENTRY_KIND_REMOTE:
@@ -915,7 +1025,22 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data[CONF_REMOTE_CLIENT_ID] = str(
                 entry.data.get(CONF_REMOTE_CLIENT_ID) or data[CONF_REMOTE_CLIENT_ID]
             )
-            error, payload = await _test_remote(self.hass, data)
+            if _remote_endpoint_is_duplicate(
+                self._async_current_entries(),
+                data,
+                exclude_entry_id=entry.entry_id,
+            ):
+                errors["base"] = "duplicate_remote"
+                payload = None
+                error = "duplicate_remote"
+            else:
+                error, payload = await _test_remote(self.hass, data)
+                if error is None and _remote_endpoint_is_duplicate(
+                    self._async_current_entries(),
+                    data,
+                    exclude_entry_id=entry.entry_id,
+                ):
+                    error, payload = "duplicate_remote", None
             if error is None:
                 self._pending_remote_title = title
                 self._pending_remote_data = data
@@ -965,8 +1090,12 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     last_step=True,
                 )
             data[CONF_REMOTE_SELECTED_ROOMS] = selected
-            self.hass.config_entries.async_update_entry(entry, title=title, data=data)
-            return self.async_abort(reason="reconfigure_successful")
+            return self.async_update_reload_and_abort(
+                entry,
+                title=title,
+                data_updates=data,
+                reason="reconfigure_successful",
+            )
         return self.async_show_form(
             step_id="reconfigure_confirm",
             data_schema=_remote_selection_schema(payload, previous),
@@ -995,13 +1124,34 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return {SUBENTRY_TYPE_ROOM: RoomSubentryFlow}
 
 
+def _resolved_room_title(
+    hass: HomeAssistant,
+    flat_input: dict[str, Any],
+) -> tuple[str, str | None]:
+    """Resolve room title from an optional custom name or selected HA area."""
+    custom_name = str(flat_input.get(CONF_ROOM_NAME, "") or "").strip()
+    raw_area_id = flat_input.get(CONF_AREA_ID)
+    area_id = str(raw_area_id).strip() if raw_area_id else ""
+
+    if area_id:
+        area_name = room_area_name(hass, area_id)
+        if area_name is None:
+            return custom_name, "area_not_found"
+        if not custom_name:
+            return area_name.strip(), None
+
+    if not custom_name:
+        return "", "room_name_empty"
+    return custom_name, None
+
+
 def _room_name_error(
     entry: ConfigEntry,
     name: str,
     *,
     exclude_subentry_id: str | None = None,
 ) -> str | None:
-    """Validate a human room title without using it as persistent identity."""
+    """Validate a resolved human room title without using it as identity."""
     if not name:
         return "room_name_empty"
     folded = name.casefold()
@@ -1025,14 +1175,18 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             flat_input = _flatten_room_input(user_input)
-            name = str(flat_input.get(CONF_ROOM_NAME, "")).strip()
-            if error := _room_name_error(entry, name):
+            name, error = _resolved_room_title(self.hass, flat_input)
+            if error is None:
+                error = _room_name_error(entry, name)
+            if error:
                 errors["base"] = error
             else:
                 data = _normalize_room_input(self.hass, user_input)
                 # Room names are user-editable labels, not stable identifiers.
-                # The ConfigSubentry's generated subentry_id is the durable
-                # identity used by all entities/devices/stores.
+                # If no custom label was entered, the selected HA area name is
+                # used as the title while the area_id remains the real linkage.
+                # The generated subentry_id remains the durable identity used by
+                # all entities/devices/stores.
                 return self.async_create_entry(title=name, data=data)
         return self.async_show_form(
             step_id="user", data_schema=_room_schema(self.hass), errors=errors
@@ -1044,13 +1198,28 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             flat_input = _flatten_room_input(user_input)
-            name = str(flat_input.get(CONF_ROOM_NAME, "")).strip()
-            if error := _room_name_error(
-                entry, name, exclude_subentry_id=subentry.subentry_id
-            ):
+            name, error = _resolved_room_title(self.hass, flat_input)
+            if error is None:
+                error = _room_name_error(
+                    entry, name, exclude_subentry_id=subentry.subentry_id
+                )
+            if error:
                 errors["base"] = error
             else:
                 data = _normalize_room_input(self.hass, user_input)
+                # Clearing a valid managed area is explicit. If the previously
+                # managed HA area was deleted, however, the selector cannot show
+                # that stale id. In that case remove the stale integration link
+                # and leave the device's current/manual area untouched on sync.
+                if CONF_AREA_ID not in flat_input and CONF_AREA_ID in subentry.data:
+                    previous_area = subentry.data.get(CONF_AREA_ID)
+                    if (
+                        previous_area
+                        and room_area_name(self.hass, str(previous_area)) is None
+                    ):
+                        data.pop(CONF_AREA_ID, None)
+                    else:
+                        data[CONF_AREA_ID] = None
                 return self.async_update_and_abort(
                     entry, subentry, title=name, data=data, unique_id=None
                 )

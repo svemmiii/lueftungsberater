@@ -17,6 +17,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .time_utils import clamp_not_future, timestamp_age
+
 from .const import (
     AIR_QUALITY_BASELINE_ALPHA,
     AIR_QUALITY_HISTORY_MIN_SAMPLES,
@@ -91,6 +93,7 @@ class OutdoorAirQualityTracker:
     async def async_initialize(self) -> None:
         stored = await self._store.async_load() or {}
         raw = stored.get("buckets", {})
+        load_now = dt_util.utcnow()
         if isinstance(raw, dict):
             for loc, pollutants in raw.items():
                 if not isinstance(loc, str) or not isinstance(pollutants, dict):
@@ -110,7 +113,12 @@ class OutdoorAirQualityTracker:
                             if not isinstance(item, (list, tuple)) or len(item) != 2:
                                 continue
                             stamp, value = _parse_dt(item[0]), _finite(item[1])
-                            if stamp is not None and value is not None and value >= 0:
+                            if (
+                                stamp is not None
+                                and stamp <= load_now
+                                and value is not None
+                                and value >= 0
+                            ):
                                 legacy.append((stamp, value))
                         legacy.sort(key=lambda item: item[0])
                         if not legacy:
@@ -125,7 +133,9 @@ class OutdoorAirQualityTracker:
                         baseline = _finite(stats.get("baseline"))
                         deviation = _finite(stats.get("deviation"))
                         count = int(stats.get("count", 0) or 0)
-                        last_sample = _parse_dt(stats.get("last_sample"))
+                        last_sample = clamp_not_future(
+                            load_now, _parse_dt(stats.get("last_sample"))
+                        )
                         recent = []
                     else:
                         continue
@@ -136,7 +146,12 @@ class OutdoorAirQualityTracker:
                             if not isinstance(item, (list, tuple)) or len(item) != 2:
                                 continue
                             stamp, value = _parse_dt(item[0]), _finite(item[1])
-                            if stamp is not None and value is not None and value >= 0:
+                            if (
+                                stamp is not None
+                                and stamp <= load_now
+                                and value is not None
+                                and value >= 0
+                            ):
                                 recent.append((stamp, value))
                     if baseline is None and recent:
                         baseline = float(median(value for _stamp, value in recent))
@@ -216,7 +231,12 @@ class OutdoorAirQualityTracker:
                 continue
 
             last_sample = stats.get("last_sample")
-            if isinstance(last_sample, datetime) and now - last_sample < AIR_QUALITY_SAMPLE_MIN_INTERVAL:
+            sample_age = (
+                timestamp_age(now, last_sample)
+                if isinstance(last_sample, datetime)
+                else None
+            )
+            if sample_age is not None and sample_age < AIR_QUALITY_SAMPLE_MIN_INTERVAL:
                 # Current-slot changes are useful for decisions but not worth a
                 # persistent write. The next scheduled sample will fold them in.
                 continue
@@ -291,8 +311,8 @@ async def async_get_or_create_air_quality_tracker(hass: HomeAssistant, entry: Co
     tracker = store.get(entry.entry_id)
     if tracker is None:
         tracker = OutdoorAirQualityTracker(hass, entry)
-        store[entry.entry_id] = tracker
         await tracker.async_initialize()
+        store[entry.entry_id] = tracker
     return tracker
 
 

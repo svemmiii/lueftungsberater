@@ -59,6 +59,8 @@ const LB_I18N = {
     "forecast.unavailable": "Wetterprognose nicht verfügbar",
     "warning.open": "Warn-/Quelldaten öffnen",
     "why": "Warum diese Empfehlung?",
+    "details.show": "Details anzeigen",
+    "details.hide": "Details ausblenden",
     "night.title": "Nachtlüften",
     "duration": "⏱️ Empfohlene Lüftungsdauer:",
     "hint": "Messwerte antippen für Verlauf · farbigen Statusbereich antippen für Details",
@@ -154,6 +156,8 @@ const LB_I18N = {
     "forecast.unavailable": "Weather forecast unavailable",
     "warning.open": "Open warning / source data",
     "why": "Why this recommendation?",
+    "details.show": "Show details",
+    "details.hide": "Hide details",
     "night.title": "Night ventilation",
     "duration": "⏱️ Recommended window-opening time:",
     "hint": "Tap a value for its history · tap the colored status area for details",
@@ -249,6 +253,8 @@ const LB_I18N = {
     "forecast.unavailable": "Hava tahmini kullanılamıyor",
     "warning.open": "Uyarı / kaynak verisini aç",
     "why": "Bu önerinin nedeni ne?",
+    "details.show": "Ayrıntıları göster",
+    "details.hide": "Ayrıntıları gizle",
     "night.title": "Gece havalandırması",
     "duration": "⏱️ Önerilen pencere açık kalma süresi:",
     "hint": "Geçmiş için bir değere dokun · ayrıntılar için renkli durum alanına dokun",
@@ -319,6 +325,8 @@ function lbT(hass, key, values = {}) {
 const LB_TEXT_CACHE_MAX_ENTRIES = 256;
 const LB_TEXT_CACHE = new Map();
 const LB_TEXT_PENDING = new Map();
+const LB_TEXT_RETRY = new Map();
+const LB_TEXT_RETRY_MAX_ATTEMPTS = 6;
 
 function lbTextCacheGet(key) {
   const value = LB_TEXT_CACHE.get(key);
@@ -339,6 +347,36 @@ function lbTextCacheSet(key, value) {
   }
 }
 
+function lbScheduleTextRetry(key, callbacks) {
+  let retry = LB_TEXT_RETRY.get(key);
+  if (!retry) {
+    retry = { attempts: 0, callbacks: new Set(), timer: null };
+    LB_TEXT_RETRY.set(key, retry);
+  }
+  for (const callback of callbacks || []) {
+    if (typeof callback === "function") retry.callbacks.add(callback);
+  }
+  if (retry.timer) return;
+  if (retry.attempts >= LB_TEXT_RETRY_MAX_ATTEMPTS) {
+    // Keep the backend fallback text after a bounded retry sequence. Any later
+    // normal card render may start a fresh request, but a disconnected/static
+    // card cannot keep itself alive forever through retry timers.
+    LB_TEXT_RETRY.delete(key);
+    return;
+  }
+
+  retry.attempts += 1;
+  const delay = Math.min(30000, 1000 * (2 ** Math.min(retry.attempts - 1, 5)));
+  retry.timer = setTimeout(() => {
+    retry.timer = null;
+    const waiting = [...retry.callbacks];
+    retry.callbacks.clear();
+    for (const callback of waiting) {
+      try { callback(); } catch (_err) { /* one card must not block peers */ }
+    }
+  }, delay);
+}
+
 function lbTextCacheKey(hass, attributes) {
   return JSON.stringify([
     lbLanguage(hass),
@@ -357,28 +395,53 @@ function lbLocalizedEntityTexts(hass, attributes, onReady) {
   const key = lbTextCacheKey(hass, attributes);
   const cached = lbTextCacheGet(key);
   if (cached) return cached;
-  if (!LB_TEXT_PENDING.has(key) && typeof hass.callWS === "function") {
-    const request = hass.callWS({
-      type: "lueftungsberater/localize",
-      language: lbLanguage(hass),
-      temperature_unit: attributes.temperature_display_unit || "°C",
-      recommendation_key: attributes.recommendation_key || "unknown",
-      reason_key: attributes.reason_key || "incomplete_data",
-      reason_args: attributes.reason_args || {},
-      duration_key: attributes.duration_key || "incomplete_data",
-      night_ventilation_key: attributes.night_ventilation_key || null,
-      night_ventilation_args: attributes.night_ventilation_args || {},
-    })
-      .then((bundle) => {
-        if (bundle && typeof bundle === "object") lbTextCacheSet(key, bundle);
-        LB_TEXT_PENDING.delete(key);
-        if (typeof onReady === "function") onReady();
-      })
-      .catch(() => {
-        LB_TEXT_PENDING.delete(key);
-      });
-    LB_TEXT_PENDING.set(key, request);
+
+  const retry = LB_TEXT_RETRY.get(key);
+  if (retry?.timer) {
+    if (typeof onReady === "function") retry.callbacks.add(onReady);
+    return null;
   }
+
+  const existing = LB_TEXT_PENDING.get(key);
+  if (existing) {
+    if (typeof onReady === "function") existing.callbacks.add(onReady);
+    return null;
+  }
+
+  if (typeof hass.callWS !== "function") return null;
+
+  const callbacks = new Set();
+  if (typeof onReady === "function") callbacks.add(onReady);
+  const pending = { promise: null, callbacks };
+  const request = hass.callWS({
+    type: "lueftungsberater/localize",
+    language: lbLanguage(hass),
+    temperature_unit: attributes.temperature_display_unit || "°C",
+    recommendation_key: attributes.recommendation_key || "unknown",
+    reason_key: attributes.reason_key || "incomplete_data",
+    reason_args: attributes.reason_args || {},
+    duration_key: attributes.duration_key || "incomplete_data",
+    night_ventilation_key: attributes.night_ventilation_key || null,
+    night_ventilation_args: attributes.night_ventilation_args || {},
+  })
+    .then((bundle) => {
+      if (bundle && typeof bundle === "object") lbTextCacheSet(key, bundle);
+      const retryState = LB_TEXT_RETRY.get(key);
+      if (retryState?.timer) clearTimeout(retryState.timer);
+      LB_TEXT_RETRY.delete(key);
+      const finished = LB_TEXT_PENDING.get(key);
+      LB_TEXT_PENDING.delete(key);
+      for (const callback of finished?.callbacks || []) {
+        try { callback(); } catch (_err) { /* one card must not block peers */ }
+      }
+    })
+    .catch(() => {
+      const failed = LB_TEXT_PENDING.get(key);
+      LB_TEXT_PENDING.delete(key);
+      lbScheduleTextRetry(key, failed?.callbacks || []);
+    });
+  pending.promise = request;
+  LB_TEXT_PENDING.set(key, pending);
   return null;
 }
 
@@ -388,6 +451,8 @@ class LueftungsberaterCard extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._renderSignature = null;
+    this._expandedStorageKey = null;
+    this._expandedState = null;
   }
 
   setConfig(config) {
@@ -395,6 +460,8 @@ class LueftungsberaterCard extends HTMLElement {
       tap_action: { action: "more-info" },
       ...config,
     };
+    this._expandedStorageKey = null;
+    this._expandedState = null;
     this._renderSignature = null;
     this._render();
   }
@@ -419,7 +486,53 @@ class LueftungsberaterCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 4;
+    if (this._isExpanded()) return 4;
+    const stateObj = this._stateObject();
+    const attrs = stateObj?.attributes || {};
+    const hardLock = attrs.safety_lock === true || attrs.status === "locked";
+    const showNight = Boolean(attrs.night_ventilation)
+      && attrs.night_ventilation_status
+      && attrs.night_ventilation_status !== "unavailable";
+    return hardLock || showNight ? 2 : 1;
+  }
+
+  _persistenceKey() {
+    if (this._config?.force_expanded) return null;
+    const identity = this._config?.entity || this._config?.storage_key || null;
+    return identity ? `lueftungsberater-card:expanded:${identity}` : null;
+  }
+
+  _isExpanded() {
+    if (this._config?.force_expanded) return true;
+    const key = this._persistenceKey();
+    if (key !== this._expandedStorageKey) {
+      this._expandedStorageKey = key;
+      this._expandedState = false;
+      if (key) {
+        try {
+          this._expandedState = window.localStorage.getItem(key) === "1";
+        } catch (_err) {
+          this._expandedState = false;
+        }
+      }
+    }
+    return this._expandedState === true;
+  }
+
+  _setExpanded(expanded) {
+    if (this._config?.force_expanded) return;
+    const key = this._persistenceKey();
+    this._expandedStorageKey = key;
+    this._expandedState = Boolean(expanded);
+    if (key) {
+      try {
+        window.localStorage.setItem(key, this._expandedState ? "1" : "0");
+      } catch (_err) {
+        // Browser storage can be disabled; the current session still works.
+      }
+    }
+    this._renderSignature = null;
+    this._render();
   }
 
   static getConfigElement() {
@@ -614,6 +727,9 @@ class LueftungsberaterCard extends HTMLElement {
       ? [lbT(this._hass, "warning.all_clear"), a.warning_notice_text].filter(Boolean).join(": ")
       : "";
     const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsassistent";
+    const expanded = this._isExpanded();
+    const hardLock = a.safety_lock === true || status === "locked";
+    const showToggle = this._config.force_expanded !== true;
     const remoteAccess = !remote && a.remote_access_active === true;
     const remoteClients = Array.isArray(a.remote_access_clients) ? a.remote_access_clients.filter(Boolean) : [];
     const remoteAccessTitle = remoteClients.length
@@ -754,6 +870,11 @@ class LueftungsberaterCard extends HTMLElement {
     const nightHtml = showNight ? this._escape(nightText) : "";
     const showDuration = Boolean(durationText) && a.duration_key !== "not_needed";
     const reasonHtml = reason ? this._escape(reason) : "";
+    const showReason = Boolean(reason) && (expanded || hardLock);
+    const showWarningNotice = expanded && Boolean(warningNotice);
+    const showDetails = expanded;
+    const showBody = showReason || showWarningNotice || showNight || showDetails;
+    const toggleLabel = lbT(this._hass, expanded ? "details.hide" : "details.show");
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -770,6 +891,9 @@ class LueftungsberaterCard extends HTMLElement {
         .head-text { min-width: 0; flex: 1; }
         .remote-access-icon { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; color: var(--info-color, #039be5); background: color-mix(in srgb, var(--info-color, #039be5) 12%, transparent); }
         .remote-access-icon ha-icon { --mdc-icon-size: 19px; }
+        .info-toggle { appearance: none; border: 0; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; cursor: pointer; color: inherit; background: color-mix(in srgb, currentColor 8%, transparent); padding: 0; }
+        .info-toggle:hover, .info-toggle:focus-visible { background: color-mix(in srgb, currentColor 15%, transparent); outline: 2px solid color-mix(in srgb, currentColor 45%, transparent); outline-offset: 1px; }
+        .info-toggle ha-icon { --mdc-icon-size: 22px; }
         .title { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 3px; }
         .recommendation { font-size: 20px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
         .body { padding: 14px 16px 16px; }
@@ -800,21 +924,33 @@ class LueftungsberaterCard extends HTMLElement {
           <div class="icon-wrap"><ha-icon class="main-icon" icon="${meta.icon}"></ha-icon></div>
           <div class="head-text"><div class="title">${this._escape(title)}</div><div class="recommendation">${this._escape(recommendation)}</div></div>
           ${remoteAccess ? `<span class="remote-access-icon" title="${this._escape(remoteAccessTitle)}" aria-label="${this._escape(remoteAccessTitle)}"><ha-icon icon="mdi:lan-connect"></ha-icon></span>` : ""}
+          ${showToggle ? `<button type="button" class="info-toggle" aria-label="${this._escape(toggleLabel)}" title="${this._escape(toggleLabel)}" aria-expanded="${expanded ? "true" : "false"}"><ha-icon icon="mdi:information-outline"></ha-icon></button>` : ""}
         </div>
-        <div class="body">
-          ${reason ? `<div class="why">${lbT(this._hass, "why")}</div><div class="reason">${reasonHtml}</div>` : ""}
-          ${warningNotice ? `<div class="warning-notice">${this._escape(warningNotice)}</div>` : ""}
+        ${showBody ? `<div class="body">
+          ${showReason ? `<div class="why">${lbT(this._hass, "why")}</div><div class="reason">${reasonHtml}</div>` : ""}
+          ${showWarningNotice ? `<div class="warning-notice">${this._escape(warningNotice)}</div>` : ""}
           ${showNight ? `<div class="night-advice"><ha-icon icon="mdi:weather-night"></ha-icon><div class="night-copy"><span class="night-title">${lbT(this._hass, "night.title")}</span><span class="night-text">${nightHtml}</span></div></div>` : ""}
-          ${showDuration ? `<div class="duration"><span class="duration-label">${lbT(this._hass, "duration")}</span><span>${this._escape(durationText)}</span></div>` : ""}
-          ${rows.length ? `<div class="facts">${rows.map((row) => `<div class="fact ${row.cls || ""}"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : ""}
-          ${remote ? "" : `<div class="hint">${lbT(this._hass, "hint")}</div>`}
-        </div>
+          ${showDetails && showDuration ? `<div class="duration"><span class="duration-label">${lbT(this._hass, "duration")}</span><span>${this._escape(durationText)}</span></div>` : ""}
+          ${showDetails && rows.length ? `<div class="facts">${rows.map((row) => `<div class="fact ${row.cls || ""}"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : ""}
+          ${showDetails && !remote ? `<div class="hint">${lbT(this._hass, "hint")}</div>` : ""}
+        </div>` : ""}
       </ha-card>`;
+
+    const infoToggle = this.shadowRoot.querySelector(".info-toggle");
+    infoToggle?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this._setExpanded(!expanded);
+    });
+    infoToggle?.addEventListener("keydown", (event) => event.stopPropagation());
 
     if (!remote) {
       const mainTap = this.shadowRoot.querySelector(".header.main-tap");
-      mainTap?.addEventListener("click", () => this._handleMainTap());
+      mainTap?.addEventListener("click", (event) => {
+        if (event.target?.closest?.(".info-toggle")) return;
+        this._handleMainTap();
+      });
       mainTap?.addEventListener("keydown", (event) => {
+        if (event.target !== mainTap) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           this._handleMainTap();
@@ -870,7 +1006,9 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     this._dialogLocation = null;
     this._localRenderSignature = null;
     this._localAdvisorIds = null;
-    this._lastStateCount = -1;
+    this._advisorDiscoveryTimer = null;
+    this._advisorDiscoveryDue = 0;
+    this._localizedRenderScheduled = false;
     this._handleNavigation = () => this._destroyDialog();
   }
 
@@ -883,6 +1021,8 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   disconnectedCallback() {
     if (this._remoteTimer) clearInterval(this._remoteTimer);
     this._remoteTimer = null;
+    if (this._advisorDiscoveryTimer) clearTimeout(this._advisorDiscoveryTimer);
+    this._advisorDiscoveryTimer = null;
     window.removeEventListener("location-changed", this._handleNavigation);
     window.removeEventListener("popstate", this._handleNavigation);
     this._destroyDialog();
@@ -897,21 +1037,49 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     this._renderOverview();
   }
 
-  _localSignatureFor(hass) {
+  _discoverLocalAdvisors(hass) {
+    const states = hass?.states || {};
+    this._localAdvisorIds = Object.values(states)
+      .filter((stateObj) => this._isAdvisorEntity(stateObj))
+      .map((stateObj) => stateObj.entity_id)
+      .sort();
+    this._advisorDiscoveryDue = Date.now() + 2000;
+  }
+
+  _scheduleAdvisorDiscovery() {
+    if (this._advisorDiscoveryTimer || !this._hass || !this._localAdvisorIds) return;
+    const delay = Math.max(0, this._advisorDiscoveryDue - Date.now());
+    this._advisorDiscoveryTimer = setTimeout(() => {
+      this._advisorDiscoveryTimer = null;
+      if (!this._hass) return;
+      const signature = this._localSignatureFor(this._hass, true);
+      if (signature === this._localRenderSignature) return;
+      this._localRenderSignature = signature;
+      this._renderOverview();
+      if (this._dialogMode === "instance") {
+        const group = this._findGroup(this._dialogGroupId);
+        if (group) this._renderInstanceDialog(group);
+      }
+    }, delay);
+  }
+
+  _localSignatureFor(hass, forceDiscovery = false) {
     if (!hass) return "none";
     const states = hass.states || {};
-    const stateCount = Object.keys(states).length;
-    // Discover advisor entities only when the state registry size changes.
-    // Normal HA state updates can then compare a tiny known entity list instead
-    // of scanning every light/sensor/switch on every frontend update.
-    if (!this._localAdvisorIds || stateCount !== this._lastStateCount) {
-      this._localAdvisorIds = Object.values(states)
-        .filter((stateObj) => this._isAdvisorEntity(stateObj))
-        .map((stateObj) => stateObj.entity_id)
-        .sort();
-      this._lastStateCount = stateCount;
+    const now = Date.now();
+    let needsDiscovery = forceDiscovery || !Array.isArray(this._localAdvisorIds) || now >= this._advisorDiscoveryDue;
+
+    if (!needsDiscovery) {
+      // Known advisors are cheap to validate on every update. A removed or
+      // downgraded advisor triggers an immediate full discovery; discovering a
+      // brand-new advisor is bounded to at most two seconds by the timer below.
+      needsDiscovery = this._localAdvisorIds.some((entityId) => !this._isAdvisorEntity(states[entityId]));
     }
-    const advisors = this._localAdvisorIds.map((entityId) => {
+
+    if (needsDiscovery) this._discoverLocalAdvisors(hass);
+    else this._scheduleAdvisorDiscovery();
+
+    const advisors = (this._localAdvisorIds || []).map((entityId) => {
       const stateObj = states[entityId];
       return `${entityId}:${stateObj?.state || ""}:${stateObj?.last_updated || ""}`;
     });
@@ -1050,6 +1218,24 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     });
   }
 
+  _localizedTextsReady() {
+    // One shared localization response can wake many rooms in this same
+    // overview. Coalesce all callbacks from the current turn into one render so
+    // a ten-room dashboard does not rebuild itself ten times back-to-back.
+    if (this._localizedRenderScheduled) return;
+    this._localizedRenderScheduled = true;
+    Promise.resolve().then(() => {
+      this._localizedRenderScheduled = false;
+      this._localRenderSignature = null;
+      this._renderOverview();
+      if (this._dialogMode === "instance") {
+        const group = this._findGroup(this._dialogGroupId);
+        if (group) this._renderInstanceDialog(group);
+      }
+      if (this._openRoomRef?.remote) this._refreshRemoteDialog();
+    });
+  }
+
   _roomFromLocal(stateObj, index) {
     const a = stateObj.attributes || {};
     const meta = this._statusMeta(a.status || "yellow", a.display_mode || "ventilation");
@@ -1065,8 +1251,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       icon: meta.icon,
       rank: meta.rank,
       recommendation: (lbLocalizedEntityTexts(this._hass, a, () => {
-        this._renderSignature = null;
-        this._render();
+        this._localizedTextsReady();
       })?.recommendation) || a.recommendation || lbT(this._hass, `recommendation.${state}`),
       windowOpen: a.window_open === true,
       remoteAccess: a.remote_access_active === true,
@@ -1112,9 +1297,10 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   _remoteRoomKey(group, room, index) {
-    // Prefer the room name so selection/order survives a rolling upgrade from
-    // v0.6.10 peers which did not export a dedicated room id yet.
-    const stable = room?.name ?? room?.attributes?.room_name ?? room?.id ?? index;
+    // Current peers export a stable subentry id; use it before the editable
+    // room name so hide/order preferences survive renames. Name remains the
+    // legacy fallback for old v0.6.10 peers without an id.
+    const stable = room?.id ?? room?.name ?? room?.attributes?.room_name ?? index;
     return `${group.id}:room:${String(stable)}`;
   }
 
@@ -1134,8 +1320,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       icon: meta.icon,
       rank: meta.rank,
       recommendation: (lbLocalizedEntityTexts(this._hass, attrs, () => {
-        this._renderSignature = null;
-        this._render();
+        this._localizedTextsReady();
       })?.recommendation) || attrs.recommendation || lbT(this._hass, `recommendation.${state}`),
       windowOpen: attrs.window_open === true,
       remoteAccess: false,
@@ -1425,9 +1610,9 @@ class LueftungsberaterOverviewCard extends HTMLElement {
     const wrap = body.querySelector("#detail-wrap");
     const card = document.createElement("lueftungsberater-card");
     if (room.remote) {
-      card.setConfig({ remote_snapshot: { state: room.state, attributes: room.attributes }, name: room.name });
+      card.setConfig({ remote_snapshot: { state: room.state, attributes: room.attributes }, name: room.name, force_expanded: true, storage_key: room.key });
     } else {
-      card.setConfig({ entity: room.entityId, name: room.name });
+      card.setConfig({ entity: room.entityId, name: room.name, force_expanded: true });
     }
     card.hass = this._hass;
     wrap.appendChild(card);
@@ -1455,7 +1640,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       this._closeDialog();
       return;
     }
-    this._popupCard.setConfig({ remote_snapshot: { state: room.state, attributes: room.attributes }, name: room.name });
+    this._popupCard.setConfig({ remote_snapshot: { state: room.state, attributes: room.attributes }, name: room.name, force_expanded: true, storage_key: room.key });
     this._popupCard.hass = this._hass;
   }
 }
@@ -1707,9 +1892,10 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
   }
 
   _remoteRoomKey(group, room, index) {
-    // Prefer the room name so selection/order survives a rolling upgrade from
-    // v0.6.10 peers which did not export a dedicated room id yet.
-    const stable = room?.name ?? room?.attributes?.room_name ?? room?.id ?? index;
+    // Current peers export a stable subentry id; use it before the editable
+    // room name so hide/order preferences survive renames. Name remains the
+    // legacy fallback for old v0.6.10 peers without an id.
+    const stable = room?.id ?? room?.name ?? room?.attributes?.room_name ?? index;
     return `${group.id}:room:${String(stable)}`;
   }
 

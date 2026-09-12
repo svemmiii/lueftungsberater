@@ -85,6 +85,8 @@ async def test_remove_entry_stores_removes_room_and_entry_scoped_data(hass, monk
         "lueftungsberater.decision.entry.room",
         "lueftungsberater.mold.entry.room",
         "lueftungsberater.air_quality.entry",
-        "lueftungsberater.recorder_entities.entry",
     }
+    assert "lueftungsberater.recorder_entities.entry" not in result
+    # Recorder entity IDs have their own purge-aware remover. Generic cleanup
+    # must not delete its retry index after a failed recorder.purge_entities call.
     assert set(removed) == result

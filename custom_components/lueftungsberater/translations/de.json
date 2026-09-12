@@ -152,6 +152,13 @@
       "remote_progress": {
         "title": "Verbindung wird geprüft",
         "description": "Der entfernte Home Assistant wird über Tailscale abgefragt. Das kann je nach Verbindung einen Moment dauern."
+      },
+      "reauth_confirm": {
+        "title": "Remote-Zugang erneuern",
+        "description": "Der Access Token für **{remote_name}** wurde abgelehnt oder widerrufen. Gib einen neuen Long-Lived Access Token ein. Die Tailscale-Adresse und die bisherige Raumauswahl bleiben unverändert.",
+        "data": {
+          "remote_access_token": "Neuer Long-Lived Access Token"
+        }
       }
     },
     "error": {
@@ -159,11 +166,14 @@
       "invalid_auth": "Der Access Token wurde vom entfernten Home Assistant abgelehnt.",
       "cannot_connect": "Der entfernte Home Assistant ist über diese Tailscale-Adresse nicht erreichbar.",
       "select_room": "Wähle mindestens einen freigegebenen Raum aus.",
-      "admin_required": "Der verwendete Home-Assistant-Benutzer benötigt Administratorrechte für die Remote-Verbindung."
+      "admin_required": "Der verwendete Home-Assistant-Benutzer benötigt Administratorrechte für die Remote-Verbindung.",
+      "duplicate_remote": "Diese Tailscale-Gegenstelle ist bereits als Remote-Verbindung eingerichtet."
     },
     "abort": {
       "already_configured": "Dieser entfernte Home Assistant ist bereits verbunden.",
-      "reconfigure_successful": "Die Einstellungen wurden gespeichert."
+      "reconfigure_successful": "Die Einstellungen wurden gespeichert.",
+      "reauth_successful": "Der neue Remote-Zugang wurde gespeichert.",
+      "reauth_not_supported": "Für diesen Eintrag ist keine erneute Anmeldung erforderlich."
     },
     "progress": {
       "testing_remote": "Tailscale-Verbindung wird geprüft und der aktuelle Stand des Lüftungsassistenten wird eingelesen …"
@@ -179,9 +189,9 @@
       "step": {
         "user": {
           "title": "Raum hinzufügen",
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. Optional kannst du den Raum einem vorhandenen Home-Assistant-Bereich zuordnen und/oder einen eigenen Namen vergeben. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data": {
-            "room_name": "Raumname",
+            "room_name": "Eigener Raumname (optional)",
             "indoor_temperature": "Innentemperatur",
             "indoor_humidity": "Innenluftfeuchtigkeit",
             "co2_entity": "CO₂ (optional)",
@@ -192,12 +202,15 @@
             "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
             "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
-            "room_notify_triggers": "Benachrichtigen für diesen Raum"
+            "room_notify_triggers": "Benachrichtigen für diesen Raum",
+            "area_id": "Home-Assistant-Bereich (optional)"
           },
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
             "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
-            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
+            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen.",
+            "area_id": "Ordnet diesen Lüftungsassistent-Raum einem vorhandenen Home-Assistant-Bereich zu. Wenn du keinen eigenen Raumnamen angibst, wird der Name des Bereichs verwendet.",
+            "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs."
           },
           "sections": {
             "room_climate": {
@@ -259,7 +272,7 @@
         "reconfigure": {
           "title": "Raum ändern",
           "data": {
-            "room_name": "Raumname",
+            "room_name": "Eigener Raumname (optional)",
             "indoor_temperature": "Innentemperatur",
             "indoor_humidity": "Innenluftfeuchtigkeit",
             "co2_entity": "CO₂ (optional)",
@@ -270,13 +283,16 @@
             "night_advice_start_time": "🌙 Nacht-Hinweis anzeigen ab",
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
             "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
-            "room_notify_triggers": "Benachrichtigen für diesen Raum"
+            "room_notify_triggers": "Benachrichtigen für diesen Raum",
+            "area_id": "Home-Assistant-Bereich (optional)"
           },
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
+          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. Optional kannst du den Raum einem vorhandenen Home-Assistant-Bereich zuordnen und/oder einen eigenen Namen vergeben. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
             "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
-            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
+            "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen.",
+            "area_id": "Ordnet diesen Lüftungsassistent-Raum einem vorhandenen Home-Assistant-Bereich zu. Wenn du keinen eigenen Raumnamen angibst, wird der Name des Bereichs verwendet.",
+            "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs."
           },
           "sections": {
             "room_climate": {
@@ -341,8 +357,9 @@
         "remote_read_only": "Remote-/Tailscale-Verbindungen sind schreibgeschützt. Räume können nur einem lokalen Lüftungsassistenten hinzugefügt werden."
       },
       "error": {
-        "room_name_empty": "Bitte gib einen Raumnamen ein.",
-        "room_name_duplicate": "Dieser Raumname wird in dieser Instanz bereits verwendet."
+        "room_name_empty": "Bitte gib einen eigenen Raumnamen ein oder wähle einen vorhandenen Home-Assistant-Bereich aus.",
+        "room_name_duplicate": "Dieser Raumname wird in dieser Instanz bereits verwendet.",
+        "area_not_found": "Der ausgewählte Home-Assistant-Bereich existiert nicht mehr. Bitte wähle einen anderen Bereich oder entferne die Auswahl."
       }
     }
   },

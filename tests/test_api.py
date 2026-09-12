@@ -155,3 +155,41 @@ def test_protocol2_snapshot_suppresses_only_new_night_states() -> None:
     assert attrs["night_ventilation_args"] == {}
     # The full v3 payload remains untouched.
     assert _remote_instances_for_protocol(instances, 3) is instances
+
+
+def test_remote_access_cleanup_cancels_entry_timers(monkeypatch) -> None:
+    from custom_components.lueftungsberater import api as api_module
+    from custom_components.lueftungsberater.const import DATA_REMOTE_ACCESS, DOMAIN
+
+    cancelled: list[str] = []
+    callbacks = []
+
+    def _later(_hass, _delay, callback):
+        callbacks.append(callback)
+        token = f"timer-{len(callbacks)}"
+        return lambda: cancelled.append(token)
+
+    monkeypatch.setattr(api_module, "async_call_later", _later)
+    monkeypatch.setattr(api_module, "_refresh_remote_access_entity", lambda *_args: None)
+
+    hass = SimpleNamespace(data={})
+    api_module._record_remote_access(
+        hass,
+        [{"id": "entry-a", "rooms": [{"id": "room-1"}, {"id": "room-2"}]}],
+        "client",
+        "Client",
+    )
+    api_module._record_remote_access(
+        hass,
+        [{"id": "entry-b", "rooms": [{"id": "room-x"}]}],
+        "client",
+        "Client",
+    )
+
+    api_module.async_clear_remote_access(hass, "entry-a")
+
+    store = hass.data[DOMAIN][DATA_REMOTE_ACCESS]
+    assert "entry-a:room-1" not in store
+    assert "entry-a:room-2" not in store
+    assert "entry-b:room-x" in store
+    assert len(cancelled) == 2

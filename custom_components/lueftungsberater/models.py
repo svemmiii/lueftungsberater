@@ -70,9 +70,9 @@ class VentilationResult:
     duration_key: str
     duration_args: dict[str, Any]
     original_reason: str | None
-    indoor_absolute_humidity: float
-    outdoor_absolute_humidity: float
-    absolute_humidity_difference: float
+    indoor_absolute_humidity: float | None
+    outdoor_absolute_humidity: float | None
+    absolute_humidity_difference: float | None
     co2_status: str
     co2_session_target: float | None = None
     co2_session_need: str | None = None

@@ -10,7 +10,7 @@ from homeassistant.helpers.storage import Store
 from .const import DOMAIN, STORAGE_VERSION, SUBENTRY_TYPE_ROOM
 
 _ROOM_STORE_KINDS = ("airing", "co2", "decision", "mold")
-_ENTRY_STORE_KINDS = ("air_quality", "recorder_entities")
+_ENTRY_STORE_KINDS = ("air_quality",)
 
 
 def _room_store_prefix(entry_id: str, kind: str) -> str:

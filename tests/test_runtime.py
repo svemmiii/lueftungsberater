@@ -193,7 +193,7 @@ async def test_last_entry_removal_deletes_auto_lovelace_resource(hass):
             return [
                 {
                     "id": "lb-card",
-                    "url": "/lueftungsberater/frontend/lueftungsberater-card.js?v=0.9.3",
+                    "url": "/lueftungsberater/frontend/lueftungsberater-card.js?v=0.9.4",
                     "type": "module",
                 },
                 {"id": "other", "url": "/local/other.js", "type": "module"},

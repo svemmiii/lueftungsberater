@@ -499,3 +499,185 @@ async def test_remote_non_admin_error_is_reported_separately():
 
     assert error == "admin_required"
     assert payload is None
+
+
+def test_remote_duplicate_detection_normalizes_equivalent_hosts() -> None:
+    from custom_components.lueftungsberater.config_flow import _remote_endpoint_is_duplicate
+    from custom_components.lueftungsberater.const import (
+        CONF_ENTRY_KIND,
+        CONF_REMOTE_HOST,
+        CONF_REMOTE_PORT,
+        ENTRY_KIND_REMOTE,
+    )
+
+    existing = SimpleNamespace(
+        entry_id="remote-a",
+        data={
+            CONF_ENTRY_KIND: ENTRY_KIND_REMOTE,
+            CONF_REMOTE_HOST: "MeinPi.ts.net.",
+            CONF_REMOTE_PORT: 8123,
+        },
+    )
+    candidate = {CONF_REMOTE_HOST: "meinpi.TS.NET", CONF_REMOTE_PORT: 8123}
+    assert _remote_endpoint_is_duplicate([existing], candidate) is True
+    assert (
+        _remote_endpoint_is_duplicate(
+            [existing], candidate, exclude_entry_id="remote-a"
+        )
+        is False
+    )
+
+
+def test_remote_reconfigure_does_not_auto_select_all_rooms_when_old_ids_disappear() -> None:
+    from custom_components.lueftungsberater.config_flow import _remote_selection_schema
+    from custom_components.lueftungsberater.const import CONF_REMOTE_SELECTED_ROOMS
+
+    payload = {
+        "instances": [
+            {
+                "id": "new-instance",
+                "name": "Remote",
+                "rooms": [
+                    {"id": "new-1", "name": "Küche"},
+                    {"id": "new-2", "name": "Bad"},
+                ],
+            }
+        ]
+    }
+
+    first_setup = _remote_selection_schema(payload)({})
+    reconfigure = _remote_selection_schema(payload, ["old-instance:old-room"])({})
+
+    assert first_setup[CONF_REMOTE_SELECTED_ROOMS] == [
+        "new-instance:new-1",
+        "new-instance:new-2",
+    ]
+    assert reconfigure[CONF_REMOTE_SELECTED_ROOMS] == []
+
+
+async def test_remote_reauth_updates_token_and_owns_reload_without_update_listener(monkeypatch) -> None:
+    """Initial auth failure must recover even when setup never installed a listener."""
+    from custom_components.lueftungsberater import config_flow as flow_module
+    from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
+    from custom_components.lueftungsberater.const import (
+        CONF_ENTRY_KIND,
+        CONF_REMOTE_TOKEN,
+        ENTRY_KIND_REMOTE,
+    )
+
+    entry = SimpleNamespace(
+        entry_id="remote-entry",
+        title="Wohnmobil",
+        data={CONF_ENTRY_KIND: ENTRY_KIND_REMOTE, CONF_REMOTE_TOKEN: "old-token"},
+    )
+    calls = []
+
+    async def _valid_remote(_hass, data):
+        assert data[CONF_REMOTE_TOKEN] == "new-token"
+        return None, {"instances": []}
+
+    fake_flow = SimpleNamespace(
+        hass=SimpleNamespace(),
+        _get_reauth_entry=lambda: entry,
+        async_update_reload_and_abort=lambda target, **kwargs: (
+            calls.append((target, kwargs)) or {"type": "abort", "reason": kwargs["reason"]}
+        ),
+    )
+    monkeypatch.setattr(flow_module, "_test_remote", _valid_remote)
+
+    result = await LueftungsberaterConfigFlow.async_step_reauth_confirm(
+        fake_flow, {CONF_REMOTE_TOKEN: "new-token"}
+    )
+
+    assert result["reason"] == "reauth_successful"
+    assert len(calls) == 1
+    target, kwargs = calls[0]
+    assert target is entry
+    assert kwargs["data_updates"] == {CONF_REMOTE_TOKEN: "new-token"}
+
+
+async def test_remote_reconfigure_replaces_entry_data_and_owns_reload() -> None:
+    """Remote reconfigure must not depend on an update listener for its reload."""
+    from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
+    from custom_components.lueftungsberater.const import CONF_REMOTE_SELECTED_ROOMS
+
+    entry = SimpleNamespace(entry_id="remote-entry")
+    replacement = {"entry_kind": "remote", "remote_host": "peer.ts.net"}
+    calls = []
+    fake_flow = SimpleNamespace(
+        _get_reconfigure_entry=lambda: entry,
+        _pending_remote_data=replacement,
+        _pending_remote_title="Wohnmobil",
+        _pending_remote_payload={"instances": []},
+        _pending_remote_previous_selection=["old:room"],
+        async_update_reload_and_abort=lambda target, **kwargs: (
+            calls.append((target, kwargs)) or {"type": "abort", "reason": kwargs["reason"]}
+        ),
+    )
+
+    result = await LueftungsberaterConfigFlow.async_step_reconfigure_confirm(
+        fake_flow, {CONF_REMOTE_SELECTED_ROOMS: ["new:room"]}
+    )
+
+    assert result["reason"] == "reconfigure_successful"
+    assert len(calls) == 1
+    target, kwargs = calls[0]
+    assert target is entry
+    assert kwargs["title"] == "Wohnmobil"
+    assert kwargs["data_updates"][CONF_REMOTE_SELECTED_ROOMS] == ["new:room"]
+
+
+def test_remote_duplicate_detection_uses_stable_home_assistant_instance_id() -> None:
+    from custom_components.lueftungsberater.config_flow import _remote_endpoint_is_duplicate
+    from custom_components.lueftungsberater.const import (
+        CONF_ENTRY_KIND,
+        CONF_REMOTE_HOST,
+        CONF_REMOTE_PORT,
+        CONF_REMOTE_SERVER_ID,
+        ENTRY_KIND_REMOTE,
+    )
+
+    existing = SimpleNamespace(
+        entry_id="remote-a",
+        data={
+            CONF_ENTRY_KIND: ENTRY_KIND_REMOTE,
+            CONF_REMOTE_HOST: "wohnmobil-pi.tailnet.ts.net",
+            CONF_REMOTE_PORT: 8123,
+            CONF_REMOTE_SERVER_ID: "abc123",
+        },
+    )
+    candidate = {
+        CONF_REMOTE_HOST: "100.90.1.2",
+        CONF_REMOTE_PORT: 8123,
+        CONF_REMOTE_SERVER_ID: "ABC123",
+    }
+    assert _remote_endpoint_is_duplicate([existing], candidate) is True
+
+async def test_remote_test_learns_stable_home_assistant_instance_id() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from custom_components.lueftungsberater.config_flow import _test_remote
+    from custom_components.lueftungsberater.const import CONF_REMOTE_SERVER_ID
+
+    hass = SimpleNamespace()
+    data = {"remote_host": "100.64.0.42", "remote_port": 8123}
+    payload = {
+        "protocol": 3,
+        "home_assistant_instance_id": "ABCDEF0123456789",
+        "instances": [],
+    }
+    with (
+        patch(
+            "custom_components.lueftungsberater.config_flow.async_host_is_tailscale",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "custom_components.lueftungsberater.config_flow.async_fetch_remote_snapshot",
+            AsyncMock(return_value=payload),
+        ),
+    ):
+        error, returned = await _test_remote(hass, data)
+
+    assert error is None
+    assert returned is payload
+    assert data[CONF_REMOTE_SERVER_ID] == "abcdef0123456789"

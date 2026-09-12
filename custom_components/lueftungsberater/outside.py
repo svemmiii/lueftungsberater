@@ -36,6 +36,7 @@ from .providers import (
     weather_assessment,
     warning_assessment,
 )
+from .safety_state import async_apply_persistent_safety_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,6 +107,13 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         await async_refresh_nina_details(self.hass, self.entry)
         weather = weather_assessment(self.hass, self.entry)
         warnings = warning_assessment(self.hass, self.entry)
+        # A previously confirmed hard safety lock must survive a temporary
+        # provider outage, an integration reload and a Home Assistant restart.
+        # Only normalized hard-safety state is persisted; explicit provider
+        # clears still win immediately.
+        await async_apply_persistent_safety_state(
+            self.hass, self.entry, weather, warnings
+        )
         tracker = get_air_quality_tracker(self.hass, self.entry)
         if tracker is not None and weather.air_quality_values:
             tracker.observe(weather.air_quality_values)
@@ -115,9 +123,20 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         if self._started:
             return
         self._started = True
-        await self.async_config_entry_first_refresh()
-
-        self._replace_source_listener()
+        try:
+            await self.async_config_entry_first_refresh()
+            self._replace_source_listener()
+        except Exception:
+            # A retry must create/start a fresh runtime, not reuse an object that
+            # still claims it started successfully. Any listener installed before
+            # the failure is local to this temporary object and can be removed now.
+            self._started = False
+            if self._source_unsub is not None:
+                self._source_unsub()
+                self._source_unsub = None
+            while self._unsubs:
+                self._unsubs.pop()()
+            raise
 
         # Provider integrations can add/rename/remove entities after this
         # coordinator has started. Re-discover sources on registry changes so a
@@ -257,10 +276,18 @@ async def async_get_or_create_outside_coordinator(
 ) -> LueftungsberaterOutsideCoordinator:
     store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_OUTSIDE_COORDINATORS, {})
     coordinator = store.get(entry.entry_id)
-    if coordinator is None:
-        coordinator = LueftungsberaterOutsideCoordinator(hass, entry)
-        store[entry.entry_id] = coordinator
+    if coordinator is not None:
+        return coordinator
+    coordinator = LueftungsberaterOutsideCoordinator(hass, entry)
+    try:
         await coordinator.async_start()
+    except Exception:
+        try:
+            await coordinator.async_shutdown()
+        except Exception:  # noqa: BLE001 - preserve the original setup error
+            _LOGGER.debug("Unable to clean up failed outside coordinator setup", exc_info=True)
+        raise
+    store[entry.entry_id] = coordinator
     return coordinator
 
 

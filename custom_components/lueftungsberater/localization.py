@@ -434,6 +434,20 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
     caution = str(a.get("caution") or "conditions")
     co2 = a.get("co2")
     if key == "co2_tradeoff":
+        if caution == "measurement_unknown":
+            target_raw = a.get("co2_target")
+            if target_raw is not None:
+                target_ppm = _measurement(_number(target_raw, lang, 0), "ppm")
+                return {
+                    "de": f"Die CO₂-Lüftung läuft noch, aber der aktuelle CO₂-Messwert fehlt. Das Ziel von etwa {target_ppm} kann deshalb gerade nicht bestätigt werden.",
+                    "en": f"The CO₂ airing session is still active, but the current CO₂ reading is unavailable. The target of about {target_ppm} therefore cannot be confirmed right now.",
+                    "tr": f"CO₂ havalandırma oturumu hâlâ etkin, ancak güncel CO₂ ölçümü kullanılamıyor. Bu nedenle yaklaşık {target_ppm} hedefi şu anda doğrulanamıyor.",
+                }[lang]
+            return {
+                "de": "Die CO₂-Lüftung läuft noch, aber der aktuelle CO₂-Messwert fehlt. Das Lüftungsziel kann deshalb gerade nicht bestätigt werden.",
+                "en": "The CO₂ airing session is still active, but the current CO₂ reading is unavailable. The airing target therefore cannot be confirmed right now.",
+                "tr": "CO₂ havalandırma oturumu hâlâ etkin, ancak güncel CO₂ ölçümü kullanılamıyor. Bu nedenle havalandırma hedefi şu anda doğrulanamıyor.",
+            }[lang]
         ppm = _measurement(_number(co2, lang, 0), "ppm")
         detail_options = {
             "rain": {

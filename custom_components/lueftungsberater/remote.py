@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import asyncio
 import ipaddress
 import logging
@@ -12,7 +13,8 @@ from typing import Any
 import aiohttp
 from aiohttp.abc import AbstractResolver, ResolveResult
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -22,6 +24,7 @@ from .const import (
     CONF_REMOTE_TOKEN,
     CONF_REMOTE_SELECTED_ROOMS,
     CONF_REMOTE_CLIENT_ID,
+    CONF_REMOTE_SERVER_ID,
     CONF_REMOTE_USE_SSL,
     DATA_REMOTE_COORDINATORS,
     DEFAULT_REMOTE_PORT,
@@ -48,6 +51,17 @@ class RemoteAuthError(RemoteConnectionError):
 
 class RemoteAdminRequiredError(RemoteConnectionError):
     """Remote endpoint is reachable but the authenticated user is not admin."""
+
+
+def normalize_remote_host(value: Any) -> str:
+    """Return one canonical host spelling for storage and comparison."""
+    clean = str(value).strip().strip("[]").rstrip("/").strip()
+    try:
+        address = ipaddress.ip_address(clean)
+    except ValueError:
+        # DNS names are case-insensitive and a final root dot is equivalent.
+        return clean.lower().rstrip(".")
+    return str(address)
 
 
 def _forbidden_remote_error(body: str) -> RemoteConnectionError:
@@ -103,7 +117,7 @@ class _PinnedTailscaleResolver(AbstractResolver):
     """
 
     def __init__(self, host: str, addresses: set[str]) -> None:
-        self._host = host.strip().strip("[]").lower().rstrip(".")
+        self._host = normalize_remote_host(host)
         self._addresses = tuple(sorted(addresses))
 
     async def resolve(
@@ -112,7 +126,7 @@ class _PinnedTailscaleResolver(AbstractResolver):
         port: int = 0,
         family: int = socket.AF_UNSPEC,
     ) -> list[ResolveResult]:
-        clean = host.strip().strip("[]").lower().rstrip(".")
+        clean = normalize_remote_host(host)
         if clean != self._host:
             raise OSError("Pinned remote resolver rejected a different host")
 
@@ -142,7 +156,7 @@ class _PinnedTailscaleResolver(AbstractResolver):
 
 async def async_host_is_tailscale(hass: HomeAssistant, host: str, port: int) -> bool:
     """Verify that a host resolves to a Tailscale-assigned address."""
-    clean = host.strip().strip("[]")
+    clean = normalize_remote_host(host)
     if _ip_is_tailscale(clean):
         return True
 
@@ -161,7 +175,7 @@ async def _async_verified_tailscale_addresses(
     port: int,
 ) -> set[str]:
     """Return the exact verified addresses to which the request may connect."""
-    clean = host.strip().strip("[]")
+    clean = normalize_remote_host(host)
     if _ip_is_tailscale(clean):
         return {clean}
     try:
@@ -177,7 +191,7 @@ async def _async_verified_tailscale_addresses(
 
 def remote_base_url(config: dict[str, Any]) -> str:
     """Build the remote Home Assistant base URL."""
-    host = str(config[CONF_REMOTE_HOST]).strip().strip("[]")
+    host = normalize_remote_host(config[CONF_REMOTE_HOST])
     port = int(config.get(CONF_REMOTE_PORT, DEFAULT_REMOTE_PORT))
     scheme = "https" if config.get(CONF_REMOTE_USE_SSL, False) else "http"
     try:
@@ -196,7 +210,7 @@ async def async_fetch_remote_snapshot(
     discovery: bool = False,
 ) -> dict[str, Any]:
     """Fetch the remote snapshot, optionally as unfiltered room discovery."""
-    host = str(config[CONF_REMOTE_HOST])
+    host = normalize_remote_host(config[CONF_REMOTE_HOST])
     port = int(config.get(CONF_REMOTE_PORT, DEFAULT_REMOTE_PORT))
     addresses = await _async_verified_tailscale_addresses(hass, host, port)
     resolver = _PinnedTailscaleResolver(host, addresses)
@@ -255,6 +269,12 @@ async def async_fetch_remote_snapshot(
 
     if not isinstance(payload, dict):
         raise RemoteConnectionError("Remote response is not an object")
+    remote_server_id = payload.get("home_assistant_instance_id")
+    if remote_server_id is not None:
+        if not isinstance(remote_server_id, str) or not remote_server_id.strip() or len(remote_server_id) > 128:
+            raise RemoteConnectionError("Remote response contains an invalid Home Assistant instance ID")
+        payload = dict(payload)
+        payload["home_assistant_instance_id"] = remote_server_id.strip().lower()
     protocol = payload.get("protocol")
     if protocol not in {1, 2, REMOTE_PROTOCOL_VERSION}:
         raise RemoteConnectionError("Unsupported remote snapshot protocol")
@@ -293,6 +313,103 @@ async def async_fetch_remote_snapshot(
     return payload
 
 
+_DATA_REPORTED_REMOTE_DUPLICATES = "_reported_remote_duplicates"
+
+
+def _remote_entries_with_server_id(
+    hass: HomeAssistant,
+    server_id: str,
+) -> list[ConfigEntry]:
+    """Return configured remote entries which identify the same HA server."""
+    normalized = str(server_id or "").strip().lower()
+    if not normalized:
+        return []
+    return [
+        candidate
+        for candidate in hass.config_entries.async_entries(DOMAIN)
+        if candidate.data.get(CONF_REMOTE_HOST)
+        and str(candidate.data.get(CONF_REMOTE_SERVER_ID) or "").strip().lower()
+        == normalized
+    ]
+
+
+def _remote_canonical_entry(entries: list[ConfigEntry]) -> ConfigEntry:
+    """Choose one deterministic legacy entry to keep for a duplicated server."""
+    far_future = datetime.max.replace(tzinfo=timezone.utc)
+    return min(
+        entries,
+        key=lambda item: (getattr(item, "created_at", None) or far_future, item.entry_id),
+    )
+
+
+def _merge_duplicate_remote_room_selection(
+    hass: HomeAssistant,
+    canonical: ConfigEntry,
+    entries: list[ConfigEntry],
+) -> None:
+    """Preserve the union of selected rooms when legacy duplicates are found."""
+    selected: set[str] = set()
+    for candidate in entries:
+        selected.update(
+            str(item)
+            for item in candidate.data.get(CONF_REMOTE_SELECTED_ROOMS, []) or []
+            if item
+        )
+    current = {
+        str(item)
+        for item in canonical.data.get(CONF_REMOTE_SELECTED_ROOMS, []) or []
+        if item
+    }
+    if selected == current:
+        return
+    data = dict(canonical.data)
+    data[CONF_REMOTE_SELECTED_ROOMS] = sorted(selected)
+    hass.config_entries.async_update_entry(canonical, data=data)
+
+
+def _reconcile_remote_server_identity(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    server_id: str,
+) -> ConfigEntry | None:
+    """Reconcile pre-v0.9.4 duplicates once the stable HA UUID is known.
+
+    New config flows already reject a duplicate server UUID. Older installations
+    may however already contain the same remote once by MagicDNS name and once
+    by Tailscale IP. Keep the oldest entry, merge room selections into it and
+    force any already-loaded duplicates through a reload so they stop polling.
+    """
+    matches = _remote_entries_with_server_id(hass, server_id)
+    if len(matches) <= 1:
+        return None
+
+    canonical = _remote_canonical_entry(matches)
+    _merge_duplicate_remote_room_selection(hass, canonical, matches)
+    duplicates = [candidate for candidate in matches if candidate.entry_id != canonical.entry_id]
+
+    for duplicate in duplicates:
+        if duplicate.state is ConfigEntryState.LOADED:
+            # Use HA's scheduled reload helper: it cancels any pending setup
+            # retry before reloading and avoids a retry/reload race.
+            hass.config_entries.async_schedule_reload(duplicate.entry_id)
+
+    duplicate_ids = tuple(sorted(candidate.entry_id for candidate in duplicates))
+    reported = hass.data.setdefault(DOMAIN, {}).setdefault(
+        _DATA_REPORTED_REMOTE_DUPLICATES, set()
+    )
+    report_key = (str(server_id).strip().lower(), canonical.entry_id, duplicate_ids)
+    if report_key not in reported:
+        reported.add(report_key)
+        _LOGGER.warning(
+            "Multiple Lüftungsberater remote entries identify Home Assistant %s; "
+            "keeping %s and rejecting duplicate %s",
+            server_id,
+            canonical.entry_id,
+            ", ".join(duplicate_ids),
+        )
+    return canonical
+
+
 class LueftungsberaterRemoteCoordinator(DataUpdateCoordinator[RemoteData]):
     """Keep only the newest remote snapshots in memory."""
 
@@ -312,7 +429,14 @@ class LueftungsberaterRemoteCoordinator(DataUpdateCoordinator[RemoteData]):
     async def _async_update_data(self) -> RemoteData:
         try:
             payload = await async_fetch_remote_snapshot(self.hass, dict(self.entry.data))
-        except (RemoteAuthError, RemoteConnectionError) as err:
+        except RemoteAuthError as err:
+            # Authentication failures are not connectivity problems. Home
+            # Assistant will put the entry into reauth and surface the repair to
+            # the user instead of silently retrying a revoked token forever.
+            raise ConfigEntryAuthFailed(
+                f"Remote Home Assistant rejected the access token for {self.entry.title}"
+            ) from err
+        except RemoteConnectionError as err:
             if self._last_success_monotonic is not None:
                 elapsed = time.monotonic() - self._last_success_monotonic
                 if elapsed < REMOTE_OFFLINE_GRACE.total_seconds() and self.data:
@@ -338,6 +462,28 @@ class LueftungsberaterRemoteCoordinator(DataUpdateCoordinator[RemoteData]):
                 )
             return RemoteData(available=False)
 
+        remote_server_id = str(payload.get("home_assistant_instance_id") or "").strip()
+        if remote_server_id and self.entry.data.get(CONF_REMOTE_SERVER_ID) != remote_server_id:
+            data = dict(self.entry.data)
+            data[CONF_REMOTE_SERVER_ID] = remote_server_id
+            # Remote entries deliberately have no update listener, so learning
+            # the stable peer ID does not cause a reload loop.
+            self.hass.config_entries.async_update_entry(self.entry, data=data)
+
+        if remote_server_id:
+            canonical = _reconcile_remote_server_identity(
+                self.hass, self.entry, remote_server_id
+            )
+            if canonical is not None and canonical.entry_id != self.entry.entry_id:
+                # During first setup this turns the old duplicate into a visible
+                # config-entry error instead of letting it start a second poller.
+                # If it was already loaded, the canonical entry has scheduled a
+                # reload above; that reload reaches this same first-refresh path.
+                raise ConfigEntryError(
+                    "This remote Home Assistant is already configured as "
+                    f"{canonical.title!r}; remove the duplicate entry"
+                )
+
         if self._reported_unavailable:
             _LOGGER.info("Remote Lüftungsberater %s is reachable again", self.entry.title)
         self._reported_unavailable = False
@@ -354,10 +500,17 @@ async def async_get_or_create_remote_coordinator(
 ) -> LueftungsberaterRemoteCoordinator:
     store = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_REMOTE_COORDINATORS, {})
     coordinator = store.get(entry.entry_id)
-    if coordinator is None:
-        coordinator = LueftungsberaterRemoteCoordinator(hass, entry)
-        store[entry.entry_id] = coordinator
-        await coordinator.async_config_entry_first_refresh()
+    if coordinator is not None:
+        return coordinator
+
+    # Never publish a half-initialized coordinator. A failed first refresh can
+    # trigger ConfigEntry retry/reauth and Home Assistant will shut down the
+    # temporary coordinator through the ConfigEntry lifecycle. Keeping that
+    # object in our own cache would make the retry reuse an already-shutdown
+    # coordinator whose future refreshes are ignored.
+    coordinator = LueftungsberaterRemoteCoordinator(hass, entry)
+    await coordinator.async_config_entry_first_refresh()
+    store[entry.entry_id] = coordinator
     return coordinator
 
 

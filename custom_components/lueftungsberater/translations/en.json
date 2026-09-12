@@ -152,6 +152,13 @@
       "remote_progress": {
         "title": "Checking connection",
         "description": "The remote Home Assistant is being queried through Tailscale. Depending on the connection, this may take a moment."
+      },
+      "reauth_confirm": {
+        "title": "Renew remote access",
+        "description": "The access token for **{remote_name}** was rejected or revoked. Enter a new Long-Lived Access Token. The Tailscale address and existing room selection stay unchanged.",
+        "data": {
+          "remote_access_token": "New Long-Lived Access Token"
+        }
       }
     },
     "error": {
@@ -159,11 +166,14 @@
       "invalid_auth": "The remote Home Assistant rejected the access token.",
       "cannot_connect": "The remote Home Assistant cannot be reached through this Tailscale address.",
       "select_room": "Select at least one shared room.",
-      "admin_required": "The Home Assistant user used for this remote connection must be an administrator."
+      "admin_required": "The Home Assistant user used for this remote connection must be an administrator.",
+      "duplicate_remote": "This Tailscale endpoint is already configured as a remote connection."
     },
     "abort": {
       "already_configured": "This remote Home Assistant is already connected.",
-      "reconfigure_successful": "The settings have been saved."
+      "reconfigure_successful": "The settings have been saved.",
+      "reauth_successful": "The new remote access token has been saved.",
+      "reauth_not_supported": "This entry does not require reauthentication."
     },
     "progress": {
       "testing_remote": "Checking the Tailscale connection and reading the current Fresh Air Assistant state …"
@@ -179,9 +189,9 @@
       "step": {
         "user": {
           "title": "Add room",
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
+          "description": "Indoor temperature and humidity are required. Optionally, you can assign the room to an existing Home Assistant area and/or give it a custom name. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
           "data": {
-            "room_name": "Room name",
+            "room_name": "Custom room name (optional)",
             "indoor_temperature": "Indoor temperature",
             "indoor_humidity": "Indoor humidity",
             "co2_entity": "CO₂ (optional)",
@@ -192,12 +202,15 @@
             "night_advice_start_time": "🌙 Show night advice from",
             "night_advice_end_time": "🌙 Show night advice until",
             "remote_share": "Allow this room to be queried remotely",
-            "room_notify_triggers": "Notify for this room"
+            "room_notify_triggers": "Notify for this room",
+            "area_id": "Home Assistant area (optional)"
           },
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
             "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
-            "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
+            "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action.",
+            "area_id": "Assigns this Fresh Air Assistant room to an existing Home Assistant area. If you do not enter a custom room name, the area name is used.",
+            "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name."
           },
           "sections": {
             "room_climate": {
@@ -259,7 +272,7 @@
         "reconfigure": {
           "title": "Reconfigure room",
           "data": {
-            "room_name": "Room name",
+            "room_name": "Custom room name (optional)",
             "indoor_temperature": "Indoor temperature",
             "indoor_humidity": "Indoor humidity",
             "co2_entity": "CO₂ (optional)",
@@ -270,13 +283,16 @@
             "night_advice_start_time": "🌙 Show night advice from",
             "night_advice_end_time": "🌙 Show night advice until",
             "remote_share": "Allow this room to be queried remotely",
-            "room_notify_triggers": "Notify for this room"
+            "room_notify_triggers": "Notify for this room",
+            "area_id": "Home Assistant area (optional)"
           },
-          "description": "Indoor temperature and humidity are required. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
+          "description": "Indoor temperature and humidity are required. Optionally, you can assign the room to an existing Home Assistant area and/or give it a custom name. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
             "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
-            "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
+            "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action.",
+            "area_id": "Assigns this Fresh Air Assistant room to an existing Home Assistant area. If you do not enter a custom room name, the area name is used.",
+            "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name."
           },
           "sections": {
             "room_climate": {
@@ -341,8 +357,9 @@
         "remote_read_only": "Remote/Tailscale connections are read-only. Rooms can only be added to a local Fresh Air Assistant."
       },
       "error": {
-        "room_name_empty": "Please enter a room name.",
-        "room_name_duplicate": "This room name is already used in this instance."
+        "room_name_empty": "Please enter a custom room name or select an existing Home Assistant area.",
+        "room_name_duplicate": "This room name is already used in this instance.",
+        "area_not_found": "The selected Home Assistant area no longer exists. Please select another area or clear the selection."
       }
     }
   },

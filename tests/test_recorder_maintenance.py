@@ -179,3 +179,195 @@ async def test_daily_retention_task_is_cancelled_when_last_entry_unloads(hass, m
     assert task.cancelled()
     assert unsubscribed == [True]
     assert maintenance.DATA_RECORDER_RETENTION not in hass.data[DOMAIN]
+
+@pytest.mark.asyncio
+async def test_domain_retention_task_survives_one_of_multiple_entries_unloading(hass, monkeypatch):
+    """A shared purge run must not belong to the first config entry."""
+    callbacks = []
+    started = asyncio.Event()
+
+    def _track(_hass, action, **_kwargs):
+        callbacks.append(action)
+        return lambda: None
+
+    async def _purge(_hass):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(maintenance, "async_track_time_change", _track)
+    monkeypatch.setattr(maintenance, "async_purge_recorder_history", _purge)
+
+    first = SimpleNamespace(entry_id="entry_a")
+    second = SimpleNamespace(entry_id="entry_b")
+    unregister_first = maintenance.async_register_recorder_retention(hass, first)
+    unregister_second = maintenance.async_register_recorder_retention(hass, second)
+    assert len(callbacks) == 1
+
+    callbacks[0](None)
+    await started.wait()
+    state = hass.data[DOMAIN][maintenance.DATA_RECORDER_RETENTION]
+    task = state["task"]
+    assert task is not None and not task.done()
+
+    unregister_first()
+    await asyncio.sleep(0)
+    assert not task.done()
+    assert state["entry_ids"] == {"entry_b"}
+
+    unregister_second()
+    await asyncio.sleep(0)
+    assert task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_failed_removed_entity_purge_is_kept_for_retry(hass, monkeypatch):
+    async def _handler(_call):
+        raise RuntimeError("recorder unavailable")
+
+    hass.services.async_register("recorder", "purge_entities", _handler)
+    monkeypatch.setattr(
+        maintenance.er,
+        "async_entries_for_config_entry",
+        lambda _registry, _entry_id: [
+            _entry("sensor.current_advisor", "current_advisor")
+        ],
+    )
+
+    class FakeStore:
+        def __init__(self):
+            self.saved = None
+
+        async def async_load(self):
+            return {
+                "entity_ids": [
+                    "sensor.current_advisor",
+                    "sensor.deleted_room_advisor",
+                ]
+            }
+
+        async def async_save(self, data):
+            self.saved = data
+
+    store = FakeStore()
+    monkeypatch.setattr(maintenance, "_index_store", lambda _hass, _entry_id: store)
+
+    await maintenance.async_refresh_recorder_entity_index(
+        hass, SimpleNamespace(entry_id="entry_a")
+    )
+
+    assert store.saved == {
+        "entity_ids": [
+            "sensor.current_advisor",
+            "sensor.deleted_room_advisor",
+        ]
+    }
+
+@pytest.mark.asyncio
+async def test_removed_config_entry_keeps_recorder_index_and_schedules_independent_retry(hass, monkeypatch):
+    """A failed final purge must still have a retry after the entry is gone."""
+    scheduled = []
+
+    class FakeStore:
+        def __init__(self):
+            self.removed = False
+
+        async def async_load(self):
+            return {"entity_ids": ["sensor.removed_room_advisor"]}
+
+        async def async_remove(self):
+            self.removed = True
+
+    store = FakeStore()
+    monkeypatch.setattr(maintenance, "_index_store", lambda _hass, _entry_id: store)
+
+    async def _fail(_hass, _ids, *, keep_days):
+        assert keep_days == 0
+        return False
+
+    monkeypatch.setattr(maintenance, "_async_purge_ids", _fail)
+    remembered = []
+
+    async def _remember(_hass, entry_id):
+        remembered.append(entry_id)
+
+    monkeypatch.setattr(maintenance, "_remember_orphan_entry_id", _remember)
+    monkeypatch.setattr(
+        maintenance,
+        "_schedule_removed_recorder_index_retry",
+        lambda _hass, entry_id, attempt=0: scheduled.append((entry_id, attempt)),
+    )
+
+    await maintenance.async_remove_recorder_entity_index(hass, "removed_entry")
+
+    assert store.removed is False
+    assert remembered == ["removed_entry"]
+    assert scheduled == [("removed_entry", 0)]
+
+
+@pytest.mark.asyncio
+async def test_removed_config_entry_recorder_retry_removes_index_after_success(hass, monkeypatch):
+    """The HA-owned orphan retry completes cleanup without a ConfigEntry."""
+    removed = []
+
+    class FakeStore:
+        async def async_load(self):
+            return {"entity_ids": ["sensor.removed_room_advisor"]}
+
+        async def async_remove(self):
+            removed.append(True)
+
+    monkeypatch.setattr(maintenance, "_index_store", lambda _hass, _entry_id: FakeStore())
+
+    async def _succeed(_hass, ids, *, keep_days):
+        assert ids == ["sensor.removed_room_advisor"]
+        assert keep_days == 0
+        return True
+
+    monkeypatch.setattr(maintenance, "_async_purge_ids", _succeed)
+    forgotten = []
+
+    async def _forget(_hass, entry_id):
+        forgotten.append(entry_id)
+
+    monkeypatch.setattr(maintenance, "_forget_orphan_entry_id", _forget)
+
+    await maintenance._async_retry_removed_recorder_index(hass, "removed_entry", 0)
+
+    assert removed == [True]
+    assert forgotten == ["removed_entry"]
+
+
+@pytest.mark.asyncio
+async def test_persistent_orphan_recorder_index_is_retried_after_later_startup(hass, monkeypatch):
+    """The persistent orphan list survives timers/restarts and is retried later."""
+    saved = []
+    removed = []
+
+    async def _load(_hass):
+        return {"removed_entry"}
+
+    async def _save(_hass, entry_ids):
+        saved.append(set(entry_ids))
+
+    class FakeStore:
+        async def async_load(self):
+            return {"entity_ids": ["sensor.removed_room_advisor"]}
+
+        async def async_remove(self):
+            removed.append(True)
+
+    async def _succeed(_hass, ids, *, keep_days):
+        assert ids == ["sensor.removed_room_advisor"]
+        assert keep_days == 0
+        return True
+
+    monkeypatch.setattr(maintenance, "_load_orphan_entry_ids", _load)
+    monkeypatch.setattr(maintenance, "_save_orphan_entry_ids", _save)
+    monkeypatch.setattr(maintenance, "_index_store", lambda _hass, _entry_id: FakeStore())
+    monkeypatch.setattr(maintenance, "_async_purge_ids", _succeed)
+
+    remaining = await maintenance.async_retry_orphaned_recorder_indexes(hass)
+
+    assert remaining == set()
+    assert removed == [True]
+    assert saved[-1] == set()

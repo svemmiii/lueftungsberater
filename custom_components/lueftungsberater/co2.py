@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 import math
 from typing import Any
 
@@ -15,6 +16,8 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.storage import Store
 
+from .time_utils import timestamp_is_fresh
+
 from .const import (
     CO2_GRACE_PERIOD,
     CONF_CO2,
@@ -23,6 +26,8 @@ from .const import (
     STORAGE_VERSION,
 )
 
+
+_LOGGER = logging.getLogger(__name__)
 
 def co2_tracker_signal(entry_id: str, subentry_id: str) -> str:
     """Return dispatcher signal for one room CO2 tracker."""
@@ -102,7 +107,12 @@ class RoomCo2Tracker:
             self._unsub_expiry = None
         if self.unavailable_since is None:
             return
-        remaining = CO2_GRACE_PERIOD - (dt_util.utcnow() - self.unavailable_since)
+        now = dt_util.utcnow()
+        if not timestamp_is_fresh(
+            now, self.unavailable_since, CO2_GRACE_PERIOD, inclusive=False
+        ):
+            return
+        remaining = CO2_GRACE_PERIOD - (now - self.unavailable_since)
         if remaining.total_seconds() <= 0:
             return
         self._unsub_expiry = async_call_later(
@@ -133,7 +143,7 @@ class RoomCo2Tracker:
         if (
             self.last_valid_value is not None
             and self.unavailable_since is not None
-            and dt_util.utcnow() - self.unavailable_since < CO2_GRACE_PERIOD
+            and timestamp_is_fresh(dt_util.utcnow(), self.unavailable_since, CO2_GRACE_PERIOD, inclusive=False)
         ):
             return self.last_valid_value
 
@@ -152,7 +162,7 @@ class RoomCo2Tracker:
         if (
             self.last_valid_value is not None
             and self.unavailable_since is not None
-            and dt_util.utcnow() - self.unavailable_since < CO2_GRACE_PERIOD
+            and timestamp_is_fresh(dt_util.utcnow(), self.unavailable_since, CO2_GRACE_PERIOD, inclusive=False)
         ):
             return "grace"
 
@@ -186,12 +196,12 @@ class RoomCo2Tracker:
         elif (
             stored_value is not None
             and stored_valid_at is not None
-            and now - stored_valid_at < CO2_GRACE_PERIOD
+            and timestamp_is_fresh(now, stored_valid_at, CO2_GRACE_PERIOD, inclusive=False)
         ):
             self.last_valid_value = stored_value
             self.last_valid_at = stored_valid_at
             self.unavailable_since = stored_unavailable or stored_valid_at
-            if now - self.unavailable_since < CO2_GRACE_PERIOD:
+            if timestamp_is_fresh(now, self.unavailable_since, CO2_GRACE_PERIOD, inclusive=False):
                 self._schedule_expiry()
             else:
                 self.unavailable_since = None
@@ -290,8 +300,15 @@ async def async_get_or_create_co2_tracker(
         return tracker
 
     tracker = RoomCo2Tracker(hass, entry, subentry)
+    try:
+        await tracker.async_initialize()
+    except Exception:
+        try:
+            await tracker.async_stop()
+        except Exception:  # noqa: BLE001 - preserve the original setup error
+            _LOGGER.debug("Unable to clean up failed CO2 tracker setup", exc_info=True)
+        raise
     bucket[subentry.subentry_id] = tracker
-    await tracker.async_initialize()
     return tracker
 
 

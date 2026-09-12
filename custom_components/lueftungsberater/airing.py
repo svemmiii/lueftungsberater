@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -16,6 +17,8 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .time_utils import clamp_not_future
+
 from .const import (
     CONF_WINDOWS,
     DATA_TRACKERS,
@@ -24,6 +27,8 @@ from .const import (
     STORAGE_VERSION,
     WINDOW_UNKNOWN_GRACE,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 _UNKNOWN = {"unknown", "unavailable", "none", ""}
 
@@ -138,13 +143,18 @@ class RoomAiringTracker:
 
     async def async_initialize(self) -> None:
         stored = await self._store.async_load() or {}
-        self.last_confirmed_airing = _parse_dt(stored.get("last_confirmed_airing"))
-        stored_open_since = _parse_dt(stored.get("open_since"))
-        stored_unknown_since = _parse_dt(stored.get("unknown_since"))
+        now = dt_util.utcnow()
+        self.last_confirmed_airing = clamp_not_future(
+            now, _parse_dt(stored.get("last_confirmed_airing"))
+        )
+        stored_open_since = clamp_not_future(now, _parse_dt(stored.get("open_since")))
+        stored_unknown_since = clamp_not_future(
+            now, _parse_dt(stored.get("unknown_since"))
+        )
 
         any_open, all_known = self._contact_state()
         if any_open:
-            self.open_since = stored_open_since or dt_util.utcnow()
+            self.open_since = stored_open_since or now
             self._unknown_since = None
         elif not all_known:
             # Startup often exposes contacts as unknown for a moment. Preserve a
@@ -155,7 +165,7 @@ class RoomAiringTracker:
                 stored_unknown_since
                 if stored_open_since is not None
                 else None
-            ) or (dt_util.utcnow() if stored_open_since is not None else None)
+            ) or (now if stored_open_since is not None else None)
         else:
             self.open_since = None
             self._unknown_since = None
@@ -354,8 +364,18 @@ async def async_get_or_create_tracker(hass: HomeAssistant, entry: ConfigEntry, s
     if tracker is not None:
         return tracker
     tracker = RoomAiringTracker(hass, entry, subentry)
+    try:
+        await tracker.async_initialize()
+    except Exception:
+        # async_initialize may already have installed listeners/timers before a
+        # late Store write fails. Tear those down before propagating setup
+        # failure, and never expose this partial tracker through hass.data.
+        try:
+            await tracker.async_stop()
+        except Exception:  # noqa: BLE001 - preserve the original setup error
+            _LOGGER.debug("Unable to clean up failed airing tracker setup", exc_info=True)
+        raise
     bucket[subentry.subentry_id] = tracker
-    await tracker.async_initialize()
     return tracker
 
 

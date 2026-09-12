@@ -152,6 +152,13 @@
       "remote_progress": {
         "title": "Bağlantı kontrol ediliyor",
         "description": "Uzaktaki Home Assistant Tailscale üzerinden sorgulanıyor. Bağlantıya göre bu işlem kısa bir süre alabilir."
+      },
+      "reauth_confirm": {
+        "title": "Uzak erişimi yenile",
+        "description": "**{remote_name}** için erişim belirteci reddedildi veya iptal edildi. Yeni bir Long-Lived Access Token gir. Tailscale adresi ve mevcut oda seçimi değişmeden kalır.",
+        "data": {
+          "remote_access_token": "Yeni Long-Lived Access Token"
+        }
       }
     },
     "error": {
@@ -159,11 +166,14 @@
       "invalid_auth": "Uzaktaki Home Assistant erişim belirtecini kabul etmedi.",
       "cannot_connect": "Uzaktaki Home Assistant'a bu Tailscale adresi üzerinden ulaşılamıyor.",
       "select_room": "En az bir paylaşılan oda seç.",
-      "admin_required": "Bu uzak bağlantıda kullanılan Home Assistant kullanıcısının yönetici olması gerekir."
+      "admin_required": "Bu uzak bağlantıda kullanılan Home Assistant kullanıcısının yönetici olması gerekir.",
+      "duplicate_remote": "Bu Tailscale hedefi zaten uzak bağlantı olarak yapılandırılmış."
     },
     "abort": {
       "already_configured": "Bu uzak Home Assistant zaten bağlı.",
-      "reconfigure_successful": "Ayarlar kaydedildi."
+      "reconfigure_successful": "Ayarlar kaydedildi.",
+      "reauth_successful": "Yeni uzak erişim belirteci kaydedildi.",
+      "reauth_not_supported": "Bu giriş için yeniden kimlik doğrulama gerekmiyor."
     },
     "progress": {
       "testing_remote": "Tailscale bağlantısı kontrol ediliyor ve güncel Fresh Air Assistant durumu okunuyor …"
@@ -179,9 +189,9 @@
       "step": {
         "user": {
           "title": "Oda ekle",
-          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca anlamlı bir gece önerisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
+          "description": "İç ortam sıcaklığı ve nemi zorunludur. İsteğe bağlı olarak odayı mevcut bir Home Assistant alanına atayabilir ve/veya özel bir ad verebilirsiniz. CO₂, pencere/kapı kontakları ve yüzey sıcaklık sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca yararlı gece havalandırma bilgisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
           "data": {
-            "room_name": "Oda adı",
+            "room_name": "Özel oda adı (isteğe bağlı)",
             "indoor_temperature": "İç sıcaklık",
             "indoor_humidity": "İç nem",
             "co2_entity": "CO₂ (isteğe bağlı)",
@@ -192,12 +202,15 @@
             "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
             "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
             "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver",
-            "room_notify_triggers": "Bu oda için bildir"
+            "room_notify_triggers": "Bu oda için bildir",
+            "area_id": "Home Assistant alanı (isteğe bağlı)"
           },
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
             "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
-            "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz."
+            "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz.",
+            "area_id": "Bu Havalandırma Danışmanı odasını mevcut bir Home Assistant alanına atar. Özel oda adı girmezseniz alanın adı kullanılır.",
+            "room_name": "İsteğe bağlı. Bir Home Assistant alanı seçiliyse ve bu alan boş bırakılırsa Havalandırma Danışmanı alan adını kullanır."
           },
           "sections": {
             "room_climate": {
@@ -259,7 +272,7 @@
         "reconfigure": {
           "title": "Odayı yeniden yapılandır",
           "data": {
-            "room_name": "Oda adı",
+            "room_name": "Özel oda adı (isteğe bağlı)",
             "indoor_temperature": "İç sıcaklık",
             "indoor_humidity": "İç nem",
             "co2_entity": "CO₂ (isteğe bağlı)",
@@ -270,13 +283,16 @@
             "night_advice_start_time": "🌙 Gece önerisini şu saatten sonra göster",
             "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
             "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver",
-            "room_notify_triggers": "Bu oda için bildir"
+            "room_notify_triggers": "Bu oda için bildir",
+            "area_id": "Home Assistant alanı (isteğe bağlı)"
           },
-          "description": "İç sıcaklık ve nem zorunludur. CO₂, pencere/kapı kontakları ve yüzey sıcaklığı sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca anlamlı bir gece önerisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
+          "description": "İç ortam sıcaklığı ve nemi zorunludur. İsteğe bağlı olarak odayı mevcut bir Home Assistant alanına atayabilir ve/veya özel bir ad verebilirsiniz. CO₂, pencere/kapı kontakları ve yüzey sıcaklık sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca yararlı gece havalandırma bilgisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
             "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
-            "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz."
+            "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz.",
+            "area_id": "Bu Havalandırma Danışmanı odasını mevcut bir Home Assistant alanına atar. Özel oda adı girmezseniz alanın adı kullanılır.",
+            "room_name": "İsteğe bağlı. Bir Home Assistant alanı seçiliyse ve bu alan boş bırakılırsa Havalandırma Danışmanı alan adını kullanır."
           },
           "sections": {
             "room_climate": {
@@ -341,8 +357,9 @@
         "remote_read_only": "Uzak/Tailscale bağlantıları salt okunurdur. Odalar yalnızca yerel bir Fresh Air Assistant'a eklenebilir."
       },
       "error": {
-        "room_name_empty": "Lütfen bir oda adı girin.",
-        "room_name_duplicate": "Bu oda adı bu örnekte zaten kullanılıyor."
+        "room_name_empty": "Lütfen özel bir oda adı girin veya mevcut bir Home Assistant alanı seçin.",
+        "room_name_duplicate": "Bu oda adı bu örnekte zaten kullanılıyor.",
+        "area_not_found": "Seçilen Home Assistant alanı artık mevcut değil. Lütfen başka bir alan seçin veya seçimi kaldırın."
       }
     }
   },

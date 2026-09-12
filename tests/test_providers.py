@@ -1175,3 +1175,278 @@ def test_short_term_forecast_respects_dst_fold_chronology():
     assert status == "worsening"
     assert kind == "thunderstorm"
     assert minutes == 20.0
+
+
+async def test_expired_nina_details_use_bounded_stale_fallback_when_refresh_fails(
+    hass, enable_custom_integrations
+):
+    """Same active warning keeps stale safety details briefly, never forever."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from homeassistant.core import SupportsResponse
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.lueftungsberater.const import CONF_WARNING_SOURCE
+    from custom_components.lueftungsberater.providers import (
+        _cached_nina_details,
+        _nina_details_bucket,
+        async_refresh_nina_details,
+    )
+
+    nina = MockConfigEntry(domain="nina", title="NINA", data={})
+    nina.add_to_hass(hass)
+    advisor = SimpleNamespace(
+        entry_id="advisor-stale-cache",
+        data={CONF_WARNING_SOURCE: nina.entry_id},
+    )
+    warning = "binary_sensor.nina_warning_stale"
+    hass.states.async_set(warning, "on", {"id": "warning-123"})
+
+    async def _initial(_call):
+        return {
+            warning: {
+                "headline": "Gefahrstoffaustritt",
+                "recommended_actions": "Fenster und Türen geschlossen halten.",
+            }
+        }
+
+    hass.services.async_register(
+        "nina",
+        "get_details",
+        _initial,
+        supports_response=SupportsResponse.ONLY,
+    )
+    try:
+        with patch(
+            "custom_components.lueftungsberater.providers._config_entry_entities",
+            return_value=[warning],
+        ):
+            await async_refresh_nina_details(hass, advisor)
+            bucket = _nina_details_bucket(hass)
+            key = f"{advisor.entry_id}:{warning}"
+            assert key in bucket
+            bucket[key]["cached_at"] = (
+                dt_util.utcnow() - timedelta(minutes=6)
+            ).isoformat()
+
+            hass.services.async_remove("nina", "get_details")
+
+            async def _failed(_call):
+                raise RuntimeError("provider unavailable")
+
+            hass.services.async_register(
+                "nina",
+                "get_details",
+                _failed,
+                supports_response=SupportsResponse.ONLY,
+            )
+            await async_refresh_nina_details(hass, advisor)
+
+            # Five-minute refresh TTL expired, but the identical still-active
+            # warning retains its last safety details within the bounded stale
+            # fallback window.
+            assert key in bucket
+            assert _cached_nina_details(hass, advisor, warning).get(
+                "recommended_actions"
+            ) == "Fenster und Türen geschlossen halten."
+
+            # The fallback has a hard ceiling and cannot survive indefinitely.
+            bucket[key]["cached_at"] = (
+                dt_util.utcnow() - timedelta(minutes=61)
+            ).isoformat()
+            await async_refresh_nina_details(hass, advisor)
+            assert key not in bucket
+            assert _cached_nina_details(hass, advisor, warning) == {}
+    finally:
+        hass.services.async_remove("nina", "get_details")
+
+
+async def test_nina_stale_details_never_cross_warning_id_change(
+    hass, enable_custom_integrations
+):
+    """A replacement warning must never inherit stale actions from the old id."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from homeassistant.core import SupportsResponse
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.lueftungsberater.const import CONF_WARNING_SOURCE
+    from custom_components.lueftungsberater.providers import (
+        _cached_nina_details,
+        _nina_details_bucket,
+        async_refresh_nina_details,
+    )
+
+    nina = MockConfigEntry(domain="nina", title="NINA", data={})
+    nina.add_to_hass(hass)
+    advisor = SimpleNamespace(
+        entry_id="advisor-warning-replaced",
+        data={CONF_WARNING_SOURCE: nina.entry_id},
+    )
+    warning = "binary_sensor.nina_warning_replaced"
+    hass.states.async_set(warning, "on", {"id": "old-warning"})
+
+    async def _initial(_call):
+        return {warning: {"recommended_actions": "Fenster geschlossen halten."}}
+
+    hass.services.async_register(
+        "nina", "get_details", _initial, supports_response=SupportsResponse.ONLY
+    )
+    try:
+        with patch(
+            "custom_components.lueftungsberater.providers._config_entry_entities",
+            return_value=[warning],
+        ):
+            await async_refresh_nina_details(hass, advisor)
+            bucket = _nina_details_bucket(hass)
+            key = f"{advisor.entry_id}:{warning}"
+            bucket[key]["cached_at"] = (
+                dt_util.utcnow() - timedelta(minutes=6)
+            ).isoformat()
+
+            hass.states.async_set(warning, "on", {"id": "new-warning"})
+            hass.services.async_remove("nina", "get_details")
+            # Even if the service itself temporarily disappears, identity
+            # invalidation still runs before returning.
+            await async_refresh_nina_details(hass, advisor)
+
+            assert key not in bucket
+            assert _cached_nina_details(hass, advisor, warning) == {}
+    finally:
+        hass.services.async_remove("nina", "get_details")
+
+
+async def test_nina_unavailable_keeps_last_active_danger_but_off_clears_it(
+    hass, enable_custom_integrations
+):
+    """Provider unavailable is unknown, while explicit off is authoritative."""
+    from unittest.mock import patch
+
+    from homeassistant.core import SupportsResponse
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.lueftungsberater.const import CONF_WARNING_SOURCE
+    from custom_components.lueftungsberater.providers import (
+        _evaluate_nina_like_entities,
+        _nina_details_bucket,
+        async_refresh_nina_details,
+    )
+
+    nina = MockConfigEntry(domain="nina", title="NINA", data={})
+    nina.add_to_hass(hass)
+    advisor = SimpleNamespace(
+        entry_id="advisor-unavailable-cache",
+        data={CONF_WARNING_SOURCE: nina.entry_id},
+    )
+    warning = "binary_sensor.nina_warning_provider_outage"
+    hass.states.async_set(warning, "on", {"id": "warning-123"})
+
+    async def _details(_call):
+        return {
+            warning: {
+                "headline": "Gefahrstoffaustritt",
+                "recommended_actions": "Fenster und Türen geschlossen halten.",
+            }
+        }
+
+    hass.services.async_register(
+        "nina", "get_details", _details, supports_response=SupportsResponse.ONLY
+    )
+    try:
+        with patch(
+            "custom_components.lueftungsberater.providers._config_entry_entities",
+            return_value=[warning],
+        ):
+            await async_refresh_nina_details(hass, advisor)
+            assert _evaluate_nina_like_entities(hass, advisor, [warning]).nina_status == "danger"
+
+            # A coordinator/provider outage must not be interpreted as an all-clear.
+            hass.states.async_set(warning, "unavailable", {"id": "warning-123"})
+            hass.services.async_remove("nina", "get_details")
+            await async_refresh_nina_details(hass, advisor)
+            stale = _evaluate_nina_like_entities(hass, advisor, [warning])
+            assert stale.nina_status == "danger"
+            assert stale.official_close_instruction is True
+
+            # An explicit off state is authoritative and clears the stale lock.
+            hass.states.async_set(warning, "off", {"id": "warning-123"})
+            await async_refresh_nina_details(hass, advisor)
+            cleared = _evaluate_nina_like_entities(hass, advisor, [warning])
+            assert cleared.nina_status == "none"
+            assert not _nina_details_bucket(hass)
+    finally:
+        hass.services.async_remove("nina", "get_details")
+
+
+async def test_nina_unavailable_new_warning_id_never_inherits_old_safety_details(
+    hass, enable_custom_integrations
+):
+    """An unavailable replacement slot cannot inherit the previous warning text."""
+    from unittest.mock import patch
+
+    from homeassistant.core import SupportsResponse
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.lueftungsberater.const import CONF_WARNING_SOURCE
+    from custom_components.lueftungsberater.providers import (
+        _evaluate_nina_like_entities,
+        _nina_details_bucket,
+        async_refresh_nina_details,
+    )
+
+    nina = MockConfigEntry(domain="nina", title="NINA", data={})
+    nina.add_to_hass(hass)
+    advisor = SimpleNamespace(
+        entry_id="advisor-unavailable-replacement",
+        data={CONF_WARNING_SOURCE: nina.entry_id},
+    )
+    warning = "binary_sensor.nina_warning_provider_replacement"
+    hass.states.async_set(warning, "on", {"id": "old-warning"})
+
+    async def _details(_call):
+        return {warning: {"recommended_actions": "Fenster geschlossen halten."}}
+
+    hass.services.async_register(
+        "nina", "get_details", _details, supports_response=SupportsResponse.ONLY
+    )
+    try:
+        with patch(
+            "custom_components.lueftungsberater.providers._config_entry_entities",
+            return_value=[warning],
+        ):
+            await async_refresh_nina_details(hass, advisor)
+            hass.services.async_remove("nina", "get_details")
+            hass.states.async_set(warning, "unavailable", {"id": "new-warning"})
+            await async_refresh_nina_details(hass, advisor)
+
+            assert not _nina_details_bucket(hass)
+            assert _evaluate_nina_like_entities(hass, advisor, [warning]).nina_status == "none"
+    finally:
+        hass.services.async_remove("nina", "get_details")
+
+
+def test_dwd_fallback_warning_key_is_stable_across_list_reordering():
+    from custom_components.lueftungsberater.providers import _dwd_warning_key
+
+    entity = "sensor.dwd_weather_warnings_current_warning_level"
+    common = {
+        "warning_1_name": "STURM",
+        "warning_1_start": "2026-09-12T12:00:00+00:00",
+        "warning_1_end": "2026-09-12T14:00:00+00:00",
+        "warning_1_headline": "Amtliche Warnung vor Sturm",
+    }
+    first = FakeState("3", common)
+    moved = FakeState(
+        "3",
+        {
+            "warning_2_name": common["warning_1_name"],
+            "warning_2_start": common["warning_1_start"],
+            "warning_2_end": common["warning_1_end"],
+            "warning_2_headline": common["warning_1_headline"],
+        },
+    )
+    assert _dwd_warning_key(first, entity, 1) == _dwd_warning_key(moved, entity, 2)

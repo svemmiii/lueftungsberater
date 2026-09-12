@@ -560,9 +560,9 @@ def _incomplete_data_safety_result(
         duration_key="not_needed",
         duration_args={},
         original_reason=original_reason,
-        indoor_absolute_humidity=None,  # type: ignore[arg-type]
-        outdoor_absolute_humidity=None,  # type: ignore[arg-type]
-        absolute_humidity_difference=None,  # type: ignore[arg-type]
+        indoor_absolute_humidity=None,
+        outdoor_absolute_humidity=None,
+        absolute_humidity_difference=None,
         co2_status=co2_status(values.get("co2_ppm")),
         room_status_color="red",
         room_recommendation_key=recommendation_key,
