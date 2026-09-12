@@ -1,5 +1,4 @@
 """Regression tests for persistent provider-independent hard safety state."""
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
