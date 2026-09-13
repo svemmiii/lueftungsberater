@@ -17,6 +17,14 @@ from .const import (
     CONF_OUTDOOR_CO2,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
+    CONF_OUTDOOR_WIND,
+    CONF_OUTDOOR_GUST,
+    CONF_OUTDOOR_RAIN,
+    CONF_OUTDOOR_PM25,
+    CONF_OUTDOOR_PM10,
+    CONF_OUTDOOR_VOC,
+    CONF_OUTDOOR_NO2,
+    CONF_OUTDOOR_O3,
     CONF_RAIN_NOW,
     CONF_RAIN_SOON,
     CONF_WEATHER_DANGER,
@@ -59,12 +67,25 @@ def _configured_outside_entities(entry: ConfigEntry) -> set[str]:
     entities: set[str] = set()
     manual = entry.data.get(CONF_MANUAL_OUTDOOR)
     if isinstance(manual, dict):
-        for key in (CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2):
+        for key in (
+            CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2,
+            CONF_OUTDOOR_WIND, CONF_OUTDOOR_GUST, CONF_OUTDOOR_RAIN,
+            CONF_OUTDOOR_PM25, CONF_OUTDOOR_PM10, CONF_OUTDOOR_VOC,
+            CONF_OUTDOOR_NO2, CONF_OUTDOOR_O3,
+        ):
             value = manual.get(key)
             if isinstance(value, str) and value:
                 entities.add(value)
     for key in (
         CONF_OUTDOOR_TEMP,
+    CONF_OUTDOOR_WIND,
+    CONF_OUTDOOR_GUST,
+    CONF_OUTDOOR_RAIN,
+    CONF_OUTDOOR_PM25,
+    CONF_OUTDOOR_PM10,
+    CONF_OUTDOOR_VOC,
+    CONF_OUTDOOR_NO2,
+    CONF_OUTDOOR_O3,
         CONF_OUTDOOR_HUMIDITY,
         CONF_OUTDOOR_CO2,
         CONF_WEATHER_DANGER,

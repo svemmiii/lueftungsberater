@@ -207,7 +207,16 @@ class OutdoorAirQualityTracker:
     def observe(self, values: dict[str, float], *, now: datetime | None = None) -> None:
         """Fold one provider sample into a fixed-size local memory."""
         loc = location_key(self.hass, self.entry)
-        if loc is None or not values:
+        if loc is None:
+            return
+        self.observe_scope(loc, values, now=now)
+
+    def observe_scope(
+        self, scope: str, values: dict[str, float], *, now: datetime | None = None
+    ) -> None:
+        """Fold samples into a named bounded scope (for example one room)."""
+        loc = str(scope or "").strip()
+        if not loc or not values:
             return
         now = now or dt_util.utcnow()
         pollutants = self._buckets.setdefault(loc, {})
@@ -266,6 +275,14 @@ class OutdoorAirQualityTracker:
 
     def context(self, kind: str | None, current_value: float | None) -> AirQualityContext:
         loc = location_key(self.hass, self.entry)
+        if loc is None:
+            return AirQualityContext(location_key=loc)
+        return self.context_scope(loc, kind, current_value)
+
+    def context_scope(
+        self, scope: str, kind: str | None, current_value: float | None
+    ) -> AirQualityContext:
+        loc = str(scope or "").strip() or None
         if loc is None or not kind or current_value is None:
             return AirQualityContext(location_key=loc)
         stats = self._buckets.get(loc, {}).get(kind)

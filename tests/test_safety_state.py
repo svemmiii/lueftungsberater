@@ -308,3 +308,122 @@ async def test_persisted_hard_lock_expires_after_maximum_fallback_age(
         )
         assert expired.nina_status == "none"
         assert expired.official_close_instruction is False
+
+
+@pytest.mark.asyncio
+async def test_local_gust_hard_danger_persists_when_exact_gust_source_becomes_unknown(
+    hass, enable_custom_integrations
+):
+    """A local gust lock follows the gust entity, not an unrelated weather.* state."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    advisor = MockConfigEntry(
+        domain=DOMAIN,
+        title="Advisor",
+        data={CONF_WEATHER: "weather.home"},
+        entry_id="advisor-safety-local-gust",
+    )
+    advisor.add_to_hass(hass)
+    gust = "sensor.local_gust"
+
+    # The weather provider itself is unavailable, but the local gust sensor is
+    # current and dangerous. This must still become a persisted ACTIVE lock.
+    hass.states.async_set("weather.home", "unavailable", {})
+    hass.states.async_set(gust, "110", {"unit_of_measurement": "km/h"})
+    active = WeatherAssessment(
+        provider_domain="met",
+        weather_danger=True,
+        weather_reason_key="weather_wind_danger",
+        weather_reason_args={"speed_kmh": 110.0},
+        weather_danger_sources={gust},
+        source_gust=gust,
+        wind_gust_kmh=110.0,
+    )
+    await async_apply_persistent_safety_state(
+        hass, advisor, active, WarningAssessment()
+    )
+
+    # Reload/outage: weather.home is now sunny, but the entity that actually
+    # created the hard danger is UNKNOWN. The old lock must not fail open.
+    hass.data.setdefault(DOMAIN, {}).pop(DATA_SAFETY_STATE, None)
+    hass.states.async_set("weather.home", "sunny", {})
+    hass.states.async_set(gust, "unavailable", {})
+    restored = WeatherAssessment(provider_domain="met")
+    await async_apply_persistent_safety_state(
+        hass, advisor, restored, WarningAssessment()
+    )
+    assert restored.weather_danger is True
+    assert restored.weather_reason_key == "weather_wind_danger"
+    assert restored.weather_danger_sources == {gust}
+
+    # Once that exact gust entity is available and safe again, CLEAR is
+    # authoritative and the persisted fallback is removed immediately.
+    hass.states.async_set(gust, "80", {"unit_of_measurement": "km/h"})
+    cleared = WeatherAssessment(provider_domain="met")
+    await async_apply_persistent_safety_state(
+        hass, advisor, cleared, WarningAssessment()
+    )
+    assert cleared.weather_danger is False
+
+
+@pytest.mark.asyncio
+async def test_stale_nina_evidence_does_not_restart_persistent_one_hour_ttl(
+    hass, enable_custom_integrations, monkeypatch
+):
+    """Cached NINA evidence and persistent fallback share one absolute TTL."""
+    from datetime import datetime, timedelta, timezone
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    nina = MockConfigEntry(domain="nina", title="NINA", data={})
+    nina.add_to_hass(hass)
+    advisor = MockConfigEntry(
+        domain=DOMAIN,
+        title="Advisor",
+        data={CONF_WARNING_SOURCE: nina.entry_id},
+        entry_id="advisor-safety-nina-stale-chain",
+    )
+    advisor.add_to_hass(hass)
+    entity = "binary_sensor.nina_warning_stale_chain"
+    evidence_at = datetime(2026, 9, 13, 8, 0, tzinfo=timezone.utc)
+
+    with patch(
+        "custom_components.lueftungsberater.safety_state._entry_entity_ids",
+        return_value=[entity],
+    ):
+        # 55 minutes after the last successful NINA detail response, the stale
+        # cache may still produce danger. Persisting it must keep 08:00 as the
+        # confirmation time instead of pretending 08:55 was fresh evidence.
+        monkeypatch.setattr(
+            "custom_components.lueftungsberater.safety_state.dt_util.utcnow",
+            lambda: evidence_at + timedelta(minutes=55),
+        )
+        hass.states.async_set(entity, "on", {"id": "warning-stale-chain"})
+        stale_active = WarningAssessment(
+            provider_domain="nina",
+            nina_status="danger",
+            nina_reason_key="official_close_instruction",
+            official_close_instruction=True,
+            warning_ids={"warning-stale-chain"},
+            source_nina_entity=entity,
+            hard_safety_evidence_at=evidence_at,
+        )
+        await async_apply_persistent_safety_state(
+            hass, advisor, WeatherAssessment(), stale_active
+        )
+        record = hass.data[DOMAIN][DATA_SAFETY_STATE][advisor.entry_id]["channels"]["warning"]
+        assert record["last_confirmed_at"] == evidence_at.isoformat()
+        assert record["valid_until"] == (evidence_at + timedelta(hours=1)).isoformat()
+
+        # At 61 minutes from the *real* evidence, provider UNKNOWN must no longer
+        # inherit the lock. The two one-hour mechanisms may not add up to ~2 h.
+        monkeypatch.setattr(
+            "custom_components.lueftungsberater.safety_state.dt_util.utcnow",
+            lambda: evidence_at + timedelta(minutes=61),
+        )
+        hass.states.async_set(entity, "unavailable", {"id": "warning-stale-chain"})
+        expired = WarningAssessment(provider_domain="nina")
+        await async_apply_persistent_safety_state(
+            hass, advisor, WeatherAssessment(), expired
+        )
+        assert expired.nina_status == "none"
+        assert expired.official_close_instruction is False

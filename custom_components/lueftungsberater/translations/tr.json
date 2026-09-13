@@ -26,7 +26,15 @@
           "notify_target": "Bildirim hedefi (isteğe bağlı)",
           "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
           "display_mode": "Gösterge biçimi",
-          "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+          "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)",
+          "outdoor_wind_speed": "Yerel dış rüzgâr hızı (isteğe bağlı)",
+          "outdoor_wind_gust": "Yerel dış rüzgâr hamlesi (isteğe bağlı)",
+          "outdoor_rain": "Yerel yağmur sensörü (isteğe bağlı)",
+          "outdoor_pm25": "Dış PM2.5 (isteğe bağlı)",
+          "outdoor_pm10": "Dış PM10 (isteğe bağlı)",
+          "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
+          "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+          "outdoor_o3": "Dış ozon (isteğe bağlı)"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
@@ -46,12 +54,20 @@
             }
           },
           "outdoor": {
-            "name": "🌤️ Kendi dış ortam sensörlerin",
-            "description": "İsteğe bağlı. Bulunduğun yerdeki havayı daha iyi temsil ediyorsa kendi dış ortam ölçümlerini kullan.",
+            "name": "🌤️ Yerel dış istasyon",
+            "description": "İsteğe bağlı. Taze ve makul yerel ölçümler her değer için önceliklidir; eksik değerlerde hava/hava kalitesi sağlayıcısına geri dönülür.",
             "data": {
               "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
               "outdoor_humidity": "Dış nemi geçersiz kıl",
-              "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+              "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)",
+              "outdoor_wind_speed": "Yerel dış rüzgâr hızı (isteğe bağlı)",
+              "outdoor_wind_gust": "Yerel dış rüzgâr hamlesi (isteğe bağlı)",
+              "outdoor_rain": "Yerel yağmur sensörü (isteğe bağlı)",
+              "outdoor_pm25": "Dış PM2.5 (isteğe bağlı)",
+              "outdoor_pm10": "Dış PM10 (isteğe bağlı)",
+              "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
+              "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+              "outdoor_o3": "Dış ozon (isteğe bağlı)"
             },
             "data_description": {
               "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
@@ -94,7 +110,15 @@
           "notify_target": "Bildirim hedefi (isteğe bağlı)",
           "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)",
           "display_mode": "Gösterge biçimi",
-          "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+          "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)",
+          "outdoor_wind_speed": "Yerel dış rüzgâr hızı (isteğe bağlı)",
+          "outdoor_wind_gust": "Yerel dış rüzgâr hamlesi (isteğe bağlı)",
+          "outdoor_rain": "Yerel yağmur sensörü (isteğe bağlı)",
+          "outdoor_pm25": "Dış PM2.5 (isteğe bağlı)",
+          "outdoor_pm10": "Dış PM10 (isteğe bağlı)",
+          "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
+          "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+          "outdoor_o3": "Dış ozon (isteğe bağlı)"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
@@ -114,12 +138,20 @@
             }
           },
           "outdoor": {
-            "name": "🌤️ Kendi dış ortam sensörlerin",
-            "description": "İsteğe bağlı. Bulunduğun yerdeki havayı daha iyi temsil ediyorsa kendi dış ortam ölçümlerini kullan.",
+            "name": "🌤️ Yerel dış istasyon",
+            "description": "İsteğe bağlı. Taze ve makul yerel ölçümler her değer için önceliklidir; eksik değerlerde hava/hava kalitesi sağlayıcısına geri dönülür.",
             "data": {
               "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
               "outdoor_humidity": "Dış nemi geçersiz kıl",
-              "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)"
+              "outdoor_co2": "Dış ortam CO₂ (isteğe bağlı)",
+              "outdoor_wind_speed": "Yerel dış rüzgâr hızı (isteğe bağlı)",
+              "outdoor_wind_gust": "Yerel dış rüzgâr hamlesi (isteğe bağlı)",
+              "outdoor_rain": "Yerel yağmur sensörü (isteğe bağlı)",
+              "outdoor_pm25": "Dış PM2.5 (isteğe bağlı)",
+              "outdoor_pm10": "Dış PM10 (isteğe bağlı)",
+              "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
+              "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+              "outdoor_o3": "Dış ozon (isteğe bağlı)"
             },
             "data_description": {
               "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
@@ -203,7 +235,12 @@
             "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
             "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver",
             "room_notify_triggers": "Bu oda için bildir",
-            "area_id": "Home Assistant alanı (isteğe bağlı)"
+            "area_id": "Home Assistant alanı (isteğe bağlı)",
+            "indoor_pm25": "İç PM2.5 (isteğe bağlı)",
+            "indoor_pm10": "İç PM10 (isteğe bağlı)",
+            "indoor_voc": "İç VOC (indeks veya ham değer, isteğe bağlı)",
+            "indoor_no2": "İç NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+            "indoor_formaldehyde": "İç formaldehit (isteğe bağlı)"
           },
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
@@ -240,10 +277,15 @@
             },
             "room_sensors": {
               "name": "🧪 Ek sensörler",
-              "description": "İsteğe bağlı. CO₂ ve yüzey sıcaklığı danışmana ek bilgi sağlar.",
+              "description": "İsteğe bağlı. CO₂, yüzey sıcaklığı, PM2.5/PM10, VOC/NO₂ (indeks veya ham değer) ve formaldehit iç hava değerlendirmesini genişletebilir. Eksik sensörler tamamen yok sayılır.",
               "data": {
                 "co2_entity": "CO₂ (isteğe bağlı)",
-                "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
+                "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
+                "indoor_pm25": "İç PM2.5 (isteğe bağlı)",
+                "indoor_pm10": "İç PM10 (isteğe bağlı)",
+                "indoor_voc": "İç VOC (indeks veya ham değer, isteğe bağlı)",
+                "indoor_no2": "İç NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+                "indoor_formaldehyde": "İç formaldehit (isteğe bağlı)"
               }
             },
             "room_openings": {
@@ -284,7 +326,12 @@
             "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster",
             "remote_share": "Bu odanın uzaktan sorgulanmasına izin ver",
             "room_notify_triggers": "Bu oda için bildir",
-            "area_id": "Home Assistant alanı (isteğe bağlı)"
+            "area_id": "Home Assistant alanı (isteğe bağlı)",
+            "indoor_pm25": "İç PM2.5 (isteğe bağlı)",
+            "indoor_pm10": "İç PM10 (isteğe bağlı)",
+            "indoor_voc": "İç VOC (indeks veya ham değer, isteğe bağlı)",
+            "indoor_no2": "İç NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+            "indoor_formaldehyde": "İç formaldehit (isteğe bağlı)"
           },
           "description": "İç ortam sıcaklığı ve nemi zorunludur. İsteğe bağlı olarak odayı mevcut bir Home Assistant alanına atayabilir ve/veya özel bir ad verebilirsiniz. CO₂, pencere/kapı kontakları ve yüzey sıcaklık sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca yararlı gece havalandırma bilgisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
           "data_description": {
@@ -322,10 +369,15 @@
             },
             "room_sensors": {
               "name": "🧪 Ek sensörler",
-              "description": "İsteğe bağlı. CO₂ ve yüzey sıcaklığı danışmana ek bilgi sağlar.",
+              "description": "İsteğe bağlı. CO₂, yüzey sıcaklığı, PM2.5/PM10, VOC/NO₂ (indeks veya ham değer) ve formaldehit iç hava değerlendirmesini genişletebilir. Eksik sensörler tamamen yok sayılır.",
               "data": {
                 "co2_entity": "CO₂ (isteğe bağlı)",
-                "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)"
+                "surface_temperature": "Nem koruması için soğuk / kritik yüzey sıcaklığı (isteğe bağlı)",
+                "indoor_pm25": "İç PM2.5 (isteğe bağlı)",
+                "indoor_pm10": "İç PM10 (isteğe bağlı)",
+                "indoor_voc": "İç VOC (indeks veya ham değer, isteğe bağlı)",
+                "indoor_no2": "İç NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
+                "indoor_formaldehyde": "İç formaldehit (isteğe bağlı)"
               }
             },
             "room_openings": {

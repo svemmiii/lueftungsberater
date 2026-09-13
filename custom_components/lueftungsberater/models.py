@@ -43,11 +43,24 @@ class RoomInput:
     air_quality: str = "unknown"
     air_quality_pollutant: str | None = None
     air_quality_value: float | None = None
+    air_quality_unit: str | None = None
+    air_quality_measurement_type: str = "unknown"
     air_quality_baseline_value: float | None = None
     air_quality_typical: bool | None = None
     air_quality_unusual: bool = False
     air_quality_trend: str = "unknown"
     air_quality_history_samples: int = 0
+    indoor_air_quality: str = "unknown"
+    indoor_air_quality_pollutant: str | None = None
+    indoor_air_quality_value: float | None = None
+    indoor_air_quality_unit: str | None = None
+    indoor_air_quality_measurement_type: str = "unknown"
+    indoor_air_quality_baseline_value: float | None = None
+    indoor_air_quality_typical: bool | None = None
+    indoor_air_quality_unusual: bool = False
+    indoor_air_quality_trend: str = "unknown"
+    indoor_air_quality_history_samples: int = 0
+    outdoor_air_quality_values: dict[str, float] = field(default_factory=dict)
     previous_mode: str | None = None
     previous_need: str | None = None
     co2_pending_hold: bool = False
@@ -91,6 +104,8 @@ class VentilationResult:
     air_quality: str = "unknown"
     air_quality_pollutant: str | None = None
     air_quality_value: float | None = None
+    air_quality_unit: str | None = None
+    air_quality_measurement_type: str = "unknown"
     outdoor_co2: float | None = None
     co2_difference: float | None = None
     air_quality_baseline_value: float | None = None

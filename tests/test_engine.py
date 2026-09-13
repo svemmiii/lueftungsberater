@@ -2456,3 +2456,182 @@ def test_co2_finish_ready_with_1250_target_does_not_hide_same_urgency_temperatur
     assert result.mode != "lueftung_fertig"
     assert result.recommendation_key == "keep_open"
     assert result.room_recommendation_key != "can_close"
+
+
+def test_optional_indoor_air_sensors_do_not_change_legacy_decision_when_unknown():
+    base = RoomInput(
+        indoor_temp=22.0,
+        indoor_humidity=50.0,
+        outdoor_temp=18.0,
+        outdoor_humidity=50.0,
+        target_temp=22.0,
+    )
+    legacy = evaluate_room(base)
+    explicit_unknown = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            indoor_air_quality="unknown",
+        )
+    )
+    assert explicit_unknown.mode == legacy.mode
+    assert explicit_unknown.recommendation_key == legacy.recommendation_key
+
+
+def test_indoor_pm25_need_ventilates_when_same_outdoor_pollutant_is_clearly_lower():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            indoor_air_quality="poor",
+            indoor_air_quality_pollutant="pm2_5",
+            indoor_air_quality_value=40.0,
+            air_quality="good",
+            outdoor_air_quality_values={"pm2_5": 5.0},
+        )
+    )
+    assert result.mode == "innenluft_lueften"
+    assert result.recommendation_key == "open_now"
+    assert result.primary_need == "indoor_air_urgent"
+
+
+def test_indoor_pm25_need_does_not_open_when_outdoor_pm25_is_worse():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            indoor_air_quality="poor",
+            indoor_air_quality_pollutant="pm2_5",
+            indoor_air_quality_value=40.0,
+            air_quality="very_poor",
+            air_quality_pollutant="pm2_5",
+            air_quality_value=80.0,
+            outdoor_air_quality_values={"pm2_5": 80.0},
+        )
+    )
+    assert result.recommendation_key in {"keep_closed", "caution_keep_closed"}
+    assert result.recommendation_key != "open_now"
+
+
+def test_indoor_air_need_with_unknown_outdoor_quality_never_invents_clean_air():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            indoor_air_quality="poor",
+            indoor_air_quality_pollutant="voc_index",
+            indoor_air_quality_value=9.0,
+            air_quality="unknown",
+        )
+    )
+    assert result.mode == "innenluft_abwaegung"
+    assert result.recommendation_key == "wait"
+
+
+def test_indoor_voc_mass_can_compare_directly_with_outdoor_voc_mass():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            indoor_air_quality="poor",
+            indoor_air_quality_pollutant="voc",
+            indoor_air_quality_value=4000.0,
+            indoor_air_quality_unit="µg/m³",
+            indoor_air_quality_measurement_type="mass",
+            air_quality="good",
+            outdoor_air_quality_values={"voc": 300.0},
+        )
+    )
+    assert result.mode == "innenluft_lueften"
+    assert result.recommendation_key == "open_now"
+
+
+def test_indoor_no2_mass_does_not_open_when_same_outdoor_raw_value_is_worse():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            indoor_air_quality="poor",
+            indoor_air_quality_pollutant="no2",
+            indoor_air_quality_value=80.0,
+            indoor_air_quality_unit="µg/m³",
+            indoor_air_quality_measurement_type="mass",
+            air_quality="very_poor",
+            outdoor_air_quality_values={"no2": 140.0},
+        )
+    )
+    assert result.recommendation_key in {"keep_closed", "caution_keep_closed"}
+    assert result.recommendation_key != "open_now"
+
+
+def test_open_co2_session_with_unknown_co2_keeps_airing_for_beneficial_indoor_air_need():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            co2=None,
+            window_open=True,
+            open_minutes=7.0,
+            previous_mode="co2_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_ready=False,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+            indoor_air_quality="poor",
+            indoor_air_quality_pollutant="pm2_5",
+            indoor_air_quality_value=40.0,
+            indoor_air_quality_unit="µg/m³",
+            indoor_air_quality_measurement_type="mass",
+            air_quality="very_good",
+            outdoor_air_quality_values={"pm2_5": 5.0},
+        )
+    )
+    assert result.mode == "weiter_lueften"
+    assert result.recommendation_key == "keep_open"
+    assert result.reason_args["continue_indoor_benefit"] is True
+
+
+def test_same_pollutant_improvement_does_not_ignore_worse_other_outdoor_pollutant():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            indoor_air_quality="moderate",
+            indoor_air_quality_pollutant="pm2_5",
+            indoor_air_quality_value=20.0,
+            indoor_air_quality_unit="µg/m³",
+            indoor_air_quality_measurement_type="mass",
+            air_quality="poor",
+            air_quality_pollutant="o3",
+            air_quality_value=200.0,
+            outdoor_air_quality_values={"pm2_5": 5.0, "o3": 200.0},
+        )
+    )
+    assert result.mode == "innenluft_abwaegung"
+    assert result.color == "yellow"
+    assert result.recommendation_key == "wait"

@@ -25,10 +25,26 @@ from homeassistant.util.unit_conversion import (
     TemperatureConverter,
 )
 
+from .air_sensors import (
+    classify_absolute,
+    concentration_ugm3,
+    pollutant_reading,
+    state_is_fresh,
+    state_number,
+    worst_quality,
+)
 from .const import (
     CONF_MANUAL_OUTDOOR,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
+    CONF_OUTDOOR_WIND,
+    CONF_OUTDOOR_GUST,
+    CONF_OUTDOOR_RAIN,
+    CONF_OUTDOOR_PM25,
+    CONF_OUTDOOR_PM10,
+    CONF_OUTDOOR_VOC,
+    CONF_OUTDOOR_NO2,
+    CONF_OUTDOOR_O3,
     CONF_WARNING_SOURCE,
     CONF_WEATHER,
     DATA_FORECAST_CACHE,
@@ -205,9 +221,18 @@ class WeatherAssessment:
     weather_reason_key: str | None = None
     weather_reason_args: dict[str, Any] = field(default_factory=dict)
     weather_original_reason: str | None = None
+    # Exact entities whose current value produced a hard live-weather danger.
+    # This is deliberately separate from the broader subscription/source set so
+    # persistent safety can distinguish CLEAR from UNKNOWN on the real hazard
+    # source (for example a local gust sensor while weather.* is unavailable).
+    weather_danger_sources: set[str] = field(default_factory=set)
     source_entities: set[str] = field(default_factory=set)
     source_temperature: str | None = None
     source_humidity: str | None = None
+    source_wind: str | None = None
+    source_gust: str | None = None
+    source_rain: str | None = None
+    local_station_values: dict[str, float] = field(default_factory=dict)
     temperature_source_kind: str | None = None
     humidity_source_kind: str | None = None
     provider_domain: str | None = None
@@ -218,7 +243,10 @@ class WeatherAssessment:
     air_quality_index: str = "unknown"
     air_quality_pollutant: str | None = None
     air_quality_value: float | None = None
+    air_quality_unit: str | None = None
+    air_quality_measurement_type: str = "unknown"
     air_quality_values: dict[str, float] = field(default_factory=dict)
+    air_quality_sources: dict[str, str] = field(default_factory=dict)
     hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
     hourly_forecast_updated: datetime | None = None
     forecast_data_status: str = "not_configured"  # not_configured | fresh | stale | unavailable
@@ -249,6 +277,11 @@ class WarningAssessment:
     warning_ids: set[str] = field(default_factory=set)
     source_nina_entity: str | None = None
     source_weather_entity: str | None = None
+    # Timestamp of the last provider evidence that actually contained the hard
+    # close/outdoor-air instruction. ``None`` means the current assessment has
+    # fresh live evidence and may use the current time. Cached NINA details set
+    # this explicitly so a second persistence TTL cannot extend stale evidence.
+    hard_safety_evidence_at: datetime | None = None
 
 
 def _float(value: Any) -> float | None:
@@ -379,10 +412,14 @@ AIR_QUALITY_LIMITS: dict[str, tuple[float, float, float, float]] = {
     # UBA LQI 2025/2026 hourly classes: very good / good / moderate / poor /
     # very poor. Values are µg/m³ and the worst available pollutant wins.
     "no2": (10.0, 30.0, 60.0, 100.0),
+    "no2_parts": (5.0, 16.0, 32.0, 53.0),
     "pm10": (9.0, 27.0, 54.0, 90.0),
     "pm2_5": (5.0, 15.0, 30.0, 50.0),
     "o3": (24.0, 72.0, 144.0, 240.0),
     "so2": (10.0, 30.0, 60.0, 100.0),
+    # TVOC is a hygienic orientation metric, not a single-substance health
+    # limit. The second boundary follows the current AIR 950 µg/m³ reference.
+    "voc": (300.0, 950.0, 3000.0, 10000.0),
 }
 AIR_QUALITY_MAX_AGE = timedelta(hours=3)
 
@@ -404,6 +441,8 @@ def _air_quality_kind(entity_id: str, original_name: str = "") -> str | None:
         return "pm10"
     if "stickstoffdioxid" in low or "nitrogen_dioxide" in low or " no2" in f" {low}":
         return "no2"
+    if "tvoc" in low or "volatile_organic" in low or " voc" in f" {low}":
+        return "voc"
     if "ozon" in low or "ozone" in low or " o3" in f" {low}":
         return "o3"
     if "schwefeldioxid" in low or "sulfur_dioxide" in low or "sulphur_dioxide" in low or " so2" in f" {low}":
@@ -444,7 +483,20 @@ def _air_quality_ugm3(state: State | None) -> float | None:
 
 
 def _air_quality_class(kind: str, value: float) -> str:
-    limits = AIR_QUALITY_LIMITS[kind]
+    """Classify one physical pollutant without duplicating sensor scales.
+
+    Local raw-sensor normalization already owns the substance-specific scales
+    for PM, NO2 and O3 (including their ppb/ppm ``*_parts`` forms). Reuse that
+    shared classifier first so newly supported physical representations cannot
+    be accepted by ``air_sensors`` and then silently dropped here. Keep the
+    small provider table only as a fallback for provider-only kinds such as SO2.
+    """
+    shared = classify_absolute(kind, value)
+    if shared != "unknown":
+        return shared
+    limits = AIR_QUALITY_LIMITS.get(kind)
+    if limits is None:
+        return "unknown"
     if value <= limits[0]:
         return "very_good"
     if value <= limits[1]:
@@ -510,6 +562,46 @@ def _discover_air_quality(
 
     return worst_class, worst_kind, worst_value, values, used
 
+
+def _discover_air_quality_sources(
+    hass: HomeAssistant, weather_entity_id: str, values: dict[str, float]
+) -> dict[str, str]:
+    """Return the entity that actually supplied each provider pollutant value."""
+    if not values:
+        return {}
+    try:
+        registry_entry = _registry_entry(hass, weather_entity_id)
+        registry = er.async_get(hass)
+    except (AttributeError, TypeError):
+        # Source IDs are dashboard metadata only. A stripped-down test harness
+        # or temporarily unavailable registry must never affect AQ decisions.
+        return {}
+    if registry_entry is None:
+        return {}
+
+    sources: dict[str, str] = {}
+    source_values: dict[str, float] = {}
+    for entity_id in _config_entry_entities(hass, registry_entry.config_entry_id):
+        item = registry.async_get(entity_id)
+        original_name = str(getattr(item, "original_name", "") or "") if item else ""
+        kind = _air_quality_kind(entity_id, original_name)
+        if kind is None or kind not in values:
+            continue
+        value = _air_quality_ugm3(hass.states.get(entity_id))
+        if value is None:
+            continue
+        # _discover_air_quality keeps the highest duplicate value. Mirror that
+        # exact choice so the clickable source always belongs to the displayed
+        # value rather than merely to a configured/related entity.
+        if kind not in source_values or value >= source_values[kind]:
+            source_values[kind] = value
+            sources[kind] = entity_id
+
+    return {
+        kind: entity_id
+        for kind, entity_id in sources.items()
+        if kind in values and source_values.get(kind) == values[kind]
+    }
 
 
 def _forecast_temperature_to_celsius(value: Any, unit: str | None) -> float | None:
@@ -814,6 +906,78 @@ def _discover_dwd_radar_entities(
     return current, next_rain, used
 
 
+def _local_station_air_quality(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> tuple[
+    str,
+    str | None,
+    float | None,
+    dict[str, float],
+    dict[str, float],
+    dict[str, str | None],
+    dict[str, str],
+    set[str],
+]:
+    """Return normalized local-station pollutants without guessing scales."""
+    configured = {
+        "pm2_5": _manual_override(entry, CONF_OUTDOOR_PM25),
+        "pm10": _manual_override(entry, CONF_OUTDOOR_PM10),
+    }
+    used = {entity for entity in configured.values() if entity}
+    values: dict[str, float] = {}
+    relative_values: dict[str, float] = {}
+    units: dict[str, str | None] = {}
+    measurement_types: dict[str, str] = {}
+    classes: dict[str, tuple[str, float]] = {}
+
+    for kind, entity_id in configured.items():
+        if not entity_id:
+            continue
+        reading = concentration_ugm3(hass, entity_id)
+        if reading.value is None:
+            continue
+        values[kind] = reading.value
+        units[kind] = reading.unit
+        measurement_types[kind] = "mass"
+        classes[kind] = (classify_absolute(kind, reading.value), reading.value)
+
+    for pollutant, key in (
+        ("voc", CONF_OUTDOOR_VOC),
+        ("no2", CONF_OUTDOOR_NO2),
+        ("o3", CONF_OUTDOOR_O3),
+    ):
+        entity_id = _manual_override(entry, key)
+        if not entity_id:
+            continue
+        used.add(entity_id)
+        reading = pollutant_reading(hass, entity_id, pollutant=pollutant)
+        if reading.value is None or reading.pollutant_key is None:
+            continue
+        normalized_key = reading.pollutant_key
+        units[normalized_key] = reading.unit
+        measurement_types[normalized_key] = reading.measurement_type
+        if reading.measurement_type == "mass" or normalized_key in {"no2_parts", "o3_parts"}:
+            values[normalized_key] = reading.value
+            classes[normalized_key] = (
+                classify_absolute(normalized_key, reading.value),
+                reading.value,
+            )
+        else:
+            relative_values[normalized_key] = reading.value
+
+    quality, kind, value = worst_quality(classes)
+    return (
+        quality,
+        kind,
+        value,
+        values,
+        relative_values,
+        units,
+        measurement_types,
+        used,
+    )
+
+
 def weather_assessment(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -883,7 +1047,7 @@ def weather_assessment(
     )
 
     local_temperature = (
-        _state_float(hass.states.get(temp_override))
+        state_number(hass, temp_override, minimum=-100.0, maximum=150.0).value
         if temp_override
         else None
     )
@@ -902,7 +1066,7 @@ def weather_assessment(
         result.temperature_source_kind = "unavailable"
 
     local_humidity = (
-        _state_float(hass.states.get(humidity_override))
+        state_number(hass, humidity_override, minimum=0.0, maximum=110.0).value
         if humidity_override
         else None
     )
@@ -931,22 +1095,140 @@ def weather_assessment(
         air_entities,
     ) = _discover_air_quality(hass, weather_entity_id)
     result.source_entities.update(air_entities)
+    if air_entities and result.air_quality_values:
+        result.air_quality_sources.update(
+            _discover_air_quality_sources(
+                hass, weather_entity_id, result.air_quality_values
+            )
+        )
+    if result.air_quality_pollutant is not None:
+        result.air_quality_unit = "µg/m³"
+        result.air_quality_measurement_type = "mass"
 
-    if not weather_available:
-        return result
+    (
+        _local_quality,
+        _local_kind,
+        _local_value,
+        local_values,
+        local_relative_values,
+        local_units,
+        local_measurement_types,
+        local_air_entities,
+    ) = _local_station_air_quality(hass, entry)
+    result.source_entities.update(local_air_entities)
+    local_source_candidates = {
+        "pm2_5": _manual_override(entry, CONF_OUTDOOR_PM25),
+        "pm10": _manual_override(entry, CONF_OUTDOOR_PM10),
+        "voc": _manual_override(entry, CONF_OUTDOOR_VOC),
+        "no2": _manual_override(entry, CONF_OUTDOOR_NO2),
+        "o3": _manual_override(entry, CONF_OUTDOOR_O3),
+    }
+    for normalized_key in (*local_values.keys(), *local_relative_values.keys()):
+        base_kind = normalized_key.removesuffix("_parts").removesuffix("_index")
+        source_id = local_source_candidates.get(base_kind)
+        if source_id:
+            result.air_quality_sources[normalized_key] = source_id
+    # A fresh local station is physically closer to the window than a regional
+    # provider. Use it when it supplies a valid absolute pollutant value;
+    # otherwise retain the official/provider assessment unchanged.
+    if local_values:
+        # Prefer the local station *per pollutant*. A local PM2.5 sensor must not
+        # erase an official O3/NO2 value that the station does not measure.
+        combined_values = dict(result.air_quality_values)
+        combined_values.update(local_values)
+        worst_class = "unknown"
+        worst_kind = None
+        worst_value = None
+        for kind, value in combined_values.items():
+            classification = _air_quality_class(kind, value)
+            if classification == "unknown":
+                continue
+            if AIR_QUALITY_RANK[classification] > AIR_QUALITY_RANK[worst_class]:
+                worst_class = classification
+                worst_kind = kind
+                worst_value = value
+        result.air_quality_values = combined_values
+        if worst_kind is not None:
+            result.air_quality_index = worst_class
+            result.air_quality_pollutant = worst_kind
+            result.air_quality_value = worst_value
+            result.air_quality_unit = local_units.get(worst_kind, "µg/m³")
+            result.air_quality_measurement_type = local_measurement_types.get(
+                worst_kind, "mass"
+            )
 
-    condition = state.state
-    result.rain_now = condition in RAIN_CONDITIONS
-    if condition == "pouring":
-        result.weather_reason_key = "weather_heavy_rain_current"
+    # Vendor indices and physical parts-per-billion/million readings cannot be
+    # safely converted into generic mass concentrations. Keep them in their own
+    # learned context instead of pretending the scales are interchangeable.
+    result.local_station_values.update(local_relative_values)
 
-    wind_unit = state.attributes.get("wind_speed_unit")
-    wind = _wind_to_kmh(state.attributes.get("wind_speed"), wind_unit)
-    gust = _wind_to_kmh(state.attributes.get("wind_gust_speed"), wind_unit)
-    result.wind_speed_kmh = wind if wind is not None and wind > 0 else None
-    result.wind_gust_kmh = gust if gust is not None and gust > 0 else None
-    wind_kmh = wind or 0.0
-    gust_kmh = gust or 0.0
+    # Provider condition/wind are optional inputs. Local wind, gust and rain
+    # are evaluated independently below, even while the selected weather entity
+    # is unavailable. One broken provider must not disable a valid local safety
+    # measurement.
+    condition = state.state if weather_available else ""
+    if weather_available:
+        result.rain_now = condition in RAIN_CONDITIONS
+        if condition == "pouring":
+            result.weather_reason_key = "weather_heavy_rain_current"
+
+        wind_unit = state.attributes.get("wind_speed_unit")
+        wind = _wind_to_kmh(state.attributes.get("wind_speed"), wind_unit)
+        gust = _wind_to_kmh(state.attributes.get("wind_gust_speed"), wind_unit)
+        result.wind_speed_kmh = wind if wind is not None and wind > 0 else None
+        result.wind_gust_kmh = gust if gust is not None and gust > 0 else None
+        if result.wind_speed_kmh is not None:
+            result.source_wind = weather_entity_id
+        if result.wind_gust_kmh is not None:
+            result.source_gust = weather_entity_id
+
+    local_wind_id = _manual_override(entry, CONF_OUTDOOR_WIND)
+    local_gust_id = _manual_override(entry, CONF_OUTDOOR_GUST)
+    for entity_id in (local_wind_id, local_gust_id):
+        if entity_id:
+            result.source_entities.add(entity_id)
+    if local_wind_id:
+        raw = state_number(hass, local_wind_id, minimum=0.0, maximum=300.0)
+        normalized = _wind_to_kmh(raw.value, raw.unit) if raw.value is not None else None
+        if normalized is not None and 0.0 <= normalized <= 300.0:
+            result.wind_speed_kmh = normalized
+            result.source_wind = local_wind_id
+    if local_gust_id:
+        raw = state_number(hass, local_gust_id, minimum=0.0, maximum=400.0)
+        normalized = _wind_to_kmh(raw.value, raw.unit) if raw.value is not None else None
+        if normalized is not None and 0.0 <= normalized <= 400.0:
+            result.wind_gust_kmh = normalized
+            result.source_gust = local_gust_id
+
+    local_rain_id = _manual_override(entry, CONF_OUTDOOR_RAIN)
+    if local_rain_id:
+        result.source_entities.add(local_rain_id)
+        rain_state = hass.states.get(local_rain_id)
+        if local_rain_id.startswith("binary_sensor."):
+            # Event-driven binary sensors may legitimately keep the same state
+            # for hours. Availability + an explicit on/off state is authoritative;
+            # a 30-minute numeric-sensor freshness rule would create false clears.
+            if rain_state is not None and rain_state.state in {"on", "off"}:
+                result.rain_now = rain_state.state == "on"
+                result.source_rain = local_rain_id
+        elif state_is_fresh(rain_state):
+            # Only a current precipitation *intensity* may answer "is it raining
+            # now?". Accumulated daily/total precipitation must never be treated
+            # as a live rain flag merely because its value remains above zero.
+            device_class = str(rain_state.attributes.get("device_class") or "").lower()
+            unit = str(rain_state.attributes.get("unit_of_measurement") or "").lower()
+            intensity_units = {
+                "mm/h", "mm/d", "in/h", "in/d",
+                "mm/hr", "in/hr", "mm/day", "in/day",
+            }
+            if device_class == "precipitation_intensity" or unit in intensity_units:
+                rain_value = _float(rain_state.state)
+                if rain_value is not None and rain_value >= 0:
+                    result.rain_now = rain_value > 0
+                    result.source_rain = local_rain_id
+
+    wind_kmh = result.wind_speed_kmh or 0.0
+    gust_kmh = result.wind_gust_kmh or 0.0
 
     # These are ventilation/window-safety thresholds, not claims about the
     # DWD warning colour. Around 50 km/h mean wind (roughly Bft 7) or 65 km/h
@@ -954,6 +1236,12 @@ def weather_assessment(
     if condition in WEATHER_DANGER_CONDITIONS or wind_kmh >= 75 or gust_kmh >= 105:
         result.weather_danger = True
         result.weather_caution = False
+        if condition in WEATHER_DANGER_CONDITIONS:
+            result.weather_danger_sources.add(weather_entity_id)
+        if wind_kmh >= 75 and result.source_wind:
+            result.weather_danger_sources.add(result.source_wind)
+        if gust_kmh >= 105 and result.source_gust:
+            result.weather_danger_sources.add(result.source_gust)
 
         if condition in {"lightning", "lightning-rainy"}:
             result.weather_reason_key = "weather_thunderstorm_danger"
@@ -972,6 +1260,9 @@ def weather_assessment(
         speed = gust_kmh if gust_kmh >= 65 else wind_kmh
         result.weather_reason_key = "weather_wind_caution"
         result.weather_reason_args = {"speed_kmh": speed}
+
+    if not weather_available:
+        return result
 
     current_radar, next_radar, radar_entities = _discover_dwd_radar_entities(
         hass,
@@ -1474,6 +1765,8 @@ def _evaluate_nina_like_entities(
     slot_details = _nina_slot_sensor_values(hass, entity_ids)
     registry = _optional_entity_registry(hass) if slot_details else None
     clear_candidates: list[tuple[str, str, str]] = []
+    fresh_hard_danger_seen = False
+    cached_hard_danger_times: list[datetime] = []
 
     for entity_id in entity_ids:
         if not entity_id.startswith("binary_sensor."):
@@ -1511,16 +1804,12 @@ def _evaluate_nina_like_entities(
             if isinstance(cached_record.get("details"), dict)
             else {}
         )
-        headline = (
+        live_headline = (
             (_text(state, "headline") if live_active else "")
-            or detail.get("headline", "")
-            or str(full.get("headline") or "")
+            or (detail.get("headline", "") if live_active else "")
         )
-        description = (
-            (_text(state, "description") if live_active else "")
-            or str(full.get("description") or "")
-        )
-        actions = " ".join(
+        live_description = _text(state, "description") if live_active else ""
+        live_actions = " ".join(
             part
             for part in (
                 (_text(state, "recommended_actions") if live_active else ""),
@@ -1530,6 +1819,28 @@ def _evaluate_nina_like_entities(
                 (_text(state, "recommendation") if live_active else ""),
                 (_text(state, "recommendations") if live_active else ""),
                 (_text(state, "advice") if live_active else ""),
+            )
+            if part
+        )
+        live_message_type = next(
+            (
+                str(value).strip()
+                for value in (
+                    state.attributes.get("msg_type") if live_active else None,
+                    state.attributes.get("message_type") if live_active else None,
+                    state.attributes.get("msgType") if live_active else None,
+                )
+                if value not in (None, "")
+            ),
+            "",
+        )
+
+        headline = live_headline or str(full.get("headline") or "")
+        description = live_description or str(full.get("description") or "")
+        actions = " ".join(
+            part
+            for part in (
+                live_actions,
                 str(full.get("recommended_actions") or ""),
                 str(full.get("recommended_action") or ""),
                 str(full.get("instruction") or ""),
@@ -1540,13 +1851,10 @@ def _evaluate_nina_like_entities(
             )
             if part
         )
-        message_type = next(
+        message_type = live_message_type or next(
             (
                 str(value).strip()
                 for value in (
-                    state.attributes.get("msg_type") if live_active else None,
-                    state.attributes.get("message_type") if live_active else None,
-                    state.attributes.get("msgType") if live_active else None,
                     full.get("msg_type"),
                     full.get("message_type"),
                     full.get("msgType"),
@@ -1555,6 +1863,12 @@ def _evaluate_nina_like_entities(
             ),
             "",
         )
+        live_air_state = _evaluate_air_warning(
+            live_headline,
+            live_description,
+            live_actions,
+            live_message_type,
+        ) if live_active else "none"
         air_state = _evaluate_air_warning(
             headline,
             description,
@@ -1576,6 +1890,12 @@ def _evaluate_nina_like_entities(
             result.warning_ids.add(warning_key)
             result.official_close_instruction = True
             result.nina_status = "danger"
+            if live_air_state == "danger":
+                fresh_hard_danger_seen = True
+            else:
+                cached_at = _parse_datetime(cached_record.get("cached_at"))
+                if cached_at is not None:
+                    cached_hard_danger_times.append(cached_at)
             if result.nina_reason_key is None:
                 result.nina_reason_key = "official_close_instruction"
                 result.nina_original_reason = display_text
@@ -1590,6 +1910,12 @@ def _evaluate_nina_like_entities(
     if result.nina_status == "danger":
         result.warning_notice_kind = None
         result.warning_notice_text = None
+        if not fresh_hard_danger_seen and cached_hard_danger_times:
+            # Use the newest actually successful detail response that still
+            # proves a hard instruction. Persisted safety may remain conservative
+            # only until one hour from this evidence, not one hour from every
+            # later reuse of the stale cache.
+            result.hard_safety_evidence_at = max(cached_hard_danger_times)
         return result
 
     if clear_candidates:
@@ -1775,4 +2101,5 @@ def warning_assessment(
     result.warning_ids = set(assessed.warning_ids)
     result.source_nina_entity = assessed.source_nina_entity
     result.source_weather_entity = assessed.source_weather_entity
+    result.hard_safety_evidence_at = assessed.hard_safety_evidence_at
     return result

@@ -447,3 +447,26 @@ def test_co2_missing_during_active_session_explains_unconfirmed_target():
     assert "850" in text
     assert "nicht bestätigt" in text
     assert "?\u202fppm" not in text
+
+
+def test_indoor_air_raw_voc_reason_keeps_physical_unit():
+    text = reason_text(
+        "indoor_air_ventilate",
+        {"pollutant": "voc", "value": 1200.0, "unit": "µg/m³"},
+        "de",
+        "°C",
+    )
+    assert "VOC" in text
+    assert "1200" in text
+    assert "µg/m³" in text
+
+
+def test_indoor_air_vendor_index_is_labeled_as_index_without_fake_unit():
+    text = reason_text(
+        "indoor_air_tradeoff",
+        {"pollutant": "voc_index", "value": 7.0, "unit": None},
+        "de",
+        "°C",
+    )
+    assert "VOC-Index" in text
+    assert "µg/m³" not in text

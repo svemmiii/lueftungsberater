@@ -26,7 +26,15 @@
           "notify_target": "Benachrichtigungsziel (optional)",
           "notify_triggers": "Benachrichtigen bei (optional)",
           "display_mode": "Ampeldarstellung",
-          "outdoor_co2": "CO₂ außen (optional)"
+          "outdoor_co2": "CO₂ außen (optional)",
+          "outdoor_wind_speed": "Windgeschwindigkeit lokal (optional)",
+          "outdoor_wind_gust": "Windböen lokal (optional)",
+          "outdoor_rain": "Regen lokal (optional)",
+          "outdoor_pm25": "PM2,5 außen (optional)",
+          "outdoor_pm10": "PM10 außen (optional)",
+          "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
+          "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
+          "outdoor_o3": "Ozon außen (optional)"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
@@ -46,12 +54,20 @@
             }
           },
           "outdoor": {
-            "name": "🌤️ Eigene Außensensoren",
-            "description": "Optional. Nutze eigene Außenwerte, wenn sie die Luft direkt an deinem Standort besser beschreiben.",
+            "name": "🌤️ Lokale Außenstation",
+            "description": "Optional. Frische und plausible lokale Messwerte werden je Messgröße vor Wetter-/Luftqualitätsdiensten bevorzugt; fehlende Werte fallen automatisch zurück.",
             "data": {
               "outdoor_temperature": "Außentemperatur überschreiben",
               "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben",
-              "outdoor_co2": "CO₂ außen (optional)"
+              "outdoor_co2": "CO₂ außen (optional)",
+              "outdoor_wind_speed": "Windgeschwindigkeit lokal (optional)",
+              "outdoor_wind_gust": "Windböen lokal (optional)",
+              "outdoor_rain": "Regen lokal (optional)",
+              "outdoor_pm25": "PM2,5 außen (optional)",
+              "outdoor_pm10": "PM10 außen (optional)",
+              "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
+              "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
+              "outdoor_o3": "Ozon außen (optional)"
             },
             "data_description": {
               "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
@@ -94,7 +110,15 @@
           "notify_target": "Benachrichtigungsziel (optional)",
           "notify_triggers": "Benachrichtigen bei (optional)",
           "display_mode": "Ampeldarstellung",
-          "outdoor_co2": "CO₂ außen (optional)"
+          "outdoor_co2": "CO₂ außen (optional)",
+          "outdoor_wind_speed": "Windgeschwindigkeit lokal (optional)",
+          "outdoor_wind_gust": "Windböen lokal (optional)",
+          "outdoor_rain": "Regen lokal (optional)",
+          "outdoor_pm25": "PM2,5 außen (optional)",
+          "outdoor_pm10": "PM10 außen (optional)",
+          "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
+          "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
+          "outdoor_o3": "Ozon außen (optional)"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
@@ -114,12 +138,20 @@
             }
           },
           "outdoor": {
-            "name": "🌤️ Eigene Außensensoren",
-            "description": "Optional. Nutze eigene Außenwerte, wenn sie die Luft direkt an deinem Standort besser beschreiben.",
+            "name": "🌤️ Lokale Außenstation",
+            "description": "Optional. Frische und plausible lokale Messwerte werden je Messgröße vor Wetter-/Luftqualitätsdiensten bevorzugt; fehlende Werte fallen automatisch zurück.",
             "data": {
               "outdoor_temperature": "Außentemperatur überschreiben",
               "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben",
-              "outdoor_co2": "CO₂ außen (optional)"
+              "outdoor_co2": "CO₂ außen (optional)",
+              "outdoor_wind_speed": "Windgeschwindigkeit lokal (optional)",
+              "outdoor_wind_gust": "Windböen lokal (optional)",
+              "outdoor_rain": "Regen lokal (optional)",
+              "outdoor_pm25": "PM2,5 außen (optional)",
+              "outdoor_pm10": "PM10 außen (optional)",
+              "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
+              "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
+              "outdoor_o3": "Ozon außen (optional)"
             },
             "data_description": {
               "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
@@ -203,7 +235,12 @@
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
             "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
             "room_notify_triggers": "Benachrichtigen für diesen Raum",
-            "area_id": "Home-Assistant-Bereich (optional)"
+            "area_id": "Home-Assistant-Bereich (optional)",
+            "indoor_pm25": "PM2,5 innen (optional)",
+            "indoor_pm10": "PM10 innen (optional)",
+            "indoor_voc": "VOC innen (Index oder Rohwert, optional)",
+            "indoor_no2": "NO₂ / NOx innen (Index oder Rohwert, optional)",
+            "indoor_formaldehyde": "Formaldehyd innen (optional)"
           },
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
@@ -240,10 +277,15 @@
             },
             "room_sensors": {
               "name": "🧪 Zusatzsensoren",
-              "description": "Optional. CO₂ und Oberflächentemperatur liefern dem Berater zusätzliche Informationen.",
+              "description": "Optional. CO₂, Oberflächentemperatur sowie PM2,5/PM10, VOC/NO₂ (Index oder Rohwert) und Formaldehyd können die Innenluftbewertung erweitern. Fehlende Sensoren werden vollständig ignoriert.",
               "data": {
                 "co2_entity": "CO₂ (optional)",
-                "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)"
+                "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)",
+                "indoor_pm25": "PM2,5 innen (optional)",
+                "indoor_pm10": "PM10 innen (optional)",
+                "indoor_voc": "VOC innen (Index oder Rohwert, optional)",
+                "indoor_no2": "NO₂ / NOx innen (Index oder Rohwert, optional)",
+                "indoor_formaldehyde": "Formaldehyd innen (optional)"
               }
             },
             "room_openings": {
@@ -284,7 +326,12 @@
             "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis",
             "remote_share": "Diesen Raum für Remote-Abfragen freigeben",
             "room_notify_triggers": "Benachrichtigen für diesen Raum",
-            "area_id": "Home-Assistant-Bereich (optional)"
+            "area_id": "Home-Assistant-Bereich (optional)",
+            "indoor_pm25": "PM2,5 innen (optional)",
+            "indoor_pm10": "PM10 innen (optional)",
+            "indoor_voc": "VOC innen (Index oder Rohwert, optional)",
+            "indoor_no2": "NO₂ / NOx innen (Index oder Rohwert, optional)",
+            "indoor_formaldehyde": "Formaldehyd innen (optional)"
           },
           "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. Optional kannst du den Raum einem vorhandenen Home-Assistant-Bereich zuordnen und/oder einen eigenen Namen vergeben. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data_description": {
@@ -322,10 +369,15 @@
             },
             "room_sensors": {
               "name": "🧪 Zusatzsensoren",
-              "description": "Optional. CO₂ und Oberflächentemperatur liefern dem Berater zusätzliche Informationen.",
+              "description": "Optional. CO₂, Oberflächentemperatur sowie PM2,5/PM10, VOC/NO₂ (Index oder Rohwert) und Formaldehyd können die Innenluftbewertung erweitern. Fehlende Sensoren werden vollständig ignoriert.",
               "data": {
                 "co2_entity": "CO₂ (optional)",
-                "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)"
+                "surface_temperature": "Kalte/kritische Oberflächentemperatur für Feuchteschutz (optional)",
+                "indoor_pm25": "PM2,5 innen (optional)",
+                "indoor_pm10": "PM10 innen (optional)",
+                "indoor_voc": "VOC innen (Index oder Rohwert, optional)",
+                "indoor_no2": "NO₂ / NOx innen (Index oder Rohwert, optional)",
+                "indoor_formaldehyde": "Formaldehyd innen (optional)"
               }
             },
             "room_openings": {

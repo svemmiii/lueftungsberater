@@ -245,14 +245,50 @@ def _weather_provider_availability(
     hass: HomeAssistant,
     entry: ConfigEntry,
     weather: Any,
+    previous: dict[str, Any] | None,
 ) -> tuple[SafetyAvailability, str]:
+    """Return live-weather safety availability from the actual hazard source.
+
+    The selected ``weather.*`` entity is only one possible source. A local wind
+    or gust sensor can independently create a hard window danger, including
+    while ``weather.*`` itself is unavailable. Once such a danger is persisted,
+    CLEAR is therefore allowed only when every entity that produced the hard
+    danger is currently available and the fresh assessment no longer reports it.
+    If any of those exact entities is unavailable, the state is UNKNOWN and the
+    bounded fallback remains in force.
+    """
     entity_id = entry.data.get(CONF_WEATHER)
-    source_key = str(entity_id or "")
-    if not source_key:
-        return "clear", source_key
-    state = hass.states.get(source_key)
-    if bool(getattr(weather, "weather_danger", False)) and not _state_unknown(state):
+    # Keep a stable channel identity even for configurations that use only local
+    # weather sensors. The concrete hazard entities are stored separately below.
+    source_key = str(entity_id or f"entry:{entry.entry_id}:live_weather")
+
+    if bool(getattr(weather, "weather_danger", False)):
+        # The freshly normalized assessment is direct evidence of an active hard
+        # danger. Do not downgrade it merely because an unrelated weather entity
+        # is unavailable; its exact source entities are persisted with the record.
         return "active", source_key
+
+    previous_sources: list[str] = []
+    if isinstance(previous, dict):
+        raw_sources = previous.get("source_entities")
+        if isinstance(raw_sources, list):
+            previous_sources = [str(item) for item in raw_sources if item]
+        if not previous_sources:
+            legacy_source = str(previous.get("source_entity") or "").strip()
+            if legacy_source:
+                previous_sources = [legacy_source]
+
+    if previous_sources:
+        # A known hard danger is cleared only when the exact source(s) that made
+        # it dangerous are available again and the current assessment is safe.
+        # One unknown source among several is enough to keep bounded fallback.
+        if any(_state_unknown(hass.states.get(source)) for source in previous_sources):
+            return "unknown", source_key
+        return "clear", source_key
+
+    if not entity_id:
+        return "clear", source_key
+    state = hass.states.get(str(entity_id))
     if _state_unknown(state):
         return "unknown", source_key
     return "clear", source_key
@@ -277,6 +313,8 @@ def _record_from_warning(
         if kind == "nina_danger"
         else getattr(warnings, "source_weather_entity", None)
     )
+    evidence_at = _parse_datetime(getattr(warnings, "hard_safety_evidence_at", None))
+    confirmed_at = evidence_at or now
     return {
         "source_key": source_key,
         "source_entity": source_entity,
@@ -288,14 +326,26 @@ def _record_from_warning(
         "official_close_instruction": bool(
             getattr(warnings, "official_close_instruction", False)
         ),
-        "last_confirmed_at": now.isoformat(),
-        "valid_until": (now + SAFETY_FALLBACK_MAX_AGE).isoformat(),
+        # Cached NINA details carry the timestamp of the last *successful*
+        # provider evidence. Reusing those details must never restart this TTL.
+        "last_confirmed_at": confirmed_at.isoformat(),
+        "valid_until": (confirmed_at + SAFETY_FALLBACK_MAX_AGE).isoformat(),
     }
 
 
 def _record_from_weather(weather: Any, source_key: str, now: datetime) -> dict[str, Any]:
+    danger_sources = sorted(
+        str(item)
+        for item in getattr(weather, "weather_danger_sources", set())
+        if item
+    )
+    # Backwards-compatible fallback for older/third-party WeatherAssessment-like
+    # objects that do not yet provide the explicit source set.
+    if not danger_sources and source_key.startswith(("weather.", "sensor.", "binary_sensor.")):
+        danger_sources = [source_key]
     return {
         "source_key": source_key,
+        "source_entities": danger_sources,
         "provider_domain": getattr(weather, "provider_domain", None),
         "kind": "live_weather_danger",
         "reason_key": str(getattr(weather, "weather_reason_key", None) or "weather_danger"),
@@ -355,6 +405,10 @@ def _apply_weather_record(weather: Any, record: dict[str, Any]) -> None:
     weather.weather_reason_key = str(record.get("reason_key") or "weather_danger")
     weather.weather_reason_args = dict(record.get("reason_args") or {})
     weather.weather_original_reason = None
+    if hasattr(weather, "weather_danger_sources"):
+        weather.weather_danger_sources = {
+            str(item) for item in record.get("source_entities", []) if item
+        }
 
 
 async def async_apply_persistent_safety_state(
@@ -378,9 +432,18 @@ async def async_apply_persistent_safety_state(
     )
     if warning_availability == "active":
         new_record = _record_from_warning(warnings, warning_source, now)
+        confirmation_changed = bool(
+            new_record is not None
+            and (
+                not isinstance(previous_warning, dict)
+                or previous_warning.get("last_confirmed_at")
+                != new_record.get("last_confirmed_at")
+                or previous_warning.get("valid_until") != new_record.get("valid_until")
+            )
+        )
         if new_record is not None and (
             not _same_safety_payload(previous_warning, new_record)
-            or _should_refresh_confirmation(previous_warning, now)
+            or (confirmation_changed and _should_refresh_confirmation(previous_warning, now))
         ):
             channels[_WARNING_CHANNEL] = new_record
             changed = True
@@ -396,7 +459,10 @@ async def async_apply_persistent_safety_state(
 
     previous_weather = channels.get(_WEATHER_CHANNEL)
     weather_availability, weather_source = _weather_provider_availability(
-        hass, entry, weather
+        hass,
+        entry,
+        weather,
+        previous_weather if isinstance(previous_weather, dict) else None,
     )
     if weather_availability == "active":
         new_record = _record_from_weather(weather, weather_source, now)

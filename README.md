@@ -6,7 +6,7 @@
 
 **Alpha-Version für Home Assistant.**
 
-Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Raum eine verständliche Lüftungsempfehlung aus. Je nach vorhandener Hardware können Temperatur, Luftfeuchtigkeit, CO₂, Fenster-/Türkontakte, Thermostate, Wetterdaten und Warnmeldungen berücksichtigt werden.
+Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Raum eine verständliche Lüftungsempfehlung aus. Je nach vorhandener Hardware können Temperatur, Luftfeuchtigkeit, CO₂, PM2,5/PM10, VOC-/NO₂-Werte (Index oder Rohwert), Formaldehyd, Fenster-/Türkontakte, Thermostate, lokale Außenstationen, Wetterdaten und Warnmeldungen berücksichtigt werden.
 
 > **Status:** frühe Alpha. Die Integration läuft bereits im Alltag, wird aber noch aktiv getestet und weiterentwickelt.
 
@@ -20,6 +20,8 @@ Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Rau
   - Echte Schutzlagen liegen außerhalb der normalen Ampel und werden eindeutig mit **🔒 Fenster geschlossen halten** dargestellt.
 - Absolute Feuchtigkeit innen/außen
 - Optionaler CO₂-Sensor pro Raum
+- Optionale Innenluftsensoren pro Raum: PM2,5, PM10, VOC, NO₂/NOx und Formaldehyd (Index oder Rohwert automatisch erkannt)
+- Optionale lokale Außenstation: Temperatur, Feuchte, Wind/Böen, Regen, PM2,5, PM10, VOC-/NO₂-Werte (Index oder Rohwert), Ozon und CO₂; frische/plausible lokale Werte werden je Messgröße bevorzugt und fehlende Werte fallen automatisch auf vorhandene Wetter-/Luftqualitätsdienste zurück
 - Automatischer Lüftungsverlauf mit Fenster-/Türkontakt
 - Erkennung einer bestätigten Lüftung ab 5 Minuten
 - Wetterdienst über eine normale Home-Assistant-`weather.*`-Entity

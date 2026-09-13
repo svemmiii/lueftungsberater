@@ -18,6 +18,7 @@ async def test_orphaned_room_stores_are_removed_but_active_room_survives(hass, m
         "other.integration.data",
     ]
     removed = []
+    saved = []
 
     async def fake_names(_hass):
         return names
@@ -28,6 +29,20 @@ async def test_orphaned_room_stores_are_removed_but_active_room_survives(hass, m
 
         async def async_remove(self):
             removed.append(self.key)
+
+        async def async_load(self):
+            if self.key != "lueftungsberater.air_quality.entry":
+                return None
+            return {
+                "buckets": {
+                    "room:active": {"voc_index": {"baseline": 3}},
+                    "room:deleted": {"voc_index": {"baseline": 9}},
+                    "50.00,7.00": {"pm2_5": {"baseline": 12}},
+                }
+            }
+
+        async def async_save(self, data):
+            saved.append((self.key, data))
 
     monkeypatch.setattr(storage_cleanup, "_storage_names", fake_names)
     monkeypatch.setattr(storage_cleanup, "Store", FakeStore)
@@ -48,6 +63,17 @@ async def test_orphaned_room_stores_are_removed_but_active_room_survives(hass, m
         "lueftungsberater.mold.entry.deleted",
     }
     assert set(removed) == result
+    assert saved == [
+        (
+            "lueftungsberater.air_quality.entry",
+            {
+                "buckets": {
+                    "room:active": {"voc_index": {"baseline": 3}},
+                    "50.00,7.00": {"pm2_5": {"baseline": 12}},
+                }
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio

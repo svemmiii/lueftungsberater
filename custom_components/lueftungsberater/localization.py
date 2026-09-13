@@ -273,6 +273,11 @@ def _pollutant_label(value: Any) -> str:
         "pm2_5": "PM2.5",
         "pm10": "PM10",
         "no2": "NO₂",
+        "no2_parts": "NO₂",
+        "no2_index": "NO₂-Index",
+        "voc": "VOC",
+        "voc_parts": "VOC",
+        "voc_index": "VOC-Index",
         "o3": "O₃",
         "so2": "SO₂",
     }.get(str(value or ""), str(value or "").upper() or "—")
@@ -283,7 +288,13 @@ def _air_quality_reason(key: str, a: dict[str, Any], lang: str) -> str:
     value = a.get("value")
     measured = ""
     if value is not None:
-        measured = f" ({pollutant} {_measurement(_number(value, lang, 0), 'µg/m³')})"
+        unit = str(a.get("unit") or "")
+        rendered = (
+            _measurement(_number(value, lang, 1), unit)
+            if unit
+            else _number(value, lang, 1)
+        )
+        measured = f" ({pollutant} {rendered})"
     elif pollutant != "—":
         measured = f" ({pollutant})"
 
@@ -643,6 +654,24 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
                 "en": f"Room temperature is {ti}, away from the target of {target}. Ventilation can move it back toward the target.",
                 "tr": f"Oda sıcaklığı {ti}, hedef ise {target}. Havalandırma sıcaklığı yeniden hedefe yaklaştırabilir.",
             }[lang]
+    elif need in {"indoor_air", "indoor_air_urgent"}:
+        pollutant = _pollutant_label(a.get("indoor_air_quality_pollutant"))
+        value = a.get("indoor_air_quality_value")
+        unit = str(a.get("indoor_air_quality_unit") or "")
+        if value is not None:
+            rendered = (
+                _measurement(_number(value, lang, 1), unit)
+                if unit
+                else _number(value, lang, 1)
+            )
+            value_text = f" ({rendered})"
+        else:
+            value_text = ""
+        inside = {
+            "de": f"Die gemessene Innenluft ist auffällig ({pollutant}{value_text}). Das ist ein eigenständiger Grund, die Luftqualität zu verbessern.",
+            "en": f"Measured indoor air is elevated ({pollutant}{value_text}). That is an independent reason to improve the room air.",
+            "tr": f"Ölçülen iç hava değeri yüksek ({pollutant}{value_text}). Bu, oda havasını iyileştirmek için bağımsız bir nedendir.",
+        }[lang]
     elif need == "routine":
         inside = {
             "de": f"Seit rund {hours} Stunden wurde keine bestätigte Lüftung erkannt. Damit gibt es einen zusätzlichen Grund für einen kurzen Luftaustausch.",
@@ -811,6 +840,36 @@ def reason_text(
 
     if key == "room_perspective":
         return _room_perspective_reason(a, lang, temperature_unit)
+
+    if key in {"indoor_air_ventilate", "indoor_air_tradeoff", "indoor_air_wait"}:
+        pollutant = _pollutant_label(a.get("pollutant"))
+        value = a.get("value")
+        unit = str(a.get("unit") or "")
+        if value is not None:
+            value_text = (
+                _measurement(_number(value, lang, 1), unit)
+                if unit
+                else _number(value, lang, 1)
+            )
+        else:
+            value_text = ""
+        if key == "indoor_air_ventilate":
+            return {
+                "de": f"Die Innenluft ist durch {pollutant}{(' (' + value_text + ')') if value_text else ''} auffällig. Die Außenluft ist dafür günstiger, daher kann Lüften die Belastung senken.",
+                "en": f"Indoor air is elevated for {pollutant}{(' (' + value_text + ')') if value_text else ''}. Outdoor air is more favorable, so ventilation can reduce the load.",
+                "tr": f"İç havada {pollutant}{(' (' + value_text + ')') if value_text else ''} yüksek. Dış hava daha uygun olduğu için havalandırma yükü azaltabilir.",
+            }[lang]
+        if key == "indoor_air_wait":
+            return {
+                "de": f"Die Innenluft ist durch {pollutant} auffällig, aber die Außenluft ist dafür derzeit nicht besser. Fenster lieber geschlossen lassen und – falls vorhanden – filtern.",
+                "en": f"Indoor air is elevated for {pollutant}, but outdoor air is not better right now. Keep the windows closed and filter the air if possible.",
+                "tr": f"İç havada {pollutant} yüksek, ancak dış hava şu anda daha iyi değil. Pencereleri kapalı tut ve mümkünse havayı filtrele.",
+            }[lang]
+        return {
+            "de": f"Die Innenluft ist durch {pollutant} auffällig. Die Außenluft ist dafür nicht sicher genug einzuordnen; beobachte kurz und lüfte nur, wenn die Außenbedingungen passen.",
+            "en": f"Indoor air is elevated for {pollutant}. Outdoor air cannot be classified confidently enough, so observe briefly and ventilate only when outside conditions are suitable.",
+            "tr": f"İç havada {pollutant} yüksek. Dış hava yeterince güvenli sınıflandırılamıyor; kısa süre izle ve yalnızca dış koşullar uygunsa havalandır.",
+        }[lang]
 
     if key == "co2_minimum_airing":
         ppm = m(a.get("co2"), "ppm", 0) if a.get("co2") is not None else None

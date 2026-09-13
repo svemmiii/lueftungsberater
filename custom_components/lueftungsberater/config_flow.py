@@ -41,6 +41,11 @@ from .const import (
     CONF_CLIMATE,
     CONF_DISPLAY_MODE,
     CONF_CO2,
+    CONF_INDOOR_PM25,
+    CONF_INDOOR_PM10,
+    CONF_INDOOR_VOC,
+    CONF_INDOOR_NO2,
+    CONF_INDOOR_FORMALDEHYDE,
     CONF_ENTRY_KIND,
     CONF_INDOOR_HUMIDITY,
     CONF_INDOOR_TEMP,
@@ -51,6 +56,14 @@ from .const import (
     CONF_ROOM_NOTIFY_TRIGGERS,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_CO2,
+    CONF_OUTDOOR_WIND,
+    CONF_OUTDOOR_GUST,
+    CONF_OUTDOOR_RAIN,
+    CONF_OUTDOOR_PM25,
+    CONF_OUTDOOR_PM10,
+    CONF_OUTDOOR_VOC,
+    CONF_OUTDOOR_NO2,
+    CONF_OUTDOOR_O3,
     CONF_OUTDOOR_TEMP,
     CONF_REMOTE_HOST,
     CONF_REMOTE_PORT,
@@ -248,6 +261,24 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                         vol.Optional(CONF_OUTDOOR_CO2): _entity(
                             "sensor", device_class=SensorDeviceClass.CO2
                         ),
+                        vol.Optional(CONF_OUTDOOR_WIND): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_GUST): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_RAIN): EntitySelector(
+                            EntitySelectorConfig(
+                                filter=[
+                                    {"domain": "binary_sensor"},
+                                    {
+                                        "domain": "sensor",
+                                        "device_class": SensorDeviceClass.PRECIPITATION_INTENSITY,
+                                    },
+                                ]
+                            )
+                        ),
+                        vol.Optional(CONF_OUTDOOR_PM25): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_PM10): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_VOC): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_NO2): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_O3): _entity("sensor"),
                     }
                 ),
                 SectionConfig(collapsed=True),
@@ -307,7 +338,12 @@ def _normalize_local_input(user_input: dict[str, Any]) -> dict[str, Any]:
         manual = {
             key: value
             for key, value in outdoor.items()
-            if key in {CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2}
+            if key in {
+                CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2,
+                CONF_OUTDOOR_WIND, CONF_OUTDOOR_GUST, CONF_OUTDOOR_RAIN,
+                CONF_OUTDOOR_PM25, CONF_OUTDOOR_PM10, CONF_OUTDOOR_VOC,
+                CONF_OUTDOOR_NO2, CONF_OUTDOOR_O3,
+            }
             and value not in (None, "")
         }
         if manual:
@@ -330,7 +366,12 @@ def _local_form_defaults(entry: ConfigEntry) -> dict[str, Any]:
     # Preserve legacy top-level manual sensor keys when reconfiguring an older
     # entry, but keep the newly stored shape compact.
     outdoor = dict(manual)
-    for key in (CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2):
+    for key in (
+        CONF_OUTDOOR_TEMP, CONF_OUTDOOR_HUMIDITY, CONF_OUTDOOR_CO2,
+        CONF_OUTDOOR_WIND, CONF_OUTDOOR_GUST, CONF_OUTDOOR_RAIN,
+        CONF_OUTDOOR_PM25, CONF_OUTDOOR_PM10, CONF_OUTDOOR_VOC,
+        CONF_OUTDOOR_NO2, CONF_OUTDOOR_O3,
+    ):
         if not outdoor.get(key):
             old = entry.data.get(key)
             if isinstance(old, str) and old:
@@ -461,6 +502,11 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
                         vol.Optional(CONF_SURFACE_TEMP): _entity(
                             "sensor", device_class=SensorDeviceClass.TEMPERATURE
                         ),
+                        vol.Optional(CONF_INDOOR_PM25): _entity("sensor"),
+                        vol.Optional(CONF_INDOOR_PM10): _entity("sensor"),
+                        vol.Optional(CONF_INDOOR_VOC): _entity("sensor"),
+                        vol.Optional(CONF_INDOOR_NO2): _entity("sensor"),
+                        vol.Optional(CONF_INDOOR_FORMALDEHYDE): _entity("sensor"),
                     }
                 ),
                 SectionConfig(collapsed=True),
@@ -596,7 +642,10 @@ def _room_form_defaults(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, 
     }
     sensors = {
         key: flat[key]
-        for key in (CONF_CO2, CONF_SURFACE_TEMP)
+        for key in (
+            CONF_CO2, CONF_SURFACE_TEMP, CONF_INDOOR_PM25, CONF_INDOOR_PM10,
+            CONF_INDOOR_VOC, CONF_INDOOR_NO2, CONF_INDOOR_FORMALDEHYDE,
+        )
         if key in flat and flat[key] not in (None, "")
     }
     if sensors:

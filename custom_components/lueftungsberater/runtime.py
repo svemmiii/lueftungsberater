@@ -12,6 +12,16 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
+from .air_sensors import (
+    QUALITY_RANK as LOCAL_AQ_RANK,
+    classify_absolute,
+    classify_relative_context,
+    concentration_ugm3,
+    formaldehyde_mgm3,
+    pollutant_reading,
+    state_number,
+    worst_quality,
+)
 from .airing import get_tracker
 from .air_quality import get_air_quality_tracker
 from .co2 import get_co2_tracker
@@ -20,6 +30,11 @@ from .const import (
     CONF_CO2,
     CONF_INDOOR_HUMIDITY,
     CONF_INDOOR_TEMP,
+    CONF_INDOOR_PM25,
+    CONF_INDOOR_PM10,
+    CONF_INDOOR_VOC,
+    CONF_INDOOR_NO2,
+    CONF_INDOOR_FORMALDEHYDE,
     CONF_MANUAL_OUTDOOR,
     CONF_NIGHT_END_TIME,
     CONF_NIGHT_START_HOUR,
@@ -289,6 +304,156 @@ def room_co2_window_values(
     return room_co2_value(hass, entry, subentry), bool(window_open)
 
 
+def _apply_local_outdoor_index_context(
+    tracker,
+    weather: WeatherAssessment,
+) -> None:
+    """Use learned local vendor indices only as relative outdoor evidence."""
+    if tracker is None or not weather.local_station_values:
+        return
+    scope = "outside:local_station"
+    tracker.observe_scope(scope, weather.local_station_values)
+    candidates: list[tuple[str, str, float, Any]] = []
+    for kind, value in weather.local_station_values.items():
+        context = tracker.context_scope(scope, kind, value)
+        quality = classify_relative_context(
+            value,
+            baseline=context.baseline,
+            unusual=context.unusual,
+            trend=context.trend,
+            samples=context.samples,
+        )
+        candidates.append((quality, kind, value, context))
+    if not candidates:
+        return
+    quality, kind, value, _context = max(
+        candidates,
+        key=lambda item: LOCAL_AQ_RANK.get(item[0], -1),
+    )
+    if LOCAL_AQ_RANK.get(quality, -1) > LOCAL_AQ_RANK.get(weather.air_quality_index, -1):
+        weather.air_quality_index = quality
+        weather.air_quality_pollutant = kind
+        weather.air_quality_value = value
+        weather.air_quality_unit = "ppb" if kind.endswith("_parts") else None
+        weather.air_quality_measurement_type = (
+            "parts" if kind.endswith("_parts") else "index"
+        )
+
+
+def _indoor_air_quality_values(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> dict[str, Any]:
+    """Normalize optional room-air sensors without inventing missing values."""
+    readings = {
+        "pm2_5": concentration_ugm3(hass, subentry.data.get(CONF_INDOOR_PM25)),
+        "pm10": concentration_ugm3(hass, subentry.data.get(CONF_INDOOR_PM10)),
+        "formaldehyde": formaldehyde_mgm3(
+            hass, subentry.data.get(CONF_INDOOR_FORMALDEHYDE)
+        ),
+    }
+    for pollutant, config_key in (
+        ("voc", CONF_INDOOR_VOC),
+        ("no2", CONF_INDOOR_NO2),
+    ):
+        reading = pollutant_reading(
+            hass, subentry.data.get(config_key), pollutant=pollutant
+        )
+        if reading.pollutant_key:
+            readings[reading.pollutant_key] = reading
+
+    raw_values = {
+        kind: reading.value
+        for kind, reading in readings.items()
+        if reading.value is not None
+    }
+    sources = {
+        kind: reading.source
+        for kind, reading in readings.items()
+        if reading.source
+    }
+    units = {
+        kind: reading.unit
+        for kind, reading in readings.items()
+        if reading.value is not None
+    }
+    measurement_types = {
+        kind: reading.measurement_type
+        for kind, reading in readings.items()
+        if reading.value is not None
+    }
+
+    classified: dict[str, tuple[str, float]] = {}
+    for kind in (
+        "pm2_5",
+        "pm10",
+        "formaldehyde",
+        "voc",
+        "no2",
+        "no2_parts",
+    ):
+        value = raw_values.get(kind)
+        if value is not None:
+            classified[kind] = (classify_absolute(kind, value), value)
+
+    tracker = get_air_quality_tracker(hass, entry)
+    contexts: dict[str, Any] = {}
+    if tracker is not None:
+        scope = f"room:{subentry.subentry_id}"
+        relative_values = {
+            kind: value
+            for kind, value in raw_values.items()
+            if measurement_types.get(kind) == "index" or kind == "voc_parts"
+        }
+        if relative_values:
+            tracker.observe_scope(scope, relative_values)
+        for kind, value in relative_values.items():
+            context = tracker.context_scope(scope, kind, value)
+            contexts[kind] = context
+            quality = classify_relative_context(
+                value,
+                baseline=context.baseline,
+                unusual=context.unusual,
+                trend=context.trend,
+                samples=context.samples,
+            )
+            if quality != "unknown":
+                classified[kind] = (quality, value)
+
+    quality, pollutant, value = worst_quality(classified)
+    context = contexts.get(pollutant)
+    main_reading = readings.get(pollutant) if pollutant else None
+    return {
+        "indoor_air_quality": quality,
+        "indoor_air_quality_pollutant": pollutant,
+        "indoor_air_quality_value": value,
+        "indoor_air_quality_unit": main_reading.unit if main_reading else None,
+        "indoor_air_quality_measurement_type": (
+            main_reading.measurement_type if main_reading else "unknown"
+        ),
+        "indoor_air_quality_values": raw_values,
+        "indoor_air_quality_units": units,
+        "indoor_air_quality_measurement_types": measurement_types,
+        "indoor_air_quality_sources": sources,
+        "indoor_air_quality_baseline_value": (
+            context.baseline if context is not None else None
+        ),
+        "indoor_air_quality_typical": (
+            context.typical if context is not None else None
+        ),
+        "indoor_air_quality_unusual": bool(
+            context.unusual if context is not None else False
+        ),
+        "indoor_air_quality_trend": (
+            context.trend if context is not None else "unknown"
+        ),
+        "indoor_air_quality_history_samples": int(
+            context.samples if context is not None else 0
+        ),
+    }
+
+
 def _room_values(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -300,7 +465,7 @@ def _room_values(
     has_windows = bool(windows)
     co2_ppm, window_open = room_co2_window_values(hass, entry, subentry)
 
-    return {
+    values = {
         # All temperatures exposed by this snapshot are Celsius. The frontend
         # converts them to the user's display unit when necessary.
         "temperature_inside": _temperature_state_celsius(
@@ -314,10 +479,15 @@ def _room_values(
         "air_quality_index": weather.air_quality_index,
         "air_quality_pollutant": weather.air_quality_pollutant,
         "air_quality_value": weather.air_quality_value,
+        "air_quality_unit": weather.air_quality_unit,
+        "air_quality_measurement_type": weather.air_quality_measurement_type,
         "air_quality_values": dict(weather.air_quality_values),
         "co2_ppm": co2_ppm,
         "outdoor_co2_ppm": _plausible_co2(
-            _number(hass, _manual_outdoor_entity(entry, CONF_OUTDOOR_CO2))
+            state_number(
+                hass, _manual_outdoor_entity(entry, CONF_OUTDOOR_CO2),
+                minimum=250.0, maximum=1_000_000.0,
+            ).value
         ),
         "surface_temperature": _temperature_state_celsius(
             hass, subentry.data.get(CONF_SURFACE_TEMP)
@@ -350,6 +520,8 @@ def _room_values(
         "night_ventilation_key": None,
         "night_ventilation_args": {},
     }
+    values.update(_indoor_air_quality_values(hass, entry, subentry))
+    return values
 
 
 def room_display_values(
@@ -374,10 +546,20 @@ def room_source_entities(
     entities: set[str] = set()
     for key in (
         CONF_INDOOR_TEMP,
+    CONF_INDOOR_PM25,
+    CONF_INDOOR_PM10,
+    CONF_INDOOR_VOC,
+    CONF_INDOOR_NO2,
+    CONF_INDOOR_FORMALDEHYDE,
         CONF_INDOOR_HUMIDITY,
         CONF_CO2,
         CONF_CLIMATE,
         CONF_SURFACE_TEMP,
+        CONF_INDOOR_PM25,
+        CONF_INDOOR_PM10,
+        CONF_INDOOR_VOC,
+        CONF_INDOOR_NO2,
+        CONF_INDOOR_FORMALDEHYDE,
     ):
         val = subentry.data.get(key)
         if isinstance(val, str) and val:
@@ -607,9 +789,10 @@ def build_room_snapshot(
     """Build all room data once so every room entity sees the same snapshot."""
     weather = weather or weather_assessment(hass, entry)
     warnings = warnings or warning_assessment(hass, entry)
+    air_tracker = get_air_quality_tracker(hass, entry)
+    _apply_local_outdoor_index_context(air_tracker, weather)
     values = _room_values(hass, entry, subentry, weather)
 
-    air_tracker = get_air_quality_tracker(hass, entry)
     if air_tracker is not None and weather.air_quality_values:
         air_context = air_tracker.context(
             weather.air_quality_pollutant, weather.air_quality_value
@@ -698,11 +881,26 @@ def build_room_snapshot(
         air_quality=weather.air_quality_index,
         air_quality_pollutant=weather.air_quality_pollutant,
         air_quality_value=weather.air_quality_value,
+        air_quality_unit=weather.air_quality_unit,
+        air_quality_measurement_type=weather.air_quality_measurement_type,
         air_quality_baseline_value=values.get("air_quality_baseline_value"),
         air_quality_typical=values.get("air_quality_typical"),
         air_quality_unusual=bool(values.get("air_quality_unusual")),
         air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
         air_quality_history_samples=int(values.get("air_quality_history_samples") or 0),
+        indoor_air_quality=str(values.get("indoor_air_quality") or "unknown"),
+        indoor_air_quality_pollutant=values.get("indoor_air_quality_pollutant"),
+        indoor_air_quality_value=values.get("indoor_air_quality_value"),
+        indoor_air_quality_unit=values.get("indoor_air_quality_unit"),
+        indoor_air_quality_measurement_type=values.get(
+            "indoor_air_quality_measurement_type"
+        ),
+        indoor_air_quality_baseline_value=values.get("indoor_air_quality_baseline_value"),
+        indoor_air_quality_typical=values.get("indoor_air_quality_typical"),
+        indoor_air_quality_unusual=bool(values.get("indoor_air_quality_unusual")),
+        indoor_air_quality_trend=str(values.get("indoor_air_quality_trend") or "unknown"),
+        indoor_air_quality_history_samples=int(values.get("indoor_air_quality_history_samples") or 0),
+        outdoor_air_quality_values=dict(weather.air_quality_values),
         previous_mode=previous_mode,
         previous_need=previous_need,
         co2_pending_hold=co2_pending_hold,

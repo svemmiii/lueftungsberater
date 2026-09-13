@@ -42,6 +42,14 @@ const LB_I18N = {
     "metric.target": "{value} Soll",
     "metric.temperature": "Temperatur",
     "metric.humidity": "Luftfeuchte",
+    "metric.air_quality": "Luftqualität",
+    "metric.pm25": "PM2,5",
+    "metric.pm10": "PM10",
+    "metric.voc": "VOC",
+    "metric.no2": "NO₂ / NOx",
+    "metric.o3": "Ozon",
+    "metric.index_value": "Index {value}",
+    "metric.formaldehyde": "Formaldehyd",
     "metric.indoor_temperature_open": "Innentemperatur öffnen",
     "metric.outdoor_temperature_open": "Außentemperatur öffnen",
     "metric.thermostat_open": "Thermostat öffnen",
@@ -139,6 +147,14 @@ const LB_I18N = {
     "metric.target": "{value} target",
     "metric.temperature": "Temperature",
     "metric.humidity": "Humidity",
+    "metric.air_quality": "Air quality",
+    "metric.pm25": "PM2.5",
+    "metric.pm10": "PM10",
+    "metric.voc": "VOC",
+    "metric.no2": "NO₂ / NOx",
+    "metric.o3": "Ozone",
+    "metric.index_value": "Index {value}",
+    "metric.formaldehyde": "Formaldehyde",
     "metric.indoor_temperature_open": "Open indoor temperature",
     "metric.outdoor_temperature_open": "Open outdoor temperature",
     "metric.thermostat_open": "Open thermostat",
@@ -236,6 +252,14 @@ const LB_I18N = {
     "metric.target": "hedef {value}",
     "metric.temperature": "Sıcaklık",
     "metric.humidity": "Nem",
+    "metric.air_quality": "Hava kalitesi",
+    "metric.pm25": "PM2.5",
+    "metric.pm10": "PM10",
+    "metric.voc": "VOC",
+    "metric.no2": "NO₂ / NOx",
+    "metric.o3": "Ozon",
+    "metric.index_value": "İndeks {value}",
+    "metric.formaldehyde": "Formaldehit",
     "metric.indoor_temperature_open": "İç sıcaklığı aç",
     "metric.outdoor_temperature_open": "Dış sıcaklığı aç",
     "metric.thermostat_open": "Termostatı aç",
@@ -856,6 +880,76 @@ class LueftungsberaterCard extends HTMLElement {
         });
       }
     }
+
+    const indoorAir = a.indoor_air_quality_values || {};
+    const outdoorAir = a.air_quality_values || {};
+    const airParts = [];
+    const addAirMetric = (key, labelKey, unit, sourceIn, sourceOut = null) => {
+      const insideValue = this._fmt(indoorAir[key]);
+      const outsideValue = this._fmt(outdoorAir[key]);
+      if (insideValue === null && outsideValue === null) return;
+      const parts = [];
+      if (insideValue !== null) parts.push(this._metric(
+        lbT(this._hass, "metric.inside", { value: this._valueUnit(insideValue, unit) }),
+        sourceIn,
+        lbT(this._hass, "history_open")
+      ));
+      if (outsideValue !== null) parts.push(this._metric(
+        lbT(this._hass, "metric.outside", { value: this._valueUnit(outsideValue, unit) }),
+        sourceOut,
+        lbT(this._hass, "history_open")
+      ));
+      airParts.push(`${lbT(this._hass, labelKey)}: ${parts.join(" · ")}`);
+    };
+    addAirMetric("pm2_5", "metric.pm25", "µg/m³", a.source_pm25_inside, a.source_pm25_outside);
+    addAirMetric("pm10", "metric.pm10", "µg/m³", a.source_pm10_inside, a.source_pm10_outside);
+    const addFlexibleAirMetric = (choices, labelKey, sourceIn, sourceOut = null) => {
+      const firstValue = (values) => {
+        for (const [key, unit, kind] of choices) {
+          const value = this._fmt(values[key]);
+          if (value !== null) return { value, unit, kind };
+        }
+        return null;
+      };
+      const inside = firstValue(indoorAir);
+      const outside = firstValue(outdoorAir);
+      if (!inside && !outside) return;
+      const display = (item) => item.kind === "index"
+        ? lbT(this._hass, "metric.index_value", { value: item.value })
+        : this._valueUnit(item.value, item.unit);
+      const parts = [];
+      if (inside) parts.push(this._metric(
+        lbT(this._hass, "metric.inside", { value: display(inside) }),
+        sourceIn,
+        lbT(this._hass, "history_open")
+      ));
+      if (outside) parts.push(this._metric(
+        lbT(this._hass, "metric.outside", { value: display(outside) }),
+        sourceOut,
+        lbT(this._hass, "history_open")
+      ));
+      airParts.push(`${lbT(this._hass, labelKey)}: ${parts.join(" · ")}`);
+    };
+    addFlexibleAirMetric(
+      [["voc", "µg/m³", "mass"], ["voc_parts", "ppb", "parts"], ["voc_index", "", "index"]],
+      "metric.voc",
+      a.source_voc_inside,
+      a.source_voc_outside
+    );
+    addFlexibleAirMetric(
+      [["no2", "µg/m³", "mass"], ["no2_parts", "ppb", "parts"], ["no2_index", "", "index"]],
+      "metric.no2",
+      a.source_no2_inside,
+      a.source_no2_outside
+    );
+    addFlexibleAirMetric(
+      [["o3", "µg/m³", "mass"], ["o3_parts", "ppb", "parts"]],
+      "metric.o3",
+      null,
+      a.source_o3_outside
+    );
+    addAirMetric("formaldehyde", "metric.formaldehyde", "mg/m³", a.source_formaldehyde_inside);
+    if (airParts.length) rows.push({ icon: "mdi:air-filter", html: `${lbT(this._hass, "metric.air_quality")}: ${airParts.join(" · ")}` });
 
     const forecastStatus = a.forecast_data_status || null;
     if (forecastStatus === "stale" || forecastStatus === "unavailable") {

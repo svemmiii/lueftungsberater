@@ -16,10 +16,20 @@ from .const import (
     CONF_CO2,
     CONF_INDOOR_HUMIDITY,
     CONF_INDOOR_TEMP,
+    CONF_INDOOR_PM25,
+    CONF_INDOOR_PM10,
+    CONF_INDOOR_VOC,
+    CONF_INDOOR_NO2,
+    CONF_INDOOR_FORMALDEHYDE,
     CONF_MANUAL_OUTDOOR,
     CONF_SURFACE_TEMP,
     CONF_NINA_STATUS,
     CONF_OUTDOOR_CO2,
+    CONF_OUTDOOR_PM25,
+    CONF_OUTDOOR_PM10,
+    CONF_OUTDOOR_VOC,
+    CONF_OUTDOOR_NO2,
+    CONF_OUTDOOR_O3,
     CONF_WEATHER_DANGER,
     CONF_WEATHER_REASON,
     CONF_WINDOWS,
@@ -285,12 +295,44 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "air_quality_value": (
                 r.air_quality_value if r is not None else weather.air_quality_value
             ),
-            "air_quality_values": dict(weather.air_quality_values),
+            "air_quality_unit": (
+                r.air_quality_unit if r is not None else weather.air_quality_unit
+            ),
+            "air_quality_measurement_type": (
+                r.air_quality_measurement_type
+                if r is not None
+                else weather.air_quality_measurement_type
+            ),
+            "air_quality_values": {
+                **dict(weather.air_quality_values),
+                **dict(weather.local_station_values),
+            },
             "air_quality_baseline_value": values.get("air_quality_baseline_value"),
             "air_quality_typical": values.get("air_quality_typical"),
             "air_quality_unusual": values.get("air_quality_unusual", False),
             "air_quality_trend": values.get("air_quality_trend", "unknown"),
             "air_quality_history_samples": values.get("air_quality_history_samples", 0),
+            "indoor_air_quality": values.get("indoor_air_quality", "unknown"),
+            "indoor_air_quality_pollutant": values.get("indoor_air_quality_pollutant"),
+            "indoor_air_quality_value": values.get("indoor_air_quality_value"),
+            "indoor_air_quality_unit": values.get("indoor_air_quality_unit"),
+            "indoor_air_quality_measurement_type": values.get(
+                "indoor_air_quality_measurement_type"
+            ),
+            "indoor_air_quality_values": dict(
+                values.get("indoor_air_quality_values") or {}
+            ),
+            "indoor_air_quality_units": dict(
+                values.get("indoor_air_quality_units") or {}
+            ),
+            "indoor_air_quality_measurement_types": dict(
+                values.get("indoor_air_quality_measurement_types") or {}
+            ),
+            "indoor_air_quality_baseline_value": values.get("indoor_air_quality_baseline_value"),
+            "indoor_air_quality_typical": values.get("indoor_air_quality_typical"),
+            "indoor_air_quality_unusual": values.get("indoor_air_quality_unusual", False),
+            "indoor_air_quality_trend": values.get("indoor_air_quality_trend", "unknown"),
+            "indoor_air_quality_history_samples": values.get("indoor_air_quality_history_samples", 0),
             "wind_speed_kmh": weather.wind_speed_kmh,
             "wind_gust_kmh": weather.wind_gust_kmh,
             "rain_minutes_until": weather.rain_minutes_until,
@@ -340,10 +382,31 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "source_absolute_humidity_outside": outdoor_absolute_humidity_entity,
             "source_absolute_humidity_difference": absolute_humidity_difference_entity,
             "source_co2": self.subentry.data.get(CONF_CO2),
+            "source_pm25_inside": self.subentry.data.get(CONF_INDOOR_PM25),
+            "source_pm10_inside": self.subentry.data.get(CONF_INDOOR_PM10),
+            "source_voc_inside": self.subentry.data.get(CONF_INDOOR_VOC),
+            "source_no2_inside": self.subentry.data.get(CONF_INDOOR_NO2),
+            "source_formaldehyde_inside": self.subentry.data.get(CONF_INDOOR_FORMALDEHYDE),
             "source_outdoor_co2": (
                 (self.entry.data.get(CONF_MANUAL_OUTDOOR) or {}).get(CONF_OUTDOOR_CO2)
                 if isinstance(self.entry.data.get(CONF_MANUAL_OUTDOOR), dict)
                 else self.entry.data.get(CONF_OUTDOOR_CO2)
+            ),
+            "source_pm25_outside": weather.air_quality_sources.get("pm2_5"),
+            "source_pm10_outside": weather.air_quality_sources.get("pm10"),
+            "source_voc_outside": (
+                weather.air_quality_sources.get("voc")
+                or weather.air_quality_sources.get("voc_parts")
+                or weather.air_quality_sources.get("voc_index")
+            ),
+            "source_no2_outside": (
+                weather.air_quality_sources.get("no2")
+                or weather.air_quality_sources.get("no2_parts")
+                or weather.air_quality_sources.get("no2_index")
+            ),
+            "source_o3_outside": (
+                weather.air_quality_sources.get("o3")
+                or weather.air_quality_sources.get("o3_parts")
             ),
             "source_surface_temperature": self.subentry.data.get(CONF_SURFACE_TEMP),
             "source_co2_status": co2_status_entity,
@@ -368,6 +431,9 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "warning_provider": warnings.provider_domain,
             "radar_current_entity": weather.radar_current_entity,
             "radar_next_entity": weather.radar_next_entity,
+            "source_wind_outside": weather.source_wind,
+            "source_gust_outside": weather.source_gust,
+            "source_rain_outside": weather.source_rain,
         }
         # Keep rarely used transient metadata out of the normal attribute list.
         # The custom card treats missing values as false/empty, so nothing visible

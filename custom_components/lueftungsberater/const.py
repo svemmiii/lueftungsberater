@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.9.4"
+INTEGRATION_VERSION = "0.9.5"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 
@@ -15,6 +15,14 @@ CONF_INSTANCE_NAME = "instance_name"
 CONF_OUTDOOR_TEMP = "outdoor_temperature"
 CONF_OUTDOOR_HUMIDITY = "outdoor_humidity"
 CONF_OUTDOOR_CO2 = "outdoor_co2"
+CONF_OUTDOOR_WIND = "outdoor_wind_speed"
+CONF_OUTDOOR_GUST = "outdoor_wind_gust"
+CONF_OUTDOOR_RAIN = "outdoor_rain"
+CONF_OUTDOOR_PM25 = "outdoor_pm25"
+CONF_OUTDOOR_PM10 = "outdoor_pm10"
+CONF_OUTDOOR_VOC = "outdoor_voc"
+CONF_OUTDOOR_NO2 = "outdoor_no2"
+CONF_OUTDOOR_O3 = "outdoor_o3"
 CONF_WEATHER = "weather_entity"
 CONF_WEATHER_DANGER = "weather_danger_entity"
 CONF_WEATHER_REASON = "weather_reason_entity"
@@ -77,6 +85,11 @@ CONF_AREA_ID = "area_id"
 CONF_INDOOR_TEMP = "indoor_temperature"
 CONF_INDOOR_HUMIDITY = "indoor_humidity"
 CONF_CO2 = "co2_entity"
+CONF_INDOOR_PM25 = "indoor_pm25"
+CONF_INDOOR_PM10 = "indoor_pm10"
+CONF_INDOOR_VOC = "indoor_voc"
+CONF_INDOOR_NO2 = "indoor_no2"
+CONF_INDOOR_FORMALDEHYDE = "indoor_formaldehyde"
 CONF_WINDOWS = "window_entities"
 CONF_CLIMATE = "climate_entity"
 CONF_TARGET_TEMP = "target_temperature"
@@ -129,7 +142,7 @@ SAFETY_FALLBACK_MAX_AGE = timedelta(hours=1)
 AIR_QUALITY_HISTORY_MIN_SAMPLES = 24
 AIR_QUALITY_SAMPLE_MIN_INTERVAL = timedelta(minutes=30)
 AIR_QUALITY_RECENT_SAMPLES = 12
-AIR_QUALITY_MAX_LOCATIONS = 8
+AIR_QUALITY_MAX_LOCATIONS = 32
 AIR_QUALITY_BASELINE_ALPHA = 0.0025
 DECISION_MEMORY_TTL = timedelta(hours=3)
 STORAGE_VERSION = 1

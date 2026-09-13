@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from custom_components.lueftungsberater.const import CONF_OUTDOOR_GUST
 from custom_components.lueftungsberater.providers import weather_assessment
 
 
@@ -1371,6 +1372,7 @@ async def test_nina_unavailable_keeps_last_active_danger_but_off_clears_it(
             stale = _evaluate_nina_like_entities(hass, advisor, [warning])
             assert stale.nina_status == "danger"
             assert stale.official_close_instruction is True
+            assert stale.hard_safety_evidence_at is not None
 
             # An explicit off state is authoritative and clears the stale lock.
             hass.states.async_set(warning, "off", {"id": "warning-123"})
@@ -1450,3 +1452,232 @@ def test_dwd_fallback_warning_key_is_stable_across_list_reordering():
         },
     )
     assert _dwd_warning_key(first, entity, 1) == _dwd_warning_key(moved, entity, 2)
+
+
+def _assess_with_local_air(extra_manual, extra_states, discovered=("unknown", None, None, {}, set())):
+    entry = SimpleNamespace(
+        data={
+            "weather_entity": WEATHER,
+            "manual_outdoor": {
+                "outdoor_temperature": TEMP,
+                "outdoor_humidity": HUM,
+                **extra_manual,
+            },
+        }
+    )
+    values = {
+        WEATHER: FakeState("cloudy", {"temperature": 20.0, "humidity": 50.0}),
+        TEMP: FakeState("20.0", {"unit_of_measurement": "°C"}),
+        HUM: FakeState("50.0", {"unit_of_measurement": "%"}),
+        **extra_states,
+    }
+    hass = FakeHass(values)
+    with (
+        patch(
+            "custom_components.lueftungsberater.providers._provider_domain_for_entity",
+            return_value="test_weather",
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers._discover_dwd_radar_entities",
+            return_value=(None, None, set()),
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers._discover_air_quality",
+            return_value=discovered,
+        ),
+    ):
+        return weather_assessment(hass, entry)
+
+
+def test_local_voc_mass_raw_value_is_used_as_absolute_air_quality():
+    assessment = _assess_with_local_air(
+        {"outdoor_voc": "sensor.voc"},
+        {
+            "sensor.voc": FakeState(
+                "1.2",
+                {
+                    "unit_of_measurement": "mg/m³",
+                    "device_class": "volatile_organic_compounds",
+                },
+            )
+        },
+    )
+    assert assessment.air_quality_values["voc"] == 1200.0
+    assert assessment.air_quality_pollutant == "voc"
+    assert assessment.air_quality_index == "moderate"
+    assert assessment.air_quality_unit == "µg/m³"
+    assert assessment.air_quality_measurement_type == "mass"
+
+
+def test_local_voc_unitless_value_stays_vendor_index_not_fake_mass():
+    assessment = _assess_with_local_air(
+        {"outdoor_voc": "sensor.voc_index"},
+        {"sensor.voc_index": FakeState("7")},
+    )
+    assert "voc" not in assessment.air_quality_values
+    assert assessment.local_station_values["voc_index"] == 7.0
+    assert assessment.air_quality_index == "unknown"
+
+
+def test_local_no2_ppb_stays_parts_value_without_mass_conversion():
+    assessment = _assess_with_local_air(
+        {"outdoor_no2": "sensor.no2"},
+        {
+            "sensor.no2": FakeState(
+                "28",
+                {"unit_of_measurement": "ppb", "device_class": "nitrogen_dioxide"},
+            )
+        },
+    )
+    assert "no2" not in assessment.air_quality_values
+    assert assessment.air_quality_values["no2_parts"] == 28.0
+    assert assessment.air_quality_pollutant == "no2_parts"
+    assert assessment.air_quality_unit == "ppb"
+    assert assessment.air_quality_measurement_type == "parts"
+
+
+def test_relative_local_value_does_not_erase_absolute_provider_pollution():
+    assessment = _assess_with_local_air(
+        {"outdoor_voc": "sensor.voc_index"},
+        {"sensor.voc_index": FakeState("9")},
+        discovered=("poor", "pm2_5", 40.0, {"pm2_5": 40.0}, {"sensor.pm25"}),
+    )
+    assert assessment.air_quality_index == "poor"
+    assert assessment.air_quality_pollutant == "pm2_5"
+    assert assessment.air_quality_values["pm2_5"] == 40.0
+    assert assessment.local_station_values["voc_index"] == 9.0
+
+
+def test_invalid_local_pm25_keeps_actual_provider_source_for_display_link():
+    local_pm25 = "sensor.local_pm25"
+    provider_pm25 = "sensor.provider_pm25"
+    entry = SimpleNamespace(
+        data={
+            "weather_entity": WEATHER,
+            "manual_outdoor": {
+                "outdoor_temperature": TEMP,
+                "outdoor_humidity": HUM,
+                "outdoor_pm25": local_pm25,
+            },
+        }
+    )
+    hass = FakeHass(
+        {
+            WEATHER: FakeState("cloudy", {"temperature": 20.0, "humidity": 50.0}),
+            TEMP: FakeState("20.0", {"unit_of_measurement": "°C"}),
+            HUM: FakeState("50.0", {"unit_of_measurement": "%"}),
+            local_pm25: FakeState("unavailable", {"unit_of_measurement": "µg/m³"}),
+            provider_pm25: FakeState("18", {"unit_of_measurement": "µg/m³"}),
+        }
+    )
+    with (
+        patch(
+            "custom_components.lueftungsberater.providers._provider_domain_for_entity",
+            return_value="test_weather",
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers._discover_air_quality",
+            return_value=("moderate", "pm2_5", 18.0, {"pm2_5": 18.0}, {provider_pm25}),
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers._discover_air_quality_sources",
+            return_value={"pm2_5": provider_pm25},
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers._discover_dwd_radar_entities",
+            return_value=(None, None, set()),
+        ),
+    ):
+        assessment = weather_assessment(hass, entry)
+
+    assert assessment.air_quality_values["pm2_5"] == 18.0
+    assert assessment.air_quality_sources["pm2_5"] == provider_pm25
+
+
+def test_local_o3_ppb_is_used_as_physical_parts_value():
+    assessment = _assess_with_local_air(
+        {"outdoor_o3": "sensor.o3"},
+        {
+            "sensor.o3": FakeState(
+                "100",
+                {"unit_of_measurement": "ppb", "device_class": "ozone"},
+            )
+        },
+    )
+    assert assessment.air_quality_values["o3_parts"] == 100.0
+    assert assessment.air_quality_pollutant == "o3_parts"
+    assert assessment.air_quality_index == "poor"
+    assert assessment.air_quality_unit == "ppb"
+    assert assessment.air_quality_measurement_type == "parts"
+    assert assessment.air_quality_sources["o3_parts"] == "sensor.o3"
+
+
+def test_local_gust_still_creates_weather_danger_when_weather_entity_is_unavailable():
+    gust = "sensor.local_gust"
+    entry = SimpleNamespace(
+        data={
+            "weather_entity": WEATHER,
+            "manual_outdoor": {
+                "outdoor_temperature": TEMP,
+                "outdoor_humidity": HUM,
+                CONF_OUTDOOR_GUST: gust,
+            },
+        }
+    )
+    hass = FakeHass(
+        {
+            WEATHER: FakeState("unavailable"),
+            TEMP: FakeState("18.0", {"unit_of_measurement": "°C"}),
+            HUM: FakeState("50.0", {"unit_of_measurement": "%"}),
+            gust: FakeState("110", {"unit_of_measurement": "km/h"}),
+        }
+    )
+    with (
+        patch(
+            "custom_components.lueftungsberater.providers._provider_domain_for_entity",
+            return_value="test_weather",
+        ),
+        patch(
+            "custom_components.lueftungsberater.providers._discover_air_quality",
+            return_value=("unknown", None, None, {}, set()),
+        ),
+    ):
+        assessment = weather_assessment(hass, entry)
+    assert assessment.wind_gust_kmh == 110.0
+    assert assessment.source_gust == gust
+    assert assessment.weather_danger_sources == {gust}
+    assert assessment.weather_danger is True
+    assert assessment.weather_reason_key == "weather_wind_danger"
+
+
+def test_accumulated_precipitation_sensor_is_not_treated_as_current_rain():
+    rain = "sensor.rain_today"
+    assessment = _assess_with_local_air(
+        {"outdoor_rain": rain},
+        {
+            rain: FakeState(
+                "4.2",
+                {"unit_of_measurement": "mm", "device_class": "precipitation"},
+            )
+        },
+    )
+    assert assessment.rain_now is False
+    assert assessment.source_rain is None
+
+
+def test_precipitation_intensity_sensor_is_used_as_current_rain():
+    rain = "sensor.rain_rate"
+    assessment = _assess_with_local_air(
+        {"outdoor_rain": rain},
+        {
+            rain: FakeState(
+                "0.4",
+                {
+                    "unit_of_measurement": "mm/h",
+                    "device_class": "precipitation_intensity",
+                },
+            )
+        },
+    )
+    assert assessment.rain_now is True
+    assert assessment.source_rain == rain

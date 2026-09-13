@@ -106,6 +106,7 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
         "schimmel_lueften",
         "schimmel_langzeit_lueften",
         "routine_lueften",
+        "innenluft_lueften",
     }:
         return _normal_airing_duration(outdoor_temp)
     return "not_needed"
@@ -126,7 +127,12 @@ def _display_duration_key(
             reason_args.get("continue_cooling") or reason_args.get("continue_warming")
         ) and not any(
             bool(reason_args.get(key))
-            for key in ("continue_co2", "continue_moisture", "continue_routine")
+            for key in (
+                "continue_co2",
+                "continue_indoor_benefit",
+                "continue_moisture",
+                "continue_routine",
+            )
         )
         if temperature_only:
             return "while_temperature_helps"
@@ -227,6 +233,7 @@ def _color(mode: str) -> str:
         "kuehlen",
         "erwaermen",
         "routine_lueften",
+        "innenluft_lueften",
     }:
         return "green"
     if mode in {
@@ -238,6 +245,7 @@ def _color(mode: str) -> str:
         "komfort_abwaegung",
         "lueftung_fertig",
         "normal",
+        "innenluft_abwaegung",
     }:
         return "yellow"
     if mode in {
@@ -257,6 +265,7 @@ def _color(mode: str) -> str:
         "innen_zu_trocken",
         "regen",
         "regen_bald",
+        "innenluft_warten",
     }:
         return "orange"
     # Red is now reserved for a genuinely strong keep-closed reason: an explicit
@@ -270,6 +279,7 @@ _TRADEOFF_MODES = {
     "co2_abwaegung",
     "co2_mindestlueftung_vorsicht",
     "komfort_abwaegung",
+    "innenluft_abwaegung",
 }
 
 
@@ -309,6 +319,8 @@ def _need_protection_level(need: str) -> int:
     if need == "mold_persistent":
         return 3
     if need == "mold":
+        return 2
+    if need in {"indoor_air_urgent", "indoor_air"}:
         return 2
     if need.startswith("co2_") or need in {"humidity_urgent", "humidity"}:
         return 1
@@ -458,6 +470,7 @@ def _active_needs(
     co2_pending_hold: bool,
     co2_airing_active: bool,
     co2_rearm_threshold: float | None,
+    indoor_air_quality: str = "unknown",
     consider_co2: bool = True,
 ) -> list[tuple[str, int]]:
     """Return all currently active indoor needs in deterministic priority order."""
@@ -480,6 +493,13 @@ def _active_needs(
         or co2_pending_hold
     ):
         needs.append(("co2_elevated", 1))
+
+    if indoor_air_quality == "very_poor":
+        needs.append(("indoor_air_urgent", 3))
+    elif indoor_air_quality == "poor":
+        needs.append(("indoor_air_urgent", 2))
+    elif indoor_air_quality == "moderate":
+        needs.append(("indoor_air", 1))
 
     if ti >= 30 and ta <= ti - 1:
         needs.append(("heat", 3))
@@ -528,16 +548,18 @@ def _active_needs(
     # now only a display/tie-break rule; it no longer erases secondary reasons.
     priority = {
         "co2_critical": 0,
-        "heat": 1,
-        "mold_persistent": 2,
-        "humidity_urgent": 3,
-        "co2_high": 4,
-        "mold": 5,
-        "humidity": 6,
-        "co2_elevated": 7,
-        "humid_heat": 8,
-        "temperature": 9,
-        "routine": 10,
+        "indoor_air_urgent": 1,
+        "heat": 2,
+        "mold_persistent": 3,
+        "humidity_urgent": 4,
+        "co2_high": 5,
+        "mold": 6,
+        "humidity": 7,
+        "indoor_air": 8,
+        "co2_elevated": 9,
+        "humid_heat": 10,
+        "temperature": 11,
+        "routine": 12,
     }
     needs.sort(key=lambda item: (-item[1], priority.get(item[0], 99)))
     return needs
@@ -557,6 +579,54 @@ def _non_co2_mode_for_need(
     """Evaluate one non-CO₂ need independently against outdoor conditions."""
     caution_kind = _outdoor_soft_caution(data)
     air_quality_mode = _air_quality_mode(data)
+
+    if need in {"indoor_air_urgent", "indoor_air"}:
+        indoor_rank = {"moderate": 1, "poor": 2, "very_poor": 3}.get(
+            data.indoor_air_quality, 0
+        )
+        outdoor_rank = {
+            "very_good": 0, "good": 0, "moderate": 1, "poor": 2, "very_poor": 3
+        }.get(data.air_quality, -1)
+        # When the same absolute pollutant exists outside, direct comparison is
+        # better than comparing broad quality classes. Require a small margin so
+        # sensor noise cannot flip the advice every refresh.
+        outside_same = None
+        if data.indoor_air_quality_pollutant in {
+            "pm2_5",
+            "pm10",
+            "voc",
+            "no2",
+            "no2_parts",
+        }:
+            outside_same = data.outdoor_air_quality_values.get(
+                data.indoor_air_quality_pollutant
+            )
+        if outside_same is not None and data.indoor_air_quality_value is not None:
+            inside = float(data.indoor_air_quality_value)
+            outside = float(outside_same)
+            margin = max(2.0, inside * 0.10)
+            if outside <= inside - margin:
+                # A direct improvement of one pollutant is useful evidence, but
+                # it is not permission to ignore a different outdoor pollutant
+                # that determines a worse overall LQI. Keep the improvement as
+                # a real pro-airing signal while surfacing the known conflict.
+                if data.air_quality in {"moderate", "poor"}:
+                    return "innenluft_abwaegung", "air_quality"
+                if data.air_quality == "very_poor":
+                    return "innenluft_warten", "air_quality"
+                return "innenluft_lueften", None
+            if outside >= inside + margin:
+                return "innenluft_warten", "air_quality"
+            return "innenluft_abwaegung", "air_quality"
+        if outdoor_rank >= 0:
+            if outdoor_rank < indoor_rank:
+                return "innenluft_lueften", None
+            if outdoor_rank > indoor_rank:
+                return "innenluft_warten", "air_quality"
+            return "innenluft_abwaegung", "air_quality"
+        # Unknown outdoor pollution is not evidence that airing is safe. Keep a
+        # visible trade-off rather than inventing a clean outside value.
+        return "innenluft_abwaegung", "air_quality_unknown"
 
     if need in {"mold_persistent", "mold"}:
         if diff > AH_NEUTRAL:
@@ -755,6 +825,10 @@ def _room_display_urgency(need: str, data: RoomInput) -> int:
     if need == "co2_high":
         return 3 if co2 is not None and co2 >= 1800 else 2
     if need == "co2_elevated":
+        return 1
+    if need == "indoor_air_urgent":
+        return 3 if data.indoor_air_quality == "very_poor" else 2
+    if need == "indoor_air":
         return 1
     if need == "heat":
         return 3
@@ -1211,6 +1285,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         co2_pending_hold=data.co2_pending_hold,
         co2_airing_active=data.co2_airing_active,
         co2_rearm_threshold=data.co2_rearm_threshold,
+        indoor_air_quality=data.indoor_air_quality,
     )
     # ``need`` is the strongest merge/tie-break signal.  The public
     # ``primary_need`` is synchronized with the actual room-display need near
@@ -1729,7 +1804,12 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     # replacement for every other indoor need. Reaching the CO₂ target may
     # remove the CO₂ reason, but it must never weaken an independent useful
     # temperature/humidity/mould/routine reason that still says to keep airing.
-    independent_keep_open = False
+    # Keep the concrete beneficial reasons instead of collapsing them into one
+    # anonymous boolean. Most indoor reasons may keep an already-open window
+    # useful as long as their measurements still justify it. The 24-hour
+    # fallback is deliberately different: it owns a five-real-open-minute
+    # session rule below and must not become an unlimited keep-open reason.
+    independent_beneficial_needs: set[str] = set()
     for independent_need, independent_urgency in active_needs:
         if independent_need.startswith("co2_"):
             continue
@@ -1752,8 +1832,20 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             outdoor_temp=ta,
         )
         if _action_semantic(independent_mode) == "beneficial":
-            independent_keep_open = True
-            break
+            independent_beneficial_needs.add(independent_need)
+
+    independent_keep_open = any(
+        beneficial_need != "routine"
+        for beneficial_need in independent_beneficial_needs
+    )
+    # Duration text needs to know whether *another* indoor reason is active. A
+    # temperature-only session must not count its own temperature reason as an
+    # extra target, otherwise it misleadingly promises "until targets" even
+    # when outdoor air can only help part-way toward the thermostat setpoint.
+    other_indoor_benefit = any(
+        beneficial_need not in {"temperature", "routine"}
+        for beneficial_need in independent_beneficial_needs
+    )
     if (
         data.window_open
         and hard_mode is None
@@ -1852,6 +1944,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         elif _color(mode) == "green":
             if (
                 continue_co2
+                or independent_keep_open
                 or continue_moisture
                 or continue_cooling
                 or continue_warming
@@ -1919,6 +2012,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_args = {
             "pollutant": data.air_quality_pollutant,
             "value": data.air_quality_value,
+            "unit": data.air_quality_unit,
+            "measurement_type": data.air_quality_measurement_type,
             "co2": co2,
             "baseline": data.air_quality_baseline_value,
             "typical": data.air_quality_typical,
@@ -1926,9 +2021,29 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             "trend": data.air_quality_trend,
             "history_samples": data.air_quality_history_samples,
         }
+    elif mode in {"innenluft_lueften", "innenluft_abwaegung", "innenluft_warten"}:
+        reason_key = {
+            "innenluft_lueften": "indoor_air_ventilate",
+            "innenluft_abwaegung": "indoor_air_tradeoff",
+            "innenluft_warten": "indoor_air_wait",
+        }[mode]
+        reason_args = {
+            "pollutant": data.indoor_air_quality_pollutant,
+            "value": data.indoor_air_quality_value,
+            "unit": data.indoor_air_quality_unit,
+            "measurement_type": data.indoor_air_quality_measurement_type,
+            "quality": data.indoor_air_quality,
+            "baseline": data.indoor_air_quality_baseline_value,
+            "typical": data.indoor_air_quality_typical,
+            "unusual": data.indoor_air_quality_unusual,
+            "trend": data.indoor_air_quality_trend,
+            "history_samples": data.indoor_air_quality_history_samples,
+            "outdoor_quality": data.air_quality,
+        }
     elif mode == "weiter_lueften":
         reason_key = "continue_airing"
         reason_args = {
+            "continue_indoor_benefit": other_indoor_benefit,
             "continue_co2": co2 is not None and (
                 (not data.co2_finish_ready)
                 if data.co2_airing_active
@@ -2118,6 +2233,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         "surface_humidity": surface_rh,
         "caution": caution_kind,
         "air_quality": data.air_quality,
+        "indoor_air_quality": data.indoor_air_quality,
+        "indoor_air_quality_pollutant": data.indoor_air_quality_pollutant,
+        "indoor_air_quality_value": data.indoor_air_quality_value,
+        "indoor_air_quality_unit": data.indoor_air_quality_unit,
+        "indoor_air_quality_measurement_type": data.indoor_air_quality_measurement_type,
         "window_open": data.window_open,
         "room_color": room_color,
         "weather_reason_key": data.weather_reason_key,
@@ -2217,6 +2337,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         air_quality=data.air_quality,
         air_quality_pollutant=data.air_quality_pollutant,
         air_quality_value=data.air_quality_value,
+        air_quality_unit=data.air_quality_unit,
+        air_quality_measurement_type=data.air_quality_measurement_type,
         outdoor_co2=data.outdoor_co2,
         co2_difference=(round(co2 - data.outdoor_co2, 0) if co2 is not None and data.outdoor_co2 is not None else None),
         air_quality_baseline_value=data.air_quality_baseline_value,

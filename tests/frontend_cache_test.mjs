@@ -179,6 +179,21 @@ assert.doesNotMatch(allClear.shadowRoot.innerHTML, /aufgehoben/);
 allClear._setExpanded(true);
 assert.match(allClear.shadowRoot.innerHTML, /aufgehoben/);
 
+// Different VOC/NO₂ measurement types on the two sides must both remain
+// visible. They are intentionally displayed, not numerically compared.
+const mixedAir = new Card();
+mixedAir.setConfig({ entity: "sensor.mixed_air_room", force_expanded: true });
+mixedAir.hass = localHass("sensor.mixed_air_room", {
+  status: "yellow",
+  room_name: "Arbeitszimmer",
+  recommendation: "Abwägen",
+  indoor_air_quality_values: { voc_index: 7 },
+  air_quality_values: { voc: 350 },
+});
+assert.match(mixedAir.shadowRoot.innerHTML, /VOC:/);
+assert.match(mixedAir.shadowRoot.innerHTML, /Index 7,0 innen/);
+assert.match(mixedAir.shadowRoot.innerHTML, /350,0[^<]*µg\/m³ außen/);
+
 const forced = new Card();
 forced.setConfig({ entity: "sensor.compact_room", force_expanded: true });
 forced.hass = localHass("sensor.compact_room", {
