@@ -2539,6 +2539,7 @@ def test_indoor_air_need_with_unknown_outdoor_quality_never_invents_clean_air():
     )
     assert result.mode == "innenluft_abwaegung"
     assert result.recommendation_key == "short_observation"
+    assert result.duration_key == "brief_observation"
 
 
 def test_indoor_voc_mass_can_compare_directly_with_outdoor_voc_mass():
@@ -2915,3 +2916,57 @@ def test_qualified_overdue_routine_preserves_other_specific_outdoor_reasons():
         assert result.reason_key == expected_reason
         assert result.room_reason_key == expected_reason
         assert result.reason_key != "routine_open_sufficient_close"
+
+
+def test_running_co2_session_below_target_is_confirming_not_near_target():
+    result = evaluate_room(
+        base(
+            co2=500.0,
+            outdoor_temp=22.0,
+            window_open=True,
+            co2_airing_active=True,
+            co2_finish_ready=False,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+    assert result.mode == "co2_abwaegung"
+    assert result.reason_key == "co2_tradeoff"
+    assert result.reason_args["caution"] == "target_confirming"
+    text = reason_text(result.reason_key, result.reason_args, "de")
+    assert "bereits erreicht" in text
+    assert "spricht fürs Lüften" not in text
+
+
+def test_co2_measurement_timeout_does_not_claim_target_reached():
+    result = evaluate_room(
+        base(
+            co2=None,
+            outdoor_temp=22.0,
+            window_open=True,
+            current_airing_qualified=True,
+            co2_measurement_timed_out=True,
+            co2_finish_target=850.0,
+        )
+    )
+    assert result.mode == "co2_messung_verloren"
+    assert result.recommendation_key == "can_close"
+    assert result.reason_key == "co2_measurement_timeout"
+    text = reason_text(result.reason_key, result.reason_args, "de")
+    assert "nicht bestätigt" in text
+    assert "erreicht" not in text
+
+
+def test_unavailable_window_contact_overrides_room_air_action_but_keeps_urgency():
+    result = evaluate_room(
+        base(
+            indoor_humidity=78.0,
+            outdoor_humidity=40.0,
+            window_open=False,
+            window_data_status="unavailable",
+        )
+    )
+    assert result.recommendation_key == "open_now"
+    assert result.room_status_color in {"orange", "red"}
+    assert result.room_recommendation_key == "window_state_unknown"
+    assert result.room_reason_key == "window_state_unknown"

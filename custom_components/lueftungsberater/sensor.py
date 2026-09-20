@@ -349,6 +349,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "has_co2": values["has_co2"],
             "has_window_contacts": values["has_window_contacts"],
             "window_open": values["window_open"],
+            "window_data_status": values.get("window_data_status", "not_configured"),
             "open_minutes": (
                 round(values["open_minutes"], 1)
                 if values["open_minutes"] is not None

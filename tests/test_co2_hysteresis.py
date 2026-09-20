@@ -565,3 +565,83 @@ def test_new_successful_lower_target_can_replace_an_older_higher_rearm_lock():
         previous_need="co2_elevated",
     )
     assert closed.rearm_threshold_ppm == 1000
+
+
+def test_running_session_times_out_after_five_minutes_without_measurement():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    assert state.start_airing_session(target_ppm=850.0)
+
+    first = state.evaluate(
+        now=start,
+        co2=None,
+        window_open=True,
+        previous_mode="co2_lueften",
+        previous_need="co2_elevated",
+    )
+    assert first.airing_active is True
+    assert first.measurement_timed_out is False
+
+    expired = state.evaluate(
+        now=start + timedelta(minutes=5, seconds=1),
+        co2=None,
+        window_open=True,
+        previous_mode="co2_abwaegung",
+        previous_need="co2_elevated",
+    )
+    assert expired.airing_active is False
+    assert expired.measurement_timed_out is True
+    assert state.session_active is False
+    assert state.completed_for_open_window is True
+
+    still_open = state.evaluate(
+        now=start + timedelta(minutes=30),
+        co2=None,
+        window_open=True,
+        previous_mode="co2_abwaegung",
+        previous_need="co2_elevated",
+    )
+    assert still_open.measurement_timed_out is True
+
+    closed = state.evaluate(
+        now=start + timedelta(minutes=31),
+        co2=None,
+        window_open=False,
+        previous_mode="co2_abwaegung",
+        previous_need="co2_elevated",
+    )
+    assert closed.measurement_timed_out is False
+    assert state.measurement_timed_out_for_open_window is False
+
+
+def test_timed_out_session_resumes_target_confirmation_when_sensor_recovers():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    assert state.start_airing_session(target_ppm=850.0)
+    state.evaluate(
+        now=start,
+        co2=None,
+        window_open=True,
+        previous_mode="co2_lueften",
+        previous_need="co2_elevated",
+    )
+    state.evaluate(
+        now=start + timedelta(minutes=6),
+        co2=None,
+        window_open=True,
+        previous_mode="co2_abwaegung",
+        previous_need="co2_elevated",
+    )
+
+    recovered = state.evaluate(
+        now=start + timedelta(minutes=7),
+        co2=500.0,
+        window_open=True,
+        previous_mode="co2_messung_verloren",
+        previous_need="none",
+    )
+    assert recovered.airing_active is True
+    assert recovered.measurement_timed_out is False
+    assert recovered.finish_ready is False
+    assert recovered.finish_target_ppm == 850.0
+    assert recovered.next_check_seconds == 120.0

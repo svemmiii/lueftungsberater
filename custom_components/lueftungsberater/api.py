@@ -104,6 +104,7 @@ REMOTE_ATTRIBUTE_KEYS = {
     "has_co2",
     "has_window_contacts",
     "window_open",
+    "window_data_status",
     "open_minutes",
     "hours_since_last_airing",
     "outdoor_temperature_source",

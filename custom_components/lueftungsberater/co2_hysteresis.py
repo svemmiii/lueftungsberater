@@ -15,6 +15,7 @@ CO2_RECOMMEND_RELEASE_STABLE = timedelta(minutes=3)
 CO2_AIRING_FINISH_STABLE = timedelta(minutes=2)
 CO2_REARM_STABLE = timedelta(minutes=2)
 CO2_MINIMUM_AIRING = timedelta(minutes=5)
+CO2_MEASUREMENT_MISSING_TIMEOUT = timedelta(minutes=5)
 
 CO2_TRIGGER_STAGES = (1000.0, 1400.0, 1700.0, 2000.0)
 
@@ -28,6 +29,7 @@ _CO2_MODES = {
     "co2_warten",
     "co2_mindestlueftung",
     "co2_mindestlueftung_vorsicht",
+    "co2_messung_verloren",
 }
 
 
@@ -90,6 +92,7 @@ class Co2HysteresisDecision:
     near_target_ppm: float | None = None
     rearm_threshold_ppm: float | None = None
     next_check_seconds: float | None = None
+    measurement_timed_out: bool = False
 
 
 @dataclass(slots=True)
@@ -104,6 +107,9 @@ class Co2HysteresisState:
     rearm_threshold_ppm: float | None = None
     rearm_below_since: datetime | None = None
     rearm_candidate_ppm: float | None = None
+    measurement_missing_since: datetime | None = None
+    measurement_timed_out_for_open_window: bool = False
+    measurement_timeout_target_ppm: float | None = None
 
     def reset(self) -> None:
         self.pending_below_since = None
@@ -114,13 +120,19 @@ class Co2HysteresisState:
         self.rearm_threshold_ppm = None
         self.rearm_below_since = None
         self.rearm_candidate_ppm = None
+        self.measurement_missing_since = None
+        self.measurement_timed_out_for_open_window = False
+        self.measurement_timeout_target_ppm = None
 
     def _clear_session(self, *, keep_completed: bool = False) -> None:
         self.finish_below_since = None
+        self.measurement_missing_since = None
         self.session_active = False
         self.session_target_ppm = None
         if not keep_completed:
             self.completed_for_open_window = False
+            self.measurement_timed_out_for_open_window = False
+            self.measurement_timeout_target_ppm = None
 
     def end_airing_session(self, *, keep_completed: bool = True) -> None:
         """End the explicit open-window CO₂ session immediately."""
@@ -136,6 +148,9 @@ class Co2HysteresisState:
         self.finish_below_since = None
         self.session_active = True
         self.session_target_ppm = max(CO2_AIRING_FINISH, float(target_ppm))
+        self.measurement_missing_since = None
+        self.measurement_timed_out_for_open_window = False
+        self.measurement_timeout_target_ppm = None
         return True
 
     @staticmethod
@@ -223,6 +238,13 @@ class Co2HysteresisState:
                 self.rearm_below_since.isoformat() if self.rearm_below_since else None
             ),
             "rearm_candidate_ppm": self.rearm_candidate_ppm,
+            "measurement_missing_since": (
+                self.measurement_missing_since.isoformat()
+                if self.measurement_missing_since
+                else None
+            ),
+            "measurement_timed_out_for_open_window": self.measurement_timed_out_for_open_window,
+            "measurement_timeout_target_ppm": self.measurement_timeout_target_ppm,
         }
 
     def restore(
@@ -236,6 +258,9 @@ class Co2HysteresisState:
         rearm_threshold_ppm: float | None = None,
         rearm_below_since: datetime | None = None,
         rearm_candidate_ppm: float | None = None,
+        measurement_missing_since: datetime | None = None,
+        measurement_timed_out_for_open_window: bool = False,
+        measurement_timeout_target_ppm: float | None = None,
     ) -> None:
         """Restore timers/session; live evaluate() still validates relevance."""
         self.pending_below_since = pending_below_since
@@ -280,6 +305,19 @@ class Co2HysteresisState:
             if candidate is not None
             else None
         )
+        self.measurement_missing_since = measurement_missing_since
+        self.measurement_timed_out_for_open_window = bool(
+            measurement_timed_out_for_open_window
+        )
+        try:
+            timeout_target = (
+                float(measurement_timeout_target_ppm)
+                if measurement_timeout_target_ppm is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            timeout_target = None
+        self.measurement_timeout_target_ppm = timeout_target
 
     def evaluate(
         self,
@@ -322,6 +360,28 @@ class Co2HysteresisState:
             self.rearm_candidate_ppm = None
             rearm_check = None
 
+        if window_open and self.measurement_timed_out_for_open_window:
+            if co2 is None:
+                return Co2HysteresisDecision(
+                    measurement_timed_out=True,
+                    finish_target_ppm=self.measurement_timeout_target_ppm,
+                    rearm_threshold_ppm=self.rearm_threshold_ppm,
+                )
+            # The sensor recovered while the same window is still open. Resume
+            # the remembered session target instead of starting a brand-new
+            # conversation. If the target is already met, the normal two-minute
+            # stability check below confirms it with the dedicated
+            # target-confirming wording.
+            recovered_target = (
+                self.measurement_timeout_target_ppm or CO2_AIRING_FINISH
+            )
+            self.measurement_timed_out_for_open_window = False
+            self.measurement_timeout_target_ppm = None
+            self.completed_for_open_window = False
+            self.session_active = True
+            self.session_target_ppm = recovered_target
+            self.measurement_missing_since = None
+
         # An explicit session no longer depends on whichever mode happens to be
         # prominent on the next sensor update.  This prevents a 1400 -> 1399 ppm
         # transition or a temporary humidity/temperature priority change from
@@ -336,13 +396,29 @@ class Co2HysteresisState:
             # soon as the existing 60-second source grace/live sensor returns.
             if co2 is None:
                 self.finish_below_since = None
+                if self.measurement_missing_since is None:
+                    self.measurement_missing_since = now
+                elapsed_missing = now - self.measurement_missing_since
+                remaining_missing = CO2_MEASUREMENT_MISSING_TIMEOUT - elapsed_missing
+                if remaining_missing.total_seconds() <= 0:
+                    self.measurement_timed_out_for_open_window = True
+                    self.measurement_timeout_target_ppm = target
+                    self._clear_session(keep_completed=True)
+                    self.completed_for_open_window = True
+                    return Co2HysteresisDecision(
+                        measurement_timed_out=True,
+                        finish_target_ppm=target,
+                        rearm_threshold_ppm=self.rearm_threshold_ppm,
+                    )
                 return Co2HysteresisDecision(
                     airing_active=True,
                     finish_target_ppm=target,
                     near_target_ppm=near_target,
                     rearm_threshold_ppm=self.rearm_threshold_ppm,
+                    next_check_seconds=max(0.0, remaining_missing.total_seconds()),
                 )
 
+            self.measurement_missing_since = None
             if co2 > target:
                 self.finish_below_since = None
                 return Co2HysteresisDecision(

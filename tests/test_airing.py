@@ -608,3 +608,36 @@ async def test_real_off_after_short_unknown_uses_observed_off_as_close_time(
     assert tracker.hours_since_last_airing < 0.01
 
     await tracker.async_stop()
+
+
+
+async def test_upgrade_without_tracking_started_at_preserves_old_routine_age(
+    hass, enable_custom_integrations
+) -> None:
+    """Migration must not reset an existing 30-hour airing history to zero."""
+    last_airing = dt_util.utcnow() - timedelta(hours=30)
+    entry = _FakeEntry(hass)
+    room = SimpleNamespace(
+        subentry_id="living",
+        data={CONF_WINDOWS: ["binary_sensor.living_window"]},
+    )
+
+    class FakeStore:
+        async def async_load(self):
+            return {
+                "open_since": None,
+                "last_confirmed_airing": last_airing.isoformat(),
+            }
+
+        async def async_save(self, _data):
+            return None
+
+    hass.states.async_set("binary_sensor.living_window", "off")
+    tracker = RoomAiringTracker(hass, entry, room)
+    tracker._store = FakeStore()
+    await tracker.async_initialize()
+
+    assert tracker.tracking_started_at == tracker.last_confirmed_airing
+    assert tracker.hours_since_routine_anchor is not None
+    assert tracker.hours_since_routine_anchor >= 29.9
+    await tracker.async_stop()

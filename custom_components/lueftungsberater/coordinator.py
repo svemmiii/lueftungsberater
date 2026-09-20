@@ -201,6 +201,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             rearm_below = clamp_not_future(
                 now_utc, _parse_dt(co2_memory.get("rearm_below_since"))
             )
+            measurement_missing = clamp_not_future(
+                now_utc, _parse_dt(co2_memory.get("measurement_missing_since"))
+            )
             # These timers are only a few minutes long. Reuse them only while
             # the surrounding decision memory is still fresh; evaluate() will
             # immediately reset them if the live CO2 context no longer matches.
@@ -229,6 +232,19 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 rearm_below_since=rearm_below if memory_fresh else None,
                 rearm_candidate_ppm=(
                     co2_memory.get("rearm_candidate_ppm") if memory_fresh else None
+                ),
+                measurement_missing_since=(
+                    measurement_missing if memory_fresh else None
+                ),
+                measurement_timed_out_for_open_window=(
+                    bool(co2_memory.get("measurement_timed_out_for_open_window"))
+                    if memory_fresh
+                    else False
+                ),
+                measurement_timeout_target_ppm=(
+                    co2_memory.get("measurement_timeout_target_ppm")
+                    if memory_fresh
+                    else None
                 ),
             )
 
@@ -563,6 +579,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 co2_finish_target=co2_hysteresis.finish_target_ppm,
                 co2_near_target=co2_hysteresis.near_target_ppm,
                 co2_rearm_threshold=co2_hysteresis.rearm_threshold_ppm,
+                co2_measurement_timed_out=co2_hysteresis.measurement_timed_out,
                 weather=weather,
                 warnings=warnings,
             )
@@ -659,6 +676,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 co2_finish_target=co2_hysteresis.finish_target_ppm,
                 co2_near_target=co2_hysteresis.near_target_ppm,
                 co2_rearm_threshold=co2_hysteresis.rearm_threshold_ppm,
+                co2_measurement_timed_out=co2_hysteresis.measurement_timed_out,
                 co2_minimum_airing_active=True,
                 co2_minimum_airing_cautious=minimum.cautious,
                 weather=weather,

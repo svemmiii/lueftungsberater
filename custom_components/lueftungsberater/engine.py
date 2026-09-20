@@ -29,6 +29,7 @@ def _previous_co2_context(previous_mode: str, previous_need: str) -> bool:
         "co2_lueften_mit_nachteil",
         "co2_abwaegung",
         "co2_warten",
+        "co2_messung_verloren",
     }
 
 
@@ -91,7 +92,12 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
         return "until_targets"
     if mode == "lueftung_fertig":
         return "can_end"
-    if mode in {"co2_kritisch_vorsicht", "co2_abwaegung"}:
+    if mode in {
+        "co2_kritisch_vorsicht",
+        "co2_abwaegung",
+        "komfort_abwaegung",
+        "innenluft_abwaegung",
+    }:
         return "brief_observation"
     if mode == "co2_kritisch":
         return "co2_recheck"
@@ -246,6 +252,7 @@ def _color(mode: str) -> str:
         "lueftung_fertig",
         "normal",
         "innenluft_abwaegung",
+        "co2_messung_verloren",
     }:
         return "yellow"
     if mode in {
@@ -1875,6 +1882,16 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     if (
         data.window_open
         and hard_mode is None
+        and data.co2_measurement_timed_out
+        and not independent_keep_open
+        and _action_semantic(mode) in {"beneficial", "neutral"}
+    ):
+        mode = "co2_messung_verloren"
+        caution_kind = "measurement_timeout"
+
+    if (
+        data.window_open
+        and hard_mode is None
         and data.co2_airing_active
         # A neutral yellow mode (``normal`` / balanced humidity) is not an
         # outdoor reason to end an explicit CO₂ session. Preserve the session
@@ -1897,6 +1914,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         elif data.co2_finish_ready:
             if not independent_keep_open:
                 mode = "lueftung_fertig"
+        elif co2 <= finish_target:
+            if not independent_keep_open:
+                mode = "co2_abwaegung"
+                caution_kind = "target_confirming"
         elif co2 <= near_target:
             if not independent_keep_open:
                 mode = "co2_abwaegung"
@@ -2139,6 +2160,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             reason_key, reason_args = "co2_critical_rain", {"co2": co2}
         else:
             reason_key, reason_args = "co2_critical", {"co2": co2}
+    elif mode == "co2_messung_verloren":
+        reason_key = "co2_measurement_timeout"
+        reason_args = {"co2_target": data.co2_finish_target}
     elif mode in {"co2_kritisch_vorsicht", "co2_abwaegung"}:
         reason_key = "co2_tradeoff"
         reason_args = {
@@ -2378,7 +2402,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             room_need = "co2_session"
             room_reason_key = reason_key
             room_reason_args = dict(reason_args)
-        elif caution_kind == "near_target" and mode == "co2_abwaegung":
+        elif caution_kind in {"near_target", "target_confirming"} and mode == "co2_abwaegung":
             room_color = "yellow"
             room_recommendation_key = "room_keep_brief"
             room_need = "co2_session"
@@ -2390,6 +2414,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             room_need = "co2_session"
             room_reason_key = reason_key
             room_reason_args = dict(reason_args)
+
+    if data.window_data_status == "unavailable" and hard_mode is None:
+        room_recommendation_key = "window_state_unknown"
+        room_reason_key = "window_state_unknown"
+        room_reason_args = {"room_color": room_color}
 
     return VentilationResult(
         color=color,

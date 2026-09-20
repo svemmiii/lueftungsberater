@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.9.7
+
+### Startup-, CO₂- und Fensterstatus-Härtung
+- **CO₂-Ziel erreicht wird nicht mehr als „fast erreicht“ beschrieben:** Bei einer restaurierten oder laufenden CO₂-Sitzung unterscheidet die Engine jetzt sauber zwischen `co2 <= finish_target` und dem eigentlichen Near-Target-Band oberhalb des Ziels. Solange die bestehende zweiminütige Stabilitätsprüfung noch läuft, lautet die Semantik „Ziel bereits erreicht – Messung wird kurz bestätigt“; sehr gute Werte wie 500 ppm behaupten nicht mehr, CO₂ spreche weiterhin fürs Lüften.
+- **Aktive CO₂-Sitzungen hängen bei dauerhaft fehlendem Sensor nicht mehr unbegrenzt:** Nach der vorhandenen Sensor-Grace darf die explizite Sitzung einen fehlenden Messwert noch fünf Minuten konservativ überbrücken. Bleibt CO₂ darüber hinaus `unknown`/`unavailable`, wird die Session für das aktuell offene Fenster mit einem eigenen `co2_messung_verloren`-Zustand freigegeben statt stundenlang `room_keep_brief` festzuhalten. Das Ziel wird dabei ausdrücklich **nicht** als erreicht markiert.
+- **CO₂-Sensor-Rückkehr nach Timeout:** Kommt der Sensor zurück, während dasselbe Fenster noch offen ist, wird das vorherige Session-Ziel wieder aufgenommen. Liegt der Wert bereits auf/unter dem Ziel, läuft nur noch die normale zweiminütige Stabilitätsbestätigung mit der neuen korrekten Ziel-erreicht-Semantik; liegt er wieder darüber, kann die CO₂-Sitzung normal weiterlaufen.
+- **Fensterkontakt `unknown/unavailable` ist jetzt ein eigener UI-Zustand:** Nach Ablauf der zweiminütigen Kontakt-Grace wird ein unbekannter Fensterzustand nicht mehr auf der Raumluft-Hauptkarte wie sicher „geschlossen“ formuliert. Die Raumluftfarbe/Dringlichkeit bleibt sichtbar, die konkrete Handlung wird aber zu `Fensterzustand derzeit nicht verfügbar – bitte prüfen`. Native Engine-States für Automationen bleiben unverändert; Hard-Safety behält weiterhin Vorrang. `window_data_status` wird zusätzlich als Diagnose-/Remote-Attribut ausgegeben.
+- **`short_observation` und Dauertext konsistent:** `komfort_abwaegung` und `innenluft_abwaegung` liefern jetzt wie die CO₂-Abwägungen `brief_observation` statt gleichzeitig „kurz beobachten“ und intern `duration_key=not_needed`.
+- **Upgrade-Migration des 24-h-Ankers korrigiert:** Fehlt bei einem alten Airing-Store noch `tracking_started_at`, wird ein vorhandener historischer `last_confirmed_airing`-/qualifizierter Routineanker als Migrationsbasis übernommen. Eine bereits 30 Stunden alte Lüftung wird beim Upgrade deshalb nicht mehr künstlich auf Routinealter 0 Stunden zurückgesetzt. Wirklich neue Räume starten weiterhin bei der ersten Tracker-Initialisierung.
+- **Regressionstests erweitert:** Neue Tests sichern CO₂-Target-Confirming, Sensor-Timeout und Wiederkehr, expliziten Fenster-Unavailable-Status, die Short-Observation-Dauer sowie die alte-Store-Migration ab.
+
 ## v0.9.6
 
 ### Raumluft-Handlung, Routine und Lifecycle-Härtung

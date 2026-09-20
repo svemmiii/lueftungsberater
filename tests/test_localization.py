@@ -481,3 +481,19 @@ def test_co2_unknown_close_reason_does_not_claim_target_reached() -> None:
     de = reason_text("co2_measurement_unknown_close", args, "de", "°C")
     assert "nicht bestätigt" in de
     assert "schließe" in de
+
+
+def test_co2_target_confirming_text_never_says_ventilation_is_needed():
+    text = reason_text(
+        "co2_tradeoff",
+        {"co2": 500, "co2_target": 850, "caution": "target_confirming"},
+        "de",
+    )
+    assert "bereits erreicht" in text
+    assert "spricht fürs Lüften" not in text
+
+
+def test_window_state_unknown_text_is_explicit():
+    text = reason_text("window_state_unknown", {}, "de")
+    assert "Fensterkontakt" in text
+    assert "nicht" in text

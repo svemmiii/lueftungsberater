@@ -18,6 +18,7 @@ class RoomInput:
     co2: float | None = None
     outdoor_co2: float | None = None
     window_open: bool = False
+    window_data_status: str = "not_configured"
     open_minutes: float | None = None
     current_airing_qualified: bool = False
     hours_since_airing: float | None = None
@@ -72,6 +73,7 @@ class RoomInput:
     co2_rearm_threshold: float | None = None
     co2_minimum_airing_active: bool = False
     co2_minimum_airing_cautious: bool = False
+    co2_measurement_timed_out: bool = False
 
 
 @dataclass(slots=True)

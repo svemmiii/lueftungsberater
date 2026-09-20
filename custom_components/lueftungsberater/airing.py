@@ -347,6 +347,20 @@ class RoomAiringTracker:
         return any_open, all_known
 
     @property
+    def data_status(self) -> str:
+        """Return current/grace/unavailable for the configured window contacts."""
+        any_open, all_known = self._contact_state()
+        if any_open or all_known:
+            return "current"
+        if (
+            self.open_since is not None
+            and self._unknown_since is not None
+            and dt_util.utcnow() < self._unknown_since + WINDOW_UNKNOWN_GRACE
+        ):
+            return "grace"
+        return "unavailable"
+
+    @property
     def is_open(self) -> bool:
         """Return the effective open state including the short unknown grace.
 
@@ -433,9 +447,25 @@ class RoomAiringTracker:
         self.last_qualified_airing_seen_at = clamp_not_future(
             now, _parse_dt(stored.get("last_qualified_airing_seen_at"))
         )
-        self.tracking_started_at = clamp_not_future(
+        stored_tracking_started_at = clamp_not_future(
             now, _parse_dt(stored.get("tracking_started_at"))
-        ) or now
+        )
+        if stored_tracking_started_at is not None:
+            self.tracking_started_at = stored_tracking_started_at
+        else:
+            # Migration from stores created before tracking_started_at existed:
+            # do not reset an already-established routine clock to "now". Reuse
+            # the newest real historical airing evidence when available; only a
+            # truly new room starts its 24-hour clock at first tracking.
+            historical = [
+                value
+                for value in (
+                    self.last_confirmed_airing,
+                    self.last_qualified_airing_seen_at,
+                )
+                if value is not None
+            ]
+            self.tracking_started_at = max(historical) if historical else now
         self._restore_window_identities(stored)
         self._restore_window_aliases(stored)
         self._repair_missing_windows_from_registry()

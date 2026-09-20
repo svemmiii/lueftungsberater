@@ -304,6 +304,31 @@ def room_co2_window_values(
     return room_co2_value(hass, entry, subentry), bool(window_open)
 
 
+def room_window_data_status(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    subentry: ConfigSubentry,
+) -> str:
+    """Return current/grace/unavailable/not_configured for window contacts."""
+    windows = subentry.data.get(CONF_WINDOWS, []) or []
+    if not windows:
+        return "not_configured"
+    tracker = get_tracker(hass, entry, subentry)
+    if tracker is not None:
+        return tracker.data_status
+    states = [hass.states.get(entity_id) for entity_id in windows]
+    return (
+        "current"
+        if states
+        and all(
+            state is not None
+            and state.state not in {"unknown", "unavailable", "none", ""}
+            for state in states
+        )
+        else "unavailable"
+    )
+
+
 def _apply_local_outdoor_index_context(
     tracker,
     weather: WeatherAssessment,
@@ -496,6 +521,7 @@ def _room_values(
         "has_co2": bool(subentry.data.get(CONF_CO2)),
         "has_window_contacts": has_windows,
         "window_open": window_open if has_windows else None,
+        "window_data_status": room_window_data_status(hass, entry, subentry),
         "open_minutes": (
             tracker.current_open_minutes
             if tracker is not None and tracker.is_open
@@ -803,6 +829,7 @@ def build_room_snapshot(
     co2_rearm_threshold: float | None = None,
     co2_minimum_airing_active: bool = False,
     co2_minimum_airing_cautious: bool = False,
+    co2_measurement_timed_out: bool = False,
     weather: WeatherAssessment | None = None,
     warnings: WarningAssessment | None = None,
 ) -> RoomSnapshot:
@@ -876,6 +903,7 @@ def build_room_snapshot(
         co2=values["co2_ppm"],
         outdoor_co2=values.get("outdoor_co2_ppm"),
         window_open=bool(values["window_open"]),
+        window_data_status=str(values.get("window_data_status") or "not_configured"),
         open_minutes=values.get("open_minutes"),
         current_airing_qualified=bool(values.get("current_airing_qualified")),
         hours_since_airing=values.get("hours_since_airing_for_routine"),
@@ -932,6 +960,7 @@ def build_room_snapshot(
         co2_rearm_threshold=co2_rearm_threshold,
         co2_minimum_airing_active=co2_minimum_airing_active,
         co2_minimum_airing_cautious=co2_minimum_airing_cautious,
+        co2_measurement_timed_out=co2_measurement_timed_out,
     )
     # Internal-only category snapshot for the five-minute CO₂ hold. Keeping it
     # in the shared room snapshot lets the coordinator compare outdoor changes

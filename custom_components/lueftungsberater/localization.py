@@ -19,6 +19,7 @@ RECOMMENDATIONS = {
         "close_now": "Jetzt schließen",
         "wait": "Besser noch etwas warten",
         "unknown": "Aktuell keine zuverlässige Empfehlung möglich",
+        "window_state_unknown": "Fensterzustand derzeit nicht verfügbar – bitte prüfen",
         "room_good": "Aktuell kein Lüftungsgrund",
         "room_watch": "Werte im Blick behalten",
         "room_need": "Lüften ist sinnvoll",
@@ -37,6 +38,7 @@ RECOMMENDATIONS = {
         "close_now": "Close the windows now",
         "wait": "Better wait a little longer",
         "unknown": "No reliable recommendation is available right now",
+        "window_state_unknown": "Window status is currently unavailable — please check",
         "room_good": "No current reason to ventilate",
         "room_watch": "Keep an eye on the values",
         "room_need": "Ventilation is worthwhile",
@@ -55,6 +57,7 @@ RECOMMENDATIONS = {
         "close_now": "Pencereleri şimdi kapat",
         "wait": "Biraz daha beklemek daha iyi",
         "unknown": "Şu anda güvenilir bir öneri verilemiyor",
+        "window_state_unknown": "Pencere durumu şu anda kullanılamıyor — lütfen kontrol et",
         "room_good": "Şu anda havalandırma nedeni yok",
         "room_watch": "Değerleri takip et",
         "room_need": "Havalandırmak faydalı",
@@ -458,6 +461,19 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
                 "de": "Die CO₂-Lüftung läuft noch, aber der aktuelle CO₂-Messwert fehlt. Das Lüftungsziel kann deshalb gerade nicht bestätigt werden.",
                 "en": "The CO₂ airing session is still active, but the current CO₂ reading is unavailable. The airing target therefore cannot be confirmed right now.",
                 "tr": "CO₂ havalandırma oturumu hâlâ etkin, ancak güncel CO₂ ölçümü kullanılamıyor. Bu nedenle havalandırma hedefi şu anda doğrulanamıyor.",
+            }[lang]
+        if caution == "target_confirming":
+            ppm = _measurement(_number(co2, lang, 0), "ppm")
+            target_raw = a.get("co2_target")
+            target = (
+                _measurement(_number(target_raw, lang, 0), "ppm")
+                if target_raw is not None
+                else None
+            )
+            return {
+                "de": f"CO₂ liegt bei {ppm}. Das Ziel{(' von etwa ' + target) if target else ''} ist bereits erreicht; der Wert wird nur noch kurz auf Stabilität geprüft.",
+                "en": f"CO₂ is at {ppm}. The target{(' of about ' + target) if target else ''} has already been reached; the reading is only being checked briefly for stability.",
+                "tr": f"CO₂ {ppm} seviyesinde. Hedef{(' yaklaşık ' + target) if target else ''} zaten ulaşıldı; değer yalnızca kısa süre kararlılık için doğrulanıyor.",
             }[lang]
         ppm = _measurement(_number(co2, lang, 0), "ppm")
         detail_options = {
@@ -936,6 +952,26 @@ def reason_text(
 
     if key in {"air_quality_moderate", "air_quality_poor", "air_quality_very_poor"}:
         return _air_quality_reason(key, a, lang)
+
+    if key == "window_state_unknown":
+        return {
+            "de": "Der konfigurierte Fensterkontakt liefert derzeit keinen zuverlässigen Zustand. Die Raumluftbewertung bleibt sichtbar, aber ob das Fenster bereits offen oder geschlossen ist, kann gerade nicht sicher erkannt werden.",
+            "en": "The configured window contact is not reporting a reliable state right now. The room-air assessment remains visible, but whether the window is already open or closed cannot currently be determined safely.",
+            "tr": "Yapılandırılmış pencere kontağı şu anda güvenilir bir durum bildirmiyor. Oda havası değerlendirmesi görünür kalır, ancak pencerenin açık mı kapalı mı olduğu güvenle belirlenemiyor.",
+        }[lang]
+
+    if key == "co2_measurement_timeout":
+        target_raw = a.get("co2_target")
+        target = (
+            _measurement(_number(target_raw, lang, 0), "ppm")
+            if target_raw is not None
+            else None
+        )
+        return {
+            "de": "Der CO₂-Sensor ist seit mehreren Minuten nicht verfügbar. " + (f"Das Ziel von etwa {target} konnte deshalb nicht bestätigt werden. " if target else "Das CO₂-Ziel konnte deshalb nicht bestätigt werden. ") + "Die laufende CO₂-Sitzung wird nicht unbegrenzt festgehalten; prüfe den Sensor und den CO₂-Wert erneut, sobald wieder Daten vorliegen.",
+            "en": "The CO₂ sensor has been unavailable for several minutes. " + (f"The target of about {target} therefore could not be confirmed. " if target else "The CO₂ target therefore could not be confirmed. ") + "The active CO₂ session is no longer held indefinitely; check the sensor and CO₂ value again when data returns.",
+            "tr": "CO₂ sensörü birkaç dakikadır kullanılamıyor. " + (f"Bu nedenle yaklaşık {target} hedefi doğrulanamadı. " if target else "Bu nedenle CO₂ hedefi doğrulanamadı. ") + "Etkin CO₂ oturumu süresiz tutulmuyor; veri geri geldiğinde sensörü ve CO₂ değerini yeniden kontrol et.",
+        }[lang]
 
     if key in {"co2_tradeoff", "comfort_tradeoff"}:
         return _tradeoff_reason(key, a, lang, temperature_unit)
