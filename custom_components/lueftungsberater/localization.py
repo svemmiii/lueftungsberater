@@ -940,6 +940,49 @@ def reason_text(
     if key in {"co2_tradeoff", "comfort_tradeoff"}:
         return _tradeoff_reason(key, a, lang, temperature_unit)
 
+    if key == "co2_measurement_unknown_close":
+        target_raw = a.get("co2_target")
+        target = (
+            _measurement(_number(target_raw, lang, 0), "ppm")
+            if target_raw is not None
+            else None
+        )
+        if lang == "de":
+            target_text = (
+                f" Das CO₂-Ziel von etwa {target} kann deshalb nicht bestätigt werden."
+                if target is not None
+                else " Das CO₂-Ziel kann deshalb nicht bestätigt werden."
+            )
+            return (
+                "Der aktuelle CO₂-Messwert fehlt."
+                + target_text
+                + " Gleichzeitig sprechen die Außenbedingungen gegen weiteres Lüften; "
+                "schließe deshalb besser und prüfe den CO₂-Wert erneut, sobald der Sensor wieder Daten liefert."
+            )
+        if lang == "tr":
+            target_text = (
+                f" Bu nedenle yaklaşık {target} CO₂ hedefi doğrulanamıyor."
+                if target is not None
+                else " Bu nedenle CO₂ hedefi doğrulanamıyor."
+            )
+            return (
+                "Güncel CO₂ ölçümü kullanılamıyor."
+                + target_text
+                + " Aynı zamanda dış koşullar havalandırmaya devam etmeye uygun değil; "
+                "bu yüzden pencereyi kapatıp sensör yeniden veri verdiğinde CO₂ değerini tekrar kontrol etmek daha iyi."
+            )
+        target_text = (
+            f" The CO₂ target of about {target} therefore cannot be confirmed."
+            if target is not None
+            else " The CO₂ target therefore cannot be confirmed."
+        )
+        return (
+            "The current CO₂ reading is unavailable."
+            + target_text
+            + " At the same time, outdoor conditions argue against continuing to air; "
+            "it is better to close the window and re-check CO₂ when the sensor reports again."
+        )
+
     if key == "co2_ventilate_tradeoff":
         ppm = m(a.get("co2"), "ppm", 0)
         caution = str(a.get("caution") or "conditions")
@@ -1104,6 +1147,12 @@ def reason_text(
             "warming": f"Drinnen sind es {t(a.get('ti'))}, bei einem Soll von {t(a.get('target'))}. Draußen ist es wärmer und kann den Raum beim Lüften Richtung Solltemperatur bringen.",
             "routine_ventilate": f"Seit rund {n(a.get('hours'), 1)} Stunden wurde keine bestätigte Lüftung erfasst. Die Außenbedingungen passen gerade gut, deshalb ist jetzt ein kurzer Luftaustausch sinnvoll.",
             "routine_wait": f"Seit rund {n(a.get('hours'), 1)} Stunden wurde keine bestätigte Lüftung erfasst. Die Bedingungen draußen passen gerade aber nicht gut genug – warte lieber noch etwas.",
+            "routine_open_unfavorable": (
+                f"Das Fenster ist bereits seit rund {n(a.get('open_minutes'), 1)} Minuten geöffnet, die Außenbedingungen sind gerade aber ungünstig. Schließe besser wieder und hole die Routinelüftung bei passenderen Bedingungen nach."
+                if a.get("open_minutes") is not None
+                else "Das Fenster ist bereits geöffnet, die Außenbedingungen sind gerade aber ungünstig. Schließe besser wieder und hole die Routinelüftung bei passenderen Bedingungen nach."
+            ),
+            "routine_open_sufficient_close": "Das Fenster ist bereits lange genug für den kurzen Luftaustausch geöffnet. Die Außenbedingungen sprechen dafür, die Lüftung jetzt zu beenden.",
             "outside_too_hot": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Beim Lüften würdest du gerade zusätzliche Wärme hereinholen – die Fenster bleiben besser zu.",
             "outside_too_cold": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Lüften würde den Raum gerade unnötig auskühlen – deshalb besser geschlossen lassen.",
             "outside_more_humid": f"Die Außenluft enthält rund {m(a.get('amount'), 'g/m³')} mehr Wasser als die Luft drinnen. Lüften würde aktuell eher Feuchte hineinbringen als abführen.",
@@ -1151,6 +1200,12 @@ def reason_text(
             "warming": f"İçeride sıcaklık {t(a.get('ti'))}, hedefin ise {t(a.get('target'))}. Dışarısı daha sıcak; pencereleri açmak odayı hedef sıcaklığa yaklaştırmaya yardımcı olabilir.",
             "routine_ventilate": f"Yaklaşık {n(a.get('hours'), 1)} saattir doğrulanmış bir havalandırma kaydedilmedi. Dışarıdaki koşullar uygun, bu yüzden kısa bir hava değişimi iyi olur.",
             "routine_wait": f"Yaklaşık {n(a.get('hours'), 1)} saattir doğrulanmış bir havalandırma kaydedilmedi, ancak dışarıdaki koşullar şu anda yeterince uygun değil. Biraz daha beklemek daha iyi.",
+            "routine_open_unfavorable": (
+                f"Pencere yaklaşık {n(a.get('open_minutes'), 1)} dakikadır açık, ancak dış koşullar şu anda elverişsiz. Pencereyi kapatıp rutin havalandırmayı daha uygun koşullarda tamamlamak daha iyi."
+                if a.get("open_minutes") is not None
+                else "Pencere zaten açık, ancak dış koşullar şu anda elverişsiz. Pencereyi kapatıp rutin havalandırmayı daha uygun koşullarda tamamlamak daha iyi."
+            ),
+            "routine_open_sufficient_close": "Pencere kısa hava değişimi için yeterince uzun süre açık kaldı. Dış koşullar havalandırmayı şimdi bitirmeyi destekliyor.",
             "outside_too_hot": f"İçeride {t(a.get('ti'))}, dışarıda {t(a.get('ta'))}. Pencereleri açmak şu anda içeri ekstra sıcaklık getirir; kapalı tutmak daha iyi.",
             "outside_too_cold": f"İçeride {t(a.get('ti'))}, dışarıda {t(a.get('ta'))}. Pencereleri açmak odayı gereksiz yere soğutur; kapalı tutmak daha iyi.",
             "outside_more_humid": f"Dış hava, içerideki havadan yaklaşık {m(a.get('amount'), 'g/m³')} daha fazla su içeriyor. Pencereleri açmak nemi dışarı atmak yerine içeri getirir.",
@@ -1198,6 +1253,12 @@ def reason_text(
             "warming": f"It is {t(a.get('ti'))} indoors, while your target is {t(a.get('target'))}. It is warmer outside, so opening the windows can help bring the room closer to your target.",
             "routine_ventilate": f"No confirmed window airing has been recorded for about {n(a.get('hours'), 1)} hours. Outdoor conditions are good, so a short air exchange makes sense now.",
             "routine_wait": f"No confirmed window airing has been recorded for about {n(a.get('hours'), 1)} hours, but outdoor conditions are not good enough right now. It is better to wait a little longer.",
+            "routine_open_unfavorable": (
+                f"The window has already been open for about {n(a.get('open_minutes'), 1)} minutes, but outdoor conditions are unfavorable right now. It is better to close it again and complete the routine airing when conditions improve."
+                if a.get("open_minutes") is not None
+                else "The window is already open, but outdoor conditions are unfavorable right now. It is better to close it again and complete the routine airing when conditions improve."
+            ),
+            "routine_open_sufficient_close": "The window has already been open long enough for the short air exchange. Outdoor conditions favor ending the airing now.",
             "outside_too_hot": f"It is {t(a.get('ti'))} indoors and {t(a.get('ta'))} outside. Opening the windows now would bring extra heat in, so it is better to keep them closed.",
             "outside_too_cold": f"It is {t(a.get('ti'))} indoors and {t(a.get('ta'))} outside. Opening the windows now would cool the room unnecessarily, so it is better to keep them closed.",
             "outside_more_humid": f"The outdoor air contains about {m(a.get('amount'), 'g/m³')} more water than the indoor air. Opening the windows would bring moisture in rather than remove it.",

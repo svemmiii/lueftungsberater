@@ -19,6 +19,7 @@ class RoomInput:
     outdoor_co2: float | None = None
     window_open: bool = False
     open_minutes: float | None = None
+    current_airing_qualified: bool = False
     hours_since_airing: float | None = None
     rain_now: bool = False
     rain_soon: bool = False

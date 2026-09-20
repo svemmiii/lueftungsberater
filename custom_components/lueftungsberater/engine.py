@@ -339,6 +339,7 @@ def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
         "co2_abwaegung",
         "co2_mindestlueftung_vorsicht",
         "komfort_abwaegung",
+        "innenluft_abwaegung",
     }:
         return "short_observation"
     if window_open:
@@ -467,6 +468,7 @@ def _active_needs(
     previous_mode: str,
     previous_need: str,
     window_open: bool,
+    current_airing_qualified: bool,
     co2_pending_hold: bool,
     co2_airing_active: bool,
     co2_rearm_threshold: float | None,
@@ -541,7 +543,11 @@ def _active_needs(
     # Routine is a fallback, not a peer health/comfort signal. If a concrete
     # indoor need is already active, reaching the 24 h mark must not inject a
     # new candidate that can change the existing multi-need conflict.
-    if hours >= 24 and not needs:
+    if (
+        hours >= 24
+        and not needs
+        and not (window_open and current_airing_qualified)
+    ):
         needs.append(("routine", 1))
 
     # Preserve the previous primary ordering for equal urgency. The ordering is
@@ -894,8 +900,26 @@ def _room_status_color(urgency: int, ventilation_color: str, need: str) -> str:
     return "green"
 
 
-def _room_recommendation_key(color: str, window_open: bool) -> str:
+def _room_recommendation_key(
+    color: str,
+    window_open: bool,
+    native_recommendation: str | None = None,
+) -> str:
+    """Return the room-view action without contradicting the live window action.
+
+    The room colour deliberately remains an indoor-pressure perspective and may
+    differ from the native ventilation colour. Once a window is already open,
+    however, the main-card wording becomes a concrete action. Closing/finishing
+    decisions from the shared engine therefore take precedence over the room
+    colour, and a native keep-open decision may not be rendered as can-close.
+    """
     if window_open:
+        if native_recommendation in {"close_now", "better_close", "can_close"}:
+            return native_recommendation
+        if native_recommendation == "short_observation":
+            return "room_keep_brief"
+        if native_recommendation == "keep_open" and color == "green":
+            return "keep_open"
         if color == "green":
             return "can_close"
         if color == "yellow":
@@ -1282,6 +1306,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         previous_mode=previous_mode,
         previous_need=previous_need,
         window_open=data.window_open,
+        current_airing_qualified=data.current_airing_qualified,
         co2_pending_hold=data.co2_pending_hold,
         co2_airing_active=data.co2_airing_active,
         co2_rearm_threshold=data.co2_rearm_threshold,
@@ -1651,6 +1676,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         # independently safe green airing opportunity.
         if (
             hours >= 24.0
+            and not (data.window_open and data.current_airing_qualified)
             and decision_need.startswith("co2_")
             and _action_semantic(mode) == "tradeoff"
             and all(need_name.startswith("co2_") for need_name, _ in active_needs)
@@ -1932,8 +1958,14 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     )
     continue_routine = (
         decision_need == "routine"
-        and (data.open_minutes is None or data.open_minutes < 5.0)
+        and not data.current_airing_qualified
     )
+
+    # Missing CO₂ during an active session must never be converted into the
+    # semantic claim that the airing target was reached. If outside conditions
+    # meanwhile argue for closing, keep that closing action but explain that the
+    # CO₂ target itself is currently unverified.
+    co2_measurement_unknown_close = False
 
     # If a window is already open, keep genuinely active green goals going,
     # mark a finished neutral session as done, and preserve red/yellow trade-off
@@ -1971,16 +2003,48 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 "innen_zu_trocken",
             }
         ):
-            # The active ventilation goal has been reached. A now-unfavourable
-            # outdoor condition is a reason to finish, not a reason to make the
-            # session look as if airing had suddenly become a failure.
-            mode = "lueftung_fertig"
+            if data.co2_airing_active and co2 is None and not data.co2_finish_ready:
+                # Closing can still be the right action because the outside
+                # conditions are unfavorable. What we do *not* know is whether
+                # the CO₂ target has been reached, so preserve the harmful
+                # outside mode instead of falsely declaring airing finished.
+                co2_measurement_unknown_close = True
+            else:
+                # The active ventilation goal has been reached. A now-unfavourable
+                # outdoor condition is a reason to finish, not a reason to make the
+                # session look as if airing had suddenly become a failure.
+                mode = "lueftung_fertig"
 
     color = _color(mode)
     recommendation_key = _recommendation_key(color, mode, data.window_open)
     original_reason: str | None = None
 
-    if mode == "nina_aussenluftgefahr":
+    if (
+        data.window_open
+        and data.current_airing_qualified
+        and hours >= 24.0
+        and not active_needs
+        and hard_mode is None
+        and mode == "routine_warten"
+        and recommendation_key in {"better_close", "close_now", "can_close"}
+    ):
+        # The live five-minute latch has already satisfied the overdue routine,
+        # so the routine must not remain an active decision reason. Use this
+        # generic close explanation only while the mode itself is still the
+        # routine trade-off. A concrete outside mode (AQ/weather/temperature/
+        # humidity) is more informative and must keep its own reason text.
+        reason_key = "routine_open_sufficient_close"
+        reason_args = {"open_minutes": data.open_minutes}
+    elif co2_measurement_unknown_close:
+        reason_key = "co2_measurement_unknown_close"
+        reason_args = {
+            "co2_target": data.co2_finish_target,
+            "outside_mode": mode,
+            "ti": ti,
+            "ta": ta,
+            "diff": diff,
+        }
+    elif mode == "nina_aussenluftgefahr":
         reason_key = data.nina_reason_key or "nina_air_danger"
         reason_args = dict(data.nina_reason_args)
         original_reason = data.nina_original_reason
@@ -2170,7 +2234,21 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     elif mode == "routine_lueften":
         reason_key, reason_args = "routine_ventilate", {"hours": hours}
     elif mode == "routine_warten":
-        reason_key, reason_args = "routine_wait", {"hours": hours}
+        # While the window is already open, do not tell the user that no
+        # confirmed airing has been detected for X hours.  The current session
+        # is visible to the tracker but only becomes a confirmed historical
+        # airing once the contact closes.  Describe the live session instead.
+        if data.window_open:
+            if data.current_airing_qualified:
+                reason_key, reason_args = "routine_open_sufficient_close", {
+                    "open_minutes": data.open_minutes
+                }
+            else:
+                reason_key, reason_args = "routine_open_unfavorable", {
+                    "open_minutes": data.open_minutes
+                }
+        else:
+            reason_key, reason_args = "routine_wait", {"hours": hours}
     elif mode == "aussen_zu_warm":
         reason_key, reason_args = "outside_too_hot", {"ti": ti, "ta": ta, "target": target}
     elif mode == "aussen_zu_kalt":
@@ -2216,7 +2294,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             room_urgency = candidate_room_urgency
 
     room_color = _room_status_color(room_urgency, color, room_need)
-    room_recommendation_key = _room_recommendation_key(room_color, data.window_open)
+    room_recommendation_key = _room_recommendation_key(
+        room_color, data.window_open, recommendation_key
+    )
     room_reason_key = "room_perspective"
     room_reason_args = {
         "need": room_need,
@@ -2244,6 +2324,18 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         "weather_reason_args": dict(data.weather_reason_args),
         **_short_term_weather_args(data),
     }
+
+    # Once the room card shows a concrete native closing/finished action, its
+    # explanation must describe that action as well. The room colour remains an
+    # indoor-pressure indicator, but the text no longer says "keep airing" or
+    # explains only the indoor grade while the action says to close.
+    if (
+        data.window_open
+        and room_recommendation_key in {"close_now", "better_close", "can_close"}
+        and room_recommendation_key == recommendation_key
+    ):
+        room_reason_key = reason_key
+        room_reason_args = dict(reason_args)
 
     # A running explicit CO2 airing session is stronger UI state than the
     # generic inverted room-air grading.  The normal engine above remains the

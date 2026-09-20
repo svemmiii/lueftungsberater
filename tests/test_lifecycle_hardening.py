@@ -134,9 +134,12 @@ async def test_airing_stop_cancels_older_background_saves_before_final_save():
 
     tracker = object.__new__(RoomAiringTracker)
     tracker._unsub_state = None
+    tracker._unsub_registry = None
     tracker._unsub_tick = None
     tracker._unsub_fallback = None
+    tracker._unsub_minimum = None
     tracker._unsub_unknown_grace = None
+    tracker.minimum_reached_at = None
     tracker._save_tasks = set()
     saves: list[str] = []
 

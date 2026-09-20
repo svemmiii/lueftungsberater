@@ -470,3 +470,14 @@ def test_indoor_air_vendor_index_is_labeled_as_index_without_fake_unit():
     )
     assert "VOC-Index" in text
     assert "µg/m³" not in text
+
+
+def test_co2_unknown_close_reason_does_not_claim_target_reached() -> None:
+    args = {"co2_target": 850.0, "outside_mode": "aussen_zu_kalt"}
+    for language in ("de", "en", "tr"):
+        text = reason_text("co2_measurement_unknown_close", args, language, "°C")
+        assert "850" in text
+        assert len(text) > 60
+    de = reason_text("co2_measurement_unknown_close", args, "de", "°C")
+    assert "nicht bestätigt" in de
+    assert "schließe" in de

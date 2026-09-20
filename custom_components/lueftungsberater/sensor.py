@@ -152,6 +152,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         weather = snapshot.weather
         warnings = snapshot.warnings
         last_airing = values["last_confirmed_airing"]
+        airing_tracker = get_tracker(self.hass, self.entry, self.subentry)
 
         registry = er.async_get(self.hass)
         unique_ids = {
@@ -353,9 +354,22 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 if values["open_minutes"] is not None
                 else None
             ),
+            "current_airing_qualified": bool(
+                values.get("current_airing_qualified")
+            ),
+            "current_airing_minimum_reached_at": (
+                values["current_airing_minimum_reached_at"].isoformat()
+                if values.get("current_airing_minimum_reached_at") is not None
+                else None
+            ),
             "last_confirmed_airing": (
                 last_airing.isoformat()
                 if last_airing is not None
+                else None
+            ),
+            "last_qualified_airing_seen_at": (
+                values["last_qualified_airing_seen_at"].isoformat()
+                if values.get("last_qualified_airing_seen_at") is not None
                 else None
             ),
             "hours_since_last_airing": (
@@ -408,7 +422,9 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "source_airing": airing_entity,
             "source_last_airing": last_airing_entity,
             "source_window_entities": list(
-                self.subentry.data.get(CONF_WINDOWS, []) or []
+                airing_tracker.windows
+                if airing_tracker is not None
+                else (self.subentry.data.get(CONF_WINDOWS, []) or [])
             ),
             "source_weather_reason": (
                 warnings.source_weather_entity
@@ -597,9 +613,25 @@ class RoomAiringStatusSensor(LueftungsberaterRoomEntity, SensorEntity):
                 if tracker.current_open_minutes is not None
                 else None
             ),
+            "current_airing_qualified": tracker.current_airing_qualified,
+            "minimum_reached_at": (
+                tracker.minimum_reached_at.isoformat()
+                if tracker.minimum_reached_at
+                else None
+            ),
             "last_confirmed_airing": (
                 tracker.last_confirmed_airing.isoformat()
                 if tracker.last_confirmed_airing
+                else None
+            ),
+            "last_qualified_airing_seen_at": (
+                tracker.last_qualified_airing_seen_at.isoformat()
+                if tracker.last_qualified_airing_seen_at
+                else None
+            ),
+            "hours_since_routine_anchor": (
+                round(tracker.hours_since_routine_anchor, 2)
+                if tracker.hours_since_routine_anchor is not None
                 else None
             ),
             "hours_since_last_airing": (

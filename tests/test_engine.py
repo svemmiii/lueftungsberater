@@ -1441,6 +1441,7 @@ def test_routine_airing_stays_active_until_five_real_open_minutes():
             hours_since_airing=25,
             window_open=True,
             open_minutes=5.1,
+            current_airing_qualified=True,
             previous_mode=just_opened.mode,
             previous_need=just_opened.decision_need,
         )
@@ -2537,7 +2538,7 @@ def test_indoor_air_need_with_unknown_outdoor_quality_never_invents_clean_air():
         )
     )
     assert result.mode == "innenluft_abwaegung"
-    assert result.recommendation_key == "wait"
+    assert result.recommendation_key == "short_observation"
 
 
 def test_indoor_voc_mass_can_compare_directly_with_outdoor_voc_mass():
@@ -2634,4 +2635,283 @@ def test_same_pollutant_improvement_does_not_ignore_worse_other_outdoor_pollutan
     )
     assert result.mode == "innenluft_abwaegung"
     assert result.color == "yellow"
-    assert result.recommendation_key == "wait"
+    assert result.recommendation_key == "short_observation"
+
+
+def test_room_view_open_window_never_continues_against_native_close_action():
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            indoor_humidity=70.0,
+            outdoor_temp=22.0,
+            outdoor_humidity=80.0,
+            window_open=True,
+            open_minutes=10.0,
+        )
+    )
+    assert result.mode == "feuchte_warten"
+    assert result.recommendation_key == "better_close"
+    assert result.room_status_color == "yellow"
+    assert result.room_recommendation_key == "better_close"
+    assert result.room_reason_key == result.reason_key
+
+
+def test_room_view_routine_after_five_minutes_uses_finished_action():
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            outdoor_temp=22.0,
+            hours_since_airing=25.0,
+            window_open=True,
+            open_minutes=5.1,
+            current_airing_qualified=True,
+            previous_mode="weiter_lueften",
+            previous_need="routine",
+        )
+    )
+    assert result.mode == "lueftung_fertig"
+    assert result.recommendation_key == "can_close"
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "can_close"
+    assert result.room_reason_key == "airing_finished"
+
+
+def test_running_co2_session_unknown_measurement_with_bad_outside_does_not_claim_finished():
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=22.0,
+            outdoor_temp=20.0,
+            co2=None,
+            window_open=True,
+            open_minutes=8.0,
+            previous_mode="weiter_lueften",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_finish_ready=False,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+    assert result.mode == "aussen_zu_kalt"
+    assert result.recommendation_key == "better_close"
+    assert result.reason_key == "co2_measurement_unknown_close"
+    assert result.room_recommendation_key == "better_close"
+    assert result.room_reason_key == "co2_measurement_unknown_close"
+
+
+def test_open_indoor_air_tradeoff_maps_to_short_observation():
+    result = evaluate_room(
+        RoomInput(
+            indoor_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=20.0,
+            outdoor_humidity=50.0,
+            target_temp=22.0,
+            window_open=True,
+            indoor_air_quality="moderate",
+            indoor_air_quality_pollutant="pm2_5",
+            indoor_air_quality_value=20.0,
+            indoor_air_quality_unit="µg/m³",
+            indoor_air_quality_measurement_type="mass",
+            air_quality="poor",
+            air_quality_pollutant="o3",
+            air_quality_value=200.0,
+            outdoor_air_quality_values={"pm2_5": 5.0, "o3": 200.0},
+        )
+    )
+    assert result.mode == "innenluft_abwaegung"
+    assert result.recommendation_key == "short_observation"
+    assert result.room_recommendation_key == "room_keep_brief"
+
+
+def test_open_overdue_routine_with_bad_outside_describes_live_session_not_old_timer():
+    """A qualified live airing uses the concrete outside reason, not stale history."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.3,
+            target_temp=22.0,
+            indoor_humidity=58.4,
+            outdoor_temp=18.0,
+            outdoor_humidity=70.0,
+            co2=456.0,
+            hours_since_airing=36.63,
+            window_open=True,
+            open_minutes=1255.0,
+            current_airing_qualified=True,
+        )
+    )
+    assert result.decision_need == "none"
+    assert result.primary_need == "none"
+    assert result.recommendation_key == "better_close"
+    assert result.reason_key == "outside_too_cold"
+    assert result.room_recommendation_key == "better_close"
+    assert result.room_reason_key == "outside_too_cold"
+    text = reason_text(result.reason_key, result.reason_args, "de")
+    assert "36" not in text
+    assert "keine bestätigte Lüftung" not in text
+
+
+def test_open_overdue_routine_before_five_minutes_also_avoids_no_airing_wording():
+    result = evaluate_room(
+        base(
+            indoor_temp=22.3,
+            target_temp=22.0,
+            indoor_humidity=58.4,
+            outdoor_temp=18.0,
+            outdoor_humidity=70.0,
+            co2=456.0,
+            hours_since_airing=36.63,
+            window_open=True,
+            open_minutes=2.0,
+        )
+    )
+    assert result.mode == "routine_warten"
+    assert result.recommendation_key == "better_close"
+    assert result.reason_key == "routine_open_unfavorable"
+    text = reason_text(result.reason_key, result.reason_args, "de")
+    assert "bereits" in text
+    assert "geöffnet" in text
+    assert "keine bestätigte Lüftung" not in text
+
+
+def test_running_airing_qualification_satisfies_overdue_routine_without_rewriting_history():
+    """Five safe open minutes satisfy only the live routine, not its history clock."""
+    before = evaluate_room(
+        base(
+            outdoor_temp=21.5,
+            outdoor_humidity=45,
+            hours_since_airing=36.0,
+            window_open=True,
+            open_minutes=4.9,
+            current_airing_qualified=False,
+        )
+    )
+    elapsed_but_unqualified = evaluate_room(
+        base(
+            outdoor_temp=21.5,
+            outdoor_humidity=45,
+            hours_since_airing=36.0,
+            window_open=True,
+            open_minutes=6.0,
+            current_airing_qualified=False,
+        )
+    )
+    after = evaluate_room(
+        base(
+            outdoor_temp=21.5,
+            outdoor_humidity=45,
+            hours_since_airing=36.0,
+            window_open=True,
+            open_minutes=5.1,
+            current_airing_qualified=True,
+        )
+    )
+
+    assert before.decision_need == "routine"
+    assert before.recommendation_key == "keep_open"
+    assert elapsed_but_unqualified.decision_need == "routine"
+    assert elapsed_but_unqualified.mode == "weiter_lueften"
+    assert elapsed_but_unqualified.recommendation_key == "keep_open"
+    assert elapsed_but_unqualified.reason_args["continue_routine"] is True
+    assert after.decision_need == "none"
+    assert after.primary_need == "none"
+    assert after.mode == "lueftung_fertig"
+    assert after.recommendation_key == "can_close"
+    assert after.room_status_color == "green"
+    assert after.room_recommendation_key == "can_close"
+
+
+def test_qualified_routine_does_not_hide_an_independent_keep_open_need():
+    """After minute five, another indoor need may still legitimately continue airing."""
+    result = evaluate_room(
+        base(
+            outdoor_temp=21.5,
+            outdoor_humidity=45,
+            co2=1500,
+            hours_since_airing=36.0,
+            window_open=True,
+            open_minutes=8.0,
+            current_airing_qualified=True,
+        )
+    )
+
+    assert result.decision_need == "co2_high"
+    assert result.mode == "weiter_lueften"
+    assert result.recommendation_key == "keep_open"
+    assert result.reason_args["continue_routine"] is False
+
+
+def test_qualified_live_airing_disables_routine_monotonic_co2_baseline():
+    """A satisfied live routine must not keep influencing a simultaneous CO2 trade-off."""
+    common = dict(
+        indoor_temp=22,
+        indoor_humidity=50,
+        outdoor_temp=21.5,
+        outdoor_humidity=45,
+        co2=1050,
+        outdoor_co2=1200,
+        hours_since_airing=36.0,
+        window_open=True,
+        open_minutes=8.0,
+    )
+
+    unqualified = evaluate_room(base(**common, current_airing_qualified=False))
+    qualified = evaluate_room(base(**common, current_airing_qualified=True))
+
+    assert unqualified.decision_need.startswith("co2_")
+    assert qualified.decision_need.startswith("co2_")
+    # The exact CO2 trade-off remains authoritative once the live routine has
+    # already been satisfied; the old 36 h fallback no longer promotes it.
+    assert qualified.mode != "routine_lueften"
+    assert qualified.reason_args.get("continue_routine") is not True
+
+
+def test_qualified_overdue_routine_does_not_hide_specific_bad_air_reason():
+    """Concrete outdoor protection text outranks the generic routine close text."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.3,
+            target_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=50.0,
+            co2=456.0,
+            hours_since_airing=36.63,
+            window_open=True,
+            open_minutes=10.0,
+            current_airing_qualified=True,
+            air_quality="very_poor",
+        )
+    )
+
+    assert result.mode in {
+        "luftqualitaet_sehr_schlecht",
+        "luftqualitaet_sehr_schlecht_typisch",
+    }
+    assert result.recommendation_key == "close_now"
+    assert result.reason_key == "air_quality_very_poor"
+    assert result.room_recommendation_key == "close_now"
+    assert result.room_reason_key == "air_quality_very_poor"
+
+
+def test_qualified_overdue_routine_preserves_other_specific_outdoor_reasons():
+    cases = (
+        ({"air_quality": "moderate"}, "luftqualitaet_maessig", "air_quality_moderate"),
+        ({"air_quality": "poor"}, "luftqualitaet_schlecht", "air_quality_poor"),
+        ({"weather_caution": True}, "wetter_vorsicht", "weather_caution"),
+    )
+    for extra, expected_mode, expected_reason in cases:
+        result = evaluate_room(
+            base(
+                hours_since_airing=36.0,
+                window_open=True,
+                open_minutes=10.0,
+                current_airing_qualified=True,
+                **extra,
+            )
+        )
+        assert result.mode == expected_mode
+        assert result.reason_key == expected_reason
+        assert result.room_reason_key == expected_reason
+        assert result.reason_key != "routine_open_sufficient_close"

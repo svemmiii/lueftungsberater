@@ -501,13 +501,33 @@ def _room_values(
             if tracker is not None and tracker.is_open
             else None
         ),
+        "current_airing_qualified": (
+            tracker.current_airing_qualified
+            if tracker is not None
+            else False
+        ),
+        "current_airing_minimum_reached_at": (
+            tracker.minimum_reached_at
+            if tracker is not None and tracker.current_airing_qualified
+            else None
+        ),
         "last_confirmed_airing": (
             tracker.last_confirmed_airing
             if tracker is not None
             else None
         ),
+        "last_qualified_airing_seen_at": (
+            tracker.last_qualified_airing_seen_at
+            if tracker is not None
+            else None
+        ),
         "hours_since_last_airing": (
             tracker.hours_since_last_airing
+            if tracker is not None
+            else None
+        ),
+        "hours_since_airing_for_routine": (
+            tracker.hours_since_routine_anchor
             if tracker is not None
             else None
         ),
@@ -857,7 +877,8 @@ def build_room_snapshot(
         outdoor_co2=values.get("outdoor_co2_ppm"),
         window_open=bool(values["window_open"]),
         open_minutes=values.get("open_minutes"),
-        hours_since_airing=values["hours_since_last_airing"],
+        current_airing_qualified=bool(values.get("current_airing_qualified")),
+        hours_since_airing=values.get("hours_since_airing_for_routine"),
         rain_now=(weather.rain_now or legacy_rain_now),
         rain_soon=(weather.rain_soon or legacy_rain_soon),
         rain_minutes_until=weather.rain_minutes_until,
