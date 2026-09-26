@@ -14,7 +14,6 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
@@ -36,7 +35,6 @@ from .const import (
     HARDWARE_STATION_STALE_AFTER,
     HARDWARE_STATION_STALE_CHECK_INTERVAL,
     INTEGRATION_VERSION,
-    STORAGE_VERSION,
     SUBENTRY_TYPE_STATION,
 )
 

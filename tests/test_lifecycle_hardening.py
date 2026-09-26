@@ -80,7 +80,11 @@ async def test_room_coordinator_shutdown_drains_notification_tasks_before_cleari
     from custom_components.lueftungsberater.coordinator import LueftungsberaterRoomCoordinator
 
     coordinator = object.__new__(LueftungsberaterRoomCoordinator)
+    coordinator._source_state_unsub = None
+    coordinator._source_registry_unsub = None
     coordinator._co2_hysteresis_unsub = None
+    coordinator._humidity_session_unsub = None
+    coordinator._indoor_air_session_unsub = None
     coordinator._unsubs = []
     coordinator._notification_tasks = set()
     coordinator._started = True
@@ -391,6 +395,7 @@ async def test_failed_entry_setup_cleanup_drains_every_published_runtime_bucket(
 
     monkeypatch.setattr(integration, "async_stop_entry_coordinators", async_stub("rooms"))
     monkeypatch.setattr(integration, "async_stop_outside_coordinator", async_stub("outside"))
+    monkeypatch.setattr(integration, "async_unload_hardware_hub", async_stub("hardware"))
     monkeypatch.setattr(integration, "async_stop_air_quality_tracker", async_stub("air_quality"))
     monkeypatch.setattr(integration, "async_stop_entry_trackers", async_stub("airing"))
     monkeypatch.setattr(integration, "async_stop_entry_co2_trackers", async_stub("co2"))
@@ -412,6 +417,7 @@ async def test_failed_entry_setup_cleanup_drains_every_published_runtime_bucket(
     assert order == [
         "rooms",
         "outside",
+        "hardware",
         "air_quality",
         "airing",
         "co2",
@@ -458,6 +464,7 @@ async def test_setup_failure_during_platform_forwarding_rolls_back_partial_platf
     monkeypatch.setattr(integration, "async_register_recorder_retention", lambda *_args: lambda: None)
     monkeypatch.setattr(integration, "async_get_or_create_air_quality_tracker", _noop_async)
     monkeypatch.setattr(integration, "async_get_or_create_outside_coordinator", _noop_async)
+    monkeypatch.setattr(integration, "async_setup_hardware_hub", _noop_async)
     monkeypatch.setattr(integration, "async_sync_room_device_areas", lambda *_args: None)
     monkeypatch.setattr(integration, "async_refresh_recorder_entity_index", _noop_async)
     monkeypatch.setattr(integration, "async_purge_recorder_history", _noop_async)

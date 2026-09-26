@@ -146,6 +146,7 @@ def test_build_snapshot_keeps_hard_warning_when_humidity_sensor_is_unavailable(h
     entry = SimpleNamespace(
         entry_id="entry",
         data={CONF_WARNING_SOURCE: "provider-entry"},
+        subentries={},
     )
     subentry = SimpleNamespace(
         subentry_id="room",
@@ -227,6 +228,7 @@ def test_room_source_entities_leave_window_contacts_to_airing_tracker():
     from custom_components.lueftungsberater.runtime import room_source_entities
 
     room = SimpleNamespace(
+        subentry_id="room",
         data={
             CONF_INDOOR_TEMP: "sensor.room_temp",
             CONF_INDOOR_HUMIDITY: "sensor.room_humidity",
@@ -236,7 +238,7 @@ def test_room_source_entities_leave_window_contacts_to_airing_tracker():
             CONF_WINDOWS: ["binary_sensor.window_a", "binary_sensor.window_b"],
         }
     )
-    entry = SimpleNamespace(data={})
+    entry = SimpleNamespace(data={}, subentries={})
 
     entities = room_source_entities(None, entry, room)
 

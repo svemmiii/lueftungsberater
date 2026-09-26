@@ -1261,7 +1261,6 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
-        entry = self._get_entry()
         subentry = self._get_reconfigure_subentry()
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -1638,7 +1637,6 @@ class StationSubentryFlow(ConfigSubentryFlow):
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
-        entry = self._get_entry()
         subentry = self._get_reconfigure_subentry()
         if station_connection_type(subentry) == HARDWARE_CONNECTION_DIRECT:
             return await self.async_step_reconfigure_direct(user_input)
