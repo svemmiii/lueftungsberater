@@ -645,3 +645,240 @@ def test_timed_out_session_resumes_target_confirmation_when_sensor_recovers():
     assert recovered.finish_ready is False
     assert recovered.finish_target_ppm == 850.0
     assert recovered.next_check_seconds == 120.0
+
+
+def _complete_co2_session(state, *, start, target=1250.0, trigger_value=1240.0):
+    assert state.start_airing_session(target_ppm=target)
+    state.evaluate(
+        now=start,
+        co2=trigger_value,
+        window_open=True,
+        previous_mode="weiter_lueften",
+        previous_need="co2_high",
+    )
+    state.evaluate(
+        now=start + CO2_AIRING_FINISH_STABLE,
+        co2=trigger_value,
+        window_open=True,
+        previous_mode="weiter_lueften",
+        previous_need="co2_high",
+    )
+    # Closing after the stable target commits the completion/rearm memory.
+    state.evaluate(
+        now=start + CO2_AIRING_FINISH_STABLE + timedelta(seconds=1),
+        co2=trigger_value,
+        window_open=False,
+        previous_mode="lueftung_fertig",
+        previous_need="none",
+    )
+
+
+def test_two_fast_co2_rebounds_mark_high_load_without_blocking_live_co2():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
+
+    _complete_co2_session(state, start=start)
+    state.evaluate(
+        now=start + timedelta(minutes=10),
+        co2=1450,
+        window_open=False,
+        previous_mode="co2_lueften",
+        previous_need="co2_high",
+    )
+    assert state.rebound_count == 1
+    assert state.high_load_active(start + timedelta(minutes=10)) is False
+
+    second = start + timedelta(minutes=20)
+    _complete_co2_session(state, start=second)
+    state.evaluate(
+        now=second + timedelta(minutes=10),
+        co2=1450,
+        window_open=False,
+        previous_mode="co2_lueften",
+        previous_need="co2_high",
+    )
+
+    assert state.rebound_count >= 2
+    assert state.high_load_active(second + timedelta(minutes=10)) is True
+
+
+def test_high_load_rebound_window_allows_repeated_return_within_90_minutes():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
+
+    _complete_co2_session(state, start=start)
+    state.evaluate(
+        now=start + timedelta(minutes=50),
+        co2=1450,
+        window_open=False,
+        previous_mode="co2_lueften",
+        previous_need="co2_high",
+    )
+    assert state.rebound_count == 1
+
+    second = start + timedelta(minutes=60)
+    _complete_co2_session(state, start=second)
+    state.evaluate(
+        now=second + timedelta(minutes=25),
+        co2=1450,
+        window_open=False,
+        previous_mode="co2_lueften",
+        previous_need="co2_high",
+    )
+    assert state.high_load_active(second + timedelta(minutes=25)) is True
+
+
+def test_co2_trend_tracks_real_value_changes_and_predicts_fast_2000_crossing():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 26, 18, 0, tzinfo=UTC)
+    state.evaluate(
+        now=start,
+        co2=1400,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    # Unrelated coordinator refresh with unchanged CO2 must not create a fake
+    # zero-slope sample.
+    state.evaluate(
+        now=start + timedelta(minutes=2),
+        co2=1400,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    state.evaluate(
+        now=start + timedelta(minutes=6),
+        co2=1670,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert state.trend_ppm_per_min is not None
+    assert 40 <= state.trend_ppm_per_min <= 50
+    minutes = (2000 - 1670) / state.trend_ppm_per_min
+    assert minutes < 10
+
+
+def test_high_load_prediction_requires_two_consecutive_positive_intervals():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 26, 20, 0, tzinfo=UTC)
+
+    first = state.evaluate(
+        now=start,
+        co2=1700,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert first.minutes_to_2000 is None
+
+    # One noisy-looking jump may produce a positive slope internally, but must
+    # not yet authorize the predictive <1800 ppm high-load re-trigger.
+    second = state.evaluate(
+        now=start + timedelta(minutes=1),
+        co2=1732,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert state.trend_positive_intervals == 1
+    assert state.trend_ppm_per_min == 32
+    assert second.minutes_to_2000 is None
+
+    # A second real rising interval confirms the trend.
+    third = state.evaluate(
+        now=start + timedelta(minutes=2),
+        co2=1764,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert state.trend_positive_intervals == 2
+    assert third.minutes_to_2000 is not None
+    assert third.minutes_to_2000 < 10
+
+
+def test_high_load_prediction_confirmation_resets_on_falling_interval():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 26, 20, 0, tzinfo=UTC)
+
+    state.evaluate(
+        now=start,
+        co2=1650,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    one_rise = state.evaluate(
+        now=start + timedelta(minutes=1),
+        co2=1685,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert one_rise.minutes_to_2000 is None
+    assert state.trend_positive_intervals == 1
+
+    falling = state.evaluate(
+        now=start + timedelta(minutes=2),
+        co2=1660,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert falling.minutes_to_2000 is None
+    assert state.trend_positive_intervals == 0
+
+    # One new rise after the reset is again only the first confirmation.
+    rising_again = state.evaluate(
+        now=start + timedelta(minutes=3),
+        co2=1695,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert state.trend_positive_intervals == 1
+    assert rising_again.minutes_to_2000 is None
+
+
+def test_trend_confirmation_count_survives_state_roundtrip():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 26, 20, 0, tzinfo=UTC)
+    state.evaluate(
+        now=start,
+        co2=1600,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    state.evaluate(
+        now=start + timedelta(minutes=1),
+        co2=1640,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    saved = state.as_dict()
+    assert saved["trend_positive_intervals"] == 1
+
+    restored = Co2HysteresisState()
+    restored.restore(
+        pending_below_since=None,
+        finish_below_since=None,
+        trend_anchor_ppm=saved["trend_anchor_ppm"],
+        trend_anchor_at=datetime.fromisoformat(saved["trend_anchor_at"]),
+        trend_ppm_per_min=saved["trend_ppm_per_min"],
+        trend_positive_intervals=saved["trend_positive_intervals"],
+    )
+    assert restored.trend_positive_intervals == 1
+
+    confirmed = restored.evaluate(
+        now=start + timedelta(minutes=2),
+        co2=1680,
+        window_open=False,
+        previous_mode="normal",
+        previous_need="none",
+    )
+    assert restored.trend_positive_intervals == 2
+    assert confirmed.minutes_to_2000 is not None

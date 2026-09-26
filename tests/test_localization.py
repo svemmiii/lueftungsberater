@@ -497,3 +497,13 @@ def test_window_state_unknown_text_is_explicit():
     text = reason_text("window_state_unknown", {}, "de")
     assert "Fensterkontakt" in text
     assert "nicht" in text
+
+
+def test_co2_high_load_context_is_explained_in_reason_text():
+    text = reason_text(
+        "co2_ventilate",
+        {"co2": 1450, "co2_high_load": True},
+        "de",
+    )
+    assert "mehrfach schnell wieder angestiegen" in text
+    assert "kurze wirksame Stoßlüftung" in text

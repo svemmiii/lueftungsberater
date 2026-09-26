@@ -221,7 +221,7 @@
       "step": {
         "user": {
           "title": "Raum hinzufügen",
-          "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. Optional kannst du den Raum einem vorhandenen Home-Assistant-Bereich zuordnen und/oder einen eigenen Namen vergeben. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
+          "description": "Lege den Raum an und wähle vorhandene Sensoren – oder lasse Temperatur/Feuchte leer und ordne anschließend eine Lüftungsstation zu. CO₂, Fenster-/Türkontakte und Oberflächentemperatur bleiben optional.",
           "data": {
             "room_name": "Eigener Raumname (optional)",
             "indoor_temperature": "Innentemperatur",
@@ -252,7 +252,7 @@
           "sections": {
             "room_climate": {
               "name": "🌡️ Raumklima",
-              "description": "Pflichtwerte und deine persönliche Wunschtemperatur.",
+              "description": "Vorhandene Sensoren können direkt gewählt werden. Für eine Hardware-Lüftungsstation dürfen Temperatur und Feuchte leer bleiben; die Station liefert sie nach der Zuordnung automatisch.",
               "data": {
                 "indoor_temperature": "Innentemperatur",
                 "indoor_humidity": "Innenluftfeuchtigkeit",
@@ -412,6 +412,70 @@
         "room_name_empty": "Bitte gib einen eigenen Raumnamen ein oder wähle einen vorhandenen Home-Assistant-Bereich aus.",
         "room_name_duplicate": "Dieser Raumname wird in dieser Instanz bereits verwendet.",
         "area_not_found": "Der ausgewählte Home-Assistant-Bereich existiert nicht mehr. Bitte wähle einen anderen Bereich oder entferne die Auswahl."
+      }
+    },
+    "station": {
+      "entry_type": "Lüftungsstation",
+      "initiate_flow": {
+        "user": "Lüftungsstation hinzufügen",
+        "reconfigure": "Lüftungsstation konfigurieren"
+      },
+      "step": {
+        "user": {
+          "title": "Lüftungsstation hinzufügen",
+          "description": "Wähle, ob die Station bereits direkt per ESPHome mit diesem Home Assistant verbunden ist oder über einen Lüftungsstation-Master / ESP-NOW kommuniziert.",
+          "data": {
+            "hardware_connection_type": "Verbindung"
+          }
+        },
+        "direct": {
+          "title": "Direkte ESPHome-Station zuordnen",
+          "description": "Wähle ein bereits in Home Assistant eingebundenes ESPHome-Gerät. Es wird nur angeboten, wenn genau je ein CO₂-, Temperatur- und Luftfeuchtesensor erkannt wird. Die drei Sensoren werden automatisch gemeinsam als Quelle des Raums verwendet.",
+          "data": {
+            "hardware_device_id": "ESPHome-Gerät",
+            "hardware_room_id": "Raum"
+          }
+        },
+        "master": {
+          "title": "Station über Master zuordnen",
+          "description": "Ordne eine vom Master gefundene ESP-NOW-Station einem Raum zu. Alternativ kann die Hardware-ID manuell eingetragen werden.",
+          "data": {
+            "hardware_discovery_id": "Gefundene Station",
+            "hardware_id": "Hardware-ID",
+            "hardware_master_id": "Master-ID",
+            "hardware_room_id": "Raum"
+          }
+        },
+        "reconfigure_direct": {
+          "title": "Direkte Lüftungsstation konfigurieren",
+          "data": {
+            "hardware_device_id": "ESPHome-Gerät",
+            "hardware_room_id": "Raum"
+          }
+        },
+        "reconfigure_master": {
+          "title": "Master-Lüftungsstation konfigurieren",
+          "data": {
+            "hardware_master_id": "Master-ID",
+            "hardware_room_id": "Raum"
+          }
+        },
+        "reconfigure": {
+          "title": "Lüftungsstation konfigurieren"
+        }
+      },
+      "error": {
+        "hardware_no_rooms": "Lege zuerst mindestens einen Raum im Lüftungsassistenten an.",
+        "hardware_room_invalid": "Der ausgewählte Raum existiert nicht mehr.",
+        "hardware_id_required": "Wähle eine gefundene Station oder gib eine Hardware-ID ein.",
+        "hardware_id_duplicate": "Diese Hardware-ID ist bereits gekoppelt.",
+        "hardware_room_duplicate": "Diesem Raum ist bereits eine Lüftungsstation zugeordnet.",
+        "hardware_connection_invalid": "Wähle eine gültige Verbindungsart.",
+        "hardware_direct_device_invalid": "Das gewählte ESPHome-Gerät ist nicht mehr verfügbar oder stellt nicht eindeutig CO₂, Temperatur und Luftfeuchtigkeit bereit."
+      },
+      "abort": {
+        "hardware_no_rooms": "Lege zuerst mindestens einen Raum im Lüftungsassistenten an.",
+        "hardware_no_direct_devices": "Kein geeignetes ESPHome-Gerät gefunden. Binde die Station zuerst über ESPHome in Home Assistant ein und stelle sicher, dass genau je ein CO₂-, Temperatur- und Luftfeuchtesensor vorhanden ist."
       }
     }
   },

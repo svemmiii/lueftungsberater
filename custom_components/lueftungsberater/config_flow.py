@@ -15,6 +15,7 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import SectionConfig, section
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
     AreaSelector,
@@ -36,6 +37,12 @@ from homeassistant.helpers.selector import (
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .areas import room_area_name
+from .hardware_hub import (
+    direct_device_sensor_map,
+    discovered_stations,
+    station_connection_type,
+    station_subentries,
+)
 from .const import (
     CONF_AREA_ID,
     CONF_CLIMATE,
@@ -50,6 +57,17 @@ from .const import (
     CONF_INDOOR_HUMIDITY,
     CONF_INDOOR_TEMP,
     CONF_INSTANCE_NAME,
+    CONF_HARDWARE_ID,
+    CONF_HARDWARE_MASTER_ID,
+    CONF_HARDWARE_ROOM_ID,
+    CONF_HARDWARE_DISCOVERY_ID,
+    CONF_HARDWARE_CONNECTION_TYPE,
+    CONF_HARDWARE_DEVICE_ID,
+    CONF_HARDWARE_DIRECT_CO2,
+    CONF_HARDWARE_DIRECT_TEMP,
+    CONF_HARDWARE_DIRECT_HUMIDITY,
+    HARDWARE_CONNECTION_DIRECT,
+    HARDWARE_CONNECTION_MASTER,
     CONF_MANUAL_OUTDOOR,
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_TRIGGERS,
@@ -96,6 +114,7 @@ from .const import (
     ENTRY_KIND_LOCAL,
     ENTRY_KIND_REMOTE,
     SUBENTRY_TYPE_ROOM,
+    SUBENTRY_TYPE_STATION,
     WARNING_SOURCE_NONE,
     NOTIFY_TRIGGER_AIRING_RECOMMENDED,
     NOTIFY_TRIGGER_AIRING_FINISHED,
@@ -458,10 +477,10 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
             vol.Required(SECTION_ROOM_CLIMATE): section(
                 vol.Schema(
                     {
-                        vol.Required(CONF_INDOOR_TEMP): _entity(
+                        vol.Optional(CONF_INDOOR_TEMP): _entity(
                             "sensor", device_class=SensorDeviceClass.TEMPERATURE
                         ),
-                        vol.Required(CONF_INDOOR_HUMIDITY): _entity(
+                        vol.Optional(CONF_INDOOR_HUMIDITY): _entity(
                             "sensor", device_class=SensorDeviceClass.HUMIDITY
                         ),
                         vol.Optional(CONF_CLIMATE): _entity("climate"),
@@ -1170,7 +1189,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             or bool(config_entry.data.get(CONF_REMOTE_HOST))
         ):
             return {}
-        return {SUBENTRY_TYPE_ROOM: RoomSubentryFlow}
+        return {SUBENTRY_TYPE_ROOM: RoomSubentryFlow, SUBENTRY_TYPE_STATION: StationSubentryFlow}
 
 
 def _resolved_room_title(
@@ -1280,3 +1299,423 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         return self.async_show_form(
             step_id="reconfigure", data_schema=schema, errors=errors
         )
+
+
+def _station_room_options(entry: ConfigEntry) -> list[SelectOptionDict]:
+    return [
+        SelectOptionDict(value=subentry.subentry_id, label=str(subentry.title))
+        for subentry in entry.subentries.values()
+        if subentry.subentry_type == SUBENTRY_TYPE_ROOM
+    ]
+
+
+def _station_connection_options(hass: HomeAssistant) -> list[SelectOptionDict]:
+    language = str(getattr(hass.config, "language", "en") or "en").lower()
+    labels = {
+        "de": {
+            HARDWARE_CONNECTION_DIRECT: "Direkt über ESPHome / Home Assistant",
+            HARDWARE_CONNECTION_MASTER: "Über Lüftungsstation-Master / ESP-NOW",
+        },
+        "tr": {
+            HARDWARE_CONNECTION_DIRECT: "Doğrudan ESPHome / Home Assistant üzerinden",
+            HARDWARE_CONNECTION_MASTER: "Havalandırma istasyonu master / ESP-NOW üzerinden",
+        },
+        "en": {
+            HARDWARE_CONNECTION_DIRECT: "Direct via ESPHome / Home Assistant",
+            HARDWARE_CONNECTION_MASTER: "Via ventilation-station master / ESP-NOW",
+        },
+    }.get(language[:2])
+    if labels is None:
+        labels = {
+            HARDWARE_CONNECTION_DIRECT: "Direct via ESPHome / Home Assistant",
+            HARDWARE_CONNECTION_MASTER: "Via ventilation-station master / ESP-NOW",
+        }
+    return [
+        SelectOptionDict(value=HARDWARE_CONNECTION_DIRECT, label=labels[HARDWARE_CONNECTION_DIRECT]),
+        SelectOptionDict(value=HARDWARE_CONNECTION_MASTER, label=labels[HARDWARE_CONNECTION_MASTER]),
+    ]
+
+
+def _direct_station_candidates(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    current_subentry_id: str | None = None,
+) -> dict[str, dict[str, str]]:
+    """Return ESPHome devices that unambiguously expose SCD41-like raw sensors."""
+    device_registry = dr.async_get(hass)
+    assigned = {
+        str(station.data.get(CONF_HARDWARE_DEVICE_ID) or "")
+        for station in station_subentries(entry)
+        if station.subentry_id != current_subentry_id
+        and station_connection_type(station) == HARDWARE_CONNECTION_DIRECT
+    }
+    result: dict[str, dict[str, str]] = {}
+    for esphome_entry in hass.config_entries.async_entries("esphome"):
+        for device in dr.async_entries_for_config_entry(
+            device_registry, config_entry_id=esphome_entry.entry_id
+        ):
+            if device.id in assigned or device.disabled_by is not None:
+                continue
+            sensors = direct_device_sensor_map(hass, device.id)
+            if sensors is None:
+                continue
+            name = str(device.name_by_user or device.name or esphome_entry.title or device.id)
+            external_id = next(
+                (
+                    str(identifier)
+                    for domain, identifier in device.identifiers
+                    if str(domain) == "esphome"
+                ),
+                device.id,
+            )
+            result[device.id] = {
+                "device_id": device.id,
+                "name": name,
+                "external_id": external_id,
+                **sensors,
+            }
+    return result
+
+
+def _direct_station_options(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    current_subentry_id: str | None = None,
+) -> list[SelectOptionDict]:
+    candidates = _direct_station_candidates(
+        hass, entry, current_subentry_id=current_subentry_id
+    )
+    return sorted(
+        [
+            SelectOptionDict(
+                value=device_id,
+                label=f"{item['name']} · CO₂ / Temperatur / Luftfeuchtigkeit",
+            )
+            for device_id, item in candidates.items()
+        ],
+        key=lambda item: str(item["label"]).casefold(),
+    )
+
+
+def _station_discovery_options(hass: HomeAssistant, entry: ConfigEntry) -> list[SelectOptionDict]:
+    options: list[SelectOptionDict] = []
+    for hardware_id, item in discovered_stations(hass, entry.entry_id).items():
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or hardware_id)
+        master = str(item.get("master_id") or "default")
+        options.append(
+            SelectOptionDict(
+                value=hardware_id,
+                label=f"{name} · {hardware_id} · Master {master}",
+            )
+        )
+    return sorted(options, key=lambda item: str(item["label"]).casefold())
+
+
+def _station_connection_schema(hass: HomeAssistant) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_HARDWARE_CONNECTION_TYPE,
+                default=HARDWARE_CONNECTION_DIRECT,
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=_station_connection_options(hass),
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            )
+        }
+    )
+
+
+def _master_station_schema(hass: HomeAssistant, entry: ConfigEntry) -> vol.Schema:
+    rooms = _station_room_options(entry)
+    discoveries = _station_discovery_options(hass, entry)
+    schema: dict[Any, Any] = {}
+    if discoveries:
+        schema[vol.Optional(CONF_HARDWARE_DISCOVERY_ID)] = SelectSelector(
+            SelectSelectorConfig(options=discoveries, mode=SelectSelectorMode.DROPDOWN)
+        )
+    schema[vol.Optional(CONF_HARDWARE_ID)] = TextSelector(
+        TextSelectorConfig(autocomplete="off")
+    )
+    schema[vol.Optional(CONF_HARDWARE_MASTER_ID, default="default")] = TextSelector(
+        TextSelectorConfig(autocomplete="off")
+    )
+    schema[vol.Required(CONF_HARDWARE_ROOM_ID)] = SelectSelector(
+        SelectSelectorConfig(options=rooms, mode=SelectSelectorMode.DROPDOWN)
+    )
+    return vol.Schema(schema)
+
+
+def _direct_station_schema(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    current_subentry_id: str | None = None,
+    defaults: dict[str, Any] | None = None,
+) -> vol.Schema:
+    options = _direct_station_options(
+        hass, entry, current_subentry_id=current_subentry_id
+    )
+    rooms = _station_room_options(entry)
+    defaults = defaults or {}
+    device_default = str(defaults.get(CONF_HARDWARE_DEVICE_ID) or "")
+    room_default = str(defaults.get(CONF_HARDWARE_ROOM_ID) or "")
+    device_key = (
+        vol.Required(CONF_HARDWARE_DEVICE_ID, default=device_default)
+        if device_default
+        else vol.Required(CONF_HARDWARE_DEVICE_ID)
+    )
+    room_key = (
+        vol.Required(CONF_HARDWARE_ROOM_ID, default=room_default)
+        if room_default
+        else vol.Required(CONF_HARDWARE_ROOM_ID)
+    )
+    return vol.Schema(
+        {
+            device_key: SelectSelector(
+                SelectSelectorConfig(options=options, mode=SelectSelectorMode.DROPDOWN)
+            ),
+            room_key: SelectSelector(
+                SelectSelectorConfig(options=rooms, mode=SelectSelectorMode.DROPDOWN)
+            ),
+        }
+    )
+
+
+def _normalize_station_id(value: Any) -> str:
+    return str(value or "").strip().upper().replace("-", ":")
+
+
+def _station_room_error(entry: ConfigEntry, room_id: str, *, current_subentry_id: str | None = None) -> str | None:
+    valid_rooms = {str(item["value"]) for item in _station_room_options(entry)}
+    if room_id not in valid_rooms:
+        return "hardware_room_invalid"
+    if any(
+        station.subentry_id != current_subentry_id
+        and str(station.data.get(CONF_HARDWARE_ROOM_ID) or "") == room_id
+        for station in station_subentries(entry)
+    ):
+        return "hardware_room_duplicate"
+    return None
+
+
+def _master_station_input(
+    hass: HomeAssistant, entry: ConfigEntry, user_input: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str | None]:
+    room_id = str(user_input.get(CONF_HARDWARE_ROOM_ID) or "").strip()
+    if error := _station_room_error(entry, room_id):
+        return None, error
+
+    discovery_id = _normalize_station_id(user_input.get(CONF_HARDWARE_DISCOVERY_ID))
+    discovery = discovered_stations(hass, entry.entry_id).get(discovery_id) if discovery_id else None
+    hardware_id = _normalize_station_id(
+        (discovery or {}).get("hardware_id") if isinstance(discovery, dict) else user_input.get(CONF_HARDWARE_ID)
+    )
+    if not hardware_id:
+        hardware_id = _normalize_station_id(user_input.get(CONF_HARDWARE_ID))
+    if not hardware_id:
+        return None, "hardware_id_required"
+
+    master_id = str(
+        (discovery or {}).get("master_id") if isinstance(discovery, dict) else user_input.get(CONF_HARDWARE_MASTER_ID)
+    ).strip() or "default"
+
+    for existing in station_subentries(entry):
+        if _normalize_station_id(existing.data.get(CONF_HARDWARE_ID)) == hardware_id:
+            return None, "hardware_id_duplicate"
+
+    return {
+        CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_MASTER,
+        CONF_HARDWARE_ID: hardware_id,
+        CONF_HARDWARE_MASTER_ID: master_id,
+        CONF_HARDWARE_ROOM_ID: room_id,
+    }, None
+
+
+def _direct_station_input(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    user_input: dict[str, Any],
+    *,
+    current_subentry_id: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    room_id = str(user_input.get(CONF_HARDWARE_ROOM_ID) or "").strip()
+    if error := _station_room_error(entry, room_id, current_subentry_id=current_subentry_id):
+        return None, error
+
+    device_id = str(user_input.get(CONF_HARDWARE_DEVICE_ID) or "").strip()
+    candidates = _direct_station_candidates(
+        hass, entry, current_subentry_id=current_subentry_id
+    )
+    candidate = candidates.get(device_id)
+    if candidate is None:
+        return None, "hardware_direct_device_invalid"
+
+    return {
+        CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_DIRECT,
+        CONF_HARDWARE_DEVICE_ID: device_id,
+        CONF_HARDWARE_ID: f"DIRECT:{candidate['external_id']}",
+        CONF_HARDWARE_ROOM_ID: room_id,
+        CONF_HARDWARE_DIRECT_CO2: candidate["co2"],
+        CONF_HARDWARE_DIRECT_TEMP: candidate["temperature"],
+        CONF_HARDWARE_DIRECT_HUMIDITY: candidate["humidity"],
+    }, None
+
+
+class StationSubentryFlow(ConfigSubentryFlow):
+    """Assign a direct ESPHome station or a master-backed ESP-NOW station to a room."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
+        if entry_kind(entry) != ENTRY_KIND_LOCAL or entry.data.get(CONF_REMOTE_HOST):
+            return self.async_abort(reason="remote_read_only")
+        if not _station_room_options(entry):
+            return self.async_abort(reason="hardware_no_rooms")
+        if user_input is not None:
+            connection_type = str(
+                user_input.get(CONF_HARDWARE_CONNECTION_TYPE) or ""
+            ).strip()
+            self._pending_connection_type = connection_type
+            if connection_type == HARDWARE_CONNECTION_DIRECT:
+                return await self.async_step_direct()
+            if connection_type == HARDWARE_CONNECTION_MASTER:
+                return await self.async_step_master()
+            return self.async_show_form(
+                step_id="user",
+                data_schema=_station_connection_schema(self.hass),
+                errors={"base": "hardware_connection_invalid"},
+            )
+        return self.async_show_form(
+            step_id="user", data_schema=_station_connection_schema(self.hass)
+        )
+
+    async def async_step_direct(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
+        candidates = _direct_station_candidates(self.hass, entry)
+        if not candidates:
+            return self.async_abort(reason="hardware_no_direct_devices")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, error = _direct_station_input(self.hass, entry, user_input)
+            if error is not None:
+                errors["base"] = error
+            else:
+                assert data is not None
+                room = entry.subentries[data[CONF_HARDWARE_ROOM_ID]]
+                return self.async_create_entry(
+                    title=f"{room.title} · Station",
+                    data=data,
+                )
+        return self.async_show_form(
+            step_id="direct",
+            data_schema=_direct_station_schema(self.hass, entry),
+            errors=errors,
+        )
+
+    async def async_step_master(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, error = _master_station_input(self.hass, entry, user_input)
+            if error is not None:
+                errors["base"] = error
+            else:
+                assert data is not None
+                room = entry.subentries[data[CONF_HARDWARE_ROOM_ID]]
+                return self.async_create_entry(
+                    title=f"{room.title} · Station",
+                    data=data,
+                )
+        return self.async_show_form(
+            step_id="master",
+            data_schema=_master_station_schema(self.hass, entry),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+        if station_connection_type(subentry) == HARDWARE_CONNECTION_DIRECT:
+            return await self.async_step_reconfigure_direct(user_input)
+        return await self.async_step_reconfigure_master(user_input)
+
+    async def async_step_reconfigure_direct(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, error = _direct_station_input(
+                self.hass,
+                entry,
+                user_input,
+                current_subentry_id=subentry.subentry_id,
+            )
+            if error is not None:
+                errors["base"] = error
+            else:
+                assert data is not None
+                room = entry.subentries[data[CONF_HARDWARE_ROOM_ID]]
+                return self.async_update_and_abort(
+                    entry, subentry, title=f"{room.title} · Station", data=data
+                )
+        return self.async_show_form(
+            step_id="reconfigure_direct",
+            data_schema=_direct_station_schema(
+                self.hass,
+                entry,
+                current_subentry_id=subentry.subentry_id,
+                defaults=dict(subentry.data),
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_master(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            room_id = str(user_input.get(CONF_HARDWARE_ROOM_ID) or "").strip()
+            if error := _station_room_error(
+                entry, room_id, current_subentry_id=subentry.subentry_id
+            ):
+                errors["base"] = error
+            else:
+                data = dict(subentry.data)
+                data[CONF_HARDWARE_CONNECTION_TYPE] = HARDWARE_CONNECTION_MASTER
+                data[CONF_HARDWARE_ROOM_ID] = room_id
+                data[CONF_HARDWARE_MASTER_ID] = str(
+                    user_input.get(CONF_HARDWARE_MASTER_ID)
+                    or data.get(CONF_HARDWARE_MASTER_ID)
+                    or "default"
+                ).strip() or "default"
+                room = entry.subentries[room_id]
+                return self.async_update_and_abort(
+                    entry, subentry, title=f"{room.title} · Station", data=data
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_HARDWARE_MASTER_ID,
+                    default=str(subentry.data.get(CONF_HARDWARE_MASTER_ID) or "default"),
+                ): TextSelector(TextSelectorConfig(autocomplete="off")),
+                vol.Required(
+                    CONF_HARDWARE_ROOM_ID,
+                    default=str(subentry.data.get(CONF_HARDWARE_ROOM_ID) or ""),
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=_station_room_options(entry),
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="reconfigure_master", data_schema=schema, errors=errors
+        )
+

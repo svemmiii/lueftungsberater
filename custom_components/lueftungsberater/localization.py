@@ -602,6 +602,12 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             "en": f"CO₂ is very high at {co2}. Ventilation is urgently needed.",
             "tr": f"CO₂ {co2} ile çok yüksek. Bu nedenle havalandırma acilen gerekli.",
         }[lang]
+    elif need == "co2_high_load_observe":
+        inside = {
+            "de": f"Hohe Raumbelegung erkannt. CO₂ liegt aktuell bei {co2} und steigt nach erfolgreichem Lüften wieder an. Noch ist keine neue Lüftung nötig.",
+            "en": f"High room occupancy/load detected. CO₂ is currently {co2} and is rising again after successful airing. No new airing is needed yet.",
+            "tr": f"Yüksek oda kullanımı algılandı. CO₂ şu anda {co2} ve başarılı havalandırmadan sonra yeniden yükseliyor. Şimdilik yeni bir havalandırma gerekmiyor.",
+        }[lang]
     elif need in {"co2_high", "co2_elevated"}:
         if room_color == "green" and level <= 1:
             inside = {
@@ -615,6 +621,12 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
                 "en": f"CO₂ is at {co2}, increasing the need for fresh air.",
                 "tr": f"CO₂ {co2} seviyesinde ve havalandırma ihtiyacını artırıyor.",
             }[lang]
+    elif need == "humidity_observe":
+        inside = {
+            "de": f"Die Raumfeuchte liegt mit {humidity} deutlich erhöht. Die bereits behandelte Feuchtesituation erfordert aktuell noch keine erneute Lüftung – beobachte die weitere Entwicklung.",
+            "en": f"Indoor humidity remains clearly elevated at {humidity}. The already treated humidity situation does not currently require another airing; keep an eye on how it develops.",
+            "tr": f"İç nem {humidity} ile hâlâ belirgin biçimde yüksek. Daha önce ele alınan nem durumu şu anda yeniden havalandırma gerektirmiyor; gelişimi takip et.",
+        }[lang]
     elif need in {"humidity", "humidity_urgent"}:
         qualifier = {
             "de": "leicht erhöht" if level <= 1 else "deutlich erhöht",
@@ -839,6 +851,13 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
         if improvement:
             outside += f" {improvement}"
 
+    if a.get("co2_high_load") and need in {"co2_elevated", "co2_high", "co2_critical"}:
+        inside += {
+            "de": " CO₂ ist nach vorherigem Lüften mehrfach schnell wieder angestiegen; die aktuelle Belegung scheint deshalb anhaltend hoch zu sein.",
+            "en": " CO₂ has risen quickly again several times after previous airing, suggesting a persistently high occupancy/load.",
+            "tr": " CO₂ önceki havalandırmalardan sonra birkaç kez hızla yeniden yükseldi; mevcut kullanım yükü bu nedenle kalıcı olarak yüksek görünüyor.",
+        }[lang]
+
     return inside + outside
 
 def reason_text(
@@ -856,6 +875,20 @@ def reason_text(
 
     if key == "room_perspective":
         return _room_perspective_reason(a, lang, temperature_unit)
+
+    if key == "humidity_exhausted":
+        return {
+            "de": "Weitere Lüftung bringt derzeit kaum zusätzlichen Trocknungseffekt. Das Fenster kann geschlossen werden.",
+            "en": "Further ventilation is currently bringing hardly any additional drying effect. You can close the window.",
+            "tr": "Daha fazla havalandırma şu anda neredeyse ek kurutma sağlamıyor. Pencereyi kapatabilirsin.",
+        }[lang]
+
+    if key == "humidity_opportunity":
+        return {
+            "de": "Die Außenluft bietet inzwischen deutlich mehr Trocknungspotenzial. Die Bedingungen zum Lüften sind günstiger, aber aktuell besteht noch keine neue Pflicht zum Lüften.",
+            "en": "Outdoor air now offers clearly more drying potential. Conditions for ventilation are better, but there is no new need to act right now.",
+            "tr": "Dış hava artık belirgin biçimde daha fazla kurutma potansiyeli sunuyor. Havalandırma koşulları daha uygun, ancak şu anda yeni bir zorunluluk yok.",
+        }[lang]
 
     if key in {"indoor_air_ventilate", "indoor_air_tradeoff", "indoor_air_wait"}:
         pollutant = _pollutant_label(a.get("pollutant"))
@@ -1175,6 +1208,7 @@ def reason_text(
             "co2_critical": f"CO₂ liegt bei {m(a.get('co2'), 'ppm', 0)} und ist damit sehr hoch. Jetzt zu lüften hat klare Priorität.",
             "co2_ventilate": f"CO₂ liegt bei {m(a.get('co2'), 'ppm', 0)} und ist erhöht. Draußen passen die Bedingungen, deshalb lohnt sich jetzt ein Luftaustausch.",
             "co2_wait": f"CO₂ liegt bei {m(a.get('co2'), 'ppm', 0)} und ist erhöht. Die Außenbedingungen sind gerade aber ungünstig, deshalb ist kurzes Warten die bessere Wahl.",
+            "co2_high_load_observe": f"Hohe Raumbelegung erkannt. CO₂ liegt aktuell bei {m(a.get('co2'), 'ppm', 0)} und steigt nach erfolgreichem Lüften wieder an. Noch ist keine neue Lüftung nötig; bei etwa 1800 ppm oder einem schnellen Trend Richtung 2000 ppm wird erneut empfohlen.",
             "mold_prevention": f"An der überwachten kalten Oberfläche liegt die berechnete relative Feuchte bei etwa {m(a.get('surface_humidity'), '%', 0)}. Da die Außenluft trockener ist, hilft Lüften dabei, die Feuchte dort wieder zu senken.",
             "mold_wait": f"An der überwachten kalten Oberfläche liegt die berechnete relative Feuchte bei etwa {m(a.get('surface_humidity'), '%', 0)}. Lüften würde die Feuchte im Moment aber nicht zuverlässig verbessern; behalte die Situation im Blick.",
             "humidity_ventilate": f"Die relative Luftfeuchtigkeit innen liegt bei {m(a.get('humidity'), '%', 0)}. Draußen enthält die Luft rund {m(a.get('diff'), 'g/m³')} weniger Wasser – Lüften hilft also beim Trocknen.",
@@ -1228,6 +1262,7 @@ def reason_text(
             "co2_critical": f"CO₂ seviyesi {m(a.get('co2'), 'ppm', 0)} ve bu oldukça yüksek. Şimdi pencereleri açmak öncelikli.",
             "co2_ventilate": f"CO₂ seviyesi {m(a.get('co2'), 'ppm', 0)} ve yükselmiş durumda. Dışarıdaki koşullar uygun; pencereleri açıp havayı değiştirmek için iyi bir zaman.",
             "co2_wait": f"CO₂ seviyesi {m(a.get('co2'), 'ppm', 0)} ve yükselmiş durumda, ancak dışarıdaki koşullar şu an uygun değil. Biraz beklemek daha iyi.",
+            "co2_high_load_observe": f"Yüksek oda kullanımı algılandı. CO₂ şu anda {m(a.get('co2'), 'ppm', 0)} ve başarılı havalandırmadan sonra yeniden yükseliyor. Şimdilik yeni bir havalandırma gerekmiyor; yaklaşık 1800 ppm'de veya 2000 ppm'e doğru hızlı bir eğilimde yeniden öneri verilir.",
             "mold_prevention": f"İzlenen soğuk yüzeyde hesaplanan bağıl nem yaklaşık {m(a.get('surface_humidity'), '%', 0)}. Dış hava daha kuru olduğu için pencereleri açmak yüzey çevresindeki nemi azaltmaya yardımcı olur.",
             "mold_wait": f"İzlenen soğuk yüzeyde hesaplanan bağıl nem yaklaşık {m(a.get('surface_humidity'), '%', 0)}. Şu anda pencereleri açmak nemi güvenilir biçimde azaltmayacağından durumu takip etmek daha iyi.",
             "humidity_ventilate": f"İçeride bağıl nem {m(a.get('humidity'), '%', 0)}. Dış hava yaklaşık {m(a.get('diff'), 'g/m³')} daha az su içeriyor; pencereleri açmak odanın kurumasına yardımcı olur.",
@@ -1281,6 +1316,7 @@ def reason_text(
             "co2_critical": f"CO₂ is at {m(a.get('co2'), 'ppm', 0)}, which is very high. Opening the windows now should take priority.",
             "co2_ventilate": f"CO₂ is at {m(a.get('co2'), 'ppm', 0)} and is elevated. Outdoor conditions are suitable, so this is a good time to open the windows and exchange the air.",
             "co2_wait": f"CO₂ is at {m(a.get('co2'), 'ppm', 0)} and is elevated, but outdoor conditions are unfavorable right now. Waiting briefly is the better choice.",
+            "co2_high_load_observe": f"High room occupancy/load detected. CO₂ is currently {m(a.get('co2'), 'ppm', 0)} and is rising again after successful airing. No new airing is needed yet; the advisor will re-escalate around 1800 ppm or on a fast trend toward 2000 ppm.",
             "mold_prevention": f"The calculated relative humidity at the monitored cold surface is about {m(a.get('surface_humidity'), '%', 0)}. Because the outdoor air is drier, opening the windows will help lower the moisture level there.",
             "mold_wait": f"The calculated relative humidity at the monitored cold surface is about {m(a.get('surface_humidity'), '%', 0)}. Opening the windows would not reliably improve it right now, so keep an eye on the situation for the moment.",
             "humidity_ventilate": f"Indoor relative humidity is {m(a.get('humidity'), '%', 0)}. The outdoor air contains about {m(a.get('diff'), 'g/m³')} less water, so opening the windows will help dry the room.",
@@ -1306,6 +1342,17 @@ def reason_text(
         }
 
     text = texts.get(key, key)
+    if a.get("co2_high_load") and key in {
+        "co2_critical",
+        "co2_ventilate",
+        "co2_tradeoff",
+        "co2_ventilate_tradeoff",
+    }:
+        text += {
+            "de": " CO₂ ist nach vorherigem Lüften mehrfach schnell wieder angestiegen. Die hohe Belegung ist bereits bekannt; deshalb wird jetzt eine kurze wirksame Stoßlüftung statt eines unnötig tiefen Zielwerts angestrebt.",
+            "en": " CO₂ has risen quickly again several times after previous airing. The sustained high load is already known, so the goal is now a short effective air exchange rather than an unnecessarily low target.",
+            "tr": " CO₂ önceki havalandırmalardan sonra birkaç kez hızla yeniden yükseldi. Sürekli yüksek yük artık biliniyor; bu nedenle gereksiz derecede düşük bir hedef yerine kısa ve etkili bir hava değişimi amaçlanır.",
+        }[lang]
     if key.startswith("weather_") or key in {"rain_now"}:
         improvement = _short_term_weather_sentence(
             a, lang, expected_change="improving"

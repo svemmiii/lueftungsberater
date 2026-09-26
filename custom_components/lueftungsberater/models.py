@@ -74,6 +74,25 @@ class RoomInput:
     co2_minimum_airing_active: bool = False
     co2_minimum_airing_cautious: bool = False
     co2_measurement_timed_out: bool = False
+    # Reason-specific humidity memory is owned by the coordinator. The pure
+    # engine only consumes these flags so an already-treated moisture problem
+    # cannot immediately re-trigger from tiny 59–61 % oscillations.
+    humidity_session_active: bool = False
+    humidity_session_exhausted: bool = False
+    humidity_disarmed: bool = False
+    humidity_optional_opportunity: bool = False
+    humidity_peak_recovery: bool = False
+    # Measured indoor pollutants own a short independent aftercare state. It
+    # only suppresses a lingering moderate value after a successful airing;
+    # poor/very-poor or a renewed rising trend remains immediately actionable.
+    indoor_air_disarmed: bool = False
+    # Repeated fast CO2 rebound marks a temporary high-load/occupancy context.
+    # In that state the advisor keeps >2000 ppm fully urgent, but handles the
+    # ordinary 1400-1800 ppm return more calmly and can re-escalate early from
+    # the measured rise rate when 2000 ppm is approaching quickly.
+    co2_high_load: bool = False
+    co2_trend_ppm_per_min: float | None = None
+    co2_minutes_to_2000: float | None = None
 
 
 @dataclass(slots=True)
@@ -116,3 +135,8 @@ class VentilationResult:
     air_quality_unusual: bool = False
     air_quality_trend: str = "unknown"
     air_quality_history_samples: int = 0
+    # All currently active indoor reasons before merge/tie-break selection.
+    # Coordinator-owned per-reason session memory uses this so a stronger CO2
+    # or pollutant reason cannot accidentally make an independent humidity
+    # session look completed.
+    active_reasons: tuple[str, ...] = ()

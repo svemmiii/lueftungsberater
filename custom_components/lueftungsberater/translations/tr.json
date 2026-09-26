@@ -221,7 +221,7 @@
       "step": {
         "user": {
           "title": "Oda ekle",
-          "description": "İç ortam sıcaklığı ve nemi zorunludur. İsteğe bağlı olarak odayı mevcut bir Home Assistant alanına atayabilir ve/veya özel bir ad verebilirsiniz. CO₂, pencere/kapı kontakları ve yüzey sıcaklık sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca yararlı gece havalandırma bilgisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
+          "description": "Odayı oluşturun ve mevcut sensörleri seçin veya sıcaklık/nemi boş bırakıp ardından bir havalandırma istasyonu atayın.",
           "data": {
             "room_name": "Özel oda adı (isteğe bağlı)",
             "indoor_temperature": "İç sıcaklık",
@@ -412,6 +412,70 @@
         "room_name_empty": "Lütfen özel bir oda adı girin veya mevcut bir Home Assistant alanı seçin.",
         "room_name_duplicate": "Bu oda adı bu örnekte zaten kullanılıyor.",
         "area_not_found": "Seçilen Home Assistant alanı artık mevcut değil. Lütfen başka bir alan seçin veya seçimi kaldırın."
+      }
+    },
+    "station": {
+      "entry_type": "Havalandırma istasyonu",
+      "initiate_flow": {
+        "user": "Havalandırma istasyonu ekle",
+        "reconfigure": "Havalandırma istasyonunu yapılandır"
+      },
+      "step": {
+        "user": {
+          "title": "Havalandırma istasyonu ekle",
+          "description": "İstasyonun ESPHome ile bu Home Assistant’a doğrudan bağlı mı yoksa bir havalandırma istasyonu master / ESP-NOW üzerinden mi iletişim kurduğunu seçin.",
+          "data": {
+            "hardware_connection_type": "Bağlantı"
+          }
+        },
+        "direct": {
+          "title": "Doğrudan ESPHome istasyonu ata",
+          "description": "Home Assistant’a zaten eklenmiş bir ESPHome cihazı seçin. Yalnızca tam olarak bir CO₂, sıcaklık ve nem sensörü algılanırsa listelenir; üçü de oda kaynağı olarak otomatik kullanılır.",
+          "data": {
+            "hardware_device_id": "ESPHome cihazı",
+            "hardware_room_id": "Oda"
+          }
+        },
+        "master": {
+          "title": "Master üzerinden istasyon ata",
+          "description": "ESP-NOW master tarafından bulunan bir istasyonu bir odaya atayın. Donanım kimliği manuel olarak da girilebilir.",
+          "data": {
+            "hardware_discovery_id": "Bulunan istasyon",
+            "hardware_id": "Donanım kimliği",
+            "hardware_master_id": "Master kimliği",
+            "hardware_room_id": "Oda"
+          }
+        },
+        "reconfigure_direct": {
+          "title": "Doğrudan havalandırma istasyonunu yapılandır",
+          "data": {
+            "hardware_device_id": "ESPHome cihazı",
+            "hardware_room_id": "Oda"
+          }
+        },
+        "reconfigure_master": {
+          "title": "Master istasyonunu yapılandır",
+          "data": {
+            "hardware_master_id": "Master kimliği",
+            "hardware_room_id": "Oda"
+          }
+        },
+        "reconfigure": {
+          "title": "Havalandırma istasyonunu yapılandır"
+        }
+      },
+      "error": {
+        "hardware_no_rooms": "Önce en az bir oda oluşturun.",
+        "hardware_room_invalid": "Seçilen oda artık mevcut değil.",
+        "hardware_id_required": "Bulunan bir istasyon seçin veya donanım kimliği girin.",
+        "hardware_id_duplicate": "Bu donanım kimliği zaten eşleştirilmiş.",
+        "hardware_room_duplicate": "Bu odaya zaten bir havalandırma istasyonu atanmış.",
+        "hardware_connection_invalid": "Geçerli bir bağlantı türü seçin.",
+        "hardware_direct_device_invalid": "Seçilen ESPHome cihazı artık mevcut değil veya CO₂, sıcaklık ve nem sensörlerini açık biçimde sağlamıyor."
+      },
+      "abort": {
+        "hardware_no_rooms": "Önce en az bir oda oluşturun.",
+        "hardware_no_direct_devices": "Uygun ESPHome cihazı bulunamadı. Önce istasyonu ESPHome üzerinden Home Assistant’a ekleyin ve tam olarak bir CO₂, sıcaklık ve nem sensörü bulunduğundan emin olun."
       }
     }
   },

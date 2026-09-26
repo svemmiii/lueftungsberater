@@ -17,6 +17,7 @@ from .api import async_clear_remote_access, async_register_api
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .compat import pin_subentry_capabilities
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
+from .hardware_hub import async_setup_hardware_hub, async_unload_hardware_hub
 from .history import async_cleanup_legacy_room_history
 from .recorder_maintenance import (
     async_purge_recorder_history,
@@ -313,6 +314,7 @@ async def _async_cleanup_runtime_after_failed_setup(
     # unload hook when setup itself raises.
     await async_stop_entry_coordinators(hass, entry)
     await async_stop_outside_coordinator(hass, entry)
+    await async_unload_hardware_hub(hass, entry)
     await async_stop_air_quality_tracker(hass, entry)
     await async_stop_entry_trackers(hass, entry)
     await async_stop_entry_co2_trackers(hass, entry)
@@ -367,6 +369,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         await async_get_or_create_air_quality_tracker(hass, entry)
         await async_get_or_create_outside_coordinator(hass, entry)
+        await async_setup_hardware_hub(hass, entry)
 
         room_coordinators = []
         for subentry in entry.subentries.values():
@@ -431,6 +434,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         await async_stop_entry_coordinators(hass, entry)
         await async_stop_outside_coordinator(hass, entry)
+        await async_unload_hardware_hub(hass, entry)
         await async_stop_air_quality_tracker(hass, entry)
         await async_stop_entry_trackers(hass, entry)
         await async_stop_entry_co2_trackers(hass, entry)

@@ -4,6 +4,18 @@
 
 # Lüftungsassistent
 
+## Hardware-Lüftungsstationen (v0.10.0)
+
+Die Hardware-Erweiterung bleibt Teil **derselben** Lüftungsassistent-Integration. Unter einem lokalen Eintrag kann neben Räumen eine **Lüftungsstation** angelegt und einem vorhandenen Raum zugewiesen werden. Dabei gibt es zwei gleichwertige Verbindungsarten:
+
+- **Direkt über ESPHome / Home Assistant:** Für eine einzelne Station ist kein zusätzlicher Master nötig. Der ESP wird zuerst normal über ESPHome in Home Assistant eingebunden (lokal oder z. B. über WireGuard). Beim Hinzufügen der Lüftungsstation wählt man anschließend nur noch das ESPHome-Gerät und den Raum. Der Lüftungsassistent erkennt genau je einen CO₂-, Temperatur- und Luftfeuchtesensor automatisch und verwendet die drei gemeinsam als Raumquelle.
+- **Über Lüftungsstation-Master / ESP-NOW:** Für mehrere Raumknoten übernimmt ein Master den Funktransport. Gefundene Stationen werden wie bisher dem Raum zugeordnet; ihre Rohwerte und Diagnosen kommen über die Hardware-API.
+
+In beiden Fällen bleibt Home Assistant die einzige Entscheidungsinstanz. Der ESP bzw. Master übermittelt nur Rohwerte; der Lüftungsassistent berechnet Farbe und kurze Empfehlung. Eine direkt angebundene ESPHome-Station kann diesen fertigen Status über die normale ESPHome-API aus der Raum-Entity zurücklesen. Die spätere ESP-NOW-/Mehrhop-Firmware dupliziert ebenfalls keine Lüftungslogik. Details stehen in `HARDWARE_HUB.md`.
+
+Die **180-Sekunden-Freshness-TTL** gilt für Stationen hinter dem Master, weil dort Reports aktiv beim Lüftungsassistenten eingehen. Direkt angebundene ESPHome-Sensoren folgen ihrem normalen Home-Assistant-Verfügbarkeitszustand; `unknown`/`unavailable` wird nicht als Messwert verwendet. Ein reines Direkt-Setup erzeugt kein künstliches Master-Gerät.
+
+
 **Alpha-Version für Home Assistant.**
 
 Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Raum eine verständliche Lüftungsempfehlung aus. Je nach vorhandener Hardware können Temperatur, Luftfeuchtigkeit, CO₂, PM2,5/PM10, VOC-/NO₂-Werte (Index oder Rohwert), Formaldehyd, Fenster-/Türkontakte, Thermostate, lokale Außenstationen, Wetterdaten und Warnmeldungen berücksichtigt werden.
@@ -35,6 +47,9 @@ Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Rau
 - Dashboard-Karten folgen der Sprache des aktuell angemeldeten Home-Assistant-Benutzers
 - Unterstützung für Celsius- und Fahrenheit-Setups
 - Ruhigere Empfehlungen durch Hysterese an normalen CO₂-/Feuchte-/Temperaturgrenzen
+- Sessionbewusste Feuchtelogik: Ein bereits ausgeschöpfter Lüftungsversuch wird nicht nach einem starren Timer erneut verlangt; absolute Feuchte, Trocknungsfortschritt, echte Wieder-Verschlechterung und schnelle Dusch-/Koch-Peaks werden getrennt bewertet
+- Grundbezogenes Session-Gedächtnis: Feuchte-Ruhephasen blockieren weder kritisches CO₂ noch Partikel-/Innenluftgründe, Schimmelrisiko oder Sicherheitslagen
+- Erkennung wiederholt schneller CO₂-Rebounds nach erfolgreichem Lüften als Hinweis auf anhaltend hohe Belegung/Last; kritische Live-Werte bleiben trotzdem jederzeit sofort handlungsfähig
 - Optionaler Feuchte-/Schimmelschutz über einen realen kalten/kritischen Oberflächentemperatursensor mit zeitlichem Kontext
 - Plausibilitätsgeprüfte Außenluftqualität über passende Ozon-, PM2.5-, PM10-, NO₂- und SO₂-Sensoren des Wetter-Providers, ergänzt um lokalen Verlauf und Trend
 - Optionaler eigener Außen-CO₂-Sensor für die lokale Lüftungsbewertung

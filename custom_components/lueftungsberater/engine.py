@@ -39,6 +39,25 @@ def absolute_humidity(temp_c: float, rh: float) -> float:
     return 216.7 * vapor_pressure / (273.15 + temp_c)
 
 
+def humidity_airing_can_improve(
+    humidity_needed: bool,
+    indoor_absolute_humidity: float,
+    outdoor_absolute_humidity: float,
+) -> bool:
+    """Return whether airing can materially improve the humidity reason itself.
+
+    This deliberately ignores the overall room recommendation. CO₂ or another
+    independent reason may want the window open while outdoor air is actually
+    wetter than indoors; such a situation must never start a humidity session.
+    The threshold mirrors the engine's absolute-humidity neutral dead-band.
+    """
+    return bool(
+        humidity_needed
+        and (float(indoor_absolute_humidity) - float(outdoor_absolute_humidity))
+        > AH_NEUTRAL
+    )
+
+
 def surface_relative_humidity(
     indoor_temp_c: float,
     indoor_rh: float,
@@ -247,12 +266,14 @@ def _color(mode: str) -> str:
         "co2_abwaegung",
         "co2_mindestlueftung_vorsicht",
         "feuchte_neutral",
+        "feuchte_gelegenheit",
         "schimmel_neutral",
         "komfort_abwaegung",
         "lueftung_fertig",
         "normal",
         "innenluft_abwaegung",
         "co2_messung_verloren",
+        "co2_high_load_observe",
     }:
         return "yellow"
     if mode in {
@@ -351,7 +372,13 @@ def _recommendation_key(color: str, mode: str, window_open: bool) -> str:
         return "short_observation"
     if window_open:
         return "can_close"
-    if mode in {"normal", "feuchte_neutral", "schimmel_neutral"}:
+    if mode in {
+        "normal",
+        "feuchte_neutral",
+        "feuchte_gelegenheit",
+        "schimmel_neutral",
+        "co2_high_load_observe",
+    }:
         return "optional"
     return "wait"
 
@@ -479,7 +506,13 @@ def _active_needs(
     co2_pending_hold: bool,
     co2_airing_active: bool,
     co2_rearm_threshold: float | None,
+    humidity_session_active: bool = False,
+    humidity_disarmed: bool = False,
+    humidity_peak_recovery: bool = False,
     indoor_air_quality: str = "unknown",
+    indoor_air_disarmed: bool = False,
+    co2_high_load: bool = False,
+    co2_minutes_to_2000: float | None = None,
     consider_co2: bool = True,
 ) -> list[tuple[str, int]]:
     """Return all currently active indoor needs in deterministic priority order."""
@@ -493,7 +526,21 @@ def _active_needs(
     )
 
     if co2_allowed and co2 is not None and co2 > 2000:
+        # High-load context must never suppress the UBA >2000 ppm override.
         needs.append(("co2_critical", 3))
+    elif co2_allowed and co2 is not None and co2_high_load:
+        trend_escalates = bool(
+            co2 >= 1400
+            and co2_minutes_to_2000 is not None
+            and 0.0 <= co2_minutes_to_2000 <= 10.0
+        )
+        if co2 >= 1800 or trend_escalates:
+            needs.append(("co2_high", 2))
+        else:
+            # Known sustained occupancy/load is information, not a fresh alarm.
+            # Keep the room perspective visibly aware while the native action
+            # card stays calm until ~1800 ppm or a rapid trend predicts 2000.
+            needs.append(("co2_high_load_observe", 1))
     elif co2_allowed and co2 is not None and co2 >= 1400:
         needs.append(("co2_high", 2))
     elif co2_allowed and co2 is not None and (
@@ -507,7 +554,7 @@ def _active_needs(
         needs.append(("indoor_air_urgent", 3))
     elif indoor_air_quality == "poor":
         needs.append(("indoor_air_urgent", 2))
-    elif indoor_air_quality == "moderate":
+    elif indoor_air_quality == "moderate" and not indoor_air_disarmed:
         needs.append(("indoor_air", 1))
 
     if ti >= 30 and ta <= ti - 1:
@@ -518,12 +565,22 @@ def _active_needs(
     elif mold_risk:
         needs.append(("mold", 2))
 
-    if hi >= 65:
+    # Humidity has its own session/re-arm memory. An already treated plateau or
+    # a recovering short peak must not keep reopening the same comfort task.
+    # Truly extreme humidity (>=75 %) remains actionable even while the ordinary
+    # comfort reason is disarmed; mould/surface risk is already an independent
+    # higher-priority reason above.
+    humidity_suppressed = humidity_disarmed or humidity_peak_recovery
+    if hi >= 75:
+        needs.append(("humidity_urgent", 3))
+    elif not humidity_suppressed and hi >= 65:
         needs.append(("humidity_urgent", 2))
-    elif hi >= 60 or (
-        _previous_humidity_context(previous_mode, previous_need)
-        and hi >= 58
-        and diff >= AH_CONTINUE
+    elif not humidity_suppressed and (
+        hi >= 60 or (
+            (humidity_session_active or _previous_humidity_context(previous_mode, previous_need))
+            and hi >= 58
+            and diff >= AH_CONTINUE
+        )
     ):
         needs.append(("humidity", 2))
 
@@ -536,9 +593,14 @@ def _active_needs(
         temperature_delta >= (TEMP_NEED_OFF if temperature_hysteresis else TEMP_NEED_ON)
         and _temperature_moves_toward_target(ti, ta, target)
     )
+    # The lower 0.5 K continuation band belongs to the remembered temperature
+    # session, not to the physical window contact.  v0.9.7 gated this path with
+    # ``window_open``; closing the window could therefore change the decision
+    # even when every measured value was identical.  Keep the proven session
+    # context independent of the contact state and let the later action layer
+    # decide whether that means open/continue/close.
     temperature_continue = (
-        window_open
-        and _previous_temperature_context(previous_mode, previous_need)
+        _previous_temperature_context(previous_mode, previous_need)
         and (
             (ti > target + 0.2 and ta <= ti - 0.5)
             or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
@@ -702,7 +764,6 @@ def _non_co2_mode_for_need(
     if need in {"heat", "humid_heat", "temperature"}:
         temperature_continuation = (
             need == "temperature"
-            and data.window_open
             and _previous_temperature_context(
                 previous_mode, data.previous_need or ""
             )
@@ -839,6 +900,8 @@ def _room_display_urgency(need: str, data: RoomInput) -> int:
         return 3 if co2 is not None and co2 >= 1800 else 2
     if need == "co2_elevated":
         return 1
+    if need == "co2_high_load_observe":
+        return 2
     if need == "indoor_air_urgent":
         return 3 if data.indoor_air_quality == "very_poor" else 2
     if need == "indoor_air":
@@ -912,23 +975,25 @@ def _room_recommendation_key(
     window_open: bool,
     native_recommendation: str | None = None,
 ) -> str:
-    """Return the room-view action without contradicting the live window action.
+    """Return the action wording for the room-air perspective.
 
-    The room colour deliberately remains an indoor-pressure perspective and may
-    differ from the native ventilation colour. Once a window is already open,
-    however, the main-card wording becomes a concrete action. Closing/finishing
-    decisions from the shared engine therefore take precedence over the room
-    colour, and a native keep-open decision may not be rendered as can-close.
+    The room-air card is deliberately a separate perspective from the native
+    ventilation card. A pure window-contact change may alter the verb on the
+    native card (open vs. keep open), but it must not manufacture additional
+    pressure on the room-air card. Green therefore always stays a no-action
+    state, even if the native ventilation perspective currently says keep open.
+
+    Explicit native closing/finished actions still take precedence because they
+    are also no-action/finish states. Stronger remembered session states are
+    handled later by their dedicated overrides.
     """
     if window_open:
         if native_recommendation in {"close_now", "better_close", "can_close"}:
             return native_recommendation
-        if native_recommendation == "short_observation":
-            return "room_keep_brief"
-        if native_recommendation == "keep_open" and color == "green":
-            return "keep_open"
         if color == "green":
             return "can_close"
+        if native_recommendation == "short_observation":
+            return "room_keep_brief"
         if color == "yellow":
             return "room_keep_brief"
         return "keep_open"
@@ -938,7 +1003,6 @@ def _room_recommendation_key(
         "orange": "room_need",
         "red": "room_urgent",
     }.get(color, "room_watch")
-
 
 def _temperature_drawback(ti: float, ta: float, target: float) -> float:
     if not _temperature_moves_away(ti, ta, target):
@@ -1317,7 +1381,13 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         co2_pending_hold=data.co2_pending_hold,
         co2_airing_active=data.co2_airing_active,
         co2_rearm_threshold=data.co2_rearm_threshold,
+        humidity_session_active=data.humidity_session_active,
+        humidity_disarmed=data.humidity_disarmed,
+        humidity_peak_recovery=data.humidity_peak_recovery,
         indoor_air_quality=data.indoor_air_quality,
+        indoor_air_disarmed=data.indoor_air_disarmed,
+        co2_high_load=data.co2_high_load,
+        co2_minutes_to_2000=data.co2_minutes_to_2000,
     )
     # ``need`` is the strongest merge/tie-break signal.  The public
     # ``primary_need`` is synchronized with the actual room-display need near
@@ -1359,7 +1429,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         # therefore never relax an existing keep-closed reason.
         candidates: list[tuple[str, int, str, str | None]] = []
         for candidate_need, candidate_urgency in active_needs:
-            if candidate_need.startswith("co2_"):
+            if candidate_need == "co2_high_load_observe":
+                candidate_mode, candidate_caution = "co2_high_load_observe", None
+            elif candidate_need.startswith("co2_"):
                 candidate_mode, candidate_caution = _co2_mode_for_need(
                     need=candidate_need,
                     data=data,
@@ -1392,7 +1464,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 data=data,
                 outdoor_temp=ta,
             )
-            if candidate_need.startswith("co2_") and co2_candidate_need is None:
+            if (
+                candidate_need.startswith("co2_")
+                and candidate_need != "co2_high_load_observe"
+                and co2_candidate_need is None
+            ):
                 # Keep session metadata aligned with the same weather-aware CO2
                 # candidate that participates in the merge.
                 co2_candidate_need = candidate_need
@@ -1745,6 +1821,20 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         # mild outside inconvenience with the more relevant imminent warning.
         decision_need = "none"
 
+    # A completed/exhausted humidity attempt stays disarmed until the room has
+    # genuinely changed. If only the *outdoor* drying potential improved by the
+    # configured margin and remained stable, expose at most a calm yellow
+    # opportunity. This is intentionally not a new humidity task.
+    if (
+        hard_mode is None
+        and not active_needs
+        and data.humidity_optional_opportunity
+        and mode in {"normal", "feuchte_neutral"}
+    ):
+        mode = "feuchte_gelegenheit"
+        caution_kind = "humidity_opportunity"
+        decision_need = "none"
+
     # Rain is a practical window-opening disadvantage, never a proxy for
     # moisture physics. Only near-term rain that can overlap the actual airing
     # is relevant. Strong reasons can still justify a short exchange.
@@ -1824,6 +1914,20 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                     data.outdoor_co2 + 50.0,
                 )
             if co2_session_target is not None:
+                if data.co2_high_load:
+                    # In sustained high-load situations, successful winter airing
+                    # means a strong short exchange rather than chasing 850 ppm.
+                    # Outdoor temperature affects only how far an accepted CO2
+                    # session continues, never whether >2000 ppm remains urgent.
+                    if ta <= 5.0:
+                        high_load_floor = 1300.0
+                    elif ta < 12.0:
+                        high_load_floor = 1250.0
+                    elif ta < 18.0:
+                        high_load_floor = 1150.0
+                    else:
+                        high_load_floor = 1000.0
+                    co2_session_target = max(co2_session_target, high_load_floor)
                 co2_session_need = co2_candidate_need
 
     # An explicit CO₂ session remembers its finish target and hysteresis, but it
@@ -1982,6 +2086,14 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         and not data.current_airing_qualified
     )
 
+    # A humidity session that has stopped making measurable absolute-humidity
+    # progress is finished for this attempt. The humidity reason itself must not
+    # keep an open window alive after that point; independent CO2, mould, indoor
+    # pollutants or temperature reasons remain fully authoritative.
+    if data.humidity_session_exhausted and not mold_active:
+        continue_humidity = False
+        continue_moisture = continue_mold
+
     # Missing CO₂ during an active session must never be converted into the
     # semantic claim that the airing target was reached. If outside conditions
     # meanwhile argue for closing, keep that closing action but explain that the
@@ -2035,6 +2147,20 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 # outdoor condition is a reason to finish, not a reason to make the
                 # session look as if airing had suddenly become a failure.
                 mode = "lueftung_fertig"
+
+    if (
+        data.window_open
+        and hard_mode is None
+        and data.humidity_session_exhausted
+        and not continue_co2
+        and not independent_keep_open
+        and not continue_mold
+        and not continue_cooling
+        and not continue_warming
+        and not continue_routine
+    ):
+        mode = "lueftung_fertig"
+        decision_need = "none"
 
     color = _color(mode)
     recommendation_key = _recommendation_key(color, mode, data.window_open)
@@ -2147,7 +2273,13 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             "target": target,
         }
     elif mode == "lueftung_fertig":
-        reason_key, reason_args = "airing_finished", {}
+        if data.humidity_session_exhausted:
+            reason_key, reason_args = "humidity_exhausted", {
+                "humidity": hi,
+                "diff": diff,
+            }
+        else:
+            reason_key, reason_args = "airing_finished", {}
     elif mode in {"co2_mindestlueftung", "co2_mindestlueftung_vorsicht"}:
         reason_key = "co2_minimum_airing"
         reason_args = {
@@ -2159,7 +2291,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         if caution_kind == "rain":
             reason_key, reason_args = "co2_critical_rain", {"co2": co2}
         else:
-            reason_key, reason_args = "co2_critical", {"co2": co2}
+            reason_key, reason_args = "co2_critical", {"co2": co2, "co2_high_load": data.co2_high_load}
     elif mode == "co2_messung_verloren":
         reason_key = "co2_measurement_timeout"
         reason_args = {"co2_target": data.co2_finish_target}
@@ -2168,6 +2300,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_args = {
             "co2": co2,
             "co2_target": data.co2_finish_target,
+            "co2_high_load": data.co2_high_load,
             "caution": caution_kind or "conditions",
             "diff": diff,
             "ti": ti,
@@ -2184,6 +2317,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key = "co2_ventilate_tradeoff"
         reason_args = {
             "co2": co2,
+            "co2_high_load": data.co2_high_load,
             "caution": caution_kind or "conditions",
             "diff": diff,
             "ti": ti,
@@ -2194,6 +2328,13 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key, reason_args = "co2_ventilate", {
             "co2": co2,
             "outdoor_co2": data.outdoor_co2,
+            "co2_high_load": data.co2_high_load,
+        }
+    elif mode == "co2_high_load_observe":
+        reason_key, reason_args = "co2_high_load_observe", {
+            "co2": co2,
+            "co2_trend_ppm_per_min": data.co2_trend_ppm_per_min,
+            "co2_minutes_to_2000": data.co2_minutes_to_2000,
         }
     elif mode == "co2_warten":
         reason_key, reason_args = "co2_wait", {
@@ -2233,6 +2374,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key, reason_args = "humidity_wait", {"humidity": hi, "diff": diff}
     elif mode == "feuchte_neutral":
         reason_key, reason_args = "humidity_neutral", {"humidity": hi, "diff": diff}
+    elif mode == "feuchte_gelegenheit":
+        reason_key, reason_args = "humidity_opportunity", {"humidity": hi, "diff": diff}
     elif mode == "komfort_abwaegung":
         reason_key = "comfort_tradeoff"
         reason_args = {
@@ -2317,7 +2460,34 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             room_need = candidate_need
             room_urgency = candidate_room_urgency
 
+    # A completed humidity session may deliberately stay disarmed while the
+    # room hovers above the ideal range.  That quiet-state suppresses a new
+    # *action*, not the factual room-air indication.  Keep the ventilation
+    # recommendation calm, but let the room-air card remain visibly yellow for
+    # sustained 65–74 % rF instead of pretending the room is fully green.
+    if data.humidity_disarmed and 65.0 <= hi < 75.0 and room_urgency < 2:
+        room_need = "humidity_observe"
+        room_urgency = 2
+
     room_color = _room_status_color(room_urgency, color, room_need)
+
+    # A running temperature session deliberately has a slightly wider 0.5 K
+    # continuation band than the 0.7 K new-start band.  That marginal band must
+    # not change colour merely because the contact flips: keep it a calm yellow
+    # observation on both sides of the contact.  The wording may naturally be
+    # "watch" while closed and "keep briefly" while open, but the judgement is
+    # identical and no green->orange jump is possible.
+    if (
+        room_need == "temperature"
+        and _previous_temperature_context(previous_mode, data.previous_need or "")
+        and not _temperature_moves_toward_target(ti, ta, target)
+        and (
+            (ti > target + 0.2 and ta <= ti - 0.5)
+            or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
+        )
+    ):
+        room_color = "yellow"
+
     room_recommendation_key = _room_recommendation_key(
         room_color, data.window_open, recommendation_key
     )
@@ -2343,6 +2513,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         "indoor_air_quality_unit": data.indoor_air_quality_unit,
         "indoor_air_quality_measurement_type": data.indoor_air_quality_measurement_type,
         "window_open": data.window_open,
+        "humidity_disarmed": data.humidity_disarmed,
+        "humidity_peak_recovery": data.humidity_peak_recovery,
+        "co2_high_load": data.co2_high_load,
+        "co2_trend_ppm_per_min": data.co2_trend_ppm_per_min,
+        "co2_minutes_to_2000": data.co2_minutes_to_2000,
         "room_color": room_color,
         "weather_reason_key": data.weather_reason_key,
         "weather_reason_args": dict(data.weather_reason_args),
@@ -2361,20 +2536,22 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         room_reason_key = reason_key
         room_reason_args = dict(reason_args)
 
-    # A running explicit CO2 airing session is stronger UI state than the
-    # generic inverted room-air grading.  The normal engine above remains the
-    # source of truth for whether the window should actually stay open: only
-    # when that live recommendation still says to continue do we strengthen
-    # the room view.  This prevents the room card from claiming green /
-    # ``can_close`` merely because CO2 dropped from 1400 to 1399 ppm (or because
-    # a mild humidity value wins the room-display tie) while the remembered CO2
-    # session is still actively targeting e.g. 850 ppm.
+    # An explicit CO2 session belongs to the native ventilation decision.  It
+    # must not, by itself, increase the independent room-air pressure merely
+    # because the user opened the window and thereby started/continued the
+    # session.  In particular, a room-air result that is genuinely green before
+    # this overlay stays green when the measurements are unchanged.  Non-green
+    # room states may still adopt the session-specific action/text so the two
+    # views remain coherent without turning the window contact into an indoor
+    # urgency input.
+    co2_session_strong_origin = data.previous_need in {"co2_high", "co2_critical"}
+    co2_session_may_raise_room_view = room_color != "green" or co2_session_strong_origin
     if data.window_open and hard_mode is None and data.co2_airing_active:
         if data.co2_minimum_airing_active:
             # During the mandatory first five minutes, preserve a cautious
             # yellow session when the *actual* engine is cautious; otherwise a
             # normal CO2 minimum-airing session is an orange room-level need.
-            if recommendation_key == "keep_open":
+            if recommendation_key == "keep_open" and co2_session_may_raise_room_view:
                 room_color = "orange"
                 room_recommendation_key = "keep_open"
                 room_need = "co2_session"
@@ -2408,12 +2585,28 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             room_need = "co2_session"
             room_reason_key = reason_key
             room_reason_args = dict(reason_args)
-        elif recommendation_key == "keep_open":
+        elif recommendation_key == "keep_open" and co2_session_may_raise_room_view:
             room_color = "orange"
             room_recommendation_key = "keep_open"
             room_need = "co2_session"
             room_reason_key = reason_key
             room_reason_args = dict(reason_args)
+
+    # Hard UI invariant: in the room-air perspective green always means that
+    # the user has no current action. A future code path may change priorities,
+    # but it must never be able to produce green + open_now/keep_open again.
+    if room_color == "green":
+        if room_recommendation_key in {"keep_open", "open_now", "room_need", "room_urgent"}:
+            room_color = "orange"
+        elif room_recommendation_key == "room_keep_brief":
+            room_color = "yellow"
+
+    # ``room_reason_args`` is created before the final action invariant above.
+    # Keep the rendered explanation on the same final colour/action snapshot;
+    # otherwise a repaired orange ``keep_open`` could still render the old
+    # green wording ("Aktuell ... kein Lüften nötig").
+    if room_reason_key == "room_perspective":
+        room_reason_args["room_color"] = room_color
 
     if data.window_data_status == "unavailable" and hard_mode is None:
         room_recommendation_key = "window_state_unknown"
@@ -2467,4 +2660,5 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         air_quality_unusual=data.air_quality_unusual,
         air_quality_trend=data.air_quality_trend,
         air_quality_history_samples=data.air_quality_history_samples,
+        active_reasons=tuple(item[0] for item in active_needs),
     )

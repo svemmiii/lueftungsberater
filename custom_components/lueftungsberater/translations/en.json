@@ -221,7 +221,7 @@
       "step": {
         "user": {
           "title": "Add room",
-          "description": "Indoor temperature and humidity are required. Optionally, you can assign the room to an existing Home Assistant area and/or give it a custom name. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
+          "description": "Create the room and select existing sensors, or leave temperature/humidity empty and assign a ventilation station afterwards.",
           "data": {
             "room_name": "Custom room name (optional)",
             "indoor_temperature": "Indoor temperature",
@@ -412,6 +412,70 @@
         "room_name_empty": "Please enter a custom room name or select an existing Home Assistant area.",
         "room_name_duplicate": "This room name is already used in this instance.",
         "area_not_found": "The selected Home Assistant area no longer exists. Please select another area or clear the selection."
+      }
+    },
+    "station": {
+      "entry_type": "Ventilation station",
+      "initiate_flow": {
+        "user": "Add ventilation station",
+        "reconfigure": "Configure ventilation station"
+      },
+      "step": {
+        "user": {
+          "title": "Add ventilation station",
+          "description": "Choose whether the station is already connected directly to this Home Assistant via ESPHome or communicates through a ventilation-station master / ESP-NOW.",
+          "data": {
+            "hardware_connection_type": "Connection"
+          }
+        },
+        "direct": {
+          "title": "Assign direct ESPHome station",
+          "description": "Select an ESPHome device already integrated into Home Assistant. It is only offered when exactly one CO₂, temperature and humidity sensor can be identified. All three are used automatically as the room source.",
+          "data": {
+            "hardware_device_id": "ESPHome device",
+            "hardware_room_id": "Room"
+          }
+        },
+        "master": {
+          "title": "Assign station via master",
+          "description": "Assign a station discovered by the ESP-NOW master to a room. The hardware ID can also be entered manually.",
+          "data": {
+            "hardware_discovery_id": "Discovered station",
+            "hardware_id": "Hardware ID",
+            "hardware_master_id": "Master ID",
+            "hardware_room_id": "Room"
+          }
+        },
+        "reconfigure_direct": {
+          "title": "Configure direct ventilation station",
+          "data": {
+            "hardware_device_id": "ESPHome device",
+            "hardware_room_id": "Room"
+          }
+        },
+        "reconfigure_master": {
+          "title": "Configure master-backed ventilation station",
+          "data": {
+            "hardware_master_id": "Master ID",
+            "hardware_room_id": "Room"
+          }
+        },
+        "reconfigure": {
+          "title": "Configure ventilation station"
+        }
+      },
+      "error": {
+        "hardware_no_rooms": "Create at least one room first.",
+        "hardware_room_invalid": "The selected room no longer exists.",
+        "hardware_id_required": "Select a discovered station or enter a hardware ID.",
+        "hardware_id_duplicate": "This hardware ID is already paired.",
+        "hardware_room_duplicate": "A ventilation station is already assigned to this room.",
+        "hardware_connection_invalid": "Choose a valid connection type.",
+        "hardware_direct_device_invalid": "The selected ESPHome device is no longer available or does not expose an unambiguous CO₂, temperature and humidity sensor set."
+      },
+      "abort": {
+        "hardware_no_rooms": "Create at least one room first.",
+        "hardware_no_direct_devices": "No suitable ESPHome device was found. Add the station to Home Assistant through ESPHome first and ensure exactly one CO₂, temperature and humidity sensor is available."
       }
     }
   },

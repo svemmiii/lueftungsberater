@@ -1,3 +1,4 @@
+from dataclasses import replace
 from custom_components.lueftungsberater.engine import (
     absolute_humidity,
     evaluate_room,
@@ -1052,6 +1053,21 @@ def test_co2_session_target_depends_on_why_airing_became_worthwhile():
     assert moderate.mode == "co2_lueften"
     assert moderate.absolute_humidity_difference < -0.5
     assert moderate.co2_session_target == 1250
+
+    # Repeated fast rebound changes the *high-load* UX: an ordinary return to
+    # 1450 ppm is now known occupancy/load context, not a brand-new airing task.
+    moderate_high_load = evaluate_room(
+        base(
+            indoor_humidity=50,
+            outdoor_temp=22,
+            outdoor_humidity=65,
+            co2=1450,
+            co2_high_load=True,
+        )
+    )
+    assert moderate_high_load.mode == "co2_high_load_observe"
+    assert moderate_high_load.recommendation_key == "optional"
+    assert moderate_high_load.co2_session_target is None
 
     # Stronger drawback that needs the explicit >=1700 override.
     stronger = evaluate_room(
@@ -2295,8 +2311,8 @@ def test_running_co2_session_room_card_fix_does_not_depend_on_humidity():
         assert result.room_reason_key == "continue_airing"
 
 
-def test_running_co2_session_room_view_never_contradicts_keep_open():
-    """Cross-view invariant: room card may not close while engine says keep open."""
+def test_running_co2_session_never_creates_green_room_action():
+    """Green room-air may coexist with native airing, but never with room action."""
     checked = 0
     for humidity in (35.0, 45.0, 55.0, 61.7, 63.0, 70.0):
         for outdoor_temp in (5.0, 15.0, 20.0, 22.0, 26.0, 35.0):
@@ -2322,8 +2338,10 @@ def test_running_co2_session_room_view_never_contradicts_keep_open():
                     )
                     if result.recommendation_key == "keep_open":
                         checked += 1
-                        assert result.room_recommendation_key != "can_close"
-                        assert result.room_status_color != "green"
+                        if result.room_status_color == "green":
+                            assert result.room_recommendation_key == "can_close"
+                        else:
+                            assert result.room_recommendation_key != "can_close"
 
     assert checked > 100
 
@@ -2723,7 +2741,10 @@ def test_open_indoor_air_tradeoff_maps_to_short_observation():
     )
     assert result.mode == "innenluft_abwaegung"
     assert result.recommendation_key == "short_observation"
-    assert result.room_recommendation_key == "room_keep_brief"
+    # The native ventilation card may ask for a brief observation, but merely
+    # opening the contact must not raise the independent room-air perspective.
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "can_close"
 
 
 def test_open_overdue_routine_with_bad_outside_describes_live_session_not_old_timer():
@@ -2970,3 +2991,394 @@ def test_unavailable_window_contact_overrides_room_air_action_but_keeps_urgency(
     assert result.room_status_color in {"orange", "red"}
     assert result.room_recommendation_key == "window_state_unknown"
     assert result.room_reason_key == "window_state_unknown"
+
+
+def test_v010_room_green_never_contains_an_open_or_continue_action():
+    """Room-air green is a hard UX invariant in v0.10.0."""
+    cases = [
+        base(co2=1500),
+        base(
+            co2=1450,
+            window_open=True,
+            open_minutes=6,
+            previous_mode="co2_lueften",
+            previous_need="co2_high",
+            co2_airing_active=True,
+            co2_finish_target=1250,
+            co2_near_target=1300,
+        ),
+        base(
+            indoor_humidity=70,
+            outdoor_temp=15,
+            outdoor_humidity=40,
+            window_open=True,
+            previous_mode="feuchte_lueften",
+            previous_need="humidity_urgent",
+        ),
+    ]
+    invalid = {"keep_open", "open_now", "room_need", "room_urgent", "room_keep_brief"}
+    for result in map(evaluate_room, cases):
+        if result.room_status_color == "green":
+            assert result.room_recommendation_key not in invalid
+
+
+def test_temperature_session_threshold_does_not_depend_on_window_contact():
+    """The same measurements keep the same temperature reason when contact flips."""
+    common = dict(
+        indoor_temp=23.0,
+        target_temp=22.0,
+        outdoor_temp=22.45,  # 0.55 K helpful: continuation band, below new-start 0.7 K
+        outdoor_humidity=50.0,
+        previous_mode="kuehlen",
+        previous_need="temperature",
+    )
+    closed = evaluate_room(base(window_open=False, **common))
+    opened = evaluate_room(base(window_open=True, **common))
+
+    assert closed.decision_need == "temperature"
+    assert opened.decision_need == "temperature"
+
+
+def test_disarmed_humidity_plateau_does_not_reopen_same_comfort_task():
+    result = evaluate_room(
+        base(
+            indoor_humidity=60.5,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            humidity_disarmed=True,
+        )
+    )
+    assert result.decision_need != "humidity"
+    assert result.recommendation_key != "open_now"
+
+
+def test_extreme_humidity_can_override_ordinary_disarm():
+    result = evaluate_room(
+        base(
+            indoor_humidity=75.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            humidity_disarmed=True,
+        )
+    )
+    assert result.decision_need == "humidity_urgent"
+    assert result.recommendation_key == "open_now"
+
+
+def test_better_outside_after_completed_humidity_session_is_optional_yellow_only():
+    result = evaluate_room(
+        base(
+            indoor_humidity=60.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            humidity_disarmed=True,
+            humidity_optional_opportunity=True,
+        )
+    )
+    assert result.mode == "feuchte_gelegenheit"
+    assert result.color == "yellow"
+    assert result.recommendation_key == "optional"
+    assert result.decision_need == "none"
+
+
+def test_exhausted_humidity_session_tells_open_window_it_can_close():
+    result = evaluate_room(
+        base(
+            indoor_humidity=60.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            window_open=True,
+            previous_mode="weiter_lueften",
+            previous_need="humidity",
+            humidity_session_exhausted=True,
+            humidity_disarmed=True,
+        )
+    )
+    assert result.mode == "lueftung_fertig"
+    assert result.recommendation_key == "can_close"
+    assert result.reason_key == "humidity_exhausted"
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "can_close"
+
+
+def test_humidity_quiet_state_never_suppresses_critical_co2():
+    result = evaluate_room(
+        base(
+            indoor_humidity=61.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            humidity_disarmed=True,
+            co2=2500,
+        )
+    )
+    assert result.decision_need == "co2_critical"
+    assert result.recommendation_key == "open_now"
+
+
+def test_hard_lock_still_wins_over_all_reason_specific_session_memory():
+    result = evaluate_room(
+        base(
+            co2=2600,
+            indoor_humidity=75.0,
+            humidity_disarmed=True,
+            humidity_peak_recovery=True,
+            nina_status="danger",
+            nina_reason_key="air_smoke_danger",
+        )
+    )
+    assert result.safety_lock is True
+    assert result.mode == "nina_aussenluftgefahr"
+    assert result.recommendation_key in {"keep_closed", "close_now"}
+
+
+def test_humidity_quiet_state_never_suppresses_particle_reason():
+    result = evaluate_room(
+        base(
+            indoor_humidity=61.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            humidity_disarmed=True,
+            indoor_air_quality="poor",
+            indoor_air_quality_pollutant="pm2_5",
+            indoor_air_quality_value=40.0,
+            indoor_air_quality_unit="µg/m³",
+            indoor_air_quality_measurement_type="mass",
+            air_quality="good",
+            outdoor_air_quality_values={"pm2_5": 5.0},
+        )
+    )
+    assert result.decision_need == "indoor_air_urgent"
+    assert result.mode == "innenluft_lueften"
+    assert result.recommendation_key == "open_now"
+
+
+def test_v010_humidity_open_window_color_action_and_reason_never_contradict():
+    """Regression for v0.9.7 green/keep-open with a no-action explanation."""
+    result = evaluate_room(
+        base(
+            indoor_humidity=60.4,
+            outdoor_temp=20.0,
+            outdoor_humidity=40.0,
+            window_open=True,
+            previous_mode="feuchte_lueften",
+            previous_need="humidity",
+        )
+    )
+    text = reason_text(result.room_reason_key, result.room_reason_args, "de")
+
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "can_close"
+    assert "Weiter lüften" not in text
+
+
+def test_active_reasons_preserve_humidity_when_co2_is_stronger():
+    result = evaluate_room(
+        base(
+            indoor_humidity=66.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            co2=1600,
+        )
+    )
+    assert "co2_high" in result.active_reasons
+    assert "humidity_urgent" in result.active_reasons
+
+
+def test_active_humidity_session_survives_visible_priority_switch_to_co2():
+    """Per-reason memory must not disappear just because CO2 wins the UI merge."""
+    result = evaluate_room(
+        base(
+            indoor_humidity=59.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=35.0,
+            co2=1500,
+            previous_mode="co2_lueften",
+            previous_need="co2_high",
+            humidity_session_active=True,
+        )
+    )
+    assert "co2_high" in result.active_reasons
+    assert "humidity" in result.active_reasons
+
+
+def test_temperature_window_contact_flip_keeps_same_decision_color_and_mode():
+    """Contact state alone may change open/keep wording, never the judgement."""
+    common = dict(
+        indoor_temp=23.0,
+        target_temp=22.0,
+        outdoor_temp=22.45,
+        outdoor_humidity=50.0,
+        previous_mode="kuehlen",
+        previous_need="temperature",
+    )
+    closed = evaluate_room(base(window_open=False, **common))
+    opened = evaluate_room(base(window_open=True, **common))
+
+    assert closed.decision_need == opened.decision_need == "temperature"
+    assert closed.decision_need == opened.decision_need == "temperature"
+    assert closed.color == opened.color
+    assert closed.room_status_color == opened.room_status_color == "yellow"
+
+
+def test_disarmed_high_humidity_stays_visible_on_room_card_without_new_action():
+    """Quiet humidity memory suppresses nagging, not the factual room condition."""
+    result = evaluate_room(
+        base(
+            indoor_humidity=70.0,
+            outdoor_temp=21.0,
+            outdoor_humidity=40.0,
+            humidity_disarmed=True,
+        )
+    )
+    assert result.decision_need != "humidity"
+    assert result.recommendation_key != "open_now"
+    assert result.room_status_color == "yellow"
+    assert result.room_recommendation_key == "room_watch"
+
+
+def test_indoor_air_aftercare_does_not_block_urgent_pollutant_reason():
+    calm = evaluate_room(
+        base(
+            indoor_air_quality="moderate",
+            indoor_air_disarmed=True,
+            air_quality="good",
+        )
+    )
+    assert calm.decision_need != "indoor_air"
+
+    urgent = evaluate_room(
+        base(
+            indoor_air_quality="poor",
+            indoor_air_disarmed=True,
+            indoor_air_quality_pollutant="pm2_5",
+            indoor_air_quality_value=45.0,
+            air_quality="good",
+            outdoor_air_quality_values={"pm2_5": 5.0},
+        )
+    )
+    assert urgent.decision_need == "indoor_air_urgent"
+
+
+def test_window_contact_alone_does_not_raise_room_air_pressure():
+    """The room-air card keeps its grade when only the contact changes."""
+    scenarios = [
+        base(indoor_humidity=61, outdoor_temp=15, outdoor_humidity=66),
+        base(co2=1200),
+        base(indoor_temp=24, outdoor_temp=20, target_temp=22),
+    ]
+
+    for closed_input in scenarios:
+        opened_input = replace(closed_input, window_open=True)
+        closed = evaluate_room(closed_input)
+        opened = evaluate_room(opened_input)
+
+        assert closed.recommendation_key == "open_now"
+        assert opened.recommendation_key == "keep_open"
+        assert closed.room_status_color == opened.room_status_color == "green"
+        assert closed.room_recommendation_key == "room_good"
+        assert opened.room_recommendation_key == "can_close"
+
+
+def test_co2_session_started_by_opening_does_not_raise_green_room_air_card():
+    """Starting the explicit CO2 session must not create room-air urgency.
+
+    The native ventilation card may correctly change from ``open_now`` to
+    ``keep_open`` after the contact opens.  With otherwise identical readings,
+    the independent room-air perspective must keep the same green/no-action
+    assessment instead of jumping to orange solely because session memory is
+    now active.
+    """
+    closed = evaluate_room(base(co2=1200.0, window_open=False))
+    opened = evaluate_room(
+        base(
+            co2=1200.0,
+            window_open=True,
+            open_minutes=1.0,
+            previous_mode=closed.mode,
+            previous_need=closed.decision_need,
+            co2_airing_active=True,
+            co2_minimum_airing_active=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+
+    assert closed.room_status_color == "green"
+    assert closed.room_recommendation_key == "room_good"
+    assert opened.recommendation_key == "keep_open"
+    assert opened.room_status_color == "green"
+    assert opened.room_recommendation_key == "can_close"
+
+
+def test_humidity_observe_has_matching_explanation_text():
+    result = evaluate_room(
+        base(
+            indoor_humidity=70,
+            outdoor_temp=15,
+            outdoor_humidity=66,
+            humidity_disarmed=True,
+        )
+    )
+
+    assert result.room_status_color == "yellow"
+    assert result.primary_need == "humidity_observe"
+    text = reason_text(result.room_reason_key, result.room_reason_args, "de")
+    assert "bereits behandelte Feuchtesituation" in text
+    assert "keine erneute Lüftung" in text
+
+
+def test_humidity_session_start_uses_humidity_physics_not_other_reasons():
+    from custom_components.lueftungsberater.engine import humidity_airing_can_improve
+
+    # CO2 may want the window open, but outside air that is much wetter must not
+    # start a humidity session at the same time.
+    assert humidity_airing_can_improve(True, 11.6, 18.4) is False
+    assert humidity_airing_can_improve(True, 11.6, 8.0) is True
+    assert humidity_airing_can_improve(False, 11.6, 8.0) is False
+
+
+def test_high_load_keeps_normal_rebound_calm_until_1800():
+    calm = evaluate_room(base(co2=1500, co2_high_load=True))
+    assert calm.mode == "co2_high_load_observe"
+    assert calm.color == "yellow"
+    assert calm.recommendation_key == "optional"
+    assert calm.room_status_color == "yellow"
+    assert calm.primary_need == "co2_high_load_observe"
+
+
+def test_high_load_reopens_at_1800_and_never_suppresses_over_2000():
+    elevated = evaluate_room(base(co2=1800, co2_high_load=True))
+    assert elevated.mode in {"co2_lueften", "co2_lueften_mit_nachteil", "co2_abwaegung"}
+    assert elevated.recommendation_key in {"open_now", "short_observation"}
+
+    critical = evaluate_room(base(co2=2050, co2_high_load=True))
+    assert critical.primary_need == "co2_critical"
+    assert critical.mode in {"co2_kritisch", "co2_kritisch_vorsicht"}
+
+
+def test_high_load_trend_can_reopen_before_1800_when_2000_is_imminent():
+    result = evaluate_room(
+        base(
+            co2=1600,
+            co2_high_load=True,
+            co2_trend_ppm_per_min=45.0,
+            co2_minutes_to_2000=(2000 - 1600) / 45.0,
+        )
+    )
+    assert result.primary_need == "co2_high"
+    assert result.mode in {"co2_lueften", "co2_lueften_mit_nachteil", "co2_abwaegung"}
+
+
+def test_high_load_session_target_is_winter_friendly_but_not_looser_than_tradeoff():
+    cold_good = evaluate_room(
+        base(co2=1850, co2_high_load=True, outdoor_temp=-5, outdoor_humidity=60)
+    )
+    assert cold_good.co2_session_target is not None
+    assert cold_good.co2_session_target >= 1300
+
+    mild_good = evaluate_room(
+        base(co2=1850, co2_high_load=True, outdoor_temp=17, outdoor_humidity=45)
+    )
+    assert mild_good.co2_session_target is not None
+    assert mild_good.co2_session_target >= 1150
+    assert mild_good.co2_session_target <= cold_good.co2_session_target

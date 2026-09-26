@@ -3,9 +3,10 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.9.7"
+INTEGRATION_VERSION = "0.10.0"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
+SUBENTRY_TYPE_STATION = "station"
 
 CONF_ENTRY_KIND = "entry_kind"
 ENTRY_KIND_LOCAL = "local"
@@ -80,6 +81,24 @@ REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
 REMOTE_PROTOCOL_VERSION = 3
 FORECAST_REFRESH_INTERVAL = timedelta(minutes=15)
 
+# Hardware stations are expected to report about once per minute. After three
+# missed minutes their last sample is stale and must no longer drive decisions.
+HARDWARE_STATION_STALE_AFTER = timedelta(seconds=180)
+HARDWARE_STATION_STALE_CHECK_INTERVAL = timedelta(seconds=30)
+
+
+CONF_HARDWARE_ID = "hardware_id"
+CONF_HARDWARE_MASTER_ID = "hardware_master_id"
+CONF_HARDWARE_ROOM_ID = "hardware_room_id"
+CONF_HARDWARE_DISCOVERY_ID = "hardware_discovery_id"
+CONF_HARDWARE_CONNECTION_TYPE = "hardware_connection_type"
+HARDWARE_CONNECTION_MASTER = "master"
+HARDWARE_CONNECTION_DIRECT = "direct"
+CONF_HARDWARE_DEVICE_ID = "hardware_device_id"
+CONF_HARDWARE_DIRECT_CO2 = "hardware_direct_co2_entity"
+CONF_HARDWARE_DIRECT_TEMP = "hardware_direct_temperature_entity"
+CONF_HARDWARE_DIRECT_HUMIDITY = "hardware_direct_humidity_entity"
+
 CONF_ROOM_NAME = "room_name"
 CONF_AREA_ID = "area_id"
 CONF_INDOOR_TEMP = "indoor_temperature"
@@ -137,6 +156,7 @@ DATA_AIR_QUALITY_TRACKERS = "air_quality_trackers"
 DATA_REMOTE_ACCESS = "remote_access"
 DATA_RECORDER_RETENTION = "recorder_retention"
 DATA_SAFETY_STATE = "safety_state"
+DATA_HARDWARE_HUBS = "hardware_hubs"
 RECORDER_RETENTION_DAYS = 20
 SAFETY_FALLBACK_MAX_AGE = timedelta(hours=1)
 AIR_QUALITY_HISTORY_MIN_SAMPLES = 24

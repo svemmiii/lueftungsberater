@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
+import json
 import time
 
 import voluptuous as vol
@@ -24,8 +25,13 @@ from .const import (
     ENTRY_KIND_REMOTE,
     REMOTE_PROTOCOL_VERSION,
     SUBENTRY_TYPE_ROOM,
+    SUBENTRY_TYPE_STATION,
+    CONF_HARDWARE_ID,
+    CONF_HARDWARE_ROOM_ID,
+    CONF_HARDWARE_MASTER_ID,
     entry_kind,
 )
+from .hardware_hub import remember_discovery, report_station, station_by_hardware_id
 from .localization import (
     duration_text,
     night_advice_text,
@@ -193,6 +199,114 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
             }
         )
 
+
+
+class LueftungsberaterHardwareDiscoverView(HomeAssistantView):
+    """Receive one authenticated JOIN/discovery report from an ESP master."""
+
+    url = "/api/lueftungsberater/hardware/discover"
+    name = "api:lueftungsberater:hardware_discover"
+    requires_auth = True
+
+    async def post(self, request):
+        hass: HomeAssistant = request.app[KEY_HASS]
+        try:
+            payload = await request.json()
+        except (ValueError, json.JSONDecodeError):
+            return self.json_message("Invalid JSON", status_code=HTTPStatus.BAD_REQUEST)
+        if not isinstance(payload, dict):
+            return self.json_message("Invalid payload", status_code=HTTPStatus.BAD_REQUEST)
+
+        entry_id = str(payload.get("entry_id") or "").strip()
+        hardware_id = str(payload.get("hardware_id") or "").strip()
+        master_id = str(payload.get("master_id") or "default").strip() or "default"
+        if not entry_id or not hardware_id:
+            return self.json_message("entry_id and hardware_id required", status_code=HTTPStatus.BAD_REQUEST)
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
+            return self.json_message("Unknown local Lüftungsberater entry", status_code=HTTPStatus.NOT_FOUND)
+
+        remember_discovery(
+            hass,
+            entry,
+            hardware_id=hardware_id,
+            master_id=master_id,
+            name=str(payload.get("name") or hardware_id),
+            capabilities=(payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {}),
+        )
+        return self.json({"accepted": True, "hardware_id": hardware_id})
+
+
+class LueftungsberaterHardwareReportView(HomeAssistantView):
+    """Receive raw station values and return HA's already-computed display result."""
+
+    url = "/api/lueftungsberater/hardware/report"
+    name = "api:lueftungsberater:hardware_report"
+    requires_auth = True
+
+    async def post(self, request):
+        hass: HomeAssistant = request.app[KEY_HASS]
+        try:
+            payload = await request.json()
+        except (ValueError, json.JSONDecodeError):
+            return self.json_message("Invalid JSON", status_code=HTTPStatus.BAD_REQUEST)
+        if not isinstance(payload, dict):
+            return self.json_message("Invalid payload", status_code=HTTPStatus.BAD_REQUEST)
+
+        entry_id = str(payload.get("entry_id") or "").strip()
+        hardware_id = str(payload.get("hardware_id") or "").strip()
+        if not entry_id or not hardware_id:
+            return self.json_message("entry_id and hardware_id required", status_code=HTTPStatus.BAD_REQUEST)
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
+            return self.json_message("Unknown local Lüftungsberater entry", status_code=HTTPStatus.NOT_FOUND)
+        station = station_by_hardware_id(entry, hardware_id)
+        if station is None:
+            # Unknown stations stay discoverable but can never inject room values
+            # until the user explicitly assigns them to a room.
+            remember_discovery(
+                hass, entry, hardware_id=hardware_id,
+                master_id=str(payload.get("master_id") or "default"),
+                name=str(payload.get("name") or hardware_id),
+                capabilities=(payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {}),
+            )
+            return self.json({"paired": False, "hardware_id": hardware_id}, status_code=HTTPStatus.CONFLICT)
+
+        report_station(hass, entry, station, payload)
+
+        room_id = str(station.data.get(CONF_HARDWARE_ROOM_ID) or "")
+        registry = er.async_get(hass)
+        advisor_entity = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{room_id}_advisor"
+        )
+        advisor_state = hass.states.get(advisor_entity) if advisor_entity else None
+        attrs = advisor_state.attributes if advisor_state is not None else {}
+        # Echo transport correlation tokens unchanged (within a small scalar
+        # contract) so an ESP master can match this HA decision to the exact
+        # request/round that produced it.  This is deliberately transport
+        # metadata only; it never influences the room decision itself.
+        round_id = payload.get("round_id")
+        request_id = payload.get("request_id")
+        if not isinstance(round_id, (str, int)):
+            round_id = None
+        if not isinstance(request_id, (str, int)):
+            request_id = None
+        return self.json(
+            {
+                "paired": True,
+                "hardware_id": str(station.data.get(CONF_HARDWARE_ID) or hardware_id),
+                "master_id": str(station.data.get(CONF_HARDWARE_MASTER_ID) or "default"),
+                "room_id": room_id,
+                "room_name": attrs.get("room_name"),
+                "status": attrs.get("status"),
+                "recommendation": attrs.get("recommendation"),
+                "recommendation_key": attrs.get("recommendation_key"),
+                "display_mode": attrs.get("display_mode"),
+                "safety_lock": attrs.get("safety_lock"),
+                "round_id": round_id,
+                "request_id": request_id,
+            }
+        )
 
 
 def _remote_instances_for_protocol(
@@ -622,5 +736,7 @@ def async_register_api(hass: HomeAssistant) -> None:
         return
     domain_data[DATA_API_REGISTERED] = True
     hass.http.register_view(LueftungsberaterSnapshotView())
+    hass.http.register_view(LueftungsberaterHardwareDiscoverView())
+    hass.http.register_view(LueftungsberaterHardwareReportView())
     websocket_api.async_register_command(hass, websocket_localize)
     websocket_api.async_register_command(hass, websocket_remote_overview)

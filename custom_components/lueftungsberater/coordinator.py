@@ -10,7 +10,13 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.event import async_call_later, async_track_state_change_event, async_track_time_change, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_entity_registry_updated_event,
+    async_track_state_change_event,
+    async_track_time_change,
+    async_track_time_interval,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -21,8 +27,20 @@ from .co2_hysteresis import (
     Co2HysteresisState,
     Co2MinimumAiringState,
 )
+from .reason_sessions import HumiditySessionState, IndoorAirSessionState
+from .engine import humidity_airing_can_improve
+from .hardware_hub import (
+    direct_station_entities,
+    station_for_room,
+    station_is_direct,
+    station_is_master,
+    station_signal,
+)
 from .const import (
     CONF_CO2,
+    CONF_HARDWARE_DIRECT_CO2,
+    CONF_HARDWARE_DIRECT_HUMIDITY,
+    CONF_HARDWARE_DIRECT_TEMP,
     CONF_NIGHT_START_HOUR,
     CONF_NIGHT_START_TIME,
     CONF_NIGHT_END_TIME,
@@ -33,6 +51,7 @@ from .const import (
     DEFAULT_NIGHT_START_HOUR,
     DEFAULT_NIGHT_END_TIME,
     DOMAIN,
+    HARDWARE_STATION_STALE_CHECK_INTERVAL,
     MOLD_SAMPLE_INTERVAL,
     STORAGE_VERSION,
 )
@@ -116,6 +135,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self.entry = entry
         self.subentry = subentry
         self._unsubs: list[Callable[[], None]] = []
+        self._source_state_unsub: Callable[[], None] | None = None
+        self._source_registry_unsub: Callable[[], None] | None = None
         self._notification_tasks: set[asyncio.Task[Any]] = set()
         # Initial room refreshes run before every room coordinator exists. Keep
         # assistant-wide warning notifications suspended until async_setup_entry
@@ -128,7 +149,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._previous_mode_at: datetime | None = None
         self._co2_hysteresis = Co2HysteresisState()
         self._co2_minimum_airing = Co2MinimumAiringState()
+        self._humidity_session = HumiditySessionState()
+        self._indoor_air_session = IndoorAirSessionState()
         self._co2_hysteresis_unsub: Callable[[], None] | None = None
+        self._humidity_session_unsub: Callable[[], None] | None = None
+        self._indoor_air_session_unsub: Callable[[], None] | None = None
         self._night_memory: NightAdvice | None = None
         self._night_memory_start: datetime | None = None
         self._night_memory_end: datetime | None = None
@@ -246,6 +271,27 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                     if memory_fresh
                     else None
                 ),
+                last_completed_at=_parse_dt(co2_memory.get("last_completed_at")),
+                last_completed_trigger_ppm=co2_memory.get("last_completed_trigger_ppm"),
+                rebound_count=co2_memory.get("rebound_count", 0),
+                rebound_counted_for_completion=bool(
+                    co2_memory.get("rebound_counted_for_completion")
+                ),
+                high_load_until=_parse_dt(co2_memory.get("high_load_until")),
+                trend_anchor_ppm=(
+                    co2_memory.get("trend_anchor_ppm") if memory_fresh else None
+                ),
+                trend_anchor_at=(
+                    _parse_dt(co2_memory.get("trend_anchor_at")) if memory_fresh else None
+                ),
+                trend_ppm_per_min=(
+                    co2_memory.get("trend_ppm_per_min") if memory_fresh else None
+                ),
+                trend_positive_intervals=(
+                    co2_memory.get("trend_positive_intervals", 0)
+                    if memory_fresh
+                    else 0
+                ),
             )
 
         minimum_memory = stored.get("co2_minimum_airing")
@@ -265,6 +311,14 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                         minimum_memory.get("completed_for_open_window")
                     ),
                 )
+
+        humidity_memory = stored.get("humidity_session")
+        if isinstance(humidity_memory, dict):
+            self._humidity_session.restore(humidity_memory, parse_dt=_parse_dt)
+
+        indoor_air_memory = stored.get("indoor_air_session")
+        if isinstance(indoor_air_memory, dict):
+            self._indoor_air_session.restore(indoor_air_memory, parse_dt=_parse_dt)
 
         night = stored.get("night")
         if isinstance(night, dict):
@@ -313,6 +367,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             "updated_at": self._previous_mode_at.isoformat() if self._previous_mode_at else None,
             "co2_hysteresis": self._co2_hysteresis.as_dict(),
             "co2_minimum_airing": self._co2_minimum_airing.as_dict(),
+            "humidity_session": self._humidity_session.as_dict(),
+            "indoor_air_session": self._indoor_air_session.as_dict(),
             "night": self._night_memory_payload(),
         }
 
@@ -540,6 +596,39 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             _refresh,
         )
 
+    def _schedule_humidity_session_check(self, seconds: float | None) -> None:
+        """Re-evaluate exact humidity progress/re-arm deadlines."""
+        if self._humidity_session_unsub is not None:
+            self._humidity_session_unsub()
+            self._humidity_session_unsub = None
+        if seconds is None or seconds <= 0:
+            return
+
+        @callback
+        def _refresh(_now) -> None:
+            self._humidity_session_unsub = None
+            self._handle_tracker_change()
+
+        self._humidity_session_unsub = async_call_later(
+            self.hass, seconds + 0.05, _refresh
+        )
+
+    def _schedule_indoor_air_session_check(self, seconds: float | None) -> None:
+        if self._indoor_air_session_unsub is not None:
+            self._indoor_air_session_unsub()
+            self._indoor_air_session_unsub = None
+        if seconds is None or seconds <= 0:
+            return
+
+        @callback
+        def _refresh(_now) -> None:
+            self._indoor_air_session_unsub = None
+            self._handle_tracker_change()
+
+        self._indoor_air_session_unsub = async_call_later(
+            self.hass, max(1.0, float(seconds)), _refresh
+        )
+
     def _build_snapshot(self) -> RoomSnapshot:
         outside_coordinator = get_outside_coordinator(self.hass, self.entry)
         weather = outside_coordinator.data.weather if outside_coordinator is not None and outside_coordinator.data is not None else None
@@ -566,7 +655,12 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             previous_need=previous_need,
         )
 
-        def _snapshot_for_co2_state() -> RoomSnapshot:
+        def _snapshot_for_co2_state(
+            *,
+            minimum_active: bool = False,
+            minimum_cautious: bool = False,
+            humidity_optional_opportunity: bool = False,
+        ) -> RoomSnapshot:
             return build_room_snapshot(
                 self.hass,
                 self.entry,
@@ -580,6 +674,20 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 co2_near_target=co2_hysteresis.near_target_ppm,
                 co2_rearm_threshold=co2_hysteresis.rearm_threshold_ppm,
                 co2_measurement_timed_out=co2_hysteresis.measurement_timed_out,
+                co2_minimum_airing_active=minimum_active,
+                co2_minimum_airing_cautious=minimum_cautious,
+                humidity_session_active=self._humidity_session.session_active,
+                humidity_session_exhausted=self._humidity_session.exhausted,
+                humidity_disarmed=self._humidity_session.disarmed,
+                humidity_optional_opportunity=humidity_optional_opportunity,
+                humidity_peak_recovery=self._humidity_session.peak_recovery,
+                indoor_air_disarmed=self._indoor_air_session.disarmed,
+                co2_high_load=self._co2_hysteresis.high_load_active(now_utc),
+                co2_trend_ppm_per_min=self._co2_hysteresis.trend_ppm_per_min,
+                # Use the hysteresis decision's *confirmed* prediction.
+                # Recomputing from the raw smoothed slope here would bypass the
+                # two-consecutive-rise guard and reintroduce one-sample alarms.
+                co2_minutes_to_2000=co2_hysteresis.minutes_to_2000,
                 weather=weather,
                 warnings=warnings,
             )
@@ -650,8 +758,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
 
         hysteresis_changed = self._co2_hysteresis.as_dict() != co2_before
         minimum_changed = self._co2_minimum_airing.as_dict() != minimum_before
-        if hysteresis_changed or minimum_changed:
-            self._queue_memory_save()
 
         checks = [
             seconds
@@ -663,27 +769,92 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         ]
         self._schedule_co2_hysteresis_check(min(checks) if checks else None)
 
-        if minimum.active:
-            snapshot = build_room_snapshot(
-                self.hass,
-                self.entry,
-                self.subentry,
-                previous_mode=previous_mode,
-                previous_need=previous_need,
-                co2_pending_hold=co2_hysteresis.pending_hold,
-                co2_airing_active=co2_hysteresis.airing_active,
-                co2_finish_ready=co2_hysteresis.finish_ready,
-                co2_finish_target=co2_hysteresis.finish_target_ppm,
-                co2_near_target=co2_hysteresis.near_target_ppm,
-                co2_rearm_threshold=co2_hysteresis.rearm_threshold_ppm,
-                co2_measurement_timed_out=co2_hysteresis.measurement_timed_out,
-                co2_minimum_airing_active=True,
-                co2_minimum_airing_cautious=minimum.cautious,
-                weather=weather,
-                warnings=warnings,
+        snapshot = _snapshot_for_co2_state(
+            minimum_active=minimum.active,
+            minimum_cautious=minimum.cautious,
+        )
+
+        # Humidity owns its own session/re-arm state. This layer observes the
+        # normal engine result, then rebuilds once if the progress/quiet-state
+        # changed. It never suppresses CO2, pollutants, mould or safety.
+        humidity_before = self._humidity_session.as_dict()
+        result = snapshot.result
+        humidity_decision = None
+        if (
+            result is not None
+            and result.indoor_absolute_humidity is not None
+            and result.outdoor_absolute_humidity is not None
+            and snapshot.values.get("temperature_inside") is not None
+            and snapshot.values.get("humidity_inside") is not None
+        ):
+            humidity_need = any(
+                reason in {"humidity", "humidity_urgent"}
+                for reason in result.active_reasons
             )
+            humidity_actionable = humidity_airing_can_improve(
+                humidity_need,
+                float(result.indoor_absolute_humidity),
+                float(result.outdoor_absolute_humidity),
+            )
+            humidity_decision = self._humidity_session.evaluate(
+                now=now_utc,
+                indoor_temp=float(snapshot.values["temperature_inside"]),
+                indoor_rh=float(snapshot.values["humidity_inside"]),
+                indoor_ah=float(result.indoor_absolute_humidity),
+                outdoor_ah=float(result.outdoor_absolute_humidity),
+                window_open=bool(snapshot.values.get("window_open")),
+                humidity_actionable=humidity_actionable,
+                humidity_still_needed=humidity_need,
+                safety_lock=result.safety_lock,
+                mold_risk=bool(result.mold_risk or result.mold_persistent),
+            )
+            self._schedule_humidity_session_check(
+                humidity_decision.next_check_seconds
+            )
+            if self._humidity_session.as_dict() != humidity_before or humidity_decision.optional_opportunity:
+                snapshot = _snapshot_for_co2_state(
+                    minimum_active=minimum.active,
+                    minimum_cautious=minimum.cautious,
+                    humidity_optional_opportunity=humidity_decision.optional_opportunity,
+                )
         else:
-            snapshot = base_snapshot
+            self._schedule_humidity_session_check(None)
+
+        humidity_changed = self._humidity_session.as_dict() != humidity_before
+
+        # Measured indoor pollutants own a short aftercare state. It only keeps
+        # a lingering moderate value from reopening the same task immediately;
+        # poor/very-poor or a renewed rising/unusual trend always re-arms.
+        indoor_air_before = self._indoor_air_session.as_dict()
+        if snapshot.result is not None:
+            indoor_air_decision = self._indoor_air_session.evaluate(
+                now=now_utc,
+                window_open=bool(snapshot.values.get("window_open")),
+                quality=str(snapshot.values.get("indoor_air_quality") or "unknown"),
+                trend=str(snapshot.values.get("indoor_air_quality_trend") or "unknown"),
+                unusual=bool(snapshot.values.get("indoor_air_quality_unusual")),
+                safety_lock=bool(snapshot.result.safety_lock),
+            )
+            self._schedule_indoor_air_session_check(
+                indoor_air_decision.next_check_seconds
+            )
+            if self._indoor_air_session.as_dict() != indoor_air_before:
+                snapshot = _snapshot_for_co2_state(
+                    minimum_active=minimum.active,
+                    minimum_cautious=minimum.cautious,
+                    humidity_optional_opportunity=(
+                        humidity_decision.optional_opportunity
+                        if humidity_decision is not None
+                        else False
+                    ),
+                )
+        else:
+            self._schedule_indoor_air_session_check(None)
+
+        indoor_air_changed = self._indoor_air_session.as_dict() != indoor_air_before
+        if hysteresis_changed or minimum_changed or humidity_changed or indoor_air_changed:
+            self._queue_memory_save()
+
         return self._apply_night_memory(snapshot)
 
     async def _async_update_data(self) -> RoomSnapshot:
@@ -713,9 +884,29 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 self._unsubs.pop()()
             raise
 
-        entities = room_source_entities(self.hass, self.entry, self.subentry)
-        if entities:
-            self._unsubs.append(async_track_state_change_event(self.hass, entities, self._handle_source_change))
+        self._refresh_source_listeners()
+
+        hardware_station = station_for_room(self.entry, self.subentry.subentry_id)
+        if hardware_station is not None and station_is_master(hardware_station):
+            self._unsubs.append(
+                async_dispatcher_connect(
+                    self.hass,
+                    station_signal(self.entry.entry_id, hardware_station.subentry_id),
+                    self._handle_tracker_change,
+                )
+            )
+        elif hardware_station is not None and station_is_direct(hardware_station):
+            # Direct ESPHome values have no master dispatcher/TTL watchdog.
+            # Re-evaluate periodically so a sensor that stops reporting but
+            # leaves its last numeric HA state behind becomes unavailable after
+            # the shared freshness horizon.
+            self._unsubs.append(
+                async_track_time_interval(
+                    self.hass,
+                    lambda _now: self._handle_tracker_change(),
+                    HARDWARE_STATION_STALE_CHECK_INTERVAL,
+                )
+            )
 
         self._unsubs.append(outside.async_add_listener(self._handle_tracker_change))
 
@@ -798,6 +989,53 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._publish_snapshot(self._build_snapshot())
 
     @callback
+    def _handle_source_registry_change(self, _event: Event) -> None:
+        """Persist direct ESPHome renames and rebind listeners immediately."""
+        station = station_for_room(self.entry, self.subentry.subentry_id)
+        if station is not None and station_is_direct(station):
+            current = direct_station_entities(self.hass, station)
+            if current is not None:
+                cached = (
+                    str(station.data.get(CONF_HARDWARE_DIRECT_CO2) or "").strip(),
+                    str(station.data.get(CONF_HARDWARE_DIRECT_TEMP) or "").strip(),
+                    str(station.data.get(CONF_HARDWARE_DIRECT_HUMIDITY) or "").strip(),
+                )
+                if current != cached:
+                    data = dict(station.data)
+                    data[CONF_HARDWARE_DIRECT_CO2] = current[0]
+                    data[CONF_HARDWARE_DIRECT_TEMP] = current[1]
+                    data[CONF_HARDWARE_DIRECT_HUMIDITY] = current[2]
+                    self.hass.config_entries.async_update_subentry(
+                        self.entry, station, data=data
+                    )
+
+        self._refresh_source_listeners()
+        self._publish_snapshot(self._build_snapshot())
+
+    @callback
+    def _refresh_source_listeners(self) -> None:
+        """Track the room's current source ids and survive live registry renames."""
+        if self._source_state_unsub is not None:
+            self._source_state_unsub()
+            self._source_state_unsub = None
+        if self._source_registry_unsub is not None:
+            self._source_registry_unsub()
+            self._source_registry_unsub = None
+
+        entities = room_source_entities(self.hass, self.entry, self.subentry)
+        if not entities:
+            return
+        self._source_state_unsub = async_track_state_change_event(
+            self.hass, entities, self._handle_source_change
+        )
+
+        station = station_for_room(self.entry, self.subentry.subentry_id)
+        if station is not None and station_is_direct(station):
+            self._source_registry_unsub = async_track_entity_registry_updated_event(
+                self.hass, entities, self._handle_source_registry_change
+            )
+
+    @callback
     def _handle_tracker_change(self) -> None:
         self._publish_snapshot(self._build_snapshot())
 
@@ -805,9 +1043,21 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         # Flip the lifecycle flag before yielding so any already-queued event
         # callback becomes a no-op while shutdown drains outstanding jobs.
         self._started = False
+        if self._source_state_unsub is not None:
+            self._source_state_unsub()
+            self._source_state_unsub = None
+        if self._source_registry_unsub is not None:
+            self._source_registry_unsub()
+            self._source_registry_unsub = None
         if self._co2_hysteresis_unsub is not None:
             self._co2_hysteresis_unsub()
             self._co2_hysteresis_unsub = None
+        if self._humidity_session_unsub is not None:
+            self._humidity_session_unsub()
+            self._humidity_session_unsub = None
+        if self._indoor_air_session_unsub is not None:
+            self._indoor_air_session_unsub()
+            self._indoor_air_session_unsub = None
         while self._unsubs:
             self._unsubs.pop()()
         # Event-triggered notification jobs can otherwise outlive our own

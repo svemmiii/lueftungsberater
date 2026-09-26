@@ -16,6 +16,9 @@ CO2_AIRING_FINISH_STABLE = timedelta(minutes=2)
 CO2_REARM_STABLE = timedelta(minutes=2)
 CO2_MINIMUM_AIRING = timedelta(minutes=5)
 CO2_MEASUREMENT_MISSING_TIMEOUT = timedelta(minutes=5)
+CO2_FAST_REBOUND_WINDOW = timedelta(minutes=90)
+CO2_REBOUND_MEMORY = timedelta(hours=2)
+CO2_HIGH_LOAD_HOLD = timedelta(hours=2)
 
 CO2_TRIGGER_STAGES = (1000.0, 1400.0, 1700.0, 2000.0)
 
@@ -93,6 +96,8 @@ class Co2HysteresisDecision:
     rearm_threshold_ppm: float | None = None
     next_check_seconds: float | None = None
     measurement_timed_out: bool = False
+    trend_ppm_per_min: float | None = None
+    minutes_to_2000: float | None = None
 
 
 @dataclass(slots=True)
@@ -110,6 +115,15 @@ class Co2HysteresisState:
     measurement_missing_since: datetime | None = None
     measurement_timed_out_for_open_window: bool = False
     measurement_timeout_target_ppm: float | None = None
+    last_completed_at: datetime | None = None
+    last_completed_trigger_ppm: float | None = None
+    rebound_count: int = 0
+    rebound_counted_for_completion: bool = False
+    high_load_until: datetime | None = None
+    trend_anchor_ppm: float | None = None
+    trend_anchor_at: datetime | None = None
+    trend_ppm_per_min: float | None = None
+    trend_positive_intervals: int = 0
 
     def reset(self) -> None:
         self.pending_below_since = None
@@ -123,6 +137,69 @@ class Co2HysteresisState:
         self.measurement_missing_since = None
         self.measurement_timed_out_for_open_window = False
         self.measurement_timeout_target_ppm = None
+        self.last_completed_at = None
+        self.last_completed_trigger_ppm = None
+        self.rebound_count = 0
+        self.rebound_counted_for_completion = False
+        self.high_load_until = None
+        self.trend_anchor_ppm = None
+        self.trend_anchor_at = None
+        self.trend_ppm_per_min = None
+        self.trend_positive_intervals = 0
+
+    def high_load_active(self, now: datetime) -> bool:
+        """Return whether repeated quick rebound is currently active."""
+        return bool(self.high_load_until is not None and now < self.high_load_until)
+
+    def _update_trend(self, *, now: datetime, co2: float | None) -> tuple[float | None, float | None]:
+        """Track a conservative CO2 rise rate from real value changes.
+
+        Coordinator refreshes may occur for unrelated entities, so an unchanged
+        CO2 state must not be treated as a fresh zero-slope sample.  We only
+        advance the anchor when the numeric CO2 reading itself changes and use
+        samples at least one minute apart to avoid amplifying sensor jitter.
+        """
+        if co2 is None:
+            return self.trend_ppm_per_min, None
+
+        current = float(co2)
+        if self.trend_anchor_ppm is None or self.trend_anchor_at is None:
+            self.trend_anchor_ppm = current
+            self.trend_anchor_at = now
+            self.trend_ppm_per_min = None
+            return None, None
+
+        if current != self.trend_anchor_ppm:
+            elapsed_minutes = (now - self.trend_anchor_at).total_seconds() / 60.0
+            if elapsed_minutes >= 1.0:
+                raw_slope = (current - self.trend_anchor_ppm) / elapsed_minutes
+                # Smooth the live slope, but do not let the *first* positive
+                # interval authorize a predictive high-load re-trigger. A
+                # second consecutive real rise (each at least one minute
+                # apart) is required before minutes_to_2000 becomes actionable.
+                # Any flat/falling interval breaks that confirmation chain.
+                self.trend_ppm_per_min = (
+                    raw_slope
+                    if self.trend_ppm_per_min is None
+                    else 0.65 * raw_slope + 0.35 * self.trend_ppm_per_min
+                )
+                if raw_slope > 0:
+                    self.trend_positive_intervals += 1
+                else:
+                    self.trend_positive_intervals = 0
+                self.trend_anchor_ppm = current
+                self.trend_anchor_at = now
+
+        minutes_to_2000 = None
+        slope = self.trend_ppm_per_min
+        if (
+            slope is not None
+            and slope > 0
+            and current < 2000.0
+            and self.trend_positive_intervals >= 2
+        ):
+            minutes_to_2000 = max(0.0, (2000.0 - current) / slope)
+        return slope, minutes_to_2000
 
     def _clear_session(self, *, keep_completed: bool = False) -> None:
         self.finish_below_since = None
@@ -159,11 +236,16 @@ class Co2HysteresisState:
         raw = float(target_ppm) + CO2_AIRING_TARGET_DROP
         return min(CO2_TRIGGER_STAGES, key=lambda stage: abs(stage - raw))
 
-    def _arm_rearm_from_session(self) -> None:
-        """Remember which completed CO₂ band may next trigger a new session."""
+    def _arm_rearm_from_session(self, *, now: datetime) -> None:
+        """Remember completed band and prepare fast-rebound diagnostics."""
         if self.session_target_ppm is None:
             return
         trigger = self._trigger_for_target(self.session_target_ppm)
+        if self.last_completed_at is None or now - self.last_completed_at > CO2_REBOUND_MEMORY:
+            self.rebound_count = 0
+        self.last_completed_at = now
+        self.last_completed_trigger_ppm = trigger
+        self.rebound_counted_for_completion = False
         # The just-completed session is the newest proof. If better current
         # conditions justified a lower 850-ppm target even though an older
         # 1400-band lock was active, successfully reaching that target may
@@ -245,6 +327,19 @@ class Co2HysteresisState:
             ),
             "measurement_timed_out_for_open_window": self.measurement_timed_out_for_open_window,
             "measurement_timeout_target_ppm": self.measurement_timeout_target_ppm,
+            "last_completed_at": (
+                self.last_completed_at.isoformat() if self.last_completed_at else None
+            ),
+            "last_completed_trigger_ppm": self.last_completed_trigger_ppm,
+            "rebound_count": self.rebound_count,
+            "rebound_counted_for_completion": self.rebound_counted_for_completion,
+            "high_load_until": (
+                self.high_load_until.isoformat() if self.high_load_until else None
+            ),
+            "trend_anchor_ppm": self.trend_anchor_ppm,
+            "trend_anchor_at": (self.trend_anchor_at.isoformat() if self.trend_anchor_at else None),
+            "trend_ppm_per_min": self.trend_ppm_per_min,
+            "trend_positive_intervals": self.trend_positive_intervals,
         }
 
     def restore(
@@ -261,6 +356,15 @@ class Co2HysteresisState:
         measurement_missing_since: datetime | None = None,
         measurement_timed_out_for_open_window: bool = False,
         measurement_timeout_target_ppm: float | None = None,
+        last_completed_at: datetime | None = None,
+        last_completed_trigger_ppm: float | None = None,
+        rebound_count: int = 0,
+        rebound_counted_for_completion: bool = False,
+        high_load_until: datetime | None = None,
+        trend_anchor_ppm: float | None = None,
+        trend_anchor_at: datetime | None = None,
+        trend_ppm_per_min: float | None = None,
+        trend_positive_intervals: int = 0,
     ) -> None:
         """Restore timers/session; live evaluate() still validates relevance."""
         self.pending_below_since = pending_below_since
@@ -318,6 +422,21 @@ class Co2HysteresisState:
         except (TypeError, ValueError):
             timeout_target = None
         self.measurement_timeout_target_ppm = timeout_target
+        self.last_completed_at = last_completed_at
+        self.last_completed_trigger_ppm = _float_or_none(last_completed_trigger_ppm)
+        try:
+            self.rebound_count = max(0, int(rebound_count))
+        except (TypeError, ValueError):
+            self.rebound_count = 0
+        self.rebound_counted_for_completion = bool(rebound_counted_for_completion)
+        self.high_load_until = high_load_until
+        self.trend_anchor_ppm = _float_or_none(trend_anchor_ppm)
+        self.trend_anchor_at = trend_anchor_at
+        self.trend_ppm_per_min = _float_or_none(trend_ppm_per_min)
+        try:
+            self.trend_positive_intervals = max(0, int(trend_positive_intervals))
+        except (TypeError, ValueError):
+            self.trend_positive_intervals = 0
 
     def evaluate(
         self,
@@ -329,6 +448,15 @@ class Co2HysteresisState:
         previous_need: str | None,
     ) -> Co2HysteresisDecision:
         """Return stable hysteresis flags without ever delaying fresh danger."""
+        trend_ppm_per_min, minutes_to_2000 = self._update_trend(now=now, co2=co2)
+
+        def _decision(**kwargs: Any) -> Co2HysteresisDecision:
+            return Co2HysteresisDecision(
+                trend_ppm_per_min=trend_ppm_per_min,
+                minutes_to_2000=minutes_to_2000,
+                **kwargs,
+            )
+
         # A completed session arms a band-specific post-airing re-trigger lock.
         # Do this before clearing the open-window session so the information is
         # not lost when the user follows the "finished" recommendation.
@@ -342,7 +470,7 @@ class Co2HysteresisState:
             and self.finish_below_since is not None
             and now - self.finish_below_since >= CO2_AIRING_FINISH_STABLE
         ):
-            self._arm_rearm_from_session()
+            self._arm_rearm_from_session(now=now)
 
         # Closing the window ends the explicit open-window session. The rearm
         # threshold intentionally survives; only the short open-window marker is
@@ -360,9 +488,28 @@ class Co2HysteresisState:
             self.rearm_candidate_ppm = None
             rearm_check = None
 
+        if self.high_load_until is not None and now >= self.high_load_until:
+            self.high_load_until = None
+
+        if (
+            not window_open
+            and co2 is not None
+            and self.last_completed_at is not None
+            and self.last_completed_trigger_ppm is not None
+            and not self.rebound_counted_for_completion
+            and co2 >= self.last_completed_trigger_ppm
+        ):
+            if now - self.last_completed_at <= CO2_FAST_REBOUND_WINDOW:
+                self.rebound_count += 1
+                if self.rebound_count >= 2:
+                    self.high_load_until = now + CO2_HIGH_LOAD_HOLD
+            else:
+                self.rebound_count = 0
+            self.rebound_counted_for_completion = True
+
         if window_open and self.measurement_timed_out_for_open_window:
             if co2 is None:
-                return Co2HysteresisDecision(
+                return _decision(
                     measurement_timed_out=True,
                     finish_target_ppm=self.measurement_timeout_target_ppm,
                     rearm_threshold_ppm=self.rearm_threshold_ppm,
@@ -405,12 +552,12 @@ class Co2HysteresisState:
                     self.measurement_timeout_target_ppm = target
                     self._clear_session(keep_completed=True)
                     self.completed_for_open_window = True
-                    return Co2HysteresisDecision(
+                    return _decision(
                         measurement_timed_out=True,
                         finish_target_ppm=target,
                         rearm_threshold_ppm=self.rearm_threshold_ppm,
                     )
-                return Co2HysteresisDecision(
+                return _decision(
                     airing_active=True,
                     finish_target_ppm=target,
                     near_target_ppm=near_target,
@@ -421,7 +568,7 @@ class Co2HysteresisState:
             self.measurement_missing_since = None
             if co2 > target:
                 self.finish_below_since = None
-                return Co2HysteresisDecision(
+                return _decision(
                     airing_active=True,
                     finish_target_ppm=target,
                     near_target_ppm=near_target,
@@ -433,7 +580,7 @@ class Co2HysteresisState:
             elapsed = now - self.finish_below_since
             remaining = CO2_AIRING_FINISH_STABLE - elapsed
             ready = remaining.total_seconds() <= 0
-            return Co2HysteresisDecision(
+            return _decision(
                 airing_active=True,
                 finish_ready=ready,
                 finish_target_ppm=target,
@@ -445,7 +592,7 @@ class Co2HysteresisState:
         if co2 is None or not is_co2_context(previous_mode, previous_need):
             self.pending_below_since = None
             self.finish_below_since = None
-            return Co2HysteresisDecision(
+            return _decision(
                 rearm_threshold_ppm=self.rearm_threshold_ppm,
                 next_check_seconds=rearm_check,
             )
@@ -455,7 +602,7 @@ class Co2HysteresisState:
             self.finish_below_since = None
             if co2 >= CO2_RECOMMEND_RELEASE:
                 self.pending_below_since = None
-                return Co2HysteresisDecision(
+                return _decision(
                     rearm_threshold_ppm=self.rearm_threshold_ppm,
                     next_check_seconds=rearm_check,
                 )
@@ -465,7 +612,7 @@ class Co2HysteresisState:
             elapsed = now - self.pending_below_since
             remaining = CO2_RECOMMEND_RELEASE_STABLE - elapsed
             hold = remaining.total_seconds() > 0
-            return Co2HysteresisDecision(
+            return _decision(
                 pending_hold=hold,
                 rearm_threshold_ppm=self.rearm_threshold_ppm,
                 next_check_seconds=(
@@ -488,10 +635,17 @@ class Co2HysteresisState:
         # explicit session when the user follows that recommendation. This is
         # important for targets adapted to outdoor conditions and for deliberate
         # ``target=None`` decisions where no reachable explicit CO₂ goal exists.
-        return Co2HysteresisDecision(
+        return _decision(
             rearm_threshold_ppm=self.rearm_threshold_ppm,
             next_check_seconds=rearm_check,
         )
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(slots=True)

@@ -247,3 +247,56 @@ def test_room_source_entities_leave_window_contacts_to_airing_tracker():
     assert "sensor.wall_temp" in entities
     assert "binary_sensor.window_a" not in entities
     assert "binary_sensor.window_b" not in entities
+
+
+def test_direct_temperature_uses_same_freshness_gate_as_other_station_values(monkeypatch):
+    """A stale numeric ESPHome temperature must not survive after CO2/RH expire."""
+    from types import SimpleNamespace
+    from homeassistant.const import UnitOfTemperature
+    from custom_components.lueftungsberater import runtime
+
+    state = SimpleNamespace(
+        state="30.0",
+        attributes={"unit_of_measurement": UnitOfTemperature.CELSIUS},
+    )
+    hass = SimpleNamespace(states=SimpleNamespace(get=lambda _entity_id: state))
+    station = SimpleNamespace()
+
+    monkeypatch.setattr(
+        runtime,
+        "direct_station_entities",
+        lambda _hass, _station: ("sensor.co2", "sensor.temp", "sensor.rh"),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "direct_station_value",
+        lambda _hass, _station, _kind: None,
+    )
+
+    assert runtime._direct_station_temperature_celsius(hass, station) is None
+
+
+def test_direct_temperature_keeps_unit_conversion_after_freshness_gate(monkeypatch):
+    from types import SimpleNamespace
+    from homeassistant.const import UnitOfTemperature
+    from custom_components.lueftungsberater import runtime
+
+    state = SimpleNamespace(
+        state="77.0",
+        attributes={"unit_of_measurement": UnitOfTemperature.FAHRENHEIT},
+    )
+    hass = SimpleNamespace(states=SimpleNamespace(get=lambda _entity_id: state))
+    station = SimpleNamespace()
+
+    monkeypatch.setattr(
+        runtime,
+        "direct_station_entities",
+        lambda _hass, _station: ("sensor.co2", "sensor.temp", "sensor.rh"),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "direct_station_value",
+        lambda _hass, _station, _kind: 77.0,
+    )
+
+    assert round(runtime._direct_station_temperature_celsius(hass, station), 2) == 25.0
