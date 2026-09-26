@@ -1261,6 +1261,7 @@ class RoomSubentryFlow(ConfigSubentryFlow):
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        entry = self._get_entry()
         subentry = self._get_reconfigure_subentry()
         errors: dict[str, str] = {}
         if user_input is not None:
