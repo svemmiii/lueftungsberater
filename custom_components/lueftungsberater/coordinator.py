@@ -33,7 +33,7 @@ from .hardware_hub import (
     direct_station_entities,
     station_for_room,
     station_is_direct,
-    station_is_master,
+    station_uses_hardware_hub,
     station_signal,
 )
 from .const import (
@@ -887,7 +887,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._refresh_source_listeners()
 
         hardware_station = station_for_room(self.entry, self.subentry.subentry_id)
-        if hardware_station is not None and station_is_master(hardware_station):
+        if hardware_station is not None and station_uses_hardware_hub(hardware_station):
             self._unsubs.append(
                 async_dispatcher_connect(
                     self.hass,

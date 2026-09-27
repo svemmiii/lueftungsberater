@@ -62,6 +62,7 @@ from .hardware_hub import (
     station_is_direct,
     station_is_fresh,
     station_runtime,
+    station_topology_valid,
 )
 from .models import RoomInput, VentilationResult
 from .mold import get_mold_tracker
@@ -256,7 +257,7 @@ def room_co2_value(
         if station_is_direct(station):
             return _plausible_co2(direct_station_value(hass, station, "co2"))
         state = station_runtime(hass, entry.entry_id, station.subentry_id)
-        if not station_is_fresh(state):
+        if not station_topology_valid(entry, station) or not station_is_fresh(state):
             return None
         return _plausible_co2(state.co2)
     tracker = get_co2_tracker(hass, entry, subentry)
@@ -280,7 +281,7 @@ def room_co2_data_status(
                 else "unavailable"
             )
         state = station_runtime(hass, entry.entry_id, station.subentry_id)
-        if not station_is_fresh(state):
+        if not station_topology_valid(entry, station) or not station_is_fresh(state):
             return "unavailable"
         return "current" if _plausible_co2(state.co2) is not None else "unavailable"
     tracker = get_co2_tracker(hass, entry, subentry)
@@ -559,6 +560,7 @@ def _room_values(
     hardware_fresh = (
         hardware_station is not None
         and not direct_station
+        and station_topology_valid(entry, hardware_station)
         and station_is_fresh(hardware_state)
     )
 

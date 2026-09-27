@@ -4,16 +4,25 @@
 
 # Lüftungsassistent
 
-## Hardware-Lüftungsstationen (v0.10.0)
+## Hardware-Lüftungsstationen (v0.10.1)
 
-Die Hardware-Erweiterung bleibt Teil **derselben** Lüftungsassistent-Integration. Unter einem lokalen Eintrag kann neben Räumen eine **Lüftungsstation** angelegt und einem vorhandenen Raum zugewiesen werden. Dabei gibt es zwei gleichwertige Verbindungsarten:
+Die Hardware-Erweiterung bleibt vollständig Teil **derselben** Lüftungsassistent-Integration. Ab v0.10.1 ist Home Assistant die zentrale Konfigurationsinstanz für Raum, Rolle, Master-Zuordnung und – bei entfernten Masters – die vorbereitete WireGuard-Konfiguration.
 
-- **Direkt über ESPHome / Home Assistant:** Für eine einzelne Station ist kein zusätzlicher Master nötig. Der ESP wird zuerst normal über ESPHome in Home Assistant eingebunden (lokal oder z. B. über WireGuard). Beim Hinzufügen der Lüftungsstation wählt man anschließend nur noch das ESPHome-Gerät und den Raum. Der Lüftungsassistent erkennt genau je einen CO₂-, Temperatur- und Luftfeuchtesensor automatisch und verwendet die drei gemeinsam als Raumquelle.
-- **Über Lüftungsstation-Master / ESP-NOW:** Für mehrere Raumknoten übernimmt ein Master den Funktransport. Gefundene Stationen werden wie bisher dem Raum zugeordnet; ihre Rohwerte und Diagnosen kommen über die Hardware-API.
+Beim Hinzufügen einer Lüftungsstation wird zuerst ihre Rolle festgelegt:
 
-In beiden Fällen bleibt Home Assistant die einzige Entscheidungsinstanz. Der ESP bzw. Master übermittelt nur Rohwerte; der Lüftungsassistent berechnet Farbe und kurze Empfehlung. Eine direkt angebundene ESPHome-Station kann diesen fertigen Status über die normale ESPHome-API aus der Raum-Entity zurücklesen. Die spätere ESP-NOW-/Mehrhop-Firmware dupliziert ebenfalls keine Lüftungslogik. Details stehen in `HARDWARE_HUB.md`.
+- **Einzelstation:** Das ESPHome-Gerät liefert CO₂, Temperatur und Luftfeuchtigkeit direkt an Home Assistant.
+- **ESP-NOW-Master:** Der ESP ist selbst weiterhin eine vollständige Raumstation, kann aber zusätzlich weitere Stationen per ESP-NOW verwalten. Seine eigenen SCD41-Werte können weiterhin direkt aus ESPHome kommen.
+- **ESP-NOW-Raumstation:** Die Rohwerte laufen über einen in Home Assistant ausdrücklich ausgewählten Master. Freie/zufällige Masterwahl ist nicht die Quelle der Wahrheit; HA bestimmt die Topologie.
+- **Topologie bleibt HA-konsistent:** Fehlt später der zugeordnete Raum oder der explizit ausgewählte Master, werden Stationswerte sofort ungültig und Hardware-Reports nicht weiter als normale Raumreports akzeptiert.
+- **Geräteidentität bleibt stabil:** Beim normalen Node-Reconfigure werden Hardware-ID/Discovery nicht erneut angeboten; Master und Raum können geändert werden, ohne versehentlich ein anderes physisches Gerät daraus zu machen.
 
-Die **180-Sekunden-Freshness-TTL** gilt für Stationen hinter dem Master, weil dort Reports aktiv beim Lüftungsassistenten eingehen. Direkt angebundene ESPHome-Sensoren folgen ihrem normalen Home-Assistant-Verfügbarkeitszustand; `unknown`/`unavailable` wird nicht als Messwert verwendet. Ein reines Direkt-Setup erzeugt kein künstliches Master-Gerät.
+Eine Station benötigt **keinen vorher angelegten Raum mehr**. Standardmäßig erzeugt der Stationsdialog automatisch einen normalen Raum mit 21 °C Solltemperatur, Nachtzeit 22:00–07:00 und den übrigen Raum-Defaults. Der Name sowie optional der Home-Assistant-Bereich werden direkt beim Stationssetup gewählt. Wer bereits einen Raum vorbereitet hat, kann stattdessen diesen vorhandenen Raum auswählen.
+
+Für einen Master wird zusätzlich **Lokal** oder **Entfernt / WireGuard** gewählt. Bei einem entfernten Master kann eine normale WireGuard-Client-`.conf` direkt im Home-Assistant-Dialog hochgeladen werden. Die Datei wird nur eingelesen; ihre relevanten Werte werden für die spätere Provisionierung der einheitlichen ESP-Firmware gespeichert.
+
+Vor der Firmware ist die Stationsschnittstelle zusätzlich gehärtet: Node-Reports werden gegen den in Home Assistant ausgewählten Master validiert, die Displayantwort wird direkt aus dem Raum-Coordinator erzeugt und nicht mehr aus einer sichtbaren Advisor-Entity zurückgelesen. Master können sauber zwischen lokal und remote umkonfiguriert werden; gelöschte Master hinterlassen einen expliziten `master_missing`-Zustand statt eines stillen Fallbacks. Bei mehreren passenden ESPHome-Sensoren kann die Zuordnung beim ersten Setup einmal manuell festgelegt werden.
+
+Die spätere Firmware soll auf allen ESPs identisch sein. Home Assistant liefert die individuelle Sollkonfiguration über den authentifizierten Hardware-Endpunkt `/api/lueftungsberater/hardware/config`: Rolle, Raum, Masterbeziehung, Teilnehmerliste und – nur für einen entsprechend konfigurierten entfernten Master – dessen WireGuard-Profil. Die ESP-Firmware selbst bleibt Transport-/Anzeigeebene; die komplette Lüftungsentscheidung bleibt in Home Assistant. Weitere Protokolldetails stehen in `HARDWARE_HUB.md`.
 
 
 **Alpha-Version für Home Assistant.**

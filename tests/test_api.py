@@ -193,3 +193,261 @@ def test_remote_access_cleanup_cancels_entry_timers(monkeypatch) -> None:
     assert "entry-a:room-2" not in store
     assert "entry-b:room-x" in store
     assert len(cancelled) == 2
+
+
+def test_hardware_config_payload_exposes_master_topology_and_wireguard_only_to_master():
+    from types import SimpleNamespace
+    from custom_components.lueftungsberater.api import _station_config_payload
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_CONNECTION_TYPE,
+        CONF_HARDWARE_ID,
+        CONF_HARDWARE_LOCATION_MODE,
+        CONF_HARDWARE_MASTER_ID,
+        CONF_HARDWARE_MASTER_SUBENTRY_ID,
+        CONF_HARDWARE_ROLE,
+        CONF_HARDWARE_ROOM_ID,
+        CONF_HARDWARE_WG_ADDRESS,
+        CONF_HARDWARE_WG_ALLOWED_IPS,
+        CONF_HARDWARE_WG_ENDPOINT,
+        CONF_HARDWARE_WG_ENDPOINT_HOST,
+        CONF_HARDWARE_WG_ENDPOINT_PORT,
+        CONF_HARDWARE_WG_KEEPALIVE,
+        CONF_HARDWARE_WG_PEER_PUBLIC_KEY,
+        CONF_HARDWARE_WG_PRIVATE_KEY,
+        HARDWARE_CONNECTION_DIRECT,
+        HARDWARE_CONNECTION_MASTER,
+        HARDWARE_LOCATION_REMOTE,
+        HARDWARE_ROLE_MASTER,
+        HARDWARE_ROLE_NODE,
+        SUBENTRY_TYPE_ROOM,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    room_master = SimpleNamespace(subentry_id="room-master", subentry_type=SUBENTRY_TYPE_ROOM, title="Wohnzimmer")
+    room_node = SimpleNamespace(subentry_id="room-node", subentry_type=SUBENTRY_TYPE_ROOM, title="Schlafzimmer")
+    master = SimpleNamespace(
+        subentry_id="master",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Wohnzimmer · Master",
+        data={
+            CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_DIRECT,
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER,
+            CONF_HARDWARE_ID: "DIRECT:AA:BB",
+            CONF_HARDWARE_ROOM_ID: room_master.subentry_id,
+            CONF_HARDWARE_LOCATION_MODE: HARDWARE_LOCATION_REMOTE,
+            CONF_HARDWARE_WG_ADDRESS: "10.0.0.2/32",
+            CONF_HARDWARE_WG_PRIVATE_KEY: "private",
+            CONF_HARDWARE_WG_PEER_PUBLIC_KEY: "public",
+            CONF_HARDWARE_WG_ENDPOINT: "host:53907",
+            CONF_HARDWARE_WG_ENDPOINT_HOST: "host",
+            CONF_HARDWARE_WG_ENDPOINT_PORT: 53907,
+            CONF_HARDWARE_WG_ALLOWED_IPS: "192.168.178.0/24",
+            CONF_HARDWARE_WG_KEEPALIVE: 45,
+        },
+    )
+    node = SimpleNamespace(
+        subentry_id="node",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Schlafzimmer · Station",
+        data={
+            CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_MASTER,
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_NODE,
+            CONF_HARDWARE_ID: "CC:DD",
+            CONF_HARDWARE_ROOM_ID: room_node.subentry_id,
+            CONF_HARDWARE_MASTER_ID: "DIRECT:AA:BB",
+            CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
+        },
+    )
+    entry = SimpleNamespace(
+        subentries={
+            room_master.subentry_id: room_master,
+            room_node.subentry_id: room_node,
+            master.subentry_id: master,
+            node.subentry_id: node,
+        }
+    )
+
+    master_payload = _station_config_payload(entry, master)
+    assert master_payload["role"] == HARDWARE_ROLE_MASTER
+    assert master_payload["participants"][0]["hardware_id"] == "CC:DD"
+    assert master_payload["wireguard"]["private_key"] == "private"
+
+    node_payload = _station_config_payload(entry, node)
+    assert node_payload["role"] == HARDWARE_ROLE_NODE
+    assert node_payload["master"]["subentry_id"] == "master"
+    assert "wireguard" not in node_payload
+
+
+def test_hardware_report_rejects_wrong_or_missing_configured_master():
+    from custom_components.lueftungsberater.api import _hardware_report_master_error
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_ID,
+        CONF_HARDWARE_MASTER_ID,
+        CONF_HARDWARE_MASTER_SUBENTRY_ID,
+        CONF_HARDWARE_ROLE,
+        HARDWARE_ROLE_MASTER,
+        HARDWARE_ROLE_NODE,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    master = SimpleNamespace(
+        subentry_id="master",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        data={
+            CONF_HARDWARE_ID: "DIRECT:AA:BB",
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER,
+        },
+    )
+    node = SimpleNamespace(
+        subentry_id="node",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        data={
+            CONF_HARDWARE_ID: "CC:DD",
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_NODE,
+            CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
+            CONF_HARDWARE_MASTER_ID: "STALE",
+        },
+    )
+    entry = SimpleNamespace(subentries={master.subentry_id: master, node.subentry_id: node})
+
+    assert _hardware_report_master_error(entry, node, "AA:BB") is None
+    assert _hardware_report_master_error(entry, node, "EE:FF") == "master_mismatch"
+
+    broken_entry = SimpleNamespace(subentries={node.subentry_id: node})
+    assert _hardware_report_master_error(broken_entry, node, "AA:BB") == "master_missing"
+
+
+def test_hardware_config_marks_node_with_deleted_master_as_configuration_error():
+    from custom_components.lueftungsberater.api import _station_config_payload
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_CONNECTION_TYPE,
+        CONF_HARDWARE_ID,
+        CONF_HARDWARE_MASTER_ID,
+        CONF_HARDWARE_MASTER_SUBENTRY_ID,
+        CONF_HARDWARE_ROLE,
+        CONF_HARDWARE_ROOM_ID,
+        HARDWARE_CONNECTION_MASTER,
+        HARDWARE_ROLE_NODE,
+        SUBENTRY_TYPE_ROOM,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    room = SimpleNamespace(
+        subentry_id="room",
+        subentry_type=SUBENTRY_TYPE_ROOM,
+        title="Schlafzimmer",
+    )
+    node = SimpleNamespace(
+        subentry_id="node",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Schlafzimmer · Station",
+        data={
+            CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_MASTER,
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_NODE,
+            CONF_HARDWARE_ID: "CC:DD",
+            CONF_HARDWARE_ROOM_ID: room.subentry_id,
+            CONF_HARDWARE_MASTER_SUBENTRY_ID: "deleted-master",
+            CONF_HARDWARE_MASTER_ID: "AA:BB",
+        },
+    )
+    entry = SimpleNamespace(subentries={room.subentry_id: room, node.subentry_id: node})
+
+    payload = _station_config_payload(entry, node)
+    assert payload["master"] is None
+    assert payload["configuration_error"] == "master_missing"
+
+
+
+def test_hardware_config_marks_deleted_room_and_master_omits_orphaned_node():
+    from custom_components.lueftungsberater.api import _station_config_payload
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_CONNECTION_TYPE,
+        CONF_HARDWARE_ID,
+        CONF_HARDWARE_MASTER_SUBENTRY_ID,
+        CONF_HARDWARE_ROLE,
+        CONF_HARDWARE_ROOM_ID,
+        HARDWARE_CONNECTION_DIRECT,
+        HARDWARE_CONNECTION_MASTER,
+        HARDWARE_ROLE_MASTER,
+        HARDWARE_ROLE_NODE,
+        SUBENTRY_TYPE_ROOM,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    master_room = SimpleNamespace(
+        subentry_id="master-room", subentry_type=SUBENTRY_TYPE_ROOM, title="Wohnzimmer"
+    )
+    master = SimpleNamespace(
+        subentry_id="master",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Wohnzimmer · Master",
+        data={
+            CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_DIRECT,
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER,
+            CONF_HARDWARE_ID: "DIRECT:AA:BB",
+            CONF_HARDWARE_ROOM_ID: master_room.subentry_id,
+        },
+    )
+    orphan = SimpleNamespace(
+        subentry_id="node",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Altes Zimmer · Station",
+        data={
+            CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_MASTER,
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_NODE,
+            CONF_HARDWARE_ID: "CC:DD",
+            CONF_HARDWARE_ROOM_ID: "deleted-room",
+            CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
+        },
+    )
+    entry = SimpleNamespace(
+        subentries={
+            master_room.subentry_id: master_room,
+            master.subentry_id: master,
+            orphan.subentry_id: orphan,
+        }
+    )
+
+    orphan_payload = _station_config_payload(entry, orphan)
+    assert orphan_payload["configuration_error"] == "room_missing"
+    assert orphan_payload["room_name"] is None
+
+    master_payload = _station_config_payload(entry, master)
+    assert master_payload["participants"] == []
+
+def test_hardware_display_payload_uses_coordinator_snapshot_not_advisor_entity(monkeypatch):
+    from custom_components.lueftungsberater import api as api_module
+    from custom_components.lueftungsberater.const import (
+        CONF_DISPLAY_MODE,
+        DISPLAY_MODE_ROOM_AIR,
+        SUBENTRY_TYPE_ROOM,
+    )
+
+    room = SimpleNamespace(
+        subentry_id="room",
+        subentry_type=SUBENTRY_TYPE_ROOM,
+        title="Wohnzimmer",
+    )
+    result = SimpleNamespace(
+        safety_lock=False,
+        room_recommendation_key="can_close",
+        recommendation_key="keep_open",
+        room_status_color="green",
+        color="orange",
+    )
+    snapshot = SimpleNamespace(result=result)
+    coordinator = SimpleNamespace(data=snapshot)
+    monkeypatch.setattr(api_module, "get_room_coordinator", lambda *_args: coordinator)
+
+    hass = SimpleNamespace(config=SimpleNamespace(language="de"))
+    entry = SimpleNamespace(
+        data={CONF_DISPLAY_MODE: DISPLAY_MODE_ROOM_AIR},
+        subentries={room.subentry_id: room},
+    )
+
+    payload = api_module._hardware_display_payload(hass, entry, room.subentry_id)
+    assert payload["room_name"] == "Wohnzimmer"
+    assert payload["status"] == "green"
+    assert payload["recommendation_key"] == "can_close"
+    assert payload["recommendation"] is not None
+    assert payload["display_mode"] == DISPLAY_MODE_ROOM_AIR

@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.10.0"
+INTEGRATION_VERSION = "0.10.1"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 SUBENTRY_TYPE_STATION = "station"
@@ -94,6 +94,37 @@ CONF_HARDWARE_DISCOVERY_ID = "hardware_discovery_id"
 CONF_HARDWARE_CONNECTION_TYPE = "hardware_connection_type"
 HARDWARE_CONNECTION_MASTER = "master"
 HARDWARE_CONNECTION_DIRECT = "direct"
+
+# v0.10.1 separates the physical station role from its transport.  A master
+# can itself use the direct ESPHome path for its own SCD41 while simultaneously
+# acting as the ESP-NOW gateway for other, master-backed room stations.
+CONF_HARDWARE_ROLE = "hardware_role"
+HARDWARE_ROLE_STANDALONE = "standalone"
+HARDWARE_ROLE_MASTER = "master"
+HARDWARE_ROLE_NODE = "node"
+CONF_HARDWARE_MASTER_SUBENTRY_ID = "hardware_master_subentry_id"
+
+CONF_HARDWARE_ROOM_MODE = "hardware_room_mode"
+HARDWARE_ROOM_CREATE = "create"
+HARDWARE_ROOM_EXISTING = "existing"
+
+CONF_HARDWARE_LOCATION_MODE = "hardware_location_mode"
+HARDWARE_LOCATION_LOCAL = "local"
+HARDWARE_LOCATION_REMOTE = "remote"
+
+# Parsed WireGuard client profile for a remotely deployed master.  The upload
+# itself is temporary; only the parsed values are retained for later device
+# provisioning.
+CONF_HARDWARE_WIREGUARD_FILE = "hardware_wireguard_file"
+CONF_HARDWARE_WG_ADDRESS = "hardware_wireguard_address"
+CONF_HARDWARE_WG_PRIVATE_KEY = "hardware_wireguard_private_key"
+CONF_HARDWARE_WG_PEER_PUBLIC_KEY = "hardware_wireguard_peer_public_key"
+CONF_HARDWARE_WG_PRESHARED_KEY = "hardware_wireguard_preshared_key"
+CONF_HARDWARE_WG_ENDPOINT = "hardware_wireguard_endpoint"
+CONF_HARDWARE_WG_ENDPOINT_HOST = "hardware_wireguard_endpoint_host"
+CONF_HARDWARE_WG_ENDPOINT_PORT = "hardware_wireguard_endpoint_port"
+CONF_HARDWARE_WG_ALLOWED_IPS = "hardware_wireguard_allowed_ips"
+CONF_HARDWARE_WG_KEEPALIVE = "hardware_wireguard_keepalive"
 CONF_HARDWARE_DEVICE_ID = "hardware_device_id"
 CONF_HARDWARE_DIRECT_CO2 = "hardware_direct_co2_entity"
 CONF_HARDWARE_DIRECT_TEMP = "hardware_direct_temperature_entity"

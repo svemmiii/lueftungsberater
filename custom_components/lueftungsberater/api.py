@@ -11,6 +11,7 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistantView
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
@@ -27,10 +28,39 @@ from .const import (
     SUBENTRY_TYPE_ROOM,
     CONF_HARDWARE_ID,
     CONF_HARDWARE_ROOM_ID,
-    CONF_HARDWARE_MASTER_ID,
+    CONF_HARDWARE_MASTER_SUBENTRY_ID,
+    CONF_HARDWARE_CONNECTION_TYPE,
+    CONF_HARDWARE_LOCATION_MODE,
+    CONF_HARDWARE_WG_ADDRESS,
+    CONF_HARDWARE_WG_PRIVATE_KEY,
+    CONF_HARDWARE_WG_PEER_PUBLIC_KEY,
+    CONF_HARDWARE_WG_PRESHARED_KEY,
+    CONF_HARDWARE_WG_ENDPOINT,
+    CONF_HARDWARE_WG_ENDPOINT_HOST,
+    CONF_HARDWARE_WG_ENDPOINT_PORT,
+    CONF_HARDWARE_WG_ALLOWED_IPS,
+    CONF_HARDWARE_WG_KEEPALIVE,
+    HARDWARE_ROLE_MASTER,
+    HARDWARE_ROLE_NODE,
+    HARDWARE_LOCATION_REMOTE,
+    CONF_DISPLAY_MODE,
+    DEFAULT_DISPLAY_MODE,
+    DISPLAY_MODE_ROOM_AIR,
     entry_kind,
 )
-from .hardware_hub import remember_discovery, report_station, station_by_hardware_id
+from .hardware_hub import (
+    configured_master_for_station,
+    configured_master_hardware_id,
+    hardware_id_matches,
+    remember_discovery,
+    report_station,
+    station_by_any_hardware_id,
+    station_by_hardware_id,
+    station_role,
+    station_subentries,
+    station_topology_error,
+)
+from .coordinator import get_room_coordinator
 from .localization import (
     duration_text,
     night_advice_text,
@@ -200,6 +230,120 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
 
 
 
+def _station_config_payload(entry: ConfigEntry, station) -> dict[str, Any]:
+    """Build the HA-owned desired configuration for one physical station."""
+    room_id = str(station.data.get(CONF_HARDWARE_ROOM_ID) or "")
+    room = entry.subentries.get(room_id)
+    role = station_role(station)
+    payload: dict[str, Any] = {
+        "protocol": 1,
+        "hardware_id": str(station.data.get(CONF_HARDWARE_ID) or ""),
+        "station_subentry_id": station.subentry_id,
+        "role": role,
+        "transport": str(station.data.get(CONF_HARDWARE_CONNECTION_TYPE) or ""),
+        "room_id": room_id,
+        "room_name": str(room.title) if room is not None else None,
+    }
+    topology_error = station_topology_error(entry, station)
+    if topology_error is not None:
+        payload["configuration_error"] = topology_error
+
+    if role == HARDWARE_ROLE_NODE:
+        master = configured_master_for_station(entry, station)
+        payload["master"] = (
+            {
+                "subentry_id": master.subentry_id,
+                "hardware_id": str(master.data.get(CONF_HARDWARE_ID) or ""),
+                "name": str(master.title),
+            }
+            if master is not None
+            else None
+        )
+    if role == HARDWARE_ROLE_MASTER:
+        payload["location_mode"] = str(
+            station.data.get(CONF_HARDWARE_LOCATION_MODE) or "local"
+        )
+        participants: list[dict[str, Any]] = []
+        for candidate in station_subentries(entry):
+            if station_role(candidate) != HARDWARE_ROLE_NODE:
+                continue
+            if station_topology_error(entry, candidate) is not None:
+                continue
+            master = configured_master_for_station(entry, candidate)
+            if master is None or master.subentry_id != station.subentry_id:
+                continue
+            candidate_room_id = str(candidate.data.get(CONF_HARDWARE_ROOM_ID) or "")
+            candidate_room = entry.subentries.get(candidate_room_id)
+            participants.append(
+                {
+                    "station_subentry_id": candidate.subentry_id,
+                    "hardware_id": str(candidate.data.get(CONF_HARDWARE_ID) or ""),
+                    "room_id": candidate_room_id,
+                    "room_name": (
+                        str(candidate_room.title) if candidate_room is not None else None
+                    ),
+                }
+            )
+        payload["participants"] = participants
+
+        if station.data.get(CONF_HARDWARE_LOCATION_MODE) == HARDWARE_LOCATION_REMOTE:
+            wireguard = {
+                "address": station.data.get(CONF_HARDWARE_WG_ADDRESS),
+                "private_key": station.data.get(CONF_HARDWARE_WG_PRIVATE_KEY),
+                "peer_public_key": station.data.get(CONF_HARDWARE_WG_PEER_PUBLIC_KEY),
+                "endpoint": station.data.get(CONF_HARDWARE_WG_ENDPOINT),
+                "endpoint_host": station.data.get(CONF_HARDWARE_WG_ENDPOINT_HOST),
+                "endpoint_port": station.data.get(CONF_HARDWARE_WG_ENDPOINT_PORT),
+                "allowed_ips": station.data.get(CONF_HARDWARE_WG_ALLOWED_IPS),
+                "persistent_keepalive": station.data.get(CONF_HARDWARE_WG_KEEPALIVE),
+            }
+            if station.data.get(CONF_HARDWARE_WG_PRESHARED_KEY):
+                wireguard["preshared_key"] = station.data.get(
+                    CONF_HARDWARE_WG_PRESHARED_KEY
+                )
+            payload["wireguard"] = wireguard
+    return payload
+
+
+class LueftungsberaterHardwareConfigView(HomeAssistantView):
+    """Return Home Assistant's desired role/network topology to one station."""
+
+    url = "/api/lueftungsberater/hardware/config"
+    name = "api:lueftungsberater:hardware_config"
+    requires_auth = True
+
+    async def post(self, request):
+        hass: HomeAssistant = request.app[KEY_HASS]
+        user = request.get(KEY_HASS_USER)
+        if user is None or not bool(getattr(user, "is_admin", False)):
+            return self.json_message(
+                "Administrator access required",
+                status_code=HTTPStatus.FORBIDDEN,
+            )
+        try:
+            payload = await request.json()
+        except (ValueError, json.JSONDecodeError):
+            return self.json_message("Invalid JSON", status_code=HTTPStatus.BAD_REQUEST)
+        if not isinstance(payload, dict):
+            return self.json_message("Invalid payload", status_code=HTTPStatus.BAD_REQUEST)
+
+        entry_id = str(payload.get("entry_id") or "").strip()
+        hardware_id = str(payload.get("hardware_id") or "").strip()
+        if not entry_id or not hardware_id:
+            return self.json_message(
+                "entry_id and hardware_id required", status_code=HTTPStatus.BAD_REQUEST
+            )
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
+            return self.json_message(
+                "Unknown local Lüftungsberater entry", status_code=HTTPStatus.NOT_FOUND
+            )
+        station = station_by_any_hardware_id(entry, hardware_id)
+        if station is None:
+            return self.json_message("Unknown station", status_code=HTTPStatus.NOT_FOUND)
+        return self.json(_station_config_payload(entry, station))
+
+
 class LueftungsberaterHardwareDiscoverView(HomeAssistantView):
     """Receive one authenticated JOIN/discovery report from an ESP master."""
 
@@ -234,6 +378,79 @@ class LueftungsberaterHardwareDiscoverView(HomeAssistantView):
             capabilities=(payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {}),
         )
         return self.json({"accepted": True, "hardware_id": hardware_id})
+
+
+def _hardware_report_master_error(
+    entry: ConfigEntry, station, reported_master_id: Any
+) -> str | None:
+    """Validate that an ESP-NOW node report arrived through its HA-selected master."""
+    if station_role(station) != HARDWARE_ROLE_NODE:
+        return None
+
+    explicit_master_relation = bool(
+        str(station.data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "").strip()
+    )
+    configured_master = configured_master_for_station(entry, station)
+    if explicit_master_relation and configured_master is None:
+        return "master_missing"
+
+    configured_master_id = configured_master_hardware_id(entry, station)
+    if configured_master_id is None:
+        return None
+    incoming = str(reported_master_id or "default").strip() or "default"
+    if not hardware_id_matches(incoming, configured_master_id):
+        return "master_mismatch"
+    return None
+
+
+def _hardware_display_payload(
+    hass: HomeAssistant, entry: ConfigEntry, room_id: str
+) -> dict[str, Any]:
+    """Build the ESP display response directly from the room coordinator."""
+    room = entry.subentries.get(room_id)
+    if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
+        return {
+            "room_name": None,
+            "status": None,
+            "recommendation": None,
+            "recommendation_key": None,
+            "display_mode": entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
+            "safety_lock": False,
+        }
+
+    coordinator = get_room_coordinator(hass, entry, room)
+    snapshot = coordinator.data if coordinator is not None else None
+    display_mode = entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
+    if snapshot is None or snapshot.result is None:
+        return {
+            "room_name": str(room.title),
+            "status": "yellow",
+            "recommendation": recommendation_text("unknown", hass.config.language),
+            "recommendation_key": "unknown",
+            "display_mode": display_mode,
+            "safety_lock": False,
+        }
+
+    result = snapshot.result
+    room_view = display_mode == DISPLAY_MODE_ROOM_AIR and not result.safety_lock
+    recommendation_key = (
+        result.room_recommendation_key if room_view else result.recommendation_key
+    )
+    status = (
+        "locked"
+        if result.safety_lock
+        else (result.room_status_color if room_view else result.color)
+    )
+    return {
+        "room_name": str(room.title),
+        "status": status,
+        "recommendation": recommendation_text(
+            recommendation_key, hass.config.language
+        ),
+        "recommendation_key": recommendation_key,
+        "display_mode": display_mode,
+        "safety_lock": bool(result.safety_lock),
+    }
 
 
 class LueftungsberaterHardwareReportView(HomeAssistantView):
@@ -271,15 +488,31 @@ class LueftungsberaterHardwareReportView(HomeAssistantView):
             )
             return self.json({"paired": False, "hardware_id": hardware_id}, status_code=HTTPStatus.CONFLICT)
 
+        topology_error = station_topology_error(entry, station)
+        if topology_error == "room_missing":
+            return self.json_message(
+                "Configured room is missing",
+                status_code=HTTPStatus.CONFLICT,
+            )
+
+        master_error = _hardware_report_master_error(
+            entry, station, payload.get("master_id")
+        )
+        if master_error == "master_missing":
+            return self.json_message(
+                "Configured master is missing",
+                status_code=HTTPStatus.CONFLICT,
+            )
+        if master_error == "master_mismatch":
+            return self.json_message(
+                "Report master does not match configured master",
+                status_code=HTTPStatus.CONFLICT,
+            )
+
         report_station(hass, entry, station, payload)
 
         room_id = str(station.data.get(CONF_HARDWARE_ROOM_ID) or "")
-        registry = er.async_get(hass)
-        advisor_entity = registry.async_get_entity_id(
-            "sensor", DOMAIN, f"{room_id}_advisor"
-        )
-        advisor_state = hass.states.get(advisor_entity) if advisor_entity else None
-        attrs = advisor_state.attributes if advisor_state is not None else {}
+        display = _hardware_display_payload(hass, entry, room_id)
         # Echo transport correlation tokens unchanged (within a small scalar
         # contract) so an ESP master can match this HA decision to the exact
         # request/round that produced it.  This is deliberately transport
@@ -294,14 +527,9 @@ class LueftungsberaterHardwareReportView(HomeAssistantView):
             {
                 "paired": True,
                 "hardware_id": str(station.data.get(CONF_HARDWARE_ID) or hardware_id),
-                "master_id": str(station.data.get(CONF_HARDWARE_MASTER_ID) or "default"),
+                "master_id": configured_master_hardware_id(entry, station) or "default",
                 "room_id": room_id,
-                "room_name": attrs.get("room_name"),
-                "status": attrs.get("status"),
-                "recommendation": attrs.get("recommendation"),
-                "recommendation_key": attrs.get("recommendation_key"),
-                "display_mode": attrs.get("display_mode"),
-                "safety_lock": attrs.get("safety_lock"),
+                **display,
                 "round_id": round_id,
                 "request_id": request_id,
             }
@@ -736,6 +964,7 @@ def async_register_api(hass: HomeAssistant) -> None:
     domain_data[DATA_API_REGISTERED] = True
     hass.http.register_view(LueftungsberaterSnapshotView())
     hass.http.register_view(LueftungsberaterHardwareDiscoverView())
+    hass.http.register_view(LueftungsberaterHardwareConfigView())
     hass.http.register_view(LueftungsberaterHardwareReportView())
     websocket_api.async_register_command(hass, websocket_localize)
     websocket_api.async_register_command(hass, websocket_remote_overview)

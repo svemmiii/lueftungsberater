@@ -423,45 +423,100 @@
       "step": {
         "user": {
           "title": "Add ventilation station",
-          "description": "Choose whether the station is already connected directly to this Home Assistant via ESPHome or communicates through a ventilation-station master / ESP-NOW.",
+          "description": "Choose the role of this ESP. Every ventilation station can run the same firmware; Home Assistant stores its role, room and master assignment.",
           "data": {
-            "hardware_connection_type": "Connection"
+            "hardware_role": "Role"
           }
         },
         "direct": {
-          "title": "Assign direct ESPHome station",
-          "description": "Select an ESPHome device already integrated into Home Assistant. It is only offered when exactly one CO₂, temperature and humidity sensor can be identified. All three are used automatically as the room source.",
+          "title": "Set up standalone station",
+          "description": "Select the locally reachable ESPHome device. By default the station creates its own room with the ventilation advisor defaults; you can also use an existing room.",
           "data": {
             "hardware_device_id": "ESPHome device",
-            "hardware_room_id": "Room"
+            "hardware_room_mode": "Room",
+            "room_name": "New room name",
+            "area_id": "Home Assistant area (optional)",
+            "hardware_room_id": "Existing room"
           }
         },
         "master": {
-          "title": "Assign station via master",
-          "description": "Assign a station discovered by the ESP-NOW master to a room. The hardware ID can also be entered manually.",
+          "title": "Set up ESP-NOW master",
+          "description": "The master remains a full room station itself. Select its ESPHome device, room and whether it will run locally or remotely via WireGuard.",
+          "data": {
+            "hardware_device_id": "ESPHome device",
+            "hardware_location_mode": "Location / connection",
+            "hardware_room_mode": "Room",
+            "room_name": "New room name",
+            "area_id": "Home Assistant area (optional)",
+            "hardware_room_id": "Existing room"
+          }
+        },
+        "wireguard": {
+          "title": "Import WireGuard connection",
+          "description": "Import the WireGuard client configuration for this remote master. The uploaded file is only read; the parsed values required for later ESP provisioning are retained.",
+          "data": {
+            "hardware_wireguard_file": "WireGuard configuration file"
+          }
+        },
+        "node": {
+          "title": "Set up ESP-NOW room station",
+          "description": "Assign the station to a master selected in Home Assistant. The station can automatically create its own room as well.",
           "data": {
             "hardware_discovery_id": "Discovered station",
             "hardware_id": "Hardware ID",
-            "hardware_master_id": "Master ID",
-            "hardware_room_id": "Room"
+            "hardware_master_subentry_id": "Master",
+            "hardware_room_mode": "Room",
+            "room_name": "New room name",
+            "area_id": "Home Assistant area (optional)",
+            "hardware_room_id": "Existing room"
           }
         },
         "reconfigure_direct": {
           "title": "Configure direct ventilation station",
           "data": {
             "hardware_device_id": "ESPHome device",
-            "hardware_room_id": "Room"
+            "hardware_location_mode": "Location / connection",
+            "hardware_room_mode": "Room",
+            "hardware_room_id": "Existing room"
           }
         },
-        "reconfigure_master": {
-          "title": "Configure master-backed ventilation station",
+        "reconfigure_node": {
+          "title": "Set up ESP-NOW room station",
           "data": {
-            "hardware_master_id": "Master ID",
-            "hardware_room_id": "Room"
+            "hardware_discovery_id": "Discovered station",
+            "hardware_id": "Hardware ID",
+            "hardware_master_subentry_id": "Master",
+            "hardware_room_mode": "Room",
+            "hardware_room_id": "Existing room"
           }
         },
         "reconfigure": {
           "title": "Configure ventilation station"
+        },
+        "direct_sensors": {
+          "title": "Select sensor sources",
+          "description": "This ESPHome device exposes multiple matching sensors. Select the CO₂, temperature and humidity source that belongs to this ventilation station once.",
+          "data": {
+            "hardware_direct_co2_entity": "CO₂ sensor",
+            "hardware_direct_temperature_entity": "Temperature sensor",
+            "hardware_direct_humidity_entity": "Humidity sensor"
+          }
+        },
+        "reconfigure_direct_sensors": {
+          "title": "Select sensor sources",
+          "description": "The new ESPHome mapping is ambiguous. Select the three sensor sources explicitly once.",
+          "data": {
+            "hardware_direct_co2_entity": "CO₂ sensor",
+            "hardware_direct_temperature_entity": "Temperature sensor",
+            "hardware_direct_humidity_entity": "Humidity sensor"
+          }
+        },
+        "reconfigure_wireguard": {
+          "title": "Update WireGuard connection",
+          "description": "A new WireGuard file is required when switching local → remote. For remote → remote you can keep the stored profile or replace it with a new import.",
+          "data": {
+            "hardware_wireguard_file": "New WireGuard configuration file (optional if already remote)"
+          }
         }
       },
       "error": {
@@ -471,11 +526,22 @@
         "hardware_id_duplicate": "This hardware ID is already paired.",
         "hardware_room_duplicate": "A ventilation station is already assigned to this room.",
         "hardware_connection_invalid": "Choose a valid connection type.",
-        "hardware_direct_device_invalid": "The selected ESPHome device is no longer available or does not expose an unambiguous CO₂, temperature and humidity sensor set."
+        "hardware_direct_device_invalid": "The selected ESPHome device is no longer available or does not provide all required sensor types (CO₂, temperature, and humidity).",
+        "hardware_role_invalid": "Choose a valid station role.",
+        "hardware_room_mode_invalid": "Choose whether to create a new room or use an existing room.",
+        "hardware_room_name_empty": "Enter a name for the room that should be created automatically.",
+        "hardware_master_invalid": "The selected master no longer exists or is not configured as a master.",
+        "hardware_location_invalid": "Choose a valid location mode.",
+        "hardware_wireguard_invalid": "The WireGuard file could not be read. Exactly one [Interface] and one [Peer] section with Address, PrivateKey, PublicKey, Endpoint and AllowedIPs are required.",
+        "hardware_setup_lost": "The station setup in progress is no longer available. Start setup again.",
+        "hardware_direct_sensor_selection_required": "Select this ESPHome device’s CO₂, temperature and humidity sensors explicitly once.",
+        "hardware_direct_sensor_selection_invalid": "The selected sensors do not all belong to the chosen ESPHome device or do not have the expected sensor types.",
+        "hardware_wireguard_required": "A WireGuard configuration file must be imported when switching from local to remote."
       },
       "abort": {
         "hardware_no_rooms": "Create at least one room first.",
-        "hardware_no_direct_devices": "No suitable ESPHome device was found. Add the station to Home Assistant through ESPHome first and ensure exactly one CO₂, temperature and humidity sensor is available."
+        "hardware_no_direct_devices": "No suitable ESPHome device was found. Add the station to Home Assistant through ESPHome first. A normal station needs CO₂, temperature and humidity; if multiple matching sensors exist, you can select them manually in the next step.",
+        "hardware_no_masters": "Create a ventilation station with the ESP-NOW master role first."
       }
     }
   },

@@ -423,45 +423,100 @@
       "step": {
         "user": {
           "title": "Havalandırma istasyonu ekle",
-          "description": "İstasyonun ESPHome ile bu Home Assistant’a doğrudan bağlı mı yoksa bir havalandırma istasyonu master / ESP-NOW üzerinden mi iletişim kurduğunu seçin.",
+          "description": "Bu ESP’nin rolünü seçin. Tüm havalandırma istasyonları aynı firmware’i çalıştırabilir; rol, oda ve master atamasını Home Assistant saklar.",
           "data": {
-            "hardware_connection_type": "Bağlantı"
+            "hardware_role": "Rol"
           }
         },
         "direct": {
-          "title": "Doğrudan ESPHome istasyonu ata",
-          "description": "Home Assistant’a zaten eklenmiş bir ESPHome cihazı seçin. Yalnızca tam olarak bir CO₂, sıcaklık ve nem sensörü algılanırsa listelenir; üçü de oda kaynağı olarak otomatik kullanılır.",
+          "title": "Bağımsız istasyonu kur",
+          "description": "Yerel olarak erişilebilen ESPHome cihazını seçin. Varsayılan olarak istasyon kendi odasını standart değerlerle oluşturur; isterseniz mevcut bir odayı da kullanabilirsiniz.",
           "data": {
             "hardware_device_id": "ESPHome cihazı",
-            "hardware_room_id": "Oda"
+            "hardware_room_mode": "Oda",
+            "room_name": "Yeni oda adı",
+            "area_id": "Home Assistant alanı (isteğe bağlı)",
+            "hardware_room_id": "Mevcut oda"
           }
         },
         "master": {
-          "title": "Master üzerinden istasyon ata",
-          "description": "ESP-NOW master tarafından bulunan bir istasyonu bir odaya atayın. Donanım kimliği manuel olarak da girilebilir.",
+          "title": "ESP-NOW master kur",
+          "description": "Master aynı zamanda tam bir oda istasyonu olarak kalır. ESPHome cihazını, odasını ve yerel mi yoksa WireGuard üzerinden uzakta mı çalışacağını seçin.",
+          "data": {
+            "hardware_device_id": "ESPHome cihazı",
+            "hardware_location_mode": "Konum / bağlantı",
+            "hardware_room_mode": "Oda",
+            "room_name": "Yeni oda adı",
+            "area_id": "Home Assistant alanı (isteğe bağlı)",
+            "hardware_room_id": "Mevcut oda"
+          }
+        },
+        "wireguard": {
+          "title": "WireGuard bağlantısını içe aktar",
+          "description": "Bu uzak master için WireGuard istemci yapılandırmasını içe aktarın. Yüklenen dosya yalnızca okunur; daha sonra ESP’ye aktarılacak ayrıştırılmış değerler saklanır.",
+          "data": {
+            "hardware_wireguard_file": "WireGuard yapılandırma dosyası"
+          }
+        },
+        "node": {
+          "title": "ESP-NOW oda istasyonu kur",
+          "description": "İstasyonu Home Assistant içinde seçilmiş bir master’a bağlayın. İstasyon kendi odasını otomatik olarak da oluşturabilir.",
           "data": {
             "hardware_discovery_id": "Bulunan istasyon",
             "hardware_id": "Donanım kimliği",
-            "hardware_master_id": "Master kimliği",
-            "hardware_room_id": "Oda"
+            "hardware_master_subentry_id": "Master",
+            "hardware_room_mode": "Oda",
+            "room_name": "Yeni oda adı",
+            "area_id": "Home Assistant alanı (isteğe bağlı)",
+            "hardware_room_id": "Mevcut oda"
           }
         },
         "reconfigure_direct": {
           "title": "Doğrudan havalandırma istasyonunu yapılandır",
           "data": {
             "hardware_device_id": "ESPHome cihazı",
-            "hardware_room_id": "Oda"
+            "hardware_location_mode": "Konum / bağlantı",
+            "hardware_room_mode": "Oda",
+            "hardware_room_id": "Mevcut oda"
           }
         },
-        "reconfigure_master": {
-          "title": "Master istasyonunu yapılandır",
+        "reconfigure_node": {
+          "title": "ESP-NOW oda istasyonu kur",
           "data": {
-            "hardware_master_id": "Master kimliği",
-            "hardware_room_id": "Oda"
+            "hardware_discovery_id": "Bulunan istasyon",
+            "hardware_id": "Donanım kimliği",
+            "hardware_master_subentry_id": "Master",
+            "hardware_room_mode": "Oda",
+            "hardware_room_id": "Mevcut oda"
           }
         },
         "reconfigure": {
           "title": "Havalandırma istasyonunu yapılandır"
+        },
+        "direct_sensors": {
+          "title": "Sensör kaynaklarını seç",
+          "description": "Bu ESPHome cihazında birden fazla uygun sensör var. Bu havalandırma istasyonuna ait CO₂, sıcaklık ve nem kaynağını bir kez seçin.",
+          "data": {
+            "hardware_direct_co2_entity": "CO₂ sensörü",
+            "hardware_direct_temperature_entity": "Sıcaklık sensörü",
+            "hardware_direct_humidity_entity": "Nem sensörü"
+          }
+        },
+        "reconfigure_direct_sensors": {
+          "title": "Sensör kaynaklarını seç",
+          "description": "Yeni ESPHome eşlemesi belirsiz. Üç sensör kaynağını bir kez açıkça seçin.",
+          "data": {
+            "hardware_direct_co2_entity": "CO₂ sensörü",
+            "hardware_direct_temperature_entity": "Sıcaklık sensörü",
+            "hardware_direct_humidity_entity": "Nem sensörü"
+          }
+        },
+        "reconfigure_wireguard": {
+          "title": "WireGuard bağlantısını güncelle",
+          "description": "Yerelden uzağa geçerken yeni bir WireGuard dosyası gerekir. Uzak → uzak durumunda mevcut profili tutabilir veya yeni bir dosya ile değiştirebilirsiniz.",
+          "data": {
+            "hardware_wireguard_file": "Yeni WireGuard yapılandırma dosyası (zaten uzaktaysa isteğe bağlı)"
+          }
         }
       },
       "error": {
@@ -471,11 +526,22 @@
         "hardware_id_duplicate": "Bu donanım kimliği zaten eşleştirilmiş.",
         "hardware_room_duplicate": "Bu odaya zaten bir havalandırma istasyonu atanmış.",
         "hardware_connection_invalid": "Geçerli bir bağlantı türü seçin.",
-        "hardware_direct_device_invalid": "Seçilen ESPHome cihazı artık mevcut değil veya CO₂, sıcaklık ve nem sensörlerini açık biçimde sağlamıyor."
+        "hardware_direct_device_invalid": "Seçilen ESPHome cihazı artık kullanılamıyor veya gerekli tüm sensör türlerini (CO₂, sıcaklık ve nem) sağlamıyor.",
+        "hardware_role_invalid": "Geçerli bir istasyon rolü seçin.",
+        "hardware_room_mode_invalid": "Yeni oda oluşturmayı veya mevcut bir odayı kullanmayı seçin.",
+        "hardware_room_name_empty": "Otomatik oluşturulacak oda için bir ad girin.",
+        "hardware_master_invalid": "Seçilen master artık mevcut değil veya master olarak yapılandırılmamış.",
+        "hardware_location_invalid": "Geçerli bir konum modu seçin.",
+        "hardware_wireguard_invalid": "WireGuard dosyası okunamadı. Address, PrivateKey, PublicKey, Endpoint ve AllowedIPs içeren tam bir [Interface] ve [Peer] bölümü gerekir.",
+        "hardware_setup_lost": "Devam eden istasyon kurulumu artık mevcut değil. Kurulumu yeniden başlatın.",
+        "hardware_direct_sensor_selection_required": "Bu ESPHome cihazının CO₂, sıcaklık ve nem sensörlerini bir kez açıkça seçin.",
+        "hardware_direct_sensor_selection_invalid": "Seçilen sensörlerin tümü seçilen ESPHome cihazına ait değil veya beklenen sensör türlerine sahip değil.",
+        "hardware_wireguard_required": "Yerelden uzağa geçerken bir WireGuard yapılandırma dosyası içe aktarılmalıdır."
       },
       "abort": {
         "hardware_no_rooms": "Önce en az bir oda oluşturun.",
-        "hardware_no_direct_devices": "Uygun ESPHome cihazı bulunamadı. Önce istasyonu ESPHome üzerinden Home Assistant’a ekleyin ve tam olarak bir CO₂, sıcaklık ve nem sensörü bulunduğundan emin olun."
+        "hardware_no_direct_devices": "Uygun ESPHome cihazı bulunamadı. Önce istasyonu ESPHome üzerinden Home Assistant’a ekleyin. Normal bir istasyonda CO₂, sıcaklık ve nem bulunmalıdır; birden fazla uygun sensör varsa sonraki adımda elle seçebilirsiniz.",
+        "hardware_no_masters": "Önce ESP-NOW master rolüne sahip bir havalandırma istasyonu oluşturun."
       }
     }
   },

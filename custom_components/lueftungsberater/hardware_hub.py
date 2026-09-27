@@ -24,17 +24,22 @@ from .const import (
     CONF_HARDWARE_MASTER_ID,
     CONF_HARDWARE_ROOM_ID,
     CONF_HARDWARE_CONNECTION_TYPE,
+    CONF_HARDWARE_ROLE,
+    CONF_HARDWARE_MASTER_SUBENTRY_ID,
     CONF_HARDWARE_DEVICE_ID,
     CONF_HARDWARE_DIRECT_CO2,
     CONF_HARDWARE_DIRECT_TEMP,
     CONF_HARDWARE_DIRECT_HUMIDITY,
     HARDWARE_CONNECTION_DIRECT,
     HARDWARE_CONNECTION_MASTER,
+    HARDWARE_ROLE_STANDALONE,
+    HARDWARE_ROLE_MASTER,
+    HARDWARE_ROLE_NODE,
     DATA_HARDWARE_HUBS,
     DOMAIN,
     HARDWARE_STATION_STALE_AFTER,
     HARDWARE_STATION_STALE_CHECK_INTERVAL,
-    INTEGRATION_VERSION,
+    SUBENTRY_TYPE_ROOM,
     SUBENTRY_TYPE_STATION,
 )
 
@@ -75,6 +80,25 @@ def _normalize_hardware_id(value: Any) -> str:
     return text
 
 
+def _hardware_id_aliases(value: Any) -> set[str]:
+    normalized = _normalize_hardware_id(value)
+    if not normalized:
+        return set()
+    aliases = {normalized}
+    if normalized.startswith("DIRECT:"):
+        raw = normalized.removeprefix("DIRECT:")
+        if raw:
+            aliases.add(raw)
+    else:
+        aliases.add(f"DIRECT:{normalized}")
+    return aliases
+
+
+def hardware_id_matches(left: Any, right: Any) -> bool:
+    """Treat legacy DIRECT:<id> and the raw physical id as the same station."""
+    return bool(_hardware_id_aliases(left) & _hardware_id_aliases(right))
+
+
 def station_subentries(entry: ConfigEntry) -> list[ConfigSubentry]:
     return [
         subentry
@@ -90,11 +114,32 @@ def station_connection_type(station: ConfigSubentry) -> str:
 
 
 def station_is_direct(station: ConfigSubentry) -> bool:
+    """Return whether this station reads its own values directly from HA/ESPHome."""
     return station_connection_type(station) == HARDWARE_CONNECTION_DIRECT
 
 
-def station_is_master(station: ConfigSubentry) -> bool:
+def station_uses_hardware_hub(station: ConfigSubentry) -> bool:
+    """Return whether raw values arrive through the master/hardware API path."""
     return station_connection_type(station) == HARDWARE_CONNECTION_MASTER
+
+
+def station_role(station: ConfigSubentry) -> str:
+    """Return the v0.10.1 station role with backward-compatible inference."""
+    value = str(station.data.get(CONF_HARDWARE_ROLE) or "").strip().lower()
+    if value in {HARDWARE_ROLE_STANDALONE, HARDWARE_ROLE_MASTER, HARDWARE_ROLE_NODE}:
+        return value
+    # v0.10.0 did not distinguish a physical master from a node.  Direct
+    # stations were standalone; every master-backed entry represented a room
+    # node behind the (then implicit) hub.  Preserve that meaning on upgrade.
+    return HARDWARE_ROLE_STANDALONE if station_is_direct(station) else HARDWARE_ROLE_NODE
+
+
+def station_is_master(station: ConfigSubentry) -> bool:
+    return station_role(station) == HARDWARE_ROLE_MASTER
+
+
+def station_is_node(station: ConfigSubentry) -> bool:
+    return station_role(station) == HARDWARE_ROLE_NODE
 
 
 def _entity_device_class(hass: HomeAssistant, entity_entry) -> str | None:
@@ -109,31 +154,42 @@ def _entity_device_class(hass: HomeAssistant, entity_entry) -> str | None:
     return str(getattr(raw, "value", raw))
 
 
-def direct_device_sensor_map(
+def direct_device_sensor_candidates(
     hass: HomeAssistant, device_id: str
-) -> dict[str, str] | None:
-    """Return exactly one usable CO2/temp/RH entity for one HA device."""
+) -> dict[str, list[str]]:
+    """Return all usable CO2/temp/RH entities belonging to one HA device."""
     registry = er.async_get(hass)
     by_class: dict[str, list[str]] = {
-        SensorDeviceClass.CO2.value: [],
-        SensorDeviceClass.TEMPERATURE.value: [],
-        SensorDeviceClass.HUMIDITY.value: [],
+        "co2": [],
+        "temperature": [],
+        "humidity": [],
+    }
+    class_to_key = {
+        SensorDeviceClass.CO2.value: "co2",
+        SensorDeviceClass.TEMPERATURE.value: "temperature",
+        SensorDeviceClass.HUMIDITY.value: "humidity",
     }
     for entity_entry in er.async_entries_for_device(
         registry, device_id=device_id, include_disabled_entities=False
     ):
         if entity_entry.domain != "sensor":
             continue
-        device_class = _entity_device_class(hass, entity_entry)
-        if device_class in by_class:
-            by_class[device_class].append(entity_entry.entity_id)
-    if any(len(values) != 1 for values in by_class.values()):
+        key = class_to_key.get(_entity_device_class(hass, entity_entry))
+        if key is not None:
+            by_class[key].append(entity_entry.entity_id)
+    for values in by_class.values():
+        values.sort()
+    return by_class
+
+
+def direct_device_sensor_map(
+    hass: HomeAssistant, device_id: str
+) -> dict[str, str] | None:
+    """Return an unambiguous CO2/temp/RH mapping for one HA device."""
+    candidates = direct_device_sensor_candidates(hass, device_id)
+    if any(len(values) != 1 for values in candidates.values()):
         return None
-    return {
-        "co2": by_class[SensorDeviceClass.CO2.value][0],
-        "temperature": by_class[SensorDeviceClass.TEMPERATURE.value][0],
-        "humidity": by_class[SensorDeviceClass.HUMIDITY.value][0],
-    }
+    return {key: values[0] for key, values in candidates.items()}
 
 
 def direct_station_entities(
@@ -237,13 +293,125 @@ def station_for_room(entry: ConfigEntry, room_subentry_id: str) -> ConfigSubentr
 
 
 def station_by_hardware_id(entry: ConfigEntry, hardware_id: str) -> ConfigSubentry | None:
-    """Return only master-backed stations addressable through the hardware API."""
+    """Return a station addressable through the master/hardware API."""
     wanted = _normalize_hardware_id(hardware_id)
     for station in station_subentries(entry):
-        if not station_is_master(station):
+        if not station_uses_hardware_hub(station):
             continue
-        if _normalize_hardware_id(station.data.get(CONF_HARDWARE_ID)) == wanted:
+        if hardware_id_matches(station.data.get(CONF_HARDWARE_ID), wanted):
             return station
+    return None
+
+
+def station_by_any_hardware_id(entry: ConfigEntry, hardware_id: str) -> ConfigSubentry | None:
+    """Return any configured physical station, including direct ESPHome stations."""
+    wanted = _normalize_hardware_id(hardware_id)
+    for station in station_subentries(entry):
+        if hardware_id_matches(station.data.get(CONF_HARDWARE_ID), wanted):
+            return station
+    return None
+
+
+def configured_master_for_station(
+    entry: ConfigEntry, station: ConfigSubentry
+) -> ConfigSubentry | None:
+    """Resolve the HA-selected master for one ESP-NOW node.
+
+    Once a node has the stable v0.10.1 subentry relation, that relation is the
+    only source of truth. Falling back to an old hardware id after that master
+    was deleted could silently bind the node to a different physical device.
+    The hardware-id lookup remains only for migrated v0.10.0 nodes which do not
+    yet have a master-subentry relation.
+    """
+    subentry_id = str(station.data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "").strip()
+    if subentry_id:
+        candidate = entry.subentries.get(subentry_id)
+        if (
+            candidate is not None
+            and candidate.subentry_type == SUBENTRY_TYPE_STATION
+            and station_is_master(candidate)
+        ):
+            return candidate
+        return None
+
+    wanted = _normalize_hardware_id(station.data.get(CONF_HARDWARE_MASTER_ID))
+    if wanted:
+        for candidate in station_subentries(entry):
+            if not station_is_master(candidate):
+                continue
+            if hardware_id_matches(candidate.data.get(CONF_HARDWARE_ID), wanted):
+                return candidate
+    return None
+
+
+def station_topology_error(entry: ConfigEntry, station: ConfigSubentry) -> str | None:
+    """Return a stable HA-owned topology error for one physical station.
+
+    Every station is owned by exactly one room.  A deleted room therefore
+    invalidates the station immediately, just like a deleted explicitly
+    selected master invalidates a v0.10.1 ESP-NOW node.  Legacy nodes without
+    a stable master-subentry relation retain their v0.10.0 master-id fallback.
+    """
+    room_id = str(station.data.get(CONF_HARDWARE_ROOM_ID) or "").strip()
+    room = entry.subentries.get(room_id) if room_id else None
+    if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
+        return "room_missing"
+
+    if station_role(station) != HARDWARE_ROLE_NODE:
+        return None
+    explicit = str(
+        station.data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or ""
+    ).strip()
+    if explicit and configured_master_for_station(entry, station) is None:
+        return "master_missing"
+    return None
+
+
+def station_topology_valid(entry: ConfigEntry, station: ConfigSubentry) -> bool:
+    """Return whether this station still has a usable HA-owned topology."""
+    return station_topology_error(entry, station) is None
+
+
+def configured_master_hardware_id(
+    entry: ConfigEntry, station: ConfigSubentry
+) -> str | None:
+    """Return the current master hardware id without trusting stale node data."""
+    master = configured_master_for_station(entry, station)
+    if master is not None:
+        value = _normalize_hardware_id(master.data.get(CONF_HARDWARE_ID))
+        return value or None
+    # Legacy v0.10.0 nodes had no stable master-subentry relation. Preserve the
+    # old raw master id only for those entries. Explicit v0.10.1 relations that
+    # no longer resolve are configuration errors and must not fall back.
+    if not str(station.data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "").strip():
+        value = _normalize_hardware_id(station.data.get(CONF_HARDWARE_MASTER_ID))
+        return value or None
+    return None
+
+
+def master_device_id_for_station(
+    hass: HomeAssistant, entry: ConfigEntry, station: ConfigSubentry
+) -> str | None:
+    """Return the concrete HA device used as this node's configured master."""
+    if station_is_master(station):
+        return None
+    master = configured_master_for_station(entry, station)
+    if master is None:
+        if str(station.data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "").strip():
+            return None
+        return master_device_id(hass, entry.entry_id)
+    if station_is_direct(master):
+        return direct_station_device_id(master)
+
+    hardware_id = _normalize_hardware_id(master.data.get(CONF_HARDWARE_ID))
+    if hardware_id:
+        identifier = (DOMAIN, f"station:{hardware_id}")
+        registry = dr.async_get(hass)
+        for device in dr.async_entries_for_config_entry(
+            registry, config_entry_id=entry.entry_id
+        ):
+            if identifier in device.identifiers:
+                return device.id
     return None
 
 
@@ -322,7 +490,11 @@ def remember_discovery(
     hardware_id = _normalize_hardware_id(hardware_id)
     if not hardware_id:
         return
-    ensure_master_device(hass, entry)
+    # Keep the old generic hub only for an as-yet unknown/legacy master.  Once
+    # HA has an explicit master station, ESP-NOW nodes can point at that real
+    # physical device instead of a synthetic topology placeholder.
+    if station_by_any_hardware_id(entry, master_id) is None:
+        ensure_master_device(hass, entry)
     discoveries = discovered_stations(hass, entry.entry_id)
     discoveries[hardware_id] = {
         "hardware_id": hardware_id,
@@ -348,7 +520,7 @@ def report_station(
     if not isinstance(current, StationRuntime):
         current = StationRuntime(
             hardware_id=_normalize_hardware_id(station.data.get(CONF_HARDWARE_ID)),
-            master_id=str(station.data.get(CONF_HARDWARE_MASTER_ID) or "default"),
+            master_id=configured_master_hardware_id(entry, station) or "default",
         )
         states[station.subentry_id] = current
 
@@ -365,6 +537,7 @@ def report_station(
     # Keep impossible hardware values out of both the engine and the diagnostic
     # entities.  These limits are intentionally broad enough for realistic
     # indoor sensors while rejecting protocol corruption and sentinel values.
+    current.master_id = configured_master_hardware_id(entry, station) or current.master_id
     current.co2 = number("co2", minimum=250.0, maximum=10000.0)
     current.temperature = number("temperature", minimum=-50.0, maximum=80.0)
     current.humidity = number("humidity", minimum=0.0, maximum=100.0)
@@ -384,7 +557,10 @@ def report_station(
         current.retries = int(payload["retries"]) if payload.get("retries") is not None else None
     except (TypeError, ValueError):
         current.retries = None
-    current.firmware = str(payload.get("firmware") or "").strip() or current.firmware
+    reported_firmware = str(payload.get("firmware") or "").strip()
+    firmware_changed = bool(reported_firmware and reported_firmware != current.firmware)
+    if reported_firmware:
+        current.firmware = reported_firmware
     current.online = bool(payload.get("online", True))
     current.last_seen = dt_util.utcnow()
     current.extra = {
@@ -395,6 +571,18 @@ def report_station(
             "latency_ms", "retries", "firmware",
         }
     }
+    if firmware_changed:
+        registry = dr.async_get(hass)
+        identifier = (
+            DOMAIN,
+            f"station:{station.data.get(CONF_HARDWARE_ID)}",
+        )
+        for device in dr.async_entries_for_config_entry(
+            registry, config_entry_id=entry.entry_id
+        ):
+            if identifier in device.identifiers:
+                registry.async_update_device(device.id, sw_version=current.firmware)
+                break
     async_dispatcher_send(hass, station_signal(entry.entry_id, station.subentry_id))
     return current
 
@@ -414,7 +602,6 @@ def ensure_master_device(hass: HomeAssistant, entry: ConfigEntry) -> str:
         name=f"{entry.title} · Lüftungsstation-Master",
         manufacturer="Lüftungsassistent",
         model="ESP-NOW / WireGuard Hub",
-        sw_version=INTEGRATION_VERSION,
     )
     entry_state["master_device_id"] = master.id
     return master.id
@@ -439,13 +626,31 @@ async def async_setup_hardware_hub(hass: HomeAssistant, entry: ConfigEntry) -> N
         hass, _expire_stale, HARDWARE_STATION_STALE_CHECK_INTERVAL
     )
 
-    if any(station_is_master(station) for station in station_subentries(entry)):
+    hub_stations = [
+        station for station in station_subentries(entry) if station_uses_hardware_hub(station)
+    ]
+    needs_legacy_master = any(
+        not station_is_master(station)
+        and not str(
+            station.data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or ""
+        ).strip()
+        and configured_master_for_station(entry, station) is None
+        for station in hub_stations
+    )
+    discoveries = entry_state.get("discoveries")
+    if isinstance(discoveries, dict):
+        needs_legacy_master = needs_legacy_master or any(
+            station_by_any_hardware_id(entry, item.get("master_id")) is None
+            for item in discoveries.values()
+            if isinstance(item, dict)
+        )
+
+    if needs_legacy_master:
         ensure_master_device(hass, entry)
-    elif not entry_state.get("discoveries"):
-        # v0.10.0 pre-release builds created a master device for every local
-        # assistant, even when only a direct ESPHome station was used. Remove
-        # that empty topology artifact; a real master recreates itself on the
-        # first discovery or master-backed station assignment.
+    else:
+        # v0.10.0 used one synthetic master device.  v0.10.1 prefers the real
+        # HA-selected master device and removes the placeholder once nothing
+        # legacy depends on it.
         registry = dr.async_get(hass)
         master_identifier = (DOMAIN, f"{entry.entry_id}:hardware_master")
         for device in dr.async_entries_for_config_entry(

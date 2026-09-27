@@ -423,45 +423,100 @@
       "step": {
         "user": {
           "title": "Lüftungsstation hinzufügen",
-          "description": "Wähle, ob die Station bereits direkt per ESPHome mit diesem Home Assistant verbunden ist oder über einen Lüftungsstation-Master / ESP-NOW kommuniziert.",
+          "description": "Bestimme die Rolle dieses ESP. Jede Lüftungsstation kann mit derselben Firmware arbeiten; Home Assistant speichert Rolle, Raum und Master-Zuordnung.",
           "data": {
-            "hardware_connection_type": "Verbindung"
+            "hardware_role": "Rolle"
           }
         },
         "direct": {
-          "title": "Direkte ESPHome-Station zuordnen",
-          "description": "Wähle ein bereits in Home Assistant eingebundenes ESPHome-Gerät. Es wird nur angeboten, wenn genau je ein CO₂-, Temperatur- und Luftfeuchtesensor erkannt wird. Die drei Sensoren werden automatisch gemeinsam als Quelle des Raums verwendet.",
+          "title": "Einzelstation einrichten",
+          "description": "Wähle das lokal erreichbare ESPHome-Gerät. Standardmäßig legt die Station ihren eigenen Raum mit den Lüftungsassistent-Standardwerten an; alternativ kannst du einen vorhandenen Raum verwenden.",
           "data": {
             "hardware_device_id": "ESPHome-Gerät",
-            "hardware_room_id": "Raum"
+            "hardware_room_mode": "Raum",
+            "room_name": "Name des neuen Raums",
+            "area_id": "Home-Assistant-Bereich (optional)",
+            "hardware_room_id": "Vorhandener Raum"
           }
         },
         "master": {
-          "title": "Station über Master zuordnen",
-          "description": "Ordne eine vom Master gefundene ESP-NOW-Station einem Raum zu. Alternativ kann die Hardware-ID manuell eingetragen werden.",
+          "title": "ESP-NOW-Master einrichten",
+          "description": "Der Master bleibt selbst eine vollwertige Raumstation. Wähle sein ESPHome-Gerät, den Raum und ob er lokal oder später entfernt über WireGuard betrieben wird.",
+          "data": {
+            "hardware_device_id": "ESPHome-Gerät",
+            "hardware_location_mode": "Standort / Verbindung",
+            "hardware_room_mode": "Raum",
+            "room_name": "Name des neuen Raums",
+            "area_id": "Home-Assistant-Bereich (optional)",
+            "hardware_room_id": "Vorhandener Raum"
+          }
+        },
+        "wireguard": {
+          "title": "WireGuard-Verbindung importieren",
+          "description": "Importiere die WireGuard-Client-Konfiguration für diesen entfernten Master. Die Upload-Datei wird nur gelesen; gespeichert werden die für die spätere ESP-Provisionierung benötigten Werte.",
+          "data": {
+            "hardware_wireguard_file": "WireGuard-Konfigurationsdatei"
+          }
+        },
+        "node": {
+          "title": "ESP-NOW-Raumstation einrichten",
+          "description": "Ordne die Station einem in Home Assistant festgelegten Master zu. Auch hier kann automatisch ein eigener Raum angelegt werden.",
           "data": {
             "hardware_discovery_id": "Gefundene Station",
             "hardware_id": "Hardware-ID",
-            "hardware_master_id": "Master-ID",
-            "hardware_room_id": "Raum"
+            "hardware_master_subentry_id": "Master",
+            "hardware_room_mode": "Raum",
+            "room_name": "Name des neuen Raums",
+            "area_id": "Home-Assistant-Bereich (optional)",
+            "hardware_room_id": "Vorhandener Raum"
           }
         },
         "reconfigure_direct": {
           "title": "Direkte Lüftungsstation konfigurieren",
           "data": {
             "hardware_device_id": "ESPHome-Gerät",
-            "hardware_room_id": "Raum"
+            "hardware_location_mode": "Standort / Verbindung",
+            "hardware_room_mode": "Raum",
+            "hardware_room_id": "Vorhandener Raum"
           }
         },
-        "reconfigure_master": {
-          "title": "Master-Lüftungsstation konfigurieren",
+        "reconfigure_node": {
+          "title": "ESP-NOW-Raumstation einrichten",
           "data": {
-            "hardware_master_id": "Master-ID",
-            "hardware_room_id": "Raum"
+            "hardware_discovery_id": "Gefundene Station",
+            "hardware_id": "Hardware-ID",
+            "hardware_master_subentry_id": "Master",
+            "hardware_room_mode": "Raum",
+            "hardware_room_id": "Vorhandener Raum"
           }
         },
         "reconfigure": {
           "title": "Lüftungsstation konfigurieren"
+        },
+        "direct_sensors": {
+          "title": "Sensorquellen auswählen",
+          "description": "Das ESPHome-Gerät enthält mehrere passende Sensoren. Wähle einmal die CO₂-, Temperatur- und Luftfeuchtequelle, die zu dieser Lüftungsstation gehört.",
+          "data": {
+            "hardware_direct_co2_entity": "CO₂-Sensor",
+            "hardware_direct_temperature_entity": "Temperatursensor",
+            "hardware_direct_humidity_entity": "Luftfeuchtesensor"
+          }
+        },
+        "reconfigure_direct_sensors": {
+          "title": "Sensorquellen auswählen",
+          "description": "Die neue ESPHome-Zuordnung ist mehrdeutig. Wähle die drei Sensoren einmal explizit aus.",
+          "data": {
+            "hardware_direct_co2_entity": "CO₂-Sensor",
+            "hardware_direct_temperature_entity": "Temperatursensor",
+            "hardware_direct_humidity_entity": "Luftfeuchtesensor"
+          }
+        },
+        "reconfigure_wireguard": {
+          "title": "WireGuard-Verbindung aktualisieren",
+          "description": "Bei lokal → entfernt ist eine neue WireGuard-Datei erforderlich. Bei entfernt → entfernt kannst du die vorhandene Konfiguration behalten oder durch einen neuen Import ersetzen.",
+          "data": {
+            "hardware_wireguard_file": "Neue WireGuard-Konfigurationsdatei (optional, falls bereits remote)"
+          }
         }
       },
       "error": {
@@ -471,11 +526,22 @@
         "hardware_id_duplicate": "Diese Hardware-ID ist bereits gekoppelt.",
         "hardware_room_duplicate": "Diesem Raum ist bereits eine Lüftungsstation zugeordnet.",
         "hardware_connection_invalid": "Wähle eine gültige Verbindungsart.",
-        "hardware_direct_device_invalid": "Das gewählte ESPHome-Gerät ist nicht mehr verfügbar oder stellt nicht eindeutig CO₂, Temperatur und Luftfeuchtigkeit bereit."
+        "hardware_direct_device_invalid": "Das gewählte ESPHome-Gerät ist nicht mehr verfügbar oder stellt nicht alle benötigten Sensorarten (CO₂, Temperatur und Luftfeuchtigkeit) bereit.",
+        "hardware_role_invalid": "Wähle eine gültige Stationsrolle.",
+        "hardware_room_mode_invalid": "Wähle, ob ein neuer Raum erstellt oder ein vorhandener Raum verwendet werden soll.",
+        "hardware_room_name_empty": "Gib einen Namen für den automatisch anzulegenden Raum ein.",
+        "hardware_master_invalid": "Der ausgewählte Master existiert nicht mehr oder ist nicht als Master konfiguriert.",
+        "hardware_location_invalid": "Wähle einen gültigen Standortmodus.",
+        "hardware_wireguard_invalid": "Die WireGuard-Datei konnte nicht gelesen werden. Erwartet werden genau ein [Interface]- und ein [Peer]-Abschnitt mit Address, PrivateKey, PublicKey, Endpoint und AllowedIPs.",
+        "hardware_setup_lost": "Die laufende Stationseinrichtung ist nicht mehr verfügbar. Starte die Einrichtung erneut.",
+        "hardware_direct_sensor_selection_required": "Wähle die CO₂-, Temperatur- und Luftfeuchtesensoren dieses ESPHome-Geräts einmal explizit aus.",
+        "hardware_direct_sensor_selection_invalid": "Die gewählten Sensoren gehören nicht vollständig zum ausgewählten ESPHome-Gerät oder haben nicht die erwarteten Sensortypen.",
+        "hardware_wireguard_required": "Für den Wechsel von lokal auf entfernt muss eine WireGuard-Konfigurationsdatei importiert werden."
       },
       "abort": {
         "hardware_no_rooms": "Lege zuerst mindestens einen Raum im Lüftungsassistenten an.",
-        "hardware_no_direct_devices": "Kein geeignetes ESPHome-Gerät gefunden. Binde die Station zuerst über ESPHome in Home Assistant ein und stelle sicher, dass genau je ein CO₂-, Temperatur- und Luftfeuchtesensor vorhanden ist."
+        "hardware_no_direct_devices": "Kein geeignetes ESPHome-Gerät gefunden. Binde die Station zuerst über ESPHome in Home Assistant ein. Für eine normale Station müssen CO₂, Temperatur und Luftfeuchte vorhanden sein; bei mehreren gleichartigen Sensoren kannst du sie im nächsten Schritt manuell auswählen.",
+        "hardware_no_masters": "Lege zuerst eine Lüftungsstation mit der Rolle „ESP-NOW-Master“ an."
       }
     }
   },

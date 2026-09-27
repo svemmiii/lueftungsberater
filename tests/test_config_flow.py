@@ -478,6 +478,12 @@ def test_v091_room_identity_migration_minor_version_is_enabled():
     assert LueftungsberaterConfigFlow.MINOR_VERSION >= 9
 
 
+def test_v0101_station_topology_cleanup_migration_is_enabled():
+    from custom_components.lueftungsberater.config_flow import LueftungsberaterConfigFlow
+
+    assert LueftungsberaterConfigFlow.MINOR_VERSION >= 11
+
+
 async def test_remote_non_admin_error_is_reported_separately():
     from unittest.mock import AsyncMock, patch
     from custom_components.lueftungsberater.config_flow import _test_remote
@@ -684,3 +690,298 @@ async def test_remote_test_learns_stable_home_assistant_instance_id() -> None:
     assert error is None
     assert returned is payload
     assert data[CONF_REMOTE_SERVER_ID] == "abcdef0123456789"
+
+
+def test_station_created_room_uses_normal_room_defaults():
+    from custom_components.lueftungsberater.config_flow import _default_station_room_data
+    from custom_components.lueftungsberater.const import (
+        CONF_AREA_ID,
+        CONF_NIGHT_END_TIME,
+        CONF_NIGHT_START_TIME,
+        CONF_REMOTE_ROOM_SHARE,
+        CONF_ROOM_NAME,
+        CONF_ROOM_NOTIFY_TRIGGERS,
+        CONF_TARGET_TEMP,
+        DEFAULT_NIGHT_END_TIME,
+        DEFAULT_NIGHT_START_TIME,
+        DEFAULT_ROOM_NOTIFY_TRIGGERS,
+        DEFAULT_TARGET_TEMP,
+    )
+
+    data = _default_station_room_data("Wohnzimmer", area_id="living_room")
+    assert data[CONF_ROOM_NAME] == "Wohnzimmer"
+    assert data[CONF_AREA_ID] == "living_room"
+    assert data[CONF_TARGET_TEMP] == DEFAULT_TARGET_TEMP
+    assert data[CONF_NIGHT_START_TIME] == DEFAULT_NIGHT_START_TIME
+    assert data[CONF_NIGHT_END_TIME] == DEFAULT_NIGHT_END_TIME
+    assert data[CONF_ROOM_NOTIFY_TRIGGERS] == DEFAULT_ROOM_NOTIFY_TRIGGERS
+    assert data[CONF_REMOTE_ROOM_SHARE] is False
+
+
+def test_wireguard_import_parser_extracts_single_peer_profile():
+    from custom_components.lueftungsberater.config_flow import _parse_wireguard_config
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_WG_ADDRESS,
+        CONF_HARDWARE_WG_ALLOWED_IPS,
+        CONF_HARDWARE_WG_ENDPOINT_HOST,
+        CONF_HARDWARE_WG_ENDPOINT_PORT,
+        CONF_HARDWARE_WG_KEEPALIVE,
+        CONF_HARDWARE_WG_PEER_PUBLIC_KEY,
+        CONF_HARDWARE_WG_PRIVATE_KEY,
+    )
+
+    parsed = _parse_wireguard_config(
+        """
+        [Interface]
+        PrivateKey = private-test-key
+        Address = 10.10.10.2/32
+        DNS = 192.168.178.1
+
+        [Peer]
+        PublicKey = peer-test-key
+        Endpoint = example.myfritz.net:53907
+        AllowedIPs = 192.168.178.0/24, 10.10.10.0/24
+        PersistentKeepalive = 45
+        """
+    )
+    assert parsed[CONF_HARDWARE_WG_PRIVATE_KEY] == "private-test-key"
+    assert parsed[CONF_HARDWARE_WG_ADDRESS] == "10.10.10.2/32"
+    assert parsed[CONF_HARDWARE_WG_PEER_PUBLIC_KEY] == "peer-test-key"
+    assert parsed[CONF_HARDWARE_WG_ENDPOINT_HOST] == "example.myfritz.net"
+    assert parsed[CONF_HARDWARE_WG_ENDPOINT_PORT] == 53907
+    assert parsed[CONF_HARDWARE_WG_ALLOWED_IPS] == "192.168.178.0/24, 10.10.10.0/24"
+    assert parsed[CONF_HARDWARE_WG_KEEPALIVE] == 45
+
+
+def test_wireguard_import_parser_rejects_multiple_peers():
+    import pytest
+    from custom_components.lueftungsberater.config_flow import _parse_wireguard_config
+
+    with pytest.raises(ValueError):
+        _parse_wireguard_config(
+            """
+            [Interface]
+            PrivateKey = private
+            Address = 10.0.0.2/32
+            [Peer]
+            PublicKey = a
+            Endpoint = host:1234
+            AllowedIPs = 192.168.1.0/24
+            [Peer]
+            PublicKey = b
+            Endpoint = host:1235
+            AllowedIPs = 192.168.2.0/24
+            """
+        )
+
+
+def test_node_reconfigure_locks_existing_hardware_id_even_if_input_tries_to_change_it(monkeypatch):
+    from custom_components.lueftungsberater import config_flow as flow_module
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_ID,
+        CONF_HARDWARE_MASTER_ID,
+        CONF_HARDWARE_MASTER_SUBENTRY_ID,
+        CONF_HARDWARE_ROLE,
+        CONF_HARDWARE_ROOM_ID,
+        CONF_HARDWARE_ROOM_MODE,
+        HARDWARE_ROLE_MASTER,
+        HARDWARE_ROLE_NODE,
+        HARDWARE_ROOM_EXISTING,
+        SUBENTRY_TYPE_ROOM,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    room = SimpleNamespace(
+        subentry_id="room",
+        subentry_type=SUBENTRY_TYPE_ROOM,
+        title="Schlafzimmer",
+        data={},
+    )
+    master = SimpleNamespace(
+        subentry_id="master",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Wohnzimmer · Master",
+        data={CONF_HARDWARE_ID: "AA:BB", CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER},
+    )
+    node = SimpleNamespace(
+        subentry_id="node",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        data={
+            CONF_HARDWARE_ID: "CC:DD",
+            CONF_HARDWARE_ROLE: HARDWARE_ROLE_NODE,
+            CONF_HARDWARE_ROOM_ID: room.subentry_id,
+            CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
+            CONF_HARDWARE_MASTER_ID: "AA:BB",
+        },
+    )
+    entry = SimpleNamespace(
+        entry_id="entry",
+        subentries={room.subentry_id: room, master.subentry_id: master, node.subentry_id: node},
+    )
+    hass = SimpleNamespace(data={})
+
+    data, created_room, error = flow_module._node_station_input(
+        hass,
+        entry,
+        {
+            CONF_HARDWARE_ROOM_MODE: HARDWARE_ROOM_EXISTING,
+            CONF_HARDWARE_ROOM_ID: room.subentry_id,
+            CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
+            # A reconfigure is not a device-replacement flow: identity is locked.
+            CONF_HARDWARE_ID: "EE:FF",
+        },
+        current_subentry_id=node.subentry_id,
+    )
+
+    assert error is None
+    assert created_room is None
+    assert data[CONF_HARDWARE_ID] == "CC:DD"
+
+
+def test_wireguard_helpers_require_complete_profile_and_clear_secrets():
+    from custom_components.lueftungsberater.config_flow import (
+        _clear_wireguard_config,
+        _wireguard_config_complete,
+    )
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_WG_ADDRESS,
+        CONF_HARDWARE_WG_ALLOWED_IPS,
+        CONF_HARDWARE_WG_ENDPOINT,
+        CONF_HARDWARE_WG_PEER_PUBLIC_KEY,
+        CONF_HARDWARE_WG_PRIVATE_KEY,
+    )
+
+    data = {
+        "keep": "value",
+        CONF_HARDWARE_WG_ADDRESS: "10.0.0.2/32",
+        CONF_HARDWARE_WG_PRIVATE_KEY: "private",
+        CONF_HARDWARE_WG_PEER_PUBLIC_KEY: "public",
+        CONF_HARDWARE_WG_ENDPOINT: "host:51820",
+        CONF_HARDWARE_WG_ALLOWED_IPS: "192.168.1.0/24",
+    }
+    assert _wireguard_config_complete(data) is True
+
+    cleaned = _clear_wireguard_config(data)
+    assert cleaned == {"keep": "value"}
+    assert _wireguard_config_complete(cleaned) is False
+
+
+def test_new_node_uses_stable_master_relation_without_cached_master_id():
+    from custom_components.lueftungsberater import config_flow as flow_module
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_ID,
+        CONF_HARDWARE_MASTER_ID,
+        CONF_HARDWARE_MASTER_SUBENTRY_ID,
+        CONF_HARDWARE_ROLE,
+        CONF_HARDWARE_ROOM_ID,
+        CONF_HARDWARE_ROOM_MODE,
+        HARDWARE_ROLE_MASTER,
+        HARDWARE_ROOM_EXISTING,
+        SUBENTRY_TYPE_ROOM,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    room = SimpleNamespace(
+        subentry_id="room", subentry_type=SUBENTRY_TYPE_ROOM, title="Schlafzimmer", data={}
+    )
+    master = SimpleNamespace(
+        subentry_id="master",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Wohnzimmer · Master",
+        data={CONF_HARDWARE_ID: "DIRECT:AA:BB", CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER},
+    )
+    entry = SimpleNamespace(
+        entry_id="entry",
+        subentries={room.subentry_id: room, master.subentry_id: master},
+    )
+
+    data, created_room, error = flow_module._node_station_input(
+        SimpleNamespace(data={}),
+        entry,
+        {
+            CONF_HARDWARE_ID: "CC:DD",
+            CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
+            CONF_HARDWARE_ROOM_MODE: HARDWARE_ROOM_EXISTING,
+            CONF_HARDWARE_ROOM_ID: room.subentry_id,
+        },
+    )
+
+    assert error is None
+    assert created_room is None
+    assert data[CONF_HARDWARE_MASTER_SUBENTRY_ID] == master.subentry_id
+    assert CONF_HARDWARE_MASTER_ID not in data
+
+
+def test_node_reconfigure_schema_does_not_offer_device_identity_fields():
+    from custom_components.lueftungsberater import config_flow as flow_module
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_DISCOVERY_ID,
+        CONF_HARDWARE_ID,
+        CONF_HARDWARE_MASTER_SUBENTRY_ID,
+        CONF_HARDWARE_ROLE,
+        HARDWARE_ROLE_MASTER,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    master = SimpleNamespace(
+        subentry_id="master",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        title="Master",
+        data={CONF_HARDWARE_ID: "AA:BB", CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER},
+    )
+    entry = SimpleNamespace(entry_id="entry", subentries={master.subentry_id: master})
+    hass = SimpleNamespace(data={})
+    schema = flow_module._node_station_schema(
+        hass,
+        entry,
+        current_subentry_id="node",
+        defaults={CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id},
+    )
+    keys = {getattr(key, "schema", key) for key in schema.schema}
+    assert CONF_HARDWARE_ID not in keys
+    assert CONF_HARDWARE_DISCOVERY_ID not in keys
+
+
+def test_manual_direct_sensor_selection_validates_against_same_device(monkeypatch):
+    from custom_components.lueftungsberater import config_flow as flow_module
+    from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_DIRECT_CO2,
+        CONF_HARDWARE_DIRECT_HUMIDITY,
+        CONF_HARDWARE_DIRECT_TEMP,
+    )
+
+    monkeypatch.setattr(
+        flow_module,
+        "direct_device_sensor_candidates",
+        lambda _hass, _device_id: {
+            "co2": ["sensor.scd41_co2"],
+            "temperature": ["sensor.scd41_temperature", "sensor.ds18b20_temperature"],
+            "humidity": ["sensor.scd41_humidity"],
+        },
+    )
+
+    selected = flow_module._validate_direct_sensor_selection(
+        SimpleNamespace(),
+        "device",
+        {
+            CONF_HARDWARE_DIRECT_CO2: "sensor.scd41_co2",
+            CONF_HARDWARE_DIRECT_TEMP: "sensor.scd41_temperature",
+            CONF_HARDWARE_DIRECT_HUMIDITY: "sensor.scd41_humidity",
+        },
+    )
+    assert selected == {
+        "co2": "sensor.scd41_co2",
+        "temperature": "sensor.scd41_temperature",
+        "humidity": "sensor.scd41_humidity",
+    }
+
+    invalid = flow_module._validate_direct_sensor_selection(
+        SimpleNamespace(),
+        "device",
+        {
+            CONF_HARDWARE_DIRECT_CO2: "sensor.scd41_co2",
+            CONF_HARDWARE_DIRECT_TEMP: "sensor.some_other_device",
+            CONF_HARDWARE_DIRECT_HUMIDITY: "sensor.scd41_humidity",
+        },
+    )
+    assert invalid is None

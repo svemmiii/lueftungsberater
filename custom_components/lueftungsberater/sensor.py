@@ -37,21 +37,24 @@ from .const import (
     SUBENTRY_TYPE_ROOM,
     SUBENTRY_TYPE_STATION,
     CONF_HARDWARE_ID,
-    CONF_HARDWARE_MASTER_ID,
-    INTEGRATION_VERSION,
+    CONF_HARDWARE_LOCATION_MODE,
 )
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
 from .engine import co2_status
 from .hardware_hub import (
+    configured_master_hardware_id,
     direct_station_entities,
-    master_device_id,
+    master_device_id_for_station,
     station_for_room,
     station_is_direct,
     station_is_fresh,
-    station_is_master,
+    station_role,
+    station_uses_hardware_hub,
     station_runtime,
     station_signal,
+    station_topology_error,
+    station_topology_valid,
 )
 from .localization import (
     duration_text,
@@ -82,7 +85,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up room and physical-station sensors."""
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_STATION or not station_is_master(subentry):
+        if subentry.subentry_type != SUBENTRY_TYPE_STATION or not station_uses_hardware_hub(subentry):
             continue
         station_entities: list[SensorEntity] = [
             HardwareStationCo2Sensor(entry, subentry),
@@ -431,6 +434,18 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
             # Source entities for clickable dashboard values.
             # These are UI metadata only and are not used by engine.py.
+            "hardware_station_id": (
+                station.data.get(CONF_HARDWARE_ID) if station is not None else None
+            ),
+            "hardware_station_role": (station_role(station) if station is not None else None),
+            "hardware_master_id": (
+                configured_master_hardware_id(self.entry, station)
+                if station is not None
+                else None
+            ),
+            "hardware_location_mode": (
+                station.data.get(CONF_HARDWARE_LOCATION_MODE) if station is not None else None
+            ),
             "source_temperature_inside": source_temperature_inside,
             "source_temperature_outside": weather.source_temperature,
             "source_target_temperature": self.subentry.data.get(CONF_CLIMATE),
@@ -753,12 +768,19 @@ class HardwareStationSensorBase(SensorEntity):
 
     @property
     def available(self) -> bool:
-        return station_is_fresh(self.runtime)
+        return station_topology_valid(self.entry, self.subentry) and station_is_fresh(
+            self.runtime
+        )
 
     @property
     def fresh_runtime(self):
         state = self.runtime
-        return state if station_is_fresh(state) else None
+        return (
+            state
+            if station_topology_valid(self.entry, self.subentry)
+            and station_is_fresh(state)
+            else None
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -767,8 +789,8 @@ class HardwareStationSensorBase(SensorEntity):
             name=f"{self.entry.title} · {self.subentry.title}",
             manufacturer="Lüftungsassistent",
             model="ESP32 Lüftungsstation (SCD41 + Display)",
-            sw_version=(self.runtime.firmware if self.runtime is not None else INTEGRATION_VERSION),
-            via_device_id=master_device_id(self.hass, self.entry.entry_id),
+            sw_version=(self.runtime.firmware if self.runtime is not None else None),
+            via_device_id=master_device_id_for_station(self.hass, self.entry, self.subentry),
         )
 
     async def async_added_to_hass(self) -> None:
@@ -786,7 +808,9 @@ class HardwareStationSensorBase(SensorEntity):
         state = self.runtime
         return {
             "hardware_id": self.subentry.data.get(CONF_HARDWARE_ID),
-            "master_id": self.subentry.data.get(CONF_HARDWARE_MASTER_ID, "default"),
+            "master_id": configured_master_hardware_id(self.entry, self.subentry),
+            "role": station_role(self.subentry),
+            "configuration_error": station_topology_error(self.entry, self.subentry),
             "last_seen": state.last_seen.isoformat() if state and state.last_seen else None,
             "firmware": state.firmware if state else None,
         }

@@ -54,6 +54,14 @@ from .const import (
     INTEGRATION_VERSION,
     PLATFORMS,
     SUBENTRY_TYPE_ROOM,
+    SUBENTRY_TYPE_STATION,
+    CONF_HARDWARE_CONNECTION_TYPE,
+    CONF_HARDWARE_ROLE,
+    CONF_HARDWARE_MASTER_ID,
+    CONF_HARDWARE_MASTER_SUBENTRY_ID,
+    HARDWARE_CONNECTION_DIRECT,
+    HARDWARE_ROLE_STANDALONE,
+    HARDWARE_ROLE_NODE,
     entry_kind,
 )
 from .remote import (
@@ -288,6 +296,46 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     entry, subentry, unique_id=None
                 )
         updates["minor_version"] = 9
+
+    if entry.version == 1 and entry.minor_version < 10:
+        # v0.10.1 separates a station's physical role from its transport.  In
+        # v0.10.0 every non-direct station was described as "master" merely
+        # because its reports travelled through the implicit hub.  Preserve
+        # behaviour by migrating direct stations to standalone and those legacy
+        # hub-backed room stations to node; no existing installation is
+        # silently promoted to a real ESP-NOW master.
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_STATION:
+                continue
+            data = dict(subentry.data)
+            if CONF_HARDWARE_ROLE in data:
+                continue
+            connection = str(data.get(CONF_HARDWARE_CONNECTION_TYPE) or "").strip().lower()
+            data[CONF_HARDWARE_ROLE] = (
+                HARDWARE_ROLE_STANDALONE
+                if connection == HARDWARE_CONNECTION_DIRECT
+                else HARDWARE_ROLE_NODE
+            )
+            hass.config_entries.async_update_subentry(entry, subentry, data=data)
+        updates["minor_version"] = 10
+
+    if entry.version == 1 and entry.minor_version < 11:
+        # v0.10.1 uses the stable master-subentry relation as the single source
+        # of truth for ESP-NOW nodes.  Once that relation exists, the cached
+        # hardware master id is redundant and would require N node writes when
+        # one master is physically replaced.  Legacy nodes without the stable
+        # relation keep their hardware-id fallback until they are reconfigured.
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_STATION:
+                continue
+            data = dict(subentry.data)
+            if not str(data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "").strip():
+                continue
+            if CONF_HARDWARE_MASTER_ID not in data:
+                continue
+            data.pop(CONF_HARDWARE_MASTER_ID, None)
+            hass.config_entries.async_update_subentry(entry, subentry, data=data)
+        updates["minor_version"] = 11
 
     # Pin before async_update_entry: the update event serializes the ConfigEntry
     # for the frontend, so its supported_subentry_types must already be correct.

@@ -17,11 +17,17 @@ from .const import (
     SUBENTRY_TYPE_STATION,
     CONF_HARDWARE_ID,
     DOMAIN,
-    INTEGRATION_VERSION,
 )
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
-from .hardware_hub import master_device_id, station_is_fresh, station_is_master, station_runtime, station_signal
+from .hardware_hub import (
+    master_device_id_for_station,
+    station_is_fresh,
+    station_uses_hardware_hub,
+    station_runtime,
+    station_signal,
+    station_topology_valid,
+)
 from .runtime import warning_source_configured
 from .localization import reason_text
 
@@ -33,7 +39,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up hardware online state and optional room danger entities."""
     for subentry in entry.subentries.values():
-        if subentry.subentry_type == SUBENTRY_TYPE_STATION and station_is_master(subentry):
+        if subentry.subentry_type == SUBENTRY_TYPE_STATION and station_uses_hardware_hub(subentry):
             async_add_entities(
                 [HardwareStationOnlineBinarySensor(entry, subentry)],
                 config_subentry_id=subentry.subentry_id,
@@ -109,17 +115,24 @@ class HardwareStationOnlineBinarySensor(BinarySensorEntity):
     @property
     def is_on(self):
         state = station_runtime(self.hass, self.entry.entry_id, self.subentry.subentry_id)
-        return station_is_fresh(state)
+        return station_topology_valid(self.entry, self.subentry) and station_is_fresh(
+            state
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
+        runtime = station_runtime(
+            self.hass, self.entry.entry_id, self.subentry.subentry_id
+        )
         return DeviceInfo(
             identifiers={(DOMAIN, f"station:{self.subentry.data.get(CONF_HARDWARE_ID)}")},
             name=f"{self.entry.title} · {self.subentry.title}",
             manufacturer="Lüftungsassistent",
             model="ESP32 Lüftungsstation (SCD41 + Display)",
-            sw_version=INTEGRATION_VERSION,
-            via_device_id=master_device_id(self.hass, self.entry.entry_id),
+            sw_version=runtime.firmware if runtime is not None else None,
+            via_device_id=master_device_id_for_station(
+                self.hass, self.entry, self.subentry
+            ),
         )
 
     async def async_added_to_hass(self) -> None:
