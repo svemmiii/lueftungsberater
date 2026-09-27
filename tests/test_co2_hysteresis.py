@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from custom_components.lueftungsberater.co2_hysteresis import (
     CO2_AIRING_FINISH_STABLE,
+    CO2_MEASUREMENT_MISSING_TIMEOUT,
     CO2_RECOMMEND_RELEASE_STABLE,
     Co2HysteresisState,
 )
