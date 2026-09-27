@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from pathlib import Path
 
 from homeassistant.components.http import StaticPathConfig
@@ -9,11 +10,16 @@ from homeassistant.components.lovelace.const import LOVELACE_DATA, MODE_STORAGE
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.collection import ItemNotFound
+from homeassistant.helpers.typing import ConfigType
 
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
 from .air_quality import async_get_or_create_air_quality_tracker, async_stop_air_quality_tracker
 from .areas import async_sync_room_device_areas
-from .api import async_clear_remote_access, async_register_api
+from .api import (
+    async_clear_remote_access,
+    async_register_api,
+    async_register_hardware_service,
+)
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .compat import pin_subentry_capabilities
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
@@ -59,9 +65,11 @@ from .const import (
     CONF_HARDWARE_ROLE,
     CONF_HARDWARE_MASTER_ID,
     CONF_HARDWARE_MASTER_SUBENTRY_ID,
+    CONF_HARDWARE_MASTER_SECRET,
     HARDWARE_CONNECTION_DIRECT,
     HARDWARE_ROLE_STANDALONE,
     HARDWARE_ROLE_NODE,
+    HARDWARE_ROLE_MASTER,
     entry_kind,
 )
 from .remote import (
@@ -76,6 +84,12 @@ _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
 FRONTEND_VERSION = INTEGRATION_VERSION
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register integration-wide actions before any config entry is loaded."""
+    async_register_hardware_service(hass)
+    return True
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -336,6 +350,26 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             data.pop(CONF_HARDWARE_MASTER_ID, None)
             hass.config_entries.async_update_subentry(entry, subentry, data=data)
         updates["minor_version"] = 11
+
+    if entry.version == 1 and entry.minor_version < 12:
+        # v0.10.2 authenticates Native-API node reports with an independent
+        # per-master 256-bit credential.
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_STATION:
+                continue
+            data = dict(subentry.data)
+            role = str(data.get(CONF_HARDWARE_ROLE) or "").strip().lower()
+            changed = False
+            if role == HARDWARE_ROLE_MASTER:
+                if not str(data.get(CONF_HARDWARE_MASTER_SECRET) or "").strip():
+                    data[CONF_HARDWARE_MASTER_SECRET] = secrets.token_urlsafe(32)
+                    changed = True
+            elif CONF_HARDWARE_MASTER_SECRET in data:
+                data.pop(CONF_HARDWARE_MASTER_SECRET, None)
+                changed = True
+            if changed:
+                hass.config_entries.async_update_subentry(entry, subentry, data=data)
+        updates["minor_version"] = 12
 
     # Pin before async_update_entry: the update event serializes the ConfigEntry
     # for the frontend, so its supported_subentry_types must already be correct.

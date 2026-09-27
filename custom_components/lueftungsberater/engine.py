@@ -2544,8 +2544,21 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     # room states may still adopt the session-specific action/text so the two
     # views remain coherent without turning the window contact into an indoor
     # urgency input.
-    co2_session_strong_origin = data.previous_need in {"co2_high", "co2_critical"}
-    co2_session_may_raise_room_view = room_color != "green" or co2_session_strong_origin
+    # The strength of a running CO₂ session is frozen when the user opens the
+    # window. ``previous_need`` changes with every fresh snapshot (for example
+    # co2_high -> co2_elevated while CO₂ is falling) and therefore cannot be the
+    # long-lived source of truth. Keep a one-snapshot legacy fallback for
+    # pre-v0.10.2 in-memory state, but prefer the coordinator-owned session flag.
+    co2_session_strong_origin = bool(
+        data.co2_session_strong_origin
+        or (
+            data.co2_airing_active
+            and data.previous_need in {"co2_high", "co2_critical"}
+        )
+    )
+    co2_session_may_raise_room_view = (
+        room_color != "green" or co2_session_strong_origin
+    )
     if data.window_open and hard_mode is None and data.co2_airing_active:
         if data.co2_minimum_airing_active:
             # During the mandatory first five minutes, preserve a cautious
@@ -2580,6 +2593,25 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             room_reason_key = reason_key
             room_reason_args = dict(reason_args)
         elif caution_kind in {"near_target", "target_confirming"} and mode == "co2_abwaegung":
+            room_color = "yellow"
+            room_recommendation_key = "room_keep_brief"
+            room_need = "co2_session"
+            room_reason_key = reason_key
+            room_reason_args = dict(reason_args)
+        elif (
+            recommendation_key == "short_observation"
+            and co2_session_strong_origin
+            and not data.co2_finish_ready
+        ):
+            # A strong CO₂ session does not stop being actionable merely
+            # because the initial five-minute hold has elapsed and the native
+            # ventilation perspective now weighs a temperature/humidity
+            # drawback.  As long as the explicit session target is still
+            # pending, the independent room-air view must remain at least a
+            # calm yellow observation instead of claiming that the user can
+            # close the window.  ``lueftung_fertig`` above remains the only
+            # path that turns this remembered strong session green again; hard
+            # locks/newly worse outdoor conditions already win before here.
             room_color = "yellow"
             room_recommendation_key = "room_keep_brief"
             room_need = "co2_session"

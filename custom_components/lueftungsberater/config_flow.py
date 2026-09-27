@@ -72,6 +72,7 @@ from .const import (
     CONF_HARDWARE_CONNECTION_TYPE,
     CONF_HARDWARE_ROLE,
     CONF_HARDWARE_MASTER_SUBENTRY_ID,
+    CONF_HARDWARE_MASTER_SECRET,
     CONF_HARDWARE_ROOM_MODE,
     CONF_HARDWARE_LOCATION_MODE,
     CONF_HARDWARE_WIREGUARD_FILE,
@@ -881,7 +882,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Configure local and Tailscale-remote Lüftungsberater instances."""
 
     VERSION = 1
-    MINOR_VERSION = 11
+    MINOR_VERSION = 12
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
@@ -2147,6 +2148,12 @@ class StationSubentryFlow(ConfigSubentryFlow):
             existing = entry.subentries.get(str(data.get(CONF_HARDWARE_ROOM_ID) or ""))
             room_title = str(existing.title) if existing is not None else "Station"
         role = str(data.get(CONF_HARDWARE_ROLE) or HARDWARE_ROLE_STANDALONE)
+        data = dict(data)
+        if role == HARDWARE_ROLE_MASTER:
+            if not str(data.get(CONF_HARDWARE_MASTER_SECRET) or "").strip():
+                data[CONF_HARDWARE_MASTER_SECRET] = secrets.token_urlsafe(32)
+        else:
+            data.pop(CONF_HARDWARE_MASTER_SECRET, None)
         suffix = "Master" if role == HARDWARE_ROLE_MASTER else "Station"
         return self.async_create_entry(
             title=f"{room_title} · {suffix}",
@@ -2175,6 +2182,24 @@ class StationSubentryFlow(ConfigSubentryFlow):
         data: dict[str, Any],
     ):
         role = station_role(subentry)
+        data = dict(data)
+        if role == HARDWARE_ROLE_MASTER:
+            old_hardware_id = str(subentry.data.get(CONF_HARDWARE_ID) or "")
+            new_hardware_id = str(data.get(CONF_HARDWARE_ID) or "")
+            existing_secret = str(
+                subentry.data.get(CONF_HARDWARE_MASTER_SECRET) or ""
+            ).strip()
+            if (
+                existing_secret
+                and hardware_id_matches(old_hardware_id, new_hardware_id)
+            ):
+                data[CONF_HARDWARE_MASTER_SECRET] = existing_secret
+            else:
+                # A physical master replacement receives a fresh credential;
+                # ordinary local/remote reconfiguration keeps the old one.
+                data[CONF_HARDWARE_MASTER_SECRET] = secrets.token_urlsafe(32)
+        else:
+            data.pop(CONF_HARDWARE_MASTER_SECRET, None)
         room = entry.subentries.get(str(data.get(CONF_HARDWARE_ROOM_ID) or ""))
         room_title = str(room.title) if room is not None else "Station"
         suffix = "Master" if role == HARDWARE_ROLE_MASTER else "Station"

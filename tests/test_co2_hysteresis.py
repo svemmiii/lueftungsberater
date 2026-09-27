@@ -882,3 +882,65 @@ def test_trend_confirmation_count_survives_state_roundtrip():
     )
     assert restored.trend_positive_intervals == 2
     assert confirmed.minutes_to_2000 is not None
+
+
+def test_co2_session_origin_is_restart_safe_and_clears_after_close():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
+
+    assert state.start_airing_session(target_ppm=850.0, origin_need="co2_high")
+    assert state.session_origin_need == "co2_high"
+    saved = state.as_dict()
+    assert saved["session_origin_need"] == "co2_high"
+
+    restored = Co2HysteresisState()
+    restored.restore(
+        pending_below_since=None,
+        finish_below_since=None,
+        session_active=saved["session_active"],
+        session_target_ppm=saved["session_target_ppm"],
+        session_origin_need=saved["session_origin_need"],
+    )
+    assert restored.session_origin_need == "co2_high"
+
+    restored.evaluate(
+        now=start,
+        co2=1370.0,
+        window_open=False,
+        previous_mode="co2_mindestlueftung",
+        previous_need="co2_elevated",
+    )
+    assert restored.session_origin_need is None
+
+
+def test_co2_timeout_keeps_session_origin_for_same_open_window_recovery():
+    state = Co2HysteresisState()
+    start = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
+    assert state.start_airing_session(target_ppm=850.0, origin_need="co2_high")
+
+    state.evaluate(
+        now=start,
+        co2=None,
+        window_open=True,
+        previous_mode="co2_mindestlueftung",
+        previous_need="co2_elevated",
+    )
+    state.evaluate(
+        now=start + CO2_MEASUREMENT_MISSING_TIMEOUT + timedelta(seconds=1),
+        co2=None,
+        window_open=True,
+        previous_mode="co2_messung_verloren",
+        previous_need="co2_elevated",
+    )
+    assert state.session_active is False
+    assert state.session_origin_need == "co2_high"
+
+    recovered = state.evaluate(
+        now=start + CO2_MEASUREMENT_MISSING_TIMEOUT + timedelta(minutes=1),
+        co2=1370.0,
+        window_open=True,
+        previous_mode="co2_messung_verloren",
+        previous_need="co2_elevated",
+    )
+    assert recovered.airing_active is True
+    assert state.session_origin_need == "co2_high"

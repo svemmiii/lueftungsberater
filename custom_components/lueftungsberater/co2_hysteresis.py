@@ -108,6 +108,7 @@ class Co2HysteresisState:
     finish_below_since: datetime | None = None
     session_active: bool = False
     session_target_ppm: float | None = None
+    session_origin_need: str | None = None
     completed_for_open_window: bool = False
     rearm_threshold_ppm: float | None = None
     rearm_below_since: datetime | None = None
@@ -130,6 +131,7 @@ class Co2HysteresisState:
         self.finish_below_since = None
         self.session_active = False
         self.session_target_ppm = None
+        self.session_origin_need = None
         self.completed_for_open_window = False
         self.rearm_threshold_ppm = None
         self.rearm_below_since = None
@@ -206,7 +208,12 @@ class Co2HysteresisState:
         self.measurement_missing_since = None
         self.session_active = False
         self.session_target_ppm = None
+        # A short CO₂ sensor timeout may resume while the same window remains
+        # open. Keep the immutable session origin in that case so the room-air
+        # card cannot forget that this airing started from a strong CO₂ state.
+        # Normal close/reset clears it together with the rest of the session.
         if not keep_completed:
+            self.session_origin_need = None
             self.completed_for_open_window = False
             self.measurement_timed_out_for_open_window = False
             self.measurement_timeout_target_ppm = None
@@ -217,14 +224,18 @@ class Co2HysteresisState:
         if keep_completed:
             self.completed_for_open_window = True
 
-    def start_airing_session(self, *, target_ppm: float) -> bool:
-        """Start a real CO₂ airing session with a fixed finish target."""
+    def start_airing_session(
+        self, *, target_ppm: float, origin_need: str | None = None
+    ) -> bool:
+        """Start a real CO₂ airing session with an immutable origin and target."""
         if self.session_active or self.completed_for_open_window:
             return False
         self.pending_below_since = None
         self.finish_below_since = None
         self.session_active = True
         self.session_target_ppm = max(CO2_AIRING_FINISH, float(target_ppm))
+        origin = str(origin_need or "").strip()
+        self.session_origin_need = origin if origin in _CO2_NEEDS else None
         self.measurement_missing_since = None
         self.measurement_timed_out_for_open_window = False
         self.measurement_timeout_target_ppm = None
@@ -314,6 +325,7 @@ class Co2HysteresisState:
             ),
             "session_active": self.session_active,
             "session_target_ppm": self.session_target_ppm,
+            "session_origin_need": self.session_origin_need,
             "completed_for_open_window": self.completed_for_open_window,
             "rearm_threshold_ppm": self.rearm_threshold_ppm,
             "rearm_below_since": (
@@ -349,6 +361,7 @@ class Co2HysteresisState:
         finish_below_since: datetime | None,
         session_active: bool = False,
         session_target_ppm: float | None = None,
+        session_origin_need: str | None = None,
         completed_for_open_window: bool = False,
         rearm_threshold_ppm: float | None = None,
         rearm_below_since: datetime | None = None,
@@ -412,6 +425,13 @@ class Co2HysteresisState:
         self.measurement_missing_since = measurement_missing_since
         self.measurement_timed_out_for_open_window = bool(
             measurement_timed_out_for_open_window
+        )
+        origin = str(session_origin_need or "").strip()
+        self.session_origin_need = (
+            origin
+            if origin in _CO2_NEEDS
+            and (self.session_active or self.measurement_timed_out_for_open_window)
+            else None
         )
         try:
             timeout_target = (

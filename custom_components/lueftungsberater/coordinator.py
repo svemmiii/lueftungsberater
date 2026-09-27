@@ -244,6 +244,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 session_target_ppm=(
                     co2_memory.get("session_target_ppm") if memory_fresh else None
                 ),
+                session_origin_need=(
+                    co2_memory.get("session_origin_need") if memory_fresh else None
+                ),
                 completed_for_open_window=(
                     bool(co2_memory.get("completed_for_open_window"))
                     if memory_fresh
@@ -563,7 +566,10 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         # the same user action.  Start an explicit session now so later mode
         # changes (for example 1400 -> 1399 ppm) cannot forget the CO₂ goal.
         target_ppm = result.co2_session_target
-        self._co2_hysteresis.start_airing_session(target_ppm=target_ppm)
+        self._co2_hysteresis.start_airing_session(
+            target_ppm=target_ppm,
+            origin_need=result.co2_session_need,
+        )
 
         tracker = get_tracker(self.hass, self.entry, self.subentry)
         started_at = (
@@ -669,6 +675,10 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 previous_need=previous_need,
                 co2_pending_hold=co2_hysteresis.pending_hold,
                 co2_airing_active=co2_hysteresis.airing_active,
+                co2_session_strong_origin=(
+                    self._co2_hysteresis.session_origin_need
+                    in {"co2_high", "co2_critical"}
+                ),
                 co2_finish_ready=co2_hysteresis.finish_ready,
                 co2_finish_target=co2_hysteresis.finish_target_ppm,
                 co2_near_target=co2_hysteresis.near_target_ppm,

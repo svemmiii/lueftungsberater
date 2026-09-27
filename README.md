@@ -4,9 +4,9 @@
 
 # Lüftungsassistent
 
-## Hardware-Lüftungsstationen (v0.10.1)
+## Hardware-Lüftungsstationen (v0.10.2)
 
-Die Hardware-Erweiterung bleibt vollständig Teil **derselben** Lüftungsassistent-Integration. Ab v0.10.1 ist Home Assistant die zentrale Konfigurationsinstanz für Raum, Rolle, Master-Zuordnung und – bei entfernten Masters – die vorbereitete WireGuard-Konfiguration.
+Die Hardware-Erweiterung bleibt vollständig Teil **derselben** Lüftungsassistent-Integration. Seit v0.10.1 ist Home Assistant die zentrale Konfigurationsinstanz für Raum, Rolle, Master-Zuordnung und – bei entfernten Masters – die vorbereitete WireGuard-Konfiguration. **v0.10.2 ergänzt dafür einen Native-API-Rückkanal zur einheitlichen ESP-Firmware**, ohne die Entscheidungslogik auf den ESP zu verlagern.
 
 Beim Hinzufügen einer Lüftungsstation wird zuerst ihre Rolle festgelegt:
 
@@ -20,9 +20,13 @@ Eine Station benötigt **keinen vorher angelegten Raum mehr**. Standardmäßig e
 
 Für einen Master wird zusätzlich **Lokal** oder **Entfernt / WireGuard** gewählt. Bei einem entfernten Master kann eine normale WireGuard-Client-`.conf` direkt im Home-Assistant-Dialog hochgeladen werden. Die Datei wird nur eingelesen; ihre relevanten Werte werden für die spätere Provisionierung der einheitlichen ESP-Firmware gespeichert.
 
-Vor der Firmware ist die Stationsschnittstelle zusätzlich gehärtet: Node-Reports werden gegen den in Home Assistant ausgewählten Master validiert, die Displayantwort wird direkt aus dem Raum-Coordinator erzeugt und nicht mehr aus einer sichtbaren Advisor-Entity zurückgelesen. Master können sauber zwischen lokal und remote umkonfiguriert werden; gelöschte Master hinterlassen einen expliziten `master_missing`-Zustand statt eines stillen Fallbacks. Bei mehreren passenden ESPHome-Sensoren kann die Zuordnung beim ersten Setup einmal manuell festgelegt werden.
+Die Stationsschnittstelle ist zusätzlich gehärtet: Node-Reports werden gegen den in Home Assistant ausgewählten Master validiert, die Displayantwort wird direkt aus dem Raum-Coordinator erzeugt und nicht mehr aus einer sichtbaren Advisor-Entity zurückgelesen. Master können sauber zwischen lokal und remote umkonfiguriert werden; gelöschte Master hinterlassen einen expliziten `master_missing`-Zustand statt eines stillen Fallbacks. Bei mehreren passenden ESPHome-Sensoren kann die Zuordnung beim ersten Setup einmal manuell festgelegt werden.
 
-Die spätere Firmware soll auf allen ESPs identisch sein. Home Assistant liefert die individuelle Sollkonfiguration über den authentifizierten Hardware-Endpunkt `/api/lueftungsberater/hardware/config`: Rolle, Raum, Masterbeziehung, Teilnehmerliste und – nur für einen entsprechend konfigurierten entfernten Master – dessen WireGuard-Profil. Die ESP-Firmware selbst bleibt Transport-/Anzeigeebene; die komplette Lüftungsentscheidung bleibt in Home Assistant. Weitere Protokolldetails stehen in `HARDWARE_HUB.md`.
+Die Firmware soll auf allen ESPs identisch sein. Home Assistant liefert die individuelle Sollkonfiguration über den authentifizierten Hardware-Endpunkt `/api/lueftungsberater/hardware/config`: Rolle, Raum, Masterbeziehung, Teilnehmerliste und – nur für einen entsprechend konfigurierten entfernten Master – dessen WireGuard-Profil. Dieser Endpoint ist für die **bewusste Erst-/Neu-Provisionierung** gedacht, nicht für einen Abruf bei jedem Start. Die Firmware speichert die erhaltene Gerätekonfiguration einschließlich Master-Credential/WireGuard-Daten persistent; normale Reboots arbeiten ohne HA-Admin-Token weiter.
+
+Für laufende Node-Messrunden gibt es ab v0.10.2 zusätzlich die response-pflichtige HA-Aktion `lueftungsberater.hardware_report`. Der Master meldet darüber Node-Rohwerte über seine bestehende ESPHome-Native-API-Verbindung und erhält `status`, `recommendation_key`, `display_mode`, `safety_lock`, Raumname sowie `round_id`/`request_id` zurück. Lokal läuft dieser Weg direkt im Heimnetz; ein als `remote` konfigurierter Master nutzt denselben Native-API-Vertrag über WireGuard. Der Standort wird **nicht** aus der Netzwerkadresse erraten, sondern bleibt eine explizite HA-Konfiguration. Die ESP-Firmware selbst bleibt Transport-/Anzeigeebene; die komplette Lüftungsentscheidung bleibt in Home Assistant. Weitere Protokolldetails stehen in `HARDWARE_HUB.md`.
+
+Für den response-fähigen Native-API-Rückkanal benötigt die Stationsfirmware **ESPHome 2025.10 oder neuer**. Beim Master muss außerdem bewusst „Gerät darf Home-Assistant-Aktionen ausführen“ freigegeben sein. Zusätzlich besitzt ab v0.10.2 **jeder Master ein eigenes, von Home Assistant erzeugtes 256-Bit-Credential**. Ein Node-Report wird nur akzeptiert, wenn `master_id` und `master_secret` zur in HA ausgewählten Master-Station passen. Das Secret wird weder als Entity/Diagnoseattribut veröffentlicht noch in der Displayantwort zurückgegeben. Ein physischer Mastertausch rotiert das Credential; ein normaler Wechsel zwischen `local` und `remote` behält es bei.
 
 
 **Alpha-Version für Home Assistant.**

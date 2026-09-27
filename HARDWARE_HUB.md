@@ -1,8 +1,8 @@
-# Hardware-Hub / ESP-NOW – Zielarchitektur v0.10.1
+# Hardware-Hub / ESP-NOW – Architektur v0.10.2
 
-> v0.10.1 räumt zuerst die **Home-Assistant-Seite** auf. Home Assistant ist die Quelle der Wahrheit für Stationsrolle, Raum, Master-Zuordnung und die vorbereitete Netzwerk-/WireGuard-Konfiguration. Die einheitliche ESP-Firmware wird anschließend genau gegen diesen Vertrag gebaut.
+> Home Assistant bleibt die Quelle der Wahrheit für Stationsrolle, Raum, Master-Zuordnung und Netzwerk-/WireGuard-Konfiguration. v0.10.2 ergänzt den bereits in v0.10.1 vorbereiteten Vertrag um einen response-fähigen ESPHome-Native-API-Rückkanal für laufende Messrunden.
 
-> **Sicherheit:** Der Provisioning-Endpunkt für die spätere Firmware ist aktuell nur für Home-Assistant-Administratoren freigegeben, weil ein importiertes Remote-Master-Profil auch den WireGuard-Private-Key enthalten kann. Für die ESP-Firmware wird danach ein eigener Geräte-/Provisioning-Auth-Weg definiert.
+> **Sicherheit:** Der HTTP-Provisioning-Endpunkt bleibt nur für Home-Assistant-Administratoren freigegeben, weil ein importiertes Remote-Master-Profil auch den WireGuard-Private-Key enthalten kann. Der neue Laufzeit-Reportweg verwendet dagegen die bereits authentifizierte ESPHome-Native-API und erfordert in der ESPHome-Integration eine ausdrückliche Freigabe für Home-Assistant-Aktionen.
 
 ## Grundprinzip: eine Firmware, Rollen aus Home Assistant
 
@@ -71,9 +71,9 @@ Ausgelesen/validiert werden:
 
 Die Upload-Datei selbst wird nicht dauerhaft aufbewahrt. Die geparsten Werte werden im Master-Subentry als Sollkonfiguration gespeichert, damit die spätere ESP-Firmware sie beim Provisionieren abrufen kann.
 
-> Der Private Key wird in v0.10.1 noch als Teil der Home-Assistant-Konfiguration gespeichert, weil die Firmware zur Laufzeit noch nicht existiert. Eine spätere Verbesserung kann den Schlüssel direkt auf dem ESP erzeugen und HA nur den Public Key geben.
+> Der Private Key wird weiterhin als Teil der Home-Assistant-Sollkonfiguration gespeichert, damit ein remote vorgesehener Master lokal provisioniert werden kann. Eine spätere Härtung kann den Schlüssel direkt auf dem ESP erzeugen und HA nur den Public Key geben.
 
-## Sollkonfiguration für die spätere Firmware
+## Sollkonfiguration für die einheitliche Firmware
 
 Neuer authentifizierter Endpunkt:
 
@@ -101,7 +101,7 @@ Antwort enthält – abhängig von der Rolle – unter anderem:
 - für `master`: die HA-Teilnehmerliste
 - für entfernte `master`: das WireGuard-Profil
 
-Damit muss die spätere Firmware keine Rolle erraten und keine eigene dauerhafte Teilnehmerverwaltung als Quelle der Wahrheit erfinden. Sie kann HA-Sollzustand abrufen/übernehmen und die Funk-/Displayaufgabe ausführen.
+Damit muss die einheitliche Firmware keine Rolle erraten und keine eigene dauerhafte Teilnehmerverwaltung als Quelle der Wahrheit erfinden. Sie kann den HA-Sollzustand übernehmen und die Funk-/Displayaufgabe ausführen.
 
 ## Direkte Einzelstation / eigener Master-Sensor
 
@@ -111,7 +111,7 @@ Ein lokaler ESP kann weiterhin als normales ESPHome-Gerät eingebunden werden:
 
 Home Assistant erkennt genau je einen CO₂-, Temperatur- und Luftfeuchtesensor. Diese Original-Entities bleiben Eigentum von ESPHome; der Lüftungsassistent erzeugt keine doppelten Rohwert-Entities.
 
-Dieselbe direkte Verbindung wird in v0.10.1 auch für die **eigenen** SCD41-Werte eines Masters genutzt. Seine zusätzlichen ESP-NOW-Aufgaben kommen später mit der gemeinsamen Firmware hinzu.
+Dieselbe direkte Verbindung wird auch für die **eigenen** SCD41-Werte eines Masters genutzt. Seine zusätzlichen ESP-NOW-Aufgaben übernimmt dieselbe gemeinsame Stationsfirmware abhängig von der durch HA gesetzten Rolle.
 
 ## Topologie- und Report-Hardening
 
@@ -139,6 +139,37 @@ Dasselbe gilt für die Raumbeziehung: Wird ein verknüpfter Raum gelöscht, blei
 
 Genau ein CO₂-/Temperatur-/Feuchtesensor wird weiterhin automatisch gewählt. Gibt es bereits beim ersten Setup mehrere passende Sensoren (z. B. SCD41 + DS18B20), bleibt das Gerät auswählbar und Home Assistant fragt einmal explizit nach den drei Quellen. Die gespeicherte Auswahl wird anschließend auch bei weiteren gleichartigen Sensoren beibehalten.
 
+## Native-API-Rückkanal ab v0.10.2
+
+Für den normalen Laufzeitpfad eines ESP-NOW-Masters existiert die Home-Assistant-Aktion `lueftungsberater.hardware_report`. Sie ist **kein zweiter Entscheidungsweg**: Nach der Stationsauflösung verwendet sie denselben internen Report-/RoomCoordinator-/Displaypfad wie `POST /api/lueftungsberater/hardware/report`.
+
+Der Master übergibt mindestens:
+
+- `hardware_id` des Nodes,
+- `master_id` des meldenden Masters,
+- `master_secret` des provisionierten Masters,
+- `round_id` und `request_id`,
+- vorhandene Rohwerte (`co2`, `temperature`, `humidity`) und optional Funkdiagnose/Firmware.
+
+Home Assistant prüft die gespeicherte Node→Master-Beziehung **vor** der Messwertübernahme. `master_id` muss zum konfigurierten Master passen und `master_secret` muss dessen von HA provisioniertem Credential entsprechen. Erst danach werden Rohwerte übernommen. Anschließend liefert die Action-Response unter anderem `status`, `recommendation`, `recommendation_key`, `display_mode`, `safety_lock`, `room_name`, `round_id`, `request_id` und `master_location_mode`.
+
+ESPHome erhält diese Serviceantwort über `capture_response`; Home Assistants ESPHome-Bridge kapselt die eigentliche Serviceantwort dabei unter `response`, die Firmware liest also die Nutzdaten aus dem inneren Response-Objekt.
+
+**Mindestversion:** Für `homeassistant.action` mit `capture_response`/Response-Verarbeitung wird **ESPHome >= 2025.10** vorausgesetzt.
+
+### Lokal vs. entfernt
+
+Der Reportvertrag ist in beiden Fällen identisch:
+
+- `local`: ESPHome Native API direkt über das lokale Netz.
+- `remote`: dieselbe ESPHome Native API über den von HA provisionierten WireGuard-Tunnel.
+
+`master_location_mode` wird ausschließlich aus dem konfigurierten Master-Subentry abgeleitet. Weder IP-Bereich noch Latenz noch das Vorhandensein einer VPN-Adresse dürfen den Standortmodus automatisch ändern. Dadurch bleibt ein entfernter Master auch dann eindeutig `remote`, wenn seine Tunneladresse technisch wie ein internes Netz aussieht.
+
+Der Native-API-Weg setzt voraus, dass für den betreffenden ESPHome-Master in Home Assistant ausdrücklich das Ausführen von Home-Assistant-Aktionen erlaubt wurde. Remote wird der ESPHome-API-Port ausschließlich innerhalb des WireGuard-Tunnels genutzt und nicht öffentlich freigegeben.
+
+Die Freigabe gilt für Home-Assistant-Aktionen dieses ESPHome-Geräts allgemein. Home Assistants ESPHome-Service-Bridge übergibt dem aufgerufenen Integrations-Service weiterhin keine separate kryptografische Caller-Geräte-ID. Diese Lücke wird deshalb auf Anwendungsebene geschlossen: `master_id` identifiziert den konfigurierten Master, `master_secret` weist den Besitz seiner HA-Provisionierung nach. Ein anderes freigegebenes ESPHome-Gerät kann damit nicht allein durch Nachahmen der Master-MAC gültige Node-Reports erzeugen.
+
 ## ESP-NOW-Node / Hardware-API
 
 Master-gebundene Nodes bleiben über die vorhandene Hardware-API angebunden:
@@ -151,17 +182,17 @@ Ein Stationsreport gilt 180 Sekunden als frisch. Danach werden alte Rohwerte fü
 
 `report` spiegelt `round_id` und `request_id` zurück. Diese IDs sind Transportkorrelation; die endgültige Retry-/Altrundenlogik wird zusammen mit der Master-Firmware festgelegt.
 
-## Geplanter ESP-NOW-Ablauf
+## ESP-NOW-Ablauf
 
 Der von HA konfigurierte Master verwaltet die Runde:
 
-`REQUEST -> SENSOR_DATA -> HA-Auswertung -> DISPLAY_RESULT -> ACK -> nächste Station`
+`REQUEST -> SENSOR_DATA -> lueftungsberater.hardware_report -> HA-Auswertung -> DISPLAY_RESULT -> ACK -> nächste Station`
 
-Home Assistant bleibt die einzige Entscheidungsinstanz. Der ESP berechnet keine zweite Lüftungslogik.
+`round_id` und `request_id` begleiten die Runde bis zur HA-Antwort zurück. Home Assistant bleibt die einzige Entscheidungsinstanz; der ESP berechnet keine zweite Lüftungslogik.
 
-## Gleiche Firmware / spätere Provisionierung
+## Gleiche Firmware / Provisionierung
 
-Das Ziel für den nächsten Schritt ist eine gemeinsame Firmware mit persistentem Gerätespeicher für ungefähr:
+Die gemeinsame Firmware verwendet persistenten Gerätespeicher für ungefähr:
 
 - Geräte-/Hardware-ID,
 - HA-Sollrolle,
@@ -173,13 +204,40 @@ Das Ziel für den nächsten Schritt ist eine gemeinsame Firmware mit persistente
 
 Rolle, Raum und Master kommen aus Home Assistant. Gerätespezifische Geheimnisse/Netzwerkdaten liegen persistent auf dem jeweiligen ESP, nachdem sie einmal lokal provisioniert wurden.
 
-## Noch bewusst nicht Teil von v0.10.1
+**Wichtig:** `/api/lueftungsberater/hardware/config` ist kein Laufzeit-Polling-Endpunkt für jeden Boot. Er dient der bewussten Erst-/Neu-Provisionierung (beziehungsweise einer später explizit angestoßenen Konfigurationsaktualisierung). Der ESP speichert die erhaltene Sollkonfiguration einschließlich `master_secret` und – bei `remote` – WireGuard-Profil persistent. Ein normaler Neustart benutzt diesen lokalen Zustand weiter und benötigt weder einen HA-Admin-Token noch einen erneuten `/hardware/config`-Abruf.
 
-- fertige ESP-NOW-Firmware,
+## Noch bewusst nicht Teil von v0.10.2
+
+- produktionsreife ESP-NOW-Firmware,
 - dynamisches Anwenden der WireGuard-Konfiguration auf einem ESP,
 - WLAN-Provisionierung für entfernte Standorte,
 - Ersatzmaster-/Election-Logik,
 - Mehrhop-Routing und Route-Recovery,
 - endgültige ACK-/Retry-/Timeout-Parameter.
 
-Diese Punkte werden **nach** der HA-Seite gegen den jetzt festgelegten v0.10.1-Vertrag implementiert.
+Diese Punkte liegen weiterhin auf der Firmware-/Netzwerkseite und ändern den v0.10.2-HA-Vertrag nicht.
+
+## Native-API Master-Credential (v0.10.2)
+
+Jeder Master besitzt ein eigenes zufälliges 256-Bit-Credential. Home Assistant
+speichert es im Master-Subentry und liefert es ausschließlich über den
+authentifizierten/admin-geschützten Hardware-Konfigurationspfad an die
+Provisionierung der Firmware.
+
+Für `lueftungsberater.hardware_report` gilt:
+
+1. `hardware_id` löst den Node auf.
+2. Die stabile Node→Master-Subentry-Beziehung bestimmt den erlaubten Master.
+3. `master_id` muss zur Hardware-ID dieses Masters passen.
+4. `master_secret` muss mit dessen gespeichertem Credential übereinstimmen.
+5. Erst danach werden Messwerte gespeichert und die Raumentscheidung berechnet.
+
+Das Secret wird unmittelbar vor dem gemeinsamen Report-Pfad aus dem
+Service-Payload entfernt. Es erscheint weder in `StationRuntime.extra`, noch in
+Entities/Diagnoseattributen oder in der Service-Response.
+
+`local`/`remote` ändert diesen Authentifizierungsvertrag nicht. Ein Remote-Master
+benutzt dasselbe Credential über seine ESPHome-Native-API-Verbindung durch
+WireGuard; Home Assistant errät den Standort weiterhin nicht anhand des
+Netzwerkwegs.
+

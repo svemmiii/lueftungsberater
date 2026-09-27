@@ -631,5 +631,69 @@
         "airing_finished": "Lüften kann beendet werden"
       }
     }
+  },
+  "services": {
+    "hardware_report": {
+      "name": "Lüftungsstation-Messung verarbeiten",
+      "description": "Interner Native-API-Laufzeitweg für einen freigegebenen ESPHome-Master. Übernimmt einen ESP-NOW-Node-Messwert und gibt die aktuelle Home-Assistant-Displayentscheidung zurück.",
+      "fields": {
+        "hardware_id": {
+          "name": "Node-Hardware-ID",
+          "description": "Physische MAC-/Hardware-ID der ESP-NOW-Raumstation."
+        },
+        "master_id": {
+          "name": "Master-Hardware-ID",
+          "description": "Physische MAC-/Hardware-ID des meldenden Masters. Home Assistant prüft sie gegen die konfigurierte Node→Master-Beziehung."
+        },
+        "master_secret": {
+          "name": "Master-Credential",
+          "description": "Von Home Assistant erzeugtes gerätespezifisches Master-Secret. Der Native-API-Report wird nur akzeptiert, wenn dieses Credential zur konfigurierten Master-Station gehört."
+        },
+        "co2": {
+          "name": "CO₂",
+          "description": "Gemessener CO₂-Wert des Nodes in ppm."
+        },
+        "temperature": {
+          "name": "Temperatur",
+          "description": "Gemessene Innentemperatur des Nodes in °C."
+        },
+        "humidity": {
+          "name": "Luftfeuchtigkeit",
+          "description": "Gemessene relative Luftfeuchtigkeit des Nodes in Prozent."
+        },
+        "rssi": {
+          "name": "RSSI",
+          "description": "Optionaler Funkpegel für die Diagnose."
+        },
+        "hops": {
+          "name": "Hops",
+          "description": "Optionale Anzahl der Funk-/Routing-Hops."
+        },
+        "latency_ms": {
+          "name": "Latenz",
+          "description": "Optionale Transportlatenz in Millisekunden."
+        },
+        "retries": {
+          "name": "Wiederholungen",
+          "description": "Optionale Anzahl der Wiederholungsversuche dieser Anfrage."
+        },
+        "firmware": {
+          "name": "Node-Firmware",
+          "description": "Optional gemeldete Firmwareversion des Nodes."
+        },
+        "online": {
+          "name": "Online",
+          "description": "Optionaler Online-Status des Nodes."
+        },
+        "round_id": {
+          "name": "Runden-ID",
+          "description": "Unsigned-32-bit Kennung der aktuellen Master-Abfragerunde."
+        },
+        "request_id": {
+          "name": "Request-ID",
+          "description": "Unsigned-32-bit Kennung der konkreten Anfrage innerhalb der Runde."
+        }
+      }
+    }
   }
 }

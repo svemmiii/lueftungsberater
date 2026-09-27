@@ -67,6 +67,10 @@ class RoomInput:
     previous_need: str | None = None
     co2_pending_hold: bool = False
     co2_airing_active: bool = False
+    # Frozen at session start. A strong 1400+/critical CO₂-origin must remain
+    # visible for the whole airing session even after the live value falls into
+    # the ordinary elevated band; a mild voluntary session must stay calm.
+    co2_session_strong_origin: bool = False
     co2_finish_ready: bool = False
     co2_finish_target: float | None = None
     co2_near_target: float | None = None

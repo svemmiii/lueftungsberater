@@ -1,0 +1,93 @@
+hardware_report:
+  fields:
+    hardware_id:
+      required: true
+      example: B0:CB:D8:09:4C:C8
+      selector:
+        text: {}
+    master_id:
+      required: true
+      example: B0:CB:D8:09:AB:1C
+      selector:
+        text: {}
+    master_secret:
+      required: true
+      selector:
+        text: {}
+    co2:
+      required: false
+      example: 1234
+      selector:
+        number:
+          min: 0
+          max: 10000
+          step: 1
+          unit_of_measurement: ppm
+    temperature:
+      required: false
+      example: 21.56
+      selector:
+        number:
+          min: -50
+          max: 80
+          step: 0.01
+          unit_of_measurement: °C
+    humidity:
+      required: false
+      example: 47.25
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 0.01
+          unit_of_measurement: '%'
+    rssi:
+      required: false
+      selector:
+        number:
+          mode: box
+    hops:
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    latency_ms:
+      required: false
+      selector:
+        number:
+          min: 0
+          unit_of_measurement: ms
+          mode: box
+    retries:
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    firmware:
+      required: false
+      selector:
+        text: {}
+    online:
+      required: false
+      selector:
+        boolean: {}
+    round_id:
+      required: true
+      example: 42
+      selector:
+        number:
+          min: 0
+          max: 4294967295
+          step: 1
+          mode: box
+    request_id:
+      required: true
+      example: 7
+      selector:
+        number:
+          min: 0
+          max: 4294967295
+          step: 1
+          mode: box

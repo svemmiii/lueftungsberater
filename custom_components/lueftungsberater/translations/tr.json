@@ -631,5 +631,69 @@
         "airing_finished": "Havalandırma bitirilebilir"
       }
     }
+  },
+  "services": {
+    "hardware_report": {
+      "name": "Havalandırma istasyonu ölçümünü işle",
+      "description": "Açıkça güvenilen bir ESPHome master için dahili Native API çalışma yolu. Bir ESP-NOW düğüm ölçümünü kaydeder ve güncel Home Assistant ekran kararını döndürür.",
+      "fields": {
+        "hardware_id": {
+          "name": "Düğüm donanım kimliği",
+          "description": "ESP-NOW oda istasyonunun fiziksel MAC/donanım kimliği."
+        },
+        "master_id": {
+          "name": "Master donanım kimliği",
+          "description": "Raporlayan masterın fiziksel MAC/donanım kimliği. Home Assistant bunu yapılandırılmış düğüm→master ilişkisiyle doğrular."
+        },
+        "master_secret": {
+          "name": "Master kimlik bilgisi",
+          "description": "Home Assistant tarafından oluşturulan cihaza özel master sırrı. Native API raporu yalnızca bu kimlik bilgisi yapılandırılmış master istasyonuna aitse kabul edilir."
+        },
+        "co2": {
+          "name": "CO₂",
+          "description": "Düğümün ppm cinsinden ölçülen CO₂ değeri."
+        },
+        "temperature": {
+          "name": "Sıcaklık",
+          "description": "Düğümün °C cinsinden ölçülen iç ortam sıcaklığı."
+        },
+        "humidity": {
+          "name": "Nem",
+          "description": "Düğümün yüzde cinsinden ölçülen bağıl nemi."
+        },
+        "rssi": {
+          "name": "RSSI",
+          "description": "Tanılama için isteğe bağlı radyo sinyal seviyesi."
+        },
+        "hops": {
+          "name": "Atlama sayısı",
+          "description": "İsteğe bağlı radyo/yönlendirme atlama sayısı."
+        },
+        "latency_ms": {
+          "name": "Gecikme",
+          "description": "Milisaniye cinsinden isteğe bağlı aktarım gecikmesi."
+        },
+        "retries": {
+          "name": "Yeniden denemeler",
+          "description": "Bu istek için isteğe bağlı yeniden deneme sayısı."
+        },
+        "firmware": {
+          "name": "Düğüm yazılımı",
+          "description": "Düğüm tarafından bildirilen isteğe bağlı firmware sürümü."
+        },
+        "online": {
+          "name": "Çevrimiçi",
+          "description": "Düğümün isteğe bağlı çevrimiçi durumu."
+        },
+        "round_id": {
+          "name": "Tur kimliği",
+          "description": "Geçerli master sorgulama turunun unsigned 32-bit kimliği."
+        },
+        "request_id": {
+          "name": "İstek kimliği",
+          "description": "Tur içindeki belirli isteğin unsigned 32-bit kimliği."
+        }
+      }
+    }
   }
 }

@@ -455,3 +455,17 @@ def test_reported_firmware_updates_device_registry_immediately(monkeypatch):
     )
 
     assert updates == [("device-id", {"sw_version": "1.0.3"})]
+
+def test_hardware_id_matching_normalizes_esphome_mac_formats():
+    from custom_components.lueftungsberater.hardware_hub import hardware_id_matches
+
+    assert hardware_id_matches(
+        "DIRECT:B0CBD809AB1C", "B0:CB:D8:09:AB:1C"
+    )
+    assert hardware_id_matches(
+        "direct:b0-cb-d8-09-ab-1c", "B0CBD809AB1C"
+    )
+    assert not hardware_id_matches(
+        "DIRECT:B0CBD809AB1C", "B0:CB:D8:09:4C:C8"
+    )
+

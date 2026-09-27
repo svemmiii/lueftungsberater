@@ -2248,6 +2248,128 @@ def test_running_co2_session_controls_room_card_until_finish_ready():
     assert after_minimum.room_reason_key == "continue_airing"
 
 
+def test_strong_co2_session_origin_survives_live_need_drop_below_1400():
+    """Regression: 1400 -> 1390 -> 1370 must not forget a strong session.
+
+    The current CO₂ need may legitimately fall back to ``co2_elevated`` while
+    the window is open. The room-air card still belongs to the already accepted
+    1400+ ppm session until that fixed session target is actually satisfied.
+    """
+    result = evaluate_room(
+        base(
+            co2=1370.0,
+            window_open=True,
+            open_minutes=3.0,
+            previous_mode="co2_mindestlueftung",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_minimum_airing_active=True,
+            co2_session_strong_origin=True,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+        )
+    )
+
+    assert result.mode == "co2_mindestlueftung"
+    assert result.recommendation_key == "keep_open"
+    assert result.room_status_color == "orange"
+    assert result.room_recommendation_key == "keep_open"
+    assert result.primary_need == "co2_session"
+
+
+def test_strong_co2_session_stays_yellow_after_minimum_when_outdoor_tradeoff_remains():
+    """A 1400+ session cannot become green before its fixed target is met.
+
+    Regression for the real sequence: 1400 ppm -> window open -> five-minute
+    minimum completed -> 1370 ppm while cooler outdoor air creates a native
+    CO₂ trade-off. The native card may downgrade to short observation, but the
+    room-air card must not say that closing is already fine while the stored
+    1250 ppm session target is still pending.
+    """
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=50.0,
+            co2=1370.0,
+            window_open=True,
+            open_minutes=6.0,
+            previous_mode="co2_mindestlueftung",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_minimum_airing_active=False,
+            co2_session_strong_origin=True,
+            co2_finish_target=1250.0,
+            co2_near_target=1300.0,
+            co2_finish_ready=False,
+        )
+    )
+
+    assert result.mode == "co2_abwaegung"
+    assert result.recommendation_key == "short_observation"
+    assert result.room_status_color == "yellow"
+    assert result.room_recommendation_key == "room_keep_brief"
+    assert result.primary_need == "co2_session"
+
+    # Once the target has actually been confirmed by the hysteresis, the same
+    # outdoor trade-off may legitimately end the room-level task. The native
+    # perspective can remain cautious about the open window, but the room-air
+    # card must no longer keep the completed CO₂ session alive.
+    finished = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=50.0,
+            co2=1240.0,
+            window_open=True,
+            open_minutes=8.0,
+            previous_mode="co2_abwaegung",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_minimum_airing_active=False,
+            co2_session_strong_origin=True,
+            co2_finish_target=1250.0,
+            co2_near_target=1300.0,
+            co2_finish_ready=True,
+        )
+    )
+    assert finished.room_status_color == "green"
+    assert finished.room_recommendation_key == "can_close"
+
+
+def test_mild_co2_session_still_does_not_raise_room_card_after_minimum_tradeoff():
+    """The strong-session fix must not make every open CO₂ session yellow."""
+    result = evaluate_room(
+        base(
+            indoor_temp=22.0,
+            target_temp=22.0,
+            indoor_humidity=50.0,
+            outdoor_temp=18.0,
+            outdoor_humidity=50.0,
+            co2=1200.0,
+            window_open=True,
+            open_minutes=6.0,
+            previous_mode="co2_mindestlueftung",
+            previous_need="co2_elevated",
+            co2_airing_active=True,
+            co2_minimum_airing_active=False,
+            co2_session_strong_origin=False,
+            co2_finish_target=850.0,
+            co2_near_target=900.0,
+            co2_finish_ready=False,
+        )
+    )
+
+    assert result.mode == "co2_abwaegung"
+    assert result.recommendation_key == "short_observation"
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "can_close"
+
+
 def test_running_co2_session_room_card_is_yellow_near_target_then_green_only_when_ready():
     common = dict(
         indoor_temp=22.0,

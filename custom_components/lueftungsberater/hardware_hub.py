@@ -76,8 +76,25 @@ def _domain_store(hass: HomeAssistant) -> dict[str, Any]:
 
 
 def _normalize_hardware_id(value: Any) -> str:
+    """Normalize stored/protocol hardware ids without inventing identities.
+
+    ESPHome exposes MAC based identifiers, while older/config-flow data may
+    contain the same MAC with a ``DIRECT:`` prefix or without separators. Keep
+    arbitrary non-MAC identifiers untouched apart from the historical
+    upper-case/hyphen normalization, but canonicalize real 48-bit MACs so the
+    native-API master id and the HA device-registry id compare reliably.
+    """
     text = str(value or "").strip().upper().replace("-", ":")
-    return text
+    if not text:
+        return ""
+
+    direct = text.startswith("DIRECT:")
+    raw = text.removeprefix("DIRECT:") if direct else text
+    compact = raw.replace(":", "")
+    if len(compact) == 12 and all(char in "0123456789ABCDEF" for char in compact):
+        raw = ":".join(compact[index : index + 2] for index in range(0, 12, 2))
+
+    return f"DIRECT:{raw}" if direct else raw
 
 
 def _hardware_id_aliases(value: Any) -> set[str]:
