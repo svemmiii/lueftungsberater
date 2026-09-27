@@ -930,7 +930,7 @@ def test_node_reconfigure_schema_does_not_offer_device_identity_fields():
         data={CONF_HARDWARE_ID: "AA:BB", CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER},
     )
     entry = SimpleNamespace(entry_id="entry", subentries={master.subentry_id: master})
-    hass = SimpleNamespace(data={})
+    hass = SimpleNamespace(data={}, config=SimpleNamespace(language="en"))
     schema = flow_module._node_station_schema(
         hass,
         entry,

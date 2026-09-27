@@ -166,7 +166,7 @@ def test_master_report_rejects_implausible_sensor_values(monkeypatch):
         lambda *_args: None,
     )
     hass = SimpleNamespace(data={})
-    entry = SimpleNamespace(entry_id="entry")
+    entry = SimpleNamespace(entry_id="entry", subentries={})
     station = SimpleNamespace(
         subentry_id="station",
         data={CONF_HARDWARE_ID: "AA:BB", CONF_HARDWARE_MASTER_ID: "master"},
