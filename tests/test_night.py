@@ -649,6 +649,7 @@ def test_temperature_short_only_never_overrides_hard_weather_danger():
         outdoor_temp=15,
         outdoor_humidity=50,
         weather_danger=True,
+        weather_hard_lock=True,
         hourly_forecast=forecast(temps=[15, 15, 15, 15]),
     )
     assert result.status == "blocked"

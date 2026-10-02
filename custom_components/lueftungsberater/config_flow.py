@@ -1,4 +1,4 @@
-"""Config flow for Lüftungsberater."""
+"""Config flow for Lüftungsassistent."""
 from __future__ import annotations
 
 import asyncio
@@ -47,11 +47,11 @@ from .hardware_hub import (
     direct_device_sensor_map,
     discovered_stations,
     hardware_id_matches,
-    station_connection_type,
     station_is_master,
     station_role,
     station_subentries,
 )
+from .hardware_provisioning import station_physical_hardware_id
 from .const import (
     CONF_AREA_ID,
     CONF_CLIMATE,
@@ -69,11 +69,14 @@ from .const import (
     CONF_HARDWARE_ID,
     CONF_HARDWARE_MASTER_ID,
     CONF_HARDWARE_ROOM_ID,
-    CONF_HARDWARE_DISCOVERY_ID,
     CONF_HARDWARE_CONNECTION_TYPE,
     CONF_HARDWARE_ROLE,
     CONF_HARDWARE_MASTER_SUBENTRY_ID,
     CONF_HARDWARE_MASTER_SECRET,
+    CONF_HARDWARE_MASTER_CREDENTIAL_RESET,
+    CONF_HARDWARE_PARTICIPANTS_HASH,
+    CONF_HARDWARE_PARTICIPANTS_SYNCED_AT,
+    CONF_HARDWARE_PROVISION_PENDING,
     CONF_HARDWARE_ROOM_MODE,
     CONF_HARDWARE_LOCATION_MODE,
     CONF_HARDWARE_WIREGUARD_FILE,
@@ -129,7 +132,10 @@ from .const import (
     CONF_NIGHT_START_TIME,
     CONF_NIGHT_END_TIME,
     CONF_WARNING_SOURCE,
+    CONF_WARNING_SOURCE_MODE,
+    CONF_LOCATION_TRACKER,
     CONF_WEATHER,
+    CONF_WEATHER_SOURCE_MODE,
     CONF_WINDOWS,
     DEFAULT_REMOTE_PORT,
     DEFAULT_DISPLAY_MODE,
@@ -147,6 +153,13 @@ from .const import (
     SUBENTRY_TYPE_ROOM,
     SUBENTRY_TYPE_STATION,
     WARNING_SOURCE_NONE,
+    WARNING_SOURCE_AUTO,
+    WARNING_SOURCE_MANUAL,
+    WARNING_SOURCE_AUTO_PLUS_MANUAL,
+    DEFAULT_WARNING_SOURCE_MODE,
+    WEATHER_SOURCE_AUTO,
+    WEATHER_SOURCE_MANUAL,
+    DEFAULT_WEATHER_SOURCE_MODE,
     NOTIFY_TRIGGER_AIRING_RECOMMENDED,
     NOTIFY_TRIGGER_AIRING_FINISHED,
     NOTIFY_TRIGGER_AIR_DANGER,
@@ -276,7 +289,29 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
             vol.Required(SECTION_GENERAL): section(
                 vol.Schema(
                     {
-                        vol.Required(CONF_WEATHER): _entity("weather"),
+                        vol.Optional(
+                            CONF_WEATHER_SOURCE_MODE, default=DEFAULT_WEATHER_SOURCE_MODE
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[WEATHER_SOURCE_AUTO, WEATHER_SOURCE_MANUAL],
+                                mode=SelectSelectorMode.DROPDOWN,
+                                translation_key="weather_source_mode",
+                            )
+                        ),
+                        vol.Optional(CONF_WEATHER): _entity("weather"),
+                        vol.Optional(
+                            CONF_WARNING_SOURCE_MODE, default=DEFAULT_WARNING_SOURCE_MODE
+                        ): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[
+                                    WARNING_SOURCE_AUTO,
+                                    WARNING_SOURCE_MANUAL,
+                                    WARNING_SOURCE_AUTO_PLUS_MANUAL,
+                                ],
+                                mode=SelectSelectorMode.DROPDOWN,
+                                translation_key="warning_source_mode",
+                            )
+                        ),
                         vol.Optional(
                             CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE
                         ): SelectSelector(
@@ -286,6 +321,7 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                                 translation_key="warning_source",
                             )
                         ),
+                        vol.Optional(CONF_LOCATION_TRACKER): _entity("device_tracker"),
                         vol.Optional(
                             CONF_DISPLAY_MODE, default=DEFAULT_DISPLAY_MODE
                         ): SelectSelector(
@@ -379,7 +415,11 @@ def _normalize_local_input(user_input: dict[str, Any]) -> dict[str, Any]:
 
     general = user_input.get(SECTION_GENERAL)
     if isinstance(general, dict):
-        for key in (CONF_WEATHER, CONF_WARNING_SOURCE, CONF_DISPLAY_MODE):
+        for key in (
+            CONF_WEATHER_SOURCE_MODE, CONF_WEATHER,
+            CONF_WARNING_SOURCE_MODE, CONF_WARNING_SOURCE,
+            CONF_LOCATION_TRACKER, CONF_DISPLAY_MODE,
+        ):
             if key in general:
                 data[key] = general[key]
 
@@ -406,6 +446,21 @@ def _normalize_local_input(user_input: dict[str, Any]) -> dict[str, Any]:
                 data[key] = notifications[key]
 
     return data
+
+
+def _local_source_errors(data: dict[str, Any]) -> dict[str, str]:
+    """Validate only source combinations that cannot work as configured."""
+    weather_mode = str(data.get(CONF_WEATHER_SOURCE_MODE) or DEFAULT_WEATHER_SOURCE_MODE)
+    warning_mode = str(data.get(CONF_WARNING_SOURCE_MODE) or DEFAULT_WARNING_SOURCE_MODE)
+    warning_source = str(data.get(CONF_WARNING_SOURCE) or WARNING_SOURCE_NONE)
+    errors: dict[str, str] = {}
+    if weather_mode == WEATHER_SOURCE_MANUAL and not str(data.get(CONF_WEATHER) or "").strip():
+        errors["base"] = "manual_weather_required"
+    if warning_mode in {WARNING_SOURCE_MANUAL, WARNING_SOURCE_AUTO_PLUS_MANUAL} and (
+        not warning_source or warning_source == WARNING_SOURCE_NONE
+    ):
+        errors["base"] = "manual_warning_required"
+    return errors
 
 
 def _local_form_defaults(entry: ConfigEntry) -> dict[str, Any]:
@@ -437,10 +492,17 @@ def _local_form_defaults(entry: ConfigEntry) -> dict[str, Any]:
     defaults: dict[str, Any] = {
         CONF_INSTANCE_NAME: entry.title,
         SECTION_GENERAL: {
+            CONF_WEATHER_SOURCE_MODE: entry.data.get(
+                CONF_WEATHER_SOURCE_MODE, DEFAULT_WEATHER_SOURCE_MODE
+            ),
             CONF_WEATHER: entry.data.get(CONF_WEATHER),
+            CONF_WARNING_SOURCE_MODE: entry.data.get(
+                CONF_WARNING_SOURCE_MODE, DEFAULT_WARNING_SOURCE_MODE
+            ),
             CONF_WARNING_SOURCE: entry.data.get(
                 CONF_WARNING_SOURCE, WARNING_SOURCE_NONE
             ),
+            CONF_LOCATION_TRACKER: entry.data.get(CONF_LOCATION_TRACKER),
             CONF_DISPLAY_MODE: entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
         },
         SECTION_NOTIFICATIONS: notifications,
@@ -880,10 +942,10 @@ def _remote_summary(
 
 
 class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Configure local and Tailscale-remote Lüftungsberater instances."""
+    """Configure local and Tailscale-remote Lüftungsassistent instances."""
 
     VERSION = 1
-    MINOR_VERSION = 12
+    MINOR_VERSION = 14
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
@@ -892,25 +954,46 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_local(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
         if user_input is not None:
             data = _normalize_local_input(user_input)
-            title = str(data.pop(CONF_INSTANCE_NAME)).strip() or "Lüftungsassistent"
-            data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
-            # Local advisors are manually created, repeatable config entries.
-            # They intentionally do not use ConfigEntry.unique_id: Home Assistant
-            # reserves that field for stable identifiers of a real device/API.
-            return self.async_create_entry(title=title, data=data)
+            errors = _local_source_errors(data)
+            if not errors:
+                title = str(data.pop(CONF_INSTANCE_NAME)).strip() or "Lüftungsassistent"
+                data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
+                # Local assistants are manually created, repeatable config entries.
+                # They intentionally do not use ConfigEntry.unique_id: Home Assistant
+                # reserves that field for stable identifiers of a real device/API.
+                return self.async_create_entry(title=title, data=data)
 
         try:
             schema = _local_schema(self.hass)
         except Exception:  # noqa: BLE001 - never strand the user on a generic error
-            _LOGGER.exception("Unable to build local Lüftungsberater setup form")
+            _LOGGER.exception("Unable to build local Lüftungsassistent setup form")
             schema = vol.Schema(
                 {
                     vol.Required(
                         CONF_INSTANCE_NAME, default="Lüftungsassistent"
                     ): TextSelector(TextSelectorConfig()),
-                    vol.Required(CONF_WEATHER): _entity("weather"),
+                    vol.Optional(
+                        CONF_WEATHER_SOURCE_MODE, default=DEFAULT_WEATHER_SOURCE_MODE
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[WEATHER_SOURCE_AUTO, WEATHER_SOURCE_MANUAL],
+                            mode=SelectSelectorMode.DROPDOWN,
+                            translation_key="weather_source_mode",
+                        )
+                    ),
+                    vol.Optional(CONF_WEATHER): _entity("weather"),
+                    vol.Optional(
+                        CONF_WARNING_SOURCE_MODE, default=DEFAULT_WARNING_SOURCE_MODE
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[WARNING_SOURCE_AUTO, WARNING_SOURCE_MANUAL, WARNING_SOURCE_AUTO_PLUS_MANUAL],
+                            mode=SelectSelectorMode.DROPDOWN,
+                            translation_key="warning_source_mode",
+                        )
+                    ),
                     vol.Optional(
                         CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE
                     ): SelectSelector(
@@ -922,7 +1005,11 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                 }
             )
-        return self.async_show_form(step_id="local", data_schema=schema)
+        return self.async_show_form(
+            step_id="local",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input or {}),
+            errors=errors,
+        )
 
     async def async_step_remote(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
@@ -937,7 +1024,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._pending_remote_error = None
             self._remote_test_task = self.hass.async_create_task(
                 _test_remote(self.hass, data),
-                f"Test Lüftungsberater remote {title}",
+                f"Test Lüftungsassistent remote {title}",
             )
             return await self.async_step_remote_progress()
 
@@ -965,7 +1052,7 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             error, payload = await task
         except Exception:  # noqa: BLE001 - convert unexpected network/API failures
-            _LOGGER.exception("Unexpected error while testing remote Lüftungsberater")
+            _LOGGER.exception("Unexpected error while testing remote Lüftungsassistent")
             error, payload = "cannot_connect", None
         finally:
             self._remote_test_task = None
@@ -1098,19 +1185,23 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry: ConfigEntry,
         user_input: dict[str, Any] | None,
     ):
+        errors: dict[str, str] = {}
         if user_input is not None:
             data = _normalize_local_input(user_input)
-            title = str(data.pop(CONF_INSTANCE_NAME)).strip() or entry.title
-            data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
-            self.hass.config_entries.async_update_entry(entry, title=title, data=data)
-            return self.async_abort(reason="reconfigure_successful")
+            errors = _local_source_errors(data)
+            if not errors:
+                title = str(data.pop(CONF_INSTANCE_NAME)).strip() or entry.title
+                data[CONF_ENTRY_KIND] = ENTRY_KIND_LOCAL
+                self.hass.config_entries.async_update_entry(entry, title=title, data=data)
+                return self.async_abort(reason="reconfigure_successful")
 
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(
                 _local_schema(self.hass),
-                _local_form_defaults(entry),
+                user_input or _local_form_defaults(entry),
             ),
+            errors=errors,
         )
 
     async def _async_reconfigure_remote(
@@ -1457,18 +1548,15 @@ def _direct_station_candidates(
 ) -> dict[str, dict[str, Any]]:
     """Return selectable ESPHome devices, optionally requiring CO2/temp/RH."""
     device_registry = dr.async_get(hass)
-    assigned = {
-        str(station.data.get(CONF_HARDWARE_DEVICE_ID) or "")
-        for station in station_subentries(entry)
-        if station.subentry_id != current_subentry_id
-        and station_connection_type(station) == HARDWARE_CONNECTION_DIRECT
-    }
+    # Candidate filtering uses the same global physical-MAC uniqueness rule as
+    # final validation. HA device IDs are only selector handles; they are never
+    # the physical identity.
     result: dict[str, dict[str, Any]] = {}
     for esphome_entry in hass.config_entries.async_entries("esphome"):
         for device in dr.async_entries_for_config_entry(
             device_registry, config_entry_id=esphome_entry.entry_id
         ):
-            if device.id in assigned or device.disabled_by is not None:
+            if device.disabled_by is not None:
                 continue
             sensor_candidates = direct_device_sensor_candidates(hass, device.id)
             sensors = direct_device_sensor_map(hass, device.id)
@@ -1478,18 +1566,26 @@ def _direct_station_candidates(
             ):
                 continue
             name = str(device.name_by_user or device.name or esphome_entry.title or device.id)
-            external_id = next(
-                (
-                    str(identifier)
-                    for domain, identifier in device.identifiers
-                    if str(domain) == "esphome"
-                ),
-                device.id,
+            hardware_id = station_physical_hardware_id(
+                hass, device.id, direct=True
             )
+            # Physical identity must come from CONNECTION_NETWORK_MAC. Never
+            # fall back to HA's internal device id or a provider-specific
+            # identifier: those are not stable physical station identities.
+            if hardware_id is None:
+                continue
+            if _hardware_id_duplicate(
+                hass,
+                entry,
+                hardware_id,
+                current_subentry_id=current_subentry_id,
+            ):
+                continue
             result[device.id] = {
                 "device_id": device.id,
                 "name": name,
-                "external_id": external_id,
+                "hardware_id": hardware_id,
+                "network_mac": hardware_id.removeprefix("DIRECT:"),
                 "sensor_candidates": sensor_candidates,
                 **(sensors or {}),
             }
@@ -1759,17 +1855,45 @@ def _station_room_error(
 
 
 def _hardware_id_duplicate(
+    hass: HomeAssistant,
     entry: ConfigEntry,
     hardware_id: str,
     *,
     current_subentry_id: str | None = None,
 ) -> bool:
+    """Return whether one physical station MAC is already assigned anywhere local.
+
+    ``DIRECT:<MAC>`` and the raw ``<MAC>`` are aliases of the same physical ESP.
+    The uniqueness boundary is the whole Home Assistant installation, not one
+    Lüftungsassistent ConfigEntry, because automatic provisioning would otherwise
+    allow two local instances to fight over the same firmware configuration.
+    """
     wanted = _normalize_station_id(hardware_id)
-    return any(
-        station.subentry_id != current_subentry_id
-        and hardware_id_matches(station.data.get(CONF_HARDWARE_ID), wanted)
-        for station in station_subentries(entry)
-    )
+    if not wanted:
+        return False
+    try:
+        candidate_entries = hass.config_entries.async_entries(DOMAIN)
+    except AttributeError:
+        # Lightweight unit-test stubs may not expose ConfigEntries. Runtime HA
+        # always does; falling back to the current entry preserves the older
+        # helper contract without weakening installation-wide uniqueness in HA.
+        candidate_entries = [entry]
+    for candidate_entry in candidate_entries:
+        try:
+            candidate_kind = entry_kind(candidate_entry)
+        except AttributeError:
+            candidate_kind = ENTRY_KIND_LOCAL
+        if candidate_kind != ENTRY_KIND_LOCAL:
+            continue
+        for station in station_subentries(candidate_entry):
+            if (
+                candidate_entry.entry_id == entry.entry_id
+                and station.subentry_id == current_subentry_id
+            ):
+                continue
+            if hardware_id_matches(station.data.get(CONF_HARDWARE_ID), wanted):
+                return True
+    return False
 
 
 def _direct_station_input(
@@ -1801,9 +1925,9 @@ def _direct_station_input(
     if candidate is None:
         return None, None, "hardware_direct_device_invalid"
 
-    hardware_id = f"DIRECT:{candidate['external_id']}"
+    hardware_id = str(candidate["hardware_id"])
     if _hardware_id_duplicate(
-        entry, hardware_id, current_subentry_id=current_subentry_id
+        hass, entry, hardware_id, current_subentry_id=current_subentry_id
     ):
         return None, None, "hardware_id_duplicate"
 
@@ -1874,31 +1998,33 @@ def _node_station_input(
         return None, None, error
     assert room_id is not None
 
-    if current_subentry_id:
+    device_id = str(user_input.get(CONF_HARDWARE_DEVICE_ID) or "").strip()
+    if current_subentry_id and not device_id:
         current = entry.subentries.get(current_subentry_id)
-        hardware_id = (
-            _normalize_station_id(current.data.get(CONF_HARDWARE_ID))
-            if current is not None
-            else ""
-        )
-    else:
-        discovery_id = _normalize_station_id(user_input.get(CONF_HARDWARE_DISCOVERY_ID))
-        discovery = (
-            discovered_stations(hass, entry.entry_id).get(discovery_id)
-            if discovery_id
-            else None
-        )
-        hardware_id = _normalize_station_id(
-            (discovery or {}).get("hardware_id")
-            if isinstance(discovery, dict)
-            else user_input.get(CONF_HARDWARE_ID)
-        )
+        if current is not None:
+            device_id = str(current.data.get(CONF_HARDWARE_DEVICE_ID) or "").strip()
+
+    # New nodes are provisioned through the same ESPHome Native API as masters
+    # and standalone stations. Their protocol id is the raw network MAC (no
+    # DIRECT prefix), because node samples use the physical MAC on ESP-NOW.
+    hardware_id = station_physical_hardware_id(hass, device_id, direct=False)
+    if hardware_id is None:
+        # Legacy nodes without a selected ESPHome device remain reconfigurable
+        # until the user explicitly selects the physical device once.
+        if current_subentry_id:
+            current = entry.subentries.get(current_subentry_id)
+            legacy_id = (
+                _normalize_station_id(current.data.get(CONF_HARDWARE_ID))
+                if current is not None
+                else ""
+            )
+            if legacy_id and not device_id:
+                hardware_id = legacy_id
         if not hardware_id:
-            hardware_id = _normalize_station_id(user_input.get(CONF_HARDWARE_ID))
-    if not hardware_id:
-        return None, None, "hardware_id_required"
+            return None, None, "hardware_direct_device_invalid"
+
     if _hardware_id_duplicate(
-        entry, hardware_id, current_subentry_id=current_subentry_id
+        hass, entry, hardware_id, current_subentry_id=current_subentry_id
     ):
         return None, None, "hardware_id_duplicate"
 
@@ -1918,6 +2044,7 @@ def _node_station_input(
     return {
         CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_MASTER,
         CONF_HARDWARE_ROLE: HARDWARE_ROLE_NODE,
+        CONF_HARDWARE_DEVICE_ID: device_id,
         CONF_HARDWARE_ID: hardware_id,
         CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
         CONF_HARDWARE_ROOM_ID: room_id,
@@ -1988,21 +2115,21 @@ def _node_station_schema(
         entry, current_subentry_id=current_subentry_id
     )
     fields: dict[Any, Any] = {}
-    if current_subentry_id is None:
-        discoveries = _station_discovery_options(hass, entry)
-        if discoveries:
-            fields[vol.Optional(CONF_HARDWARE_DISCOVERY_ID)] = SelectSelector(
-                SelectSelectorConfig(
-                    options=discoveries, mode=SelectSelectorMode.DROPDOWN
-                )
-            )
-        hardware_default = str(defaults.get(CONF_HARDWARE_ID) or "")
-        hardware_key = (
-            vol.Optional(CONF_HARDWARE_ID, default=hardware_default)
-            if hardware_default
-            else vol.Optional(CONF_HARDWARE_ID)
-        )
-        fields[hardware_key] = TextSelector(TextSelectorConfig(autocomplete="off"))
+    device_options = _direct_station_options(
+        hass,
+        entry,
+        current_subentry_id=current_subentry_id,
+        require_sensors=False,
+    )
+    device_default = str(defaults.get(CONF_HARDWARE_DEVICE_ID) or "")
+    device_key = (
+        vol.Required(CONF_HARDWARE_DEVICE_ID, default=device_default)
+        if device_default
+        else vol.Required(CONF_HARDWARE_DEVICE_ID)
+    )
+    fields[device_key] = SelectSelector(
+        SelectSelectorConfig(options=device_options, mode=SelectSelectorMode.DROPDOWN)
+    )
     master_default = str(defaults.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "")
     master_key = (
         vol.Required(CONF_HARDWARE_MASTER_SUBENTRY_ID, default=master_default)
@@ -2153,8 +2280,13 @@ class StationSubentryFlow(ConfigSubentryFlow):
         if role == HARDWARE_ROLE_MASTER:
             if not str(data.get(CONF_HARDWARE_MASTER_SECRET) or "").strip():
                 data[CONF_HARDWARE_MASTER_SECRET] = secrets.token_urlsafe(32)
+                data[CONF_HARDWARE_MASTER_CREDENTIAL_RESET] = True
         else:
             data.pop(CONF_HARDWARE_MASTER_SECRET, None)
+            data.pop(CONF_HARDWARE_MASTER_CREDENTIAL_RESET, None)
+        # Only an explicit create/reconfigure requests one-shot provisioning.
+        # Migrations never set this marker, so old stations are not touched.
+        data[CONF_HARDWARE_PROVISION_PENDING] = True
         suffix = "Master" if role == HARDWARE_ROLE_MASTER else "Station"
         return self.async_create_entry(
             title=f"{room_title} · {suffix}",
@@ -2185,6 +2317,11 @@ class StationSubentryFlow(ConfigSubentryFlow):
         role = station_role(subentry)
         data = dict(data)
         if role == HARDWARE_ROLE_MASTER:
+            # Any explicit master reconfigure should re-confirm HA's participant
+            # topology after the station itself is provisioned. The digest value
+            # is non-secret and is rebuilt from the current node assignments.
+            data.pop(CONF_HARDWARE_PARTICIPANTS_HASH, None)
+            data.pop(CONF_HARDWARE_PARTICIPANTS_SYNCED_AT, None)
             old_hardware_id = str(subentry.data.get(CONF_HARDWARE_ID) or "")
             new_hardware_id = str(data.get(CONF_HARDWARE_ID) or "")
             existing_secret = str(
@@ -2195,12 +2332,18 @@ class StationSubentryFlow(ConfigSubentryFlow):
                 and hardware_id_matches(old_hardware_id, new_hardware_id)
             ):
                 data[CONF_HARDWARE_MASTER_SECRET] = existing_secret
+                data.pop(CONF_HARDWARE_MASTER_CREDENTIAL_RESET, None)
             else:
                 # A physical master replacement receives a fresh credential;
-                # ordinary local/remote reconfiguration keeps the old one.
+                # ordinary local/remote reconfiguration keeps the old one. The
+                # reset marker makes provisioning clear any credential already
+                # stored on the replacement ESP before the new secret is applied.
                 data[CONF_HARDWARE_MASTER_SECRET] = secrets.token_urlsafe(32)
+                data[CONF_HARDWARE_MASTER_CREDENTIAL_RESET] = True
         else:
             data.pop(CONF_HARDWARE_MASTER_SECRET, None)
+            data.pop(CONF_HARDWARE_MASTER_CREDENTIAL_RESET, None)
+        data[CONF_HARDWARE_PROVISION_PENDING] = True
         room = entry.subentries.get(str(data.get(CONF_HARDWARE_ROOM_ID) or ""))
         room_title = str(room.title) if room is not None else "Station"
         suffix = "Master" if role == HARDWARE_ROLE_MASTER else "Station"
@@ -2602,4 +2745,3 @@ class StationSubentryFlow(ConfigSubentryFlow):
             ),
             errors=errors,
         )
-

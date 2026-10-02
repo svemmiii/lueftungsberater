@@ -1,4 +1,4 @@
-"""Natural-language rendering for Lüftungsberater recommendations."""
+"""Natural-language rendering for Lüftungsassistent recommendations."""
 from __future__ import annotations
 
 from typing import Any

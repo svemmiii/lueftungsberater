@@ -27,6 +27,9 @@ class RoomInput:
     rain_minutes_until: float | None = None
     weather_caution: bool = False
     weather_danger: bool = False
+    # Strongly adverse outside weather can discourage opening without being an
+    # absolute safety lock. Only weather_hard_lock may force both cards locked.
+    weather_hard_lock: bool = False
     weather_reason_key: str | None = None
     weather_reason_args: dict[str, Any] = field(default_factory=dict)
     weather_original_reason: str | None = None

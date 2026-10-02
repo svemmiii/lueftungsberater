@@ -25,6 +25,17 @@ from homeassistant.util.unit_conversion import (
     TemperatureConverter,
 )
 
+from .warning_language import foreign_all_clear, has_foreign_close_order
+
+from .auto_providers import (
+    AutoWarningRecord,
+    auto_warning_data,
+    auto_weather_available,
+    auto_weather_data,
+    auto_weather_safety_key,
+    uses_auto_weather,
+    warning_mode,
+)
 from .air_sensors import (
     classify_absolute,
     concentration_ugm3,
@@ -50,6 +61,9 @@ from .const import (
     DATA_FORECAST_CACHE,
     DOMAIN,
     WARNING_SOURCE_NONE,
+    WARNING_SOURCE_AUTO,
+    WARNING_SOURCE_AUTO_PLUS_MANUAL,
+    WARNING_SOURCE_MANUAL,
 )
 
 WEATHER_DANGER_CONDITIONS = {
@@ -58,6 +72,19 @@ WEATHER_DANGER_CONDITIONS = {
     "hail",
     "exceptional",
 }
+
+# Window-use thresholds, deliberately separate from DWD warning levels. A severe
+# warning is contextual information; these live values answer the narrower
+# question whether opening a physical window is merely disadvantageous or itself
+# too risky. The hard-lock band starts at heavy-storm mean wind / orkan-like
+# gusts, while the lower bands remain trade-offs that critical indoor air may
+# eventually overrule.
+WIND_CAUTION_KMH = 50.0
+GUST_CAUTION_KMH = 65.0
+WIND_DANGER_KMH = 75.0
+GUST_DANGER_KMH = 90.0
+WIND_HARD_LOCK_KMH = 89.0
+GUST_HARD_LOCK_KMH = 105.0
 
 RAIN_CONDITIONS = {
     "rainy",
@@ -218,6 +245,7 @@ class WeatherAssessment:
     rain_minutes_until: float | None = None
     weather_caution: bool = False
     weather_danger: bool = False
+    weather_hard_lock: bool = False
     weather_reason_key: str | None = None
     weather_reason_args: dict[str, Any] = field(default_factory=dict)
     weather_original_reason: str | None = None
@@ -236,6 +264,9 @@ class WeatherAssessment:
     temperature_source_kind: str | None = None
     humidity_source_kind: str | None = None
     provider_domain: str | None = None
+    provider_station_id: str | None = None
+    provider_station_name: str | None = None
+    provider_station_distance_km: float | None = None
     radar_current_entity: str | None = None
     radar_next_entity: str | None = None
     wind_speed_kmh: float | None = None
@@ -254,6 +285,11 @@ class WeatherAssessment:
     short_term_kind: str | None = None
     short_term_minutes: float | None = None
     short_term_condition: str | None = None
+    # Automatic providers are not Home Assistant entities. Persistent safety
+    # uses these explicit fields to distinguish a fresh clear from a provider
+    # outage without inventing pseudo entity IDs.
+    provider_available: bool | None = None
+    safety_source_key: str | None = None
 
 
 @dataclass(slots=True)
@@ -262,6 +298,7 @@ class WarningAssessment:
 
     weather_caution: bool = False
     weather_danger: bool = False
+    weather_hard_lock: bool = False
     weather_reason_key: str | None = None
     weather_reason_args: dict[str, Any] = field(default_factory=dict)
     weather_original_reason: str | None = None
@@ -282,6 +319,10 @@ class WarningAssessment:
     # fresh live evidence and may use the current time. Cached NINA details set
     # this explicitly so a second persistence TTL cannot extend stale evidence.
     hard_safety_evidence_at: datetime | None = None
+    safety_source_key: str | None = None
+    provider_availability: dict[str, bool] = field(default_factory=dict)
+    provider_coverage: str | None = None
+    provider_error: str | None = None
 
 
 def _float(value: Any) -> float | None:
@@ -815,6 +856,8 @@ async def async_refresh_hourly_forecast(
     Forecasts are optional. Unsupported providers or temporary failures must never
     make the normal current-condition advice unavailable.
     """
+    if uses_auto_weather(entry):
+        return
     weather_entity_id = entry.data.get(CONF_WEATHER)
     if not isinstance(weather_entity_id, str) or not weather_entity_id:
         return
@@ -978,12 +1021,249 @@ def _local_station_air_quality(
     )
 
 
+
+def _apply_local_weather_overrides(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    result: WeatherAssessment,
+) -> None:
+    """Apply explicitly configured local outdoor sensors to any weather source."""
+    temp_override = _manual_override(entry, CONF_OUTDOOR_TEMP)
+    humidity_override = _manual_override(entry, CONF_OUTDOOR_HUMIDITY)
+    if temp_override:
+        result.source_entities.add(temp_override)
+        local = state_number(hass, temp_override, minimum=-100.0, maximum=150.0).value
+        if local is not None:
+            result.temperature = local
+            result.source_temperature = temp_override
+            result.temperature_source_kind = "local_sensor"
+    if humidity_override:
+        result.source_entities.add(humidity_override)
+        local = state_number(hass, humidity_override, minimum=0.0, maximum=110.0).value
+        if local is not None:
+            result.humidity = local
+            result.source_humidity = humidity_override
+            result.humidity_source_kind = "local_sensor"
+
+    local_wind_id = _manual_override(entry, CONF_OUTDOOR_WIND)
+    local_gust_id = _manual_override(entry, CONF_OUTDOOR_GUST)
+    for entity_id in (local_wind_id, local_gust_id):
+        if entity_id:
+            result.source_entities.add(entity_id)
+    if local_wind_id:
+        raw = state_number(hass, local_wind_id, minimum=0.0, maximum=300.0)
+        normalized = _wind_to_kmh(raw.value, raw.unit) if raw.value is not None else None
+        if normalized is not None and 0.0 <= normalized <= 300.0:
+            result.wind_speed_kmh = normalized
+            result.source_wind = local_wind_id
+    if local_gust_id:
+        raw = state_number(hass, local_gust_id, minimum=0.0, maximum=400.0)
+        normalized = _wind_to_kmh(raw.value, raw.unit) if raw.value is not None else None
+        if normalized is not None and 0.0 <= normalized <= 400.0:
+            result.wind_gust_kmh = normalized
+            result.source_gust = local_gust_id
+
+    local_rain_id = _manual_override(entry, CONF_OUTDOOR_RAIN)
+    if local_rain_id:
+        result.source_entities.add(local_rain_id)
+        rain_state = hass.states.get(local_rain_id)
+        if local_rain_id.startswith("binary_sensor."):
+            if rain_state is not None and rain_state.state in {"on", "off"}:
+                result.rain_now = rain_state.state == "on"
+                result.source_rain = local_rain_id
+        elif state_is_fresh(rain_state):
+            device_class = str(rain_state.attributes.get("device_class") or "").lower()
+            unit = str(rain_state.attributes.get("unit_of_measurement") or "").lower()
+            intensity_units = {
+                "mm/h", "mm/d", "in/h", "in/d", "mm/hr", "in/hr", "mm/day", "in/day",
+            }
+            if device_class == "precipitation_intensity" or unit in intensity_units:
+                rain_value = _float(rain_state.state)
+                if rain_value is not None and rain_value >= 0:
+                    result.rain_now = rain_value > 0
+                    result.source_rain = local_rain_id
+
+
+def _apply_local_air_quality(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    result: WeatherAssessment,
+) -> None:
+    """Merge only configured local air-quality sensors into an assessment."""
+    (
+        _local_quality,
+        _local_kind,
+        _local_value,
+        local_values,
+        local_relative_values,
+        local_units,
+        local_measurement_types,
+        local_air_entities,
+    ) = _local_station_air_quality(hass, entry)
+    result.source_entities.update(local_air_entities)
+    local_source_candidates = {
+        "pm2_5": _manual_override(entry, CONF_OUTDOOR_PM25),
+        "pm10": _manual_override(entry, CONF_OUTDOOR_PM10),
+        "voc": _manual_override(entry, CONF_OUTDOOR_VOC),
+        "no2": _manual_override(entry, CONF_OUTDOOR_NO2),
+        "o3": _manual_override(entry, CONF_OUTDOOR_O3),
+    }
+    for normalized_key in (*local_values.keys(), *local_relative_values.keys()):
+        base_kind = normalized_key.removesuffix("_parts").removesuffix("_index")
+        source_id = local_source_candidates.get(base_kind)
+        if source_id:
+            result.air_quality_sources[normalized_key] = source_id
+    if local_values:
+        combined_values = dict(result.air_quality_values)
+        combined_values.update(local_values)
+        worst_class = "unknown"
+        worst_kind = None
+        worst_value = None
+        for kind, value in combined_values.items():
+            classification = _air_quality_class(kind, value)
+            if classification != "unknown" and AIR_QUALITY_RANK[classification] > AIR_QUALITY_RANK[worst_class]:
+                worst_class = classification
+                worst_kind = kind
+                worst_value = value
+        result.air_quality_values = combined_values
+        if worst_kind is not None:
+            result.air_quality_index = worst_class
+            result.air_quality_pollutant = worst_kind
+            result.air_quality_value = worst_value
+            result.air_quality_unit = local_units.get(worst_kind, "µg/m³")
+            result.air_quality_measurement_type = local_measurement_types.get(worst_kind, "mass")
+    result.local_station_values.update(local_relative_values)
+
+
+def _apply_live_weather_safety(
+    result: WeatherAssessment,
+    condition: str,
+    *,
+    condition_source: str | None,
+) -> None:
+    """Apply the existing physical window-safety thresholds to normalized live data."""
+    wind_kmh = result.wind_speed_kmh or 0.0
+    gust_kmh = result.wind_gust_kmh or 0.0
+    hard_live_weather = bool(
+        condition == "hail"
+        or wind_kmh >= WIND_HARD_LOCK_KMH
+        or gust_kmh >= GUST_HARD_LOCK_KMH
+    )
+    danger_live_weather = bool(
+        condition in WEATHER_DANGER_CONDITIONS
+        or wind_kmh >= WIND_DANGER_KMH
+        or gust_kmh >= GUST_DANGER_KMH
+    )
+    if hard_live_weather or danger_live_weather:
+        result.weather_danger = True
+        result.weather_caution = False
+        result.weather_hard_lock = hard_live_weather
+        if condition in WEATHER_DANGER_CONDITIONS and condition_source:
+            result.weather_danger_sources.add(condition_source)
+        if wind_kmh >= WIND_DANGER_KMH and result.source_wind:
+            result.weather_danger_sources.add(result.source_wind)
+        if gust_kmh >= GUST_DANGER_KMH and result.source_gust:
+            result.weather_danger_sources.add(result.source_gust)
+        if condition in {"lightning", "lightning-rainy"}:
+            result.weather_reason_key = "weather_thunderstorm_danger"
+        elif condition == "hail":
+            result.weather_reason_key = "weather_hail_danger"
+        elif condition == "exceptional":
+            result.weather_reason_key = "weather_exceptional_danger"
+        else:
+            speed = gust_kmh if gust_kmh >= GUST_DANGER_KMH else wind_kmh
+            result.weather_reason_key = "weather_wind_danger"
+            result.weather_reason_args = {"speed_kmh": speed}
+    elif wind_kmh >= WIND_CAUTION_KMH or gust_kmh >= GUST_CAUTION_KMH:
+        result.weather_caution = True
+        speed = gust_kmh if gust_kmh >= GUST_CAUTION_KMH else wind_kmh
+        result.weather_reason_key = "weather_wind_caution"
+        result.weather_reason_args = {"speed_kmh": speed}
+
+
+def _automatic_weather_assessment(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> WeatherAssessment:
+    data = auto_weather_data(hass, entry)
+    result = WeatherAssessment(
+        provider_available=auto_weather_available(hass, entry),
+        safety_source_key=auto_weather_safety_key(hass, entry),
+        forecast_data_status="unavailable",
+    )
+    condition = ""
+    if data is not None:
+        result.provider_domain = data.provider_domain
+        result.provider_station_id = data.station_id
+        result.provider_station_name = data.station_name
+        result.provider_station_distance_km = data.station_distance_km
+        result.safety_source_key = data.safety_source_key
+        result.temperature = data.temperature
+        result.humidity = data.humidity
+        result.temperature_source_kind = "automatic_weather" if data.temperature is not None else "unavailable"
+        result.humidity_source_kind = "automatic_weather" if data.humidity is not None else "unavailable"
+        result.source_temperature = data.provider_domain
+        result.source_humidity = data.provider_domain
+        result.wind_speed_kmh = data.wind_speed_kmh
+        result.wind_gust_kmh = data.wind_gust_kmh
+        result.source_wind = data.safety_source_key if data.wind_speed_kmh is not None else None
+        result.source_gust = data.safety_source_key if data.wind_gust_kmh is not None else None
+        result.hourly_forecast = list(data.hourly_forecast)
+        result.hourly_forecast_updated = data.fetched_at
+        result.forecast_data_status = "fresh" if data.hourly_forecast else "unavailable"
+        condition = str(data.condition or "")
+        result.rain_now = bool((data.precipitation or 0.0) > 0 or condition in RAIN_CONDITIONS)
+        if condition == "pouring":
+            result.weather_reason_key = "weather_heavy_rain_current"
+
+    _apply_local_weather_overrides(hass, entry, result)
+    _apply_local_air_quality(hass, entry, result)
+    _apply_live_weather_safety(
+        result,
+        condition,
+        condition_source=(data.safety_source_key if data is not None else None),
+    )
+
+    now = dt_util.now()
+    now_key = now.astimezone(timezone.utc)
+    for raw in result.hourly_forecast:
+        stamp = raw.get("datetime")
+        if not isinstance(stamp, datetime):
+            continue
+        stamp_key = stamp.astimezone(timezone.utc) if stamp.tzinfo is not None else stamp.replace(tzinfo=timezone.utc)
+        if stamp_key <= now_key or stamp_key > now_key + timedelta(hours=2):
+            continue
+        forecast_condition = str(raw.get("condition") or "")
+        precipitation = _float(raw.get("precipitation")) or 0.0
+        probability = _float(raw.get("precipitation_probability")) or 0.0
+        if precipitation > 0 or probability >= 50 or forecast_condition in RAIN_CONDITIONS:
+            result.rain_soon = True
+            result.rain_minutes_until = max(0.0, (stamp_key - now_key).total_seconds() / 60.0)
+            break
+
+    (
+        result.short_term_change,
+        result.short_term_kind,
+        result.short_term_minutes,
+        result.short_term_condition,
+    ) = _short_term_forecast_outlook(
+        now=now,
+        current_condition=condition,
+        current_wind_kmh=result.wind_speed_kmh,
+        current_gust_kmh=result.wind_gust_kmh,
+        rain_now=result.rain_now,
+        hourly_forecast=result.hourly_forecast,
+    )
+    return result
+
 def weather_assessment(
     hass: HomeAssistant,
     entry: ConfigEntry,
 ) -> WeatherAssessment:
-    """Normalize the selected weather entity plus known provider extras."""
-    result = WeatherAssessment()
+    """Normalize the selected weather entity or automatic location provider."""
+    if uses_auto_weather(entry):
+        return _automatic_weather_assessment(hass, entry)
+    result = WeatherAssessment(provider_available=None)
     weather_entity_id = entry.data.get(CONF_WEATHER)
 
     if not isinstance(weather_entity_id, str) or not weather_entity_id:
@@ -1227,39 +1507,7 @@ def weather_assessment(
                     result.rain_now = rain_value > 0
                     result.source_rain = local_rain_id
 
-    wind_kmh = result.wind_speed_kmh or 0.0
-    gust_kmh = result.wind_gust_kmh or 0.0
-
-    # These are ventilation/window-safety thresholds, not claims about the
-    # DWD warning colour. Around 50 km/h mean wind (roughly Bft 7) or 65 km/h
-    # gusts an open window itself becomes a meaningful disadvantage.
-    if condition in WEATHER_DANGER_CONDITIONS or wind_kmh >= 75 or gust_kmh >= 105:
-        result.weather_danger = True
-        result.weather_caution = False
-        if condition in WEATHER_DANGER_CONDITIONS:
-            result.weather_danger_sources.add(weather_entity_id)
-        if wind_kmh >= 75 and result.source_wind:
-            result.weather_danger_sources.add(result.source_wind)
-        if gust_kmh >= 105 and result.source_gust:
-            result.weather_danger_sources.add(result.source_gust)
-
-        if condition in {"lightning", "lightning-rainy"}:
-            result.weather_reason_key = "weather_thunderstorm_danger"
-        elif condition == "hail":
-            result.weather_reason_key = "weather_hail_danger"
-        elif condition == "exceptional":
-            result.weather_reason_key = "weather_exceptional_danger"
-        else:
-            speed = gust_kmh if gust_kmh >= 105 else wind_kmh
-            result.weather_reason_key = "weather_wind_danger"
-            result.weather_reason_args = {"speed_kmh": speed}
-    elif wind_kmh >= 50 or gust_kmh >= 65:
-        # With the four-stage advisor this is a clear disadvantage (orange),
-        # not automatically the same as a hard red weather hazard.
-        result.weather_caution = True
-        speed = gust_kmh if gust_kmh >= 65 else wind_kmh
-        result.weather_reason_key = "weather_wind_caution"
-        result.weather_reason_args = {"speed_kmh": speed}
+    _apply_live_weather_safety(result, condition, condition_source=weather_entity_id)
 
     if not weather_available:
         return result
@@ -1352,7 +1600,7 @@ def _is_clear_warning(text: str) -> bool:
         low,
     ):
         return False
-    return any(word in low for word in CLEAR_WORDS)
+    return any(word in low for word in CLEAR_WORDS) or foreign_all_clear(low)
 
 
 # A strong all-clear is allowed to beat stale action text copied from the old
@@ -1373,12 +1621,12 @@ STRONG_CLEAR_WORDS = (
 
 def _is_strong_clear_warning(text: str, message_type: str = "") -> bool:
     """Return whether an explicit full cancellation is present."""
-    if not _is_clear_warning(text):
-        return False
     if str(message_type).strip().lower() == "cancel":
         return True
+    if not _is_clear_warning(text):
+        return False
     low = " ".join(str(text).lower().split())
-    return any(word in low for word in STRONG_CLEAR_WORDS)
+    return any(word in low for word in STRONG_CLEAR_WORDS) or foreign_all_clear(low)
 
 
 # MoWaS supplies standard action texts but warning centres may edit them or add
@@ -1424,6 +1672,9 @@ def _matches_close_instruction(text: str) -> bool:
     low = " ".join(str(text).lower().split())
     if not low:
         return False
+
+    if has_foreign_close_order(low):
+        return True
 
     # Existing exact phrases remain a cheap and transparent first layer, but a
     # release statement in the same sentence always wins over a substring hit.
@@ -1532,6 +1783,8 @@ async def async_refresh_nina_details(hass: HomeAssistant, entry: ConfigEntry) ->
     hour. An explicit ``off`` state is authoritative and clears immediately; an
     ``unknown``/``unavailable`` state is not an all-clear.
     """
+    if warning_mode(entry) == WARNING_SOURCE_AUTO:
+        return
     source = entry.data.get(CONF_WARNING_SOURCE)
     if not isinstance(source, str) or not source or source == WARNING_SOURCE_NONE:
         return
@@ -1753,7 +2006,7 @@ def _evaluate_nina_like_entities(
     """
     # Keep the older two-argument helper shape for focused unit tests and for
     # third-party callers. Full NINA detail caching is available only when the
-    # owning Lüftungsberater ConfigEntry is supplied.
+    # owning Lüftungsassistent ConfigEntry is supplied.
     advisor_entry: ConfigEntry | None
     if entity_ids is None:
         entity_ids = list(entry) if isinstance(entry, list) else []
@@ -2008,6 +2261,7 @@ def _evaluate_dwd_warning_entities(
                 result.warning_ids.add(warning_key)
                 result.official_close_instruction = True
                 result.weather_danger = True
+                result.weather_hard_lock = True
                 result.weather_caution = False
                 if result.weather_reason_key is None:
                     result.weather_reason_key = "official_close_instruction"
@@ -2051,11 +2305,11 @@ def _evaluate_dwd_warning_entities(
     return result
 
 
-def warning_assessment(
+def _manual_warning_assessment(
     hass: HomeAssistant,
     entry: ConfigEntry,
 ) -> WarningAssessment:
-    """Normalize the selected warning integration."""
+    """Normalize an explicitly selected Home Assistant warning integration."""
     source = entry.data.get(CONF_WARNING_SOURCE)
 
     if (
@@ -2074,6 +2328,7 @@ def warning_assessment(
     result = WarningAssessment(
         source_entities=set(entity_ids),
         provider_domain=source_entry.domain,
+        safety_source_key=str(source),
     )
 
     if source_entry.domain == "dwd_weather_warnings":
@@ -2088,6 +2343,7 @@ def warning_assessment(
 
     result.weather_caution = assessed.weather_caution and not assessed.weather_danger
     result.weather_danger = assessed.weather_danger
+    result.weather_hard_lock = assessed.weather_hard_lock
     result.weather_reason_key = assessed.weather_reason_key
     result.weather_reason_args = dict(assessed.weather_reason_args)
     result.weather_original_reason = assessed.weather_original_reason
@@ -2103,3 +2359,199 @@ def warning_assessment(
     result.source_weather_entity = assessed.source_weather_entity
     result.hard_safety_evidence_at = assessed.hard_safety_evidence_at
     return result
+
+
+def _automatic_warning_assessment(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> WarningAssessment:
+    """Normalize the current location-driven warning-provider cache."""
+    data = auto_warning_data(hass, entry)
+    result = WarningAssessment()
+    if data is None:
+        return result
+    result.provider_domain = data.provider_domain
+    result.safety_source_key = data.safety_source_key or None
+    result.provider_coverage = data.coverage
+    result.provider_error = data.error
+    if data.safety_source_key:
+        result.provider_availability[data.safety_source_key] = bool(data.available)
+        for domain, available in data.source_availability.items():
+            result.provider_availability[f"{data.safety_source_key}:{domain}"] = available
+
+    hard_records: list[AutoWarningRecord] = []
+    weather_danger_records: list[AutoWarningRecord] = []
+    weather_caution_records: list[AutoWarningRecord] = []
+    for warning in data.warnings:
+        now = dt_util.utcnow()
+        if warning.expires is not None and warning.expires <= now:
+            continue
+        if warning.effective is not None and warning.effective > now:
+            continue
+        combined_description = " ".join(
+            value for value in (warning.event, warning.description) if value
+        )
+        air_status = _evaluate_air_warning(
+            warning.headline,
+            combined_description,
+            warning.instruction,
+            warning.msg_type,
+        )
+        if air_status == "danger":
+            hard_records.append(warning)
+        # A CAP/NINA cancellation or explicit all-clear must never be re-read as
+        # a current weather disadvantage merely because it retained the former
+        # warning severity/text. The provider's active set will normally drop it
+        # on the next refresh; this guard makes the transition deterministic.
+        if air_status == "clear":
+            result.warning_ids.add(warning.warning_id)
+            continue
+        if warning.category == "weather":
+            severity = str(warning.severity or "").strip().lower()
+            if severity in {"extreme", "severe"}:
+                weather_danger_records.append(warning)
+            elif severity in {"moderate", "minor"}:
+                weather_caution_records.append(warning)
+        result.warning_ids.add(warning.warning_id)
+
+    if hard_records:
+        strongest = max(
+            hard_records,
+            key=lambda item: item.evidence_at or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        result.official_close_instruction = True
+        result.nina_status = "danger"
+        result.nina_reason_key = "nina_air_danger"
+        result.nina_original_reason = (
+            strongest.instruction
+            or strongest.headline
+            or strongest.description
+            or strongest.event
+            or None
+        )
+        result.hard_safety_evidence_at = strongest.evidence_at
+        if data.source_availability and data.safety_source_key:
+            result.safety_source_key = f"{data.safety_source_key}:{strongest.provider_domain}"
+    if weather_danger_records:
+        strongest = weather_danger_records[0]
+        result.weather_danger = True
+        result.weather_caution = False
+        # Official warning severity remains a soft outside disadvantage. Only
+        # an explicit close/ventilation instruction may create the hard lock.
+        result.weather_hard_lock = False
+        result.weather_reason_key = "weather_danger"
+        result.weather_original_reason = strongest.headline or strongest.event or None
+    elif weather_caution_records:
+        strongest = weather_caution_records[0]
+        result.weather_caution = True
+        result.weather_reason_key = "weather_caution"
+        result.weather_original_reason = strongest.headline or strongest.event or None
+    return result
+
+
+def _copy_warning_assessment(target: WarningAssessment, source: WarningAssessment) -> None:
+    target.weather_caution = source.weather_caution
+    target.weather_danger = source.weather_danger
+    target.weather_hard_lock = source.weather_hard_lock
+    target.weather_reason_key = source.weather_reason_key
+    target.weather_reason_args = dict(source.weather_reason_args)
+    target.weather_original_reason = source.weather_original_reason
+    target.nina_status = source.nina_status
+    target.nina_reason_key = source.nina_reason_key
+    target.nina_reason_args = dict(source.nina_reason_args)
+    target.nina_original_reason = source.nina_original_reason
+    target.warning_notice_kind = source.warning_notice_kind
+    target.warning_notice_text = source.warning_notice_text
+    target.official_close_instruction = source.official_close_instruction
+    target.source_entities = set(source.source_entities)
+    target.provider_domain = source.provider_domain
+    target.provider_coverage = source.provider_coverage
+    target.provider_error = source.provider_error
+    target.warning_ids = set(source.warning_ids)
+    target.source_nina_entity = source.source_nina_entity
+    target.source_weather_entity = source.source_weather_entity
+    target.hard_safety_evidence_at = source.hard_safety_evidence_at
+    target.safety_source_key = source.safety_source_key
+    target.provider_availability = dict(source.provider_availability)
+
+
+def _merge_warning_assessments(
+    automatic: WarningAssessment,
+    manual: WarningAssessment,
+) -> WarningAssessment:
+    """Merge auto + manual sources without allowing one clear to cancel another danger."""
+    result = WarningAssessment()
+    auto_active = automatic.official_close_instruction or automatic.weather_danger or automatic.weather_caution
+    manual_active = manual.official_close_instruction or manual.weather_danger or manual.weather_caution
+    _copy_warning_assessment(result, manual if manual_active or not auto_active else automatic)
+    result.source_entities.update(automatic.source_entities)
+    result.source_entities.update(manual.source_entities)
+    result.warning_ids.update(automatic.warning_ids)
+    result.warning_ids.update(manual.warning_ids)
+    result.provider_availability.update(automatic.provider_availability)
+    result.provider_availability.update(manual.provider_availability)
+    if automatic.provider_domain and manual.provider_domain:
+        result.provider_domain = f"{automatic.provider_domain}+{manual.provider_domain}"
+    else:
+        result.provider_domain = automatic.provider_domain or manual.provider_domain
+    result.provider_coverage = automatic.provider_coverage
+    result.provider_error = automatic.provider_error
+
+    result.weather_danger = automatic.weather_danger or manual.weather_danger
+    result.weather_hard_lock = automatic.weather_hard_lock or manual.weather_hard_lock
+    result.weather_caution = (
+        (automatic.weather_caution or manual.weather_caution)
+        and not result.weather_danger
+    )
+    if automatic.weather_danger and not manual.weather_danger:
+        result.weather_reason_key = automatic.weather_reason_key
+        result.weather_reason_args = dict(automatic.weather_reason_args)
+        result.weather_original_reason = automatic.weather_original_reason
+    elif automatic.weather_caution and not (manual.weather_danger or manual.weather_caution):
+        result.weather_reason_key = automatic.weather_reason_key
+        result.weather_reason_args = dict(automatic.weather_reason_args)
+        result.weather_original_reason = automatic.weather_original_reason
+
+    if automatic.nina_status == "danger" or manual.nina_status == "danger":
+        chosen = manual if manual.nina_status == "danger" else automatic
+        result.nina_status = "danger"
+        result.nina_reason_key = chosen.nina_reason_key
+        result.nina_reason_args = dict(chosen.nina_reason_args)
+        result.nina_original_reason = chosen.nina_original_reason
+        result.official_close_instruction = True
+        result.safety_source_key = chosen.safety_source_key
+        result.hard_safety_evidence_at = chosen.hard_safety_evidence_at
+    elif automatic.nina_status == "caution" or manual.nina_status == "caution":
+        chosen = manual if manual.nina_status == "caution" else automatic
+        result.nina_status = "caution"
+        result.nina_reason_key = chosen.nina_reason_key
+        result.nina_reason_args = dict(chosen.nina_reason_args)
+        result.nina_original_reason = chosen.nina_original_reason
+    else:
+        result.nina_status = "none"
+
+    if result.nina_status != "danger" and not result.weather_danger:
+        notice = manual if manual.warning_notice_kind else automatic
+        result.warning_notice_kind = notice.warning_notice_kind
+        result.warning_notice_text = notice.warning_notice_text
+    else:
+        result.warning_notice_kind = None
+        result.warning_notice_text = None
+    return result
+
+
+def warning_assessment(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> WarningAssessment:
+    """Normalize automatic and/or explicitly selected warning providers."""
+    mode = warning_mode(entry)
+    if mode == WARNING_SOURCE_MANUAL:
+        return _manual_warning_assessment(hass, entry)
+    automatic = _automatic_warning_assessment(hass, entry)
+    if mode == WARNING_SOURCE_AUTO_PLUS_MANUAL:
+        return _merge_warning_assessments(
+            automatic,
+            _manual_warning_assessment(hass, entry),
+        )
+    return automatic

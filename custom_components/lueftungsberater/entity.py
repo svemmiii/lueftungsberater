@@ -1,4 +1,4 @@
-"""Base entity shared by Lüftungsberater platforms."""
+"""Base entity shared by Lüftungsassistent platforms."""
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry

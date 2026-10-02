@@ -15,11 +15,11 @@
       },
       "local": {
         "title": "Yerel Fresh Air Assistant kur",
-        "description": "Bu kuruluma bir ad ver, ardından hava durumu hizmetini ve istersen bir uyarı hizmetini seç. Odaları daha sonra ayrı ayrı ekleyebilirsin.",
+        "description": "Varsayılan olarak Lüftungsassistent hava durumu ve resmî uyarı sağlayıcılarını Home konumundan veya isteğe bağlı mobil GPS takipçisinden otomatik seçer. İstenirse mevcut Home Assistant hava durumu ve uyarı örnekleri kullanılabilir ya da otomatik uyarılara eklenebilir. Odalar daha sonra ayrı eklenir.",
         "data": {
           "instance_name": "Kurulum adı",
-          "weather_entity": "Hava durumu hizmeti",
-          "warning_source": "Uyarı hizmeti (isteğe bağlı)",
+          "weather_entity": "Kendi hava durumu varlığı (manuel kaynak için)",
+          "warning_source": "Kendi uyarı uygulaması / hizmeti (isteğe bağlı)",
           "manual_outdoor": "Gelişmiş dış ortam sensörleri (isteğe bağlı)",
           "outdoor_temperature": "Dış sıcaklığı geçersiz kıl",
           "outdoor_humidity": "Dış nemi geçersiz kıl",
@@ -34,23 +34,35 @@
           "outdoor_pm10": "Dış PM10 (isteğe bağlı)",
           "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
           "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
-          "outdoor_o3": "Dış ozon (isteğe bağlı)"
+          "outdoor_o3": "Dış ozon (isteğe bağlı)",
+          "location_tracker": "Mobil konum takipçisi (isteğe bağlı)",
+          "weather_source_mode": "Hava durumu kaynağı",
+          "warning_source_mode": "Uyarı kaynağı"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
-          "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
+          "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder.",
+          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
+          "weather_source_mode": "Konuma göre otomatik. Kendi Home Assistant hava durumu örneği.",
+          "warning_source_mode": "Konuma göre otomatik. Yalnızca kendi Home Assistant uyarı örneği. Otomatik + kendi uyarı örneği."
         },
         "sections": {
           "general": {
             "name": "🎛️ Temel ayarlar",
-            "description": "Hava durumu, uyarılar ve danışmanın nasıl gösterileceği.",
+            "description": "Hava durumu, uyarılar ve asistanın nasıl gösterileceği.",
             "data": {
-              "weather_entity": "Hava durumu hizmeti",
-              "warning_source": "Uyarı hizmeti (isteğe bağlı)",
-              "display_mode": "Gösterge biçimi"
+              "weather_entity": "Kendi hava durumu varlığı (manuel kaynak için)",
+              "warning_source": "Kendi uyarı uygulaması / hizmeti (isteğe bağlı)",
+              "display_mode": "Gösterge biçimi",
+              "location_tracker": "Mobil konum takipçisi (isteğe bağlı)",
+              "weather_source_mode": "Hava durumu kaynağı",
+              "warning_source_mode": "Uyarı kaynağı"
             },
             "data_description": {
-              "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir."
+              "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
+              "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
+              "weather_source_mode": "Konuma göre otomatik. Kendi Home Assistant hava durumu örneği.",
+              "warning_source_mode": "Konuma göre otomatik. Yalnızca kendi Home Assistant uyarı örneği. Otomatik + kendi uyarı örneği."
             }
           },
           "outdoor": {
@@ -118,23 +130,27 @@
           "outdoor_pm10": "Dış PM10 (isteğe bağlı)",
           "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
           "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
-          "outdoor_o3": "Dış ozon (isteğe bağlı)"
+          "outdoor_o3": "Dış ozon (isteğe bağlı)",
+          "location_tracker": "Mobil konum takipçisi (isteğe bağlı)"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
-          "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder."
+          "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder.",
+          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur."
         },
         "sections": {
           "general": {
             "name": "🎛️ Temel ayarlar",
-            "description": "Hava durumu, uyarılar ve danışmanın nasıl gösterileceği.",
+            "description": "Hava durumu, uyarılar ve asistanın nasıl gösterileceği.",
             "data": {
               "weather_entity": "Hava durumu hizmeti",
               "warning_source": "Uyarı hizmeti (isteğe bağlı)",
-              "display_mode": "Gösterge biçimi"
+              "display_mode": "Gösterge biçimi",
+              "location_tracker": "Mobil konum takipçisi (isteğe bağlı)"
             },
             "data_description": {
-              "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir."
+              "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
+              "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur."
             }
           },
           "outdoor": {
@@ -199,7 +215,9 @@
       "cannot_connect": "Uzaktaki Home Assistant'a bu Tailscale adresi üzerinden ulaşılamıyor.",
       "select_room": "En az bir paylaşılan oda seç.",
       "admin_required": "Bu uzak bağlantıda kullanılan Home Assistant kullanıcısının yönetici olması gerekir.",
-      "duplicate_remote": "Bu Tailscale hedefi zaten uzak bağlantı olarak yapılandırılmış."
+      "duplicate_remote": "Bu Tailscale hedefi zaten uzak bağlantı olarak yapılandırılmış.",
+      "manual_weather_required": "Manuel hava durumu seçildiğinde bir weather.* varlığı seçilmelidir.",
+      "manual_warning_required": "Manuel/ek uyarılar seçildiğinde bir uyarı örneği seçilmelidir."
     },
     "abort": {
       "already_configured": "Bu uzak Home Assistant zaten bağlı.",
@@ -244,7 +262,7 @@
           },
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
-            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+            "night_advice_start_time": "Bu saatten itibaren asistan gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
             "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz.",
             "area_id": "Bu Havalandırma Danışmanı odasını mevcut bir Home Assistant alanına atar. Özel oda adı girmezseniz alanın adı kullanılır.",
             "room_name": "İsteğe bağlı. Bir Home Assistant alanı seçiliyse ve bu alan boş bırakılırsa Havalandırma Danışmanı alan adını kullanır."
@@ -271,7 +289,7 @@
                 "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster"
               },
               "data_description": {
-                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+                "night_advice_start_time": "Bu saatten itibaren asistan gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
                 "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz."
               }
             },
@@ -336,7 +354,7 @@
           "description": "İç ortam sıcaklığı ve nemi zorunludur. İsteğe bağlı olarak odayı mevcut bir Home Assistant alanına atayabilir ve/veya özel bir ad verebilirsiniz. CO₂, pencere/kapı kontakları ve yüzey sıcaklık sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca yararlı gece havalandırma bilgisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
-            "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+            "night_advice_start_time": "Bu saatten itibaren asistan gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
             "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz.",
             "area_id": "Bu Havalandırma Danışmanı odasını mevcut bir Home Assistant alanına atar. Özel oda adı girmezseniz alanın adı kullanılır.",
             "room_name": "İsteğe bağlı. Bir Home Assistant alanı seçiliyse ve bu alan boş bırakılırsa Havalandırma Danışmanı alan adını kullanır."
@@ -363,7 +381,7 @@
                 "night_advice_end_time": "🌙 Gece önerisini şu saate kadar göster"
               },
               "data_description": {
-                "night_advice_start_time": "Bu saatten itibaren danışman gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
+                "night_advice_start_time": "Bu saatten itibaren asistan gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
                 "night_advice_end_time": "Gece önerisi bu saate kadar görünür kalabilir. Sonrasında normal gündüz değerlendirmesi devam eder ve otomatik olarak herhangi bir işlem başlatılmaz."
               }
             },
@@ -630,6 +648,19 @@
         "airing_recommended": "Havalandırmak yeniden uygun",
         "airing_finished": "Havalandırma bitirilebilir"
       }
+    },
+    "weather_source_mode": {
+      "options": {
+        "auto": "Konuma göre otomatik",
+        "manual": "Kendi Home Assistant hava durumu örneği"
+      }
+    },
+    "warning_source_mode": {
+      "options": {
+        "auto": "Konuma göre otomatik",
+        "manual": "Yalnızca kendi Home Assistant uyarı örneği",
+        "auto_plus_manual": "Otomatik + kendi uyarı örneği"
+      }
     }
   },
   "services": {
@@ -694,6 +725,12 @@
           "description": "Tur içindeki belirli isteğin unsigned 32-bit kimliği."
         }
       }
+    }
+  },
+  "issues": {
+    "duplicate_station_mac": {
+      "title": "Fiziksel havalandırma istasyonu birden fazla kez atanmış",
+      "description": "**{mac}** ağ MAC adresi birden fazla yerel Lüftungsassistent istasyonuna atanmış: {stations}. Bu durum eski bir kurulum yükseltildikten sonra görünür olabilir. Home Assistant gerçek bir cihazı yanlışlıkla yeniden yapılandırmamak için otomatik olarak bir sahip seçmez. Her fiziksel MAC yalnızca bir kez kullanılacak şekilde yinelenen istasyon atamasını kaldırın veya yeniden yapılandırın."
     }
   }
 }

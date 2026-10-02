@@ -2,6 +2,15 @@ import pytest
 from types import SimpleNamespace
 
 from custom_components.lueftungsberater.api import REMOTE_ATTRIBUTE_KEYS, _export_attributes
+from custom_components.lueftungsberater.const import (
+    CONF_HARDWARE_CONNECTION_TYPE,
+    CONF_HARDWARE_ROLE,
+    CONF_HARDWARE_ROOM_ID,
+    HARDWARE_CONNECTION_DIRECT,
+    HARDWARE_ROLE_MASTER,
+    HARDWARE_ROLE_STANDALONE,
+    SUBENTRY_TYPE_STATION,
+)
 
 
 def test_remote_export_does_not_include_local_entity_ids_or_original_warning() -> None:
@@ -437,7 +446,8 @@ def test_hardware_display_payload_uses_coordinator_snapshot_not_advisor_entity(m
     )
     snapshot = SimpleNamespace(result=result)
     coordinator = SimpleNamespace(data=snapshot)
-    monkeypatch.setattr(api_module, "get_room_coordinator", lambda *_args: coordinator)
+    from custom_components.lueftungsberater import coordinator as coordinator_module
+    monkeypatch.setattr(coordinator_module, "get_room_coordinator", lambda *_args: coordinator)
 
     hass = SimpleNamespace(config=SimpleNamespace(language="de"))
     entry = SimpleNamespace(
@@ -832,3 +842,30 @@ async def test_native_hardware_report_action_resolves_node_and_returns_display(m
     assert result["recommendation_key"] == "open_now"
     assert result["round_id"] == 9
     assert result["request_id"] == 3
+
+
+@pytest.mark.parametrize("role", [HARDWARE_ROLE_STANDALONE, HARDWARE_ROLE_MASTER])
+def test_native_hardware_report_remains_node_only_for_direct_roles(role) -> None:
+    """Direct display support must never open hardware_report to local devices."""
+    from custom_components.lueftungsberater import api as api_module
+
+    station = SimpleNamespace(
+        subentry_type=SUBENTRY_TYPE_STATION,
+        subentry_id="direct",
+        data={
+            CONF_HARDWARE_ROLE: role,
+            CONF_HARDWARE_CONNECTION_TYPE: HARDWARE_CONNECTION_DIRECT,
+            CONF_HARDWARE_ROOM_ID: "room",
+        },
+    )
+    entry = SimpleNamespace(subentries={"direct": station})
+
+    assert (
+        api_module._hardware_report_native_auth_error(
+            entry,
+            station,
+            "AA:BB:CC:DD:EE:FF",
+            "S" * 43,
+        )
+        == "node_required"
+    )

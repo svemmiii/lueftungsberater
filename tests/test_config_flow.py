@@ -28,7 +28,7 @@ def test_remote_summary_handles_missing_payload() -> None:
 
 
 async def test_multiple_local_entries_can_be_created(hass, enable_custom_integrations) -> None:
-    """A second local Lüftungsberater must not be blocked by the first one."""
+    """A second local Lüftungsassistent must not be blocked by the first one."""
     from unittest.mock import AsyncMock, patch
 
     from homeassistant.config_entries import SOURCE_USER
@@ -819,6 +819,7 @@ def test_node_reconfigure_locks_existing_hardware_id_even_if_input_tries_to_chan
         subentries={room.subentry_id: room, master.subentry_id: master, node.subentry_id: node},
     )
     hass = SimpleNamespace(data={})
+    monkeypatch.setattr(flow_module, "station_physical_hardware_id", lambda *_args, **_kwargs: None)
 
     data, created_room, error = flow_module._node_station_input(
         hass,
@@ -866,9 +867,10 @@ def test_wireguard_helpers_require_complete_profile_and_clear_secrets():
     assert _wireguard_config_complete(cleaned) is False
 
 
-def test_new_node_uses_stable_master_relation_without_cached_master_id():
+def test_new_node_uses_stable_master_relation_without_cached_master_id(monkeypatch):
     from custom_components.lueftungsberater import config_flow as flow_module
     from custom_components.lueftungsberater.const import (
+        CONF_HARDWARE_DEVICE_ID,
         CONF_HARDWARE_ID,
         CONF_HARDWARE_MASTER_ID,
         CONF_HARDWARE_MASTER_SUBENTRY_ID,
@@ -895,11 +897,13 @@ def test_new_node_uses_stable_master_relation_without_cached_master_id():
         subentries={room.subentry_id: room, master.subentry_id: master},
     )
 
+    monkeypatch.setattr(flow_module, "station_physical_hardware_id", lambda _hass, device_id, **_kwargs: "AA:BB:CC:DD:EE:05" if device_id == "node-device" else None)
+
     data, created_room, error = flow_module._node_station_input(
         SimpleNamespace(data={}),
         entry,
         {
-            CONF_HARDWARE_ID: "CC:DD",
+            CONF_HARDWARE_DEVICE_ID: "node-device",
             CONF_HARDWARE_MASTER_SUBENTRY_ID: master.subentry_id,
             CONF_HARDWARE_ROOM_MODE: HARDWARE_ROOM_EXISTING,
             CONF_HARDWARE_ROOM_ID: room.subentry_id,
@@ -909,10 +913,11 @@ def test_new_node_uses_stable_master_relation_without_cached_master_id():
     assert error is None
     assert created_room is None
     assert data[CONF_HARDWARE_MASTER_SUBENTRY_ID] == master.subentry_id
+    assert data[CONF_HARDWARE_ID] == "AA:BB:CC:DD:EE:05"
     assert CONF_HARDWARE_MASTER_ID not in data
 
 
-def test_node_reconfigure_schema_does_not_offer_device_identity_fields():
+def test_node_reconfigure_schema_does_not_offer_device_identity_fields(monkeypatch):
     from custom_components.lueftungsberater import config_flow as flow_module
     from custom_components.lueftungsberater.const import (
         CONF_HARDWARE_DISCOVERY_ID,
@@ -931,6 +936,7 @@ def test_node_reconfigure_schema_does_not_offer_device_identity_fields():
     )
     entry = SimpleNamespace(entry_id="entry", subentries={master.subentry_id: master})
     hass = SimpleNamespace(data={}, config=SimpleNamespace(language="en"))
+    monkeypatch.setattr(flow_module, "_direct_station_options", lambda *_args, **_kwargs: [])
     schema = flow_module._node_station_schema(
         hass,
         entry,
@@ -985,3 +991,103 @@ def test_manual_direct_sensor_selection_validates_against_same_device(monkeypatc
         },
     )
     assert invalid is None
+
+
+def test_hardware_mac_is_unique_across_all_local_advisor_entries():
+    from custom_components.lueftungsberater import config_flow as flow_module
+    from custom_components.lueftungsberater.const import (
+        CONF_ENTRY_KIND,
+        CONF_HARDWARE_ID,
+        DOMAIN,
+        ENTRY_KIND_LOCAL,
+        SUBENTRY_TYPE_STATION,
+    )
+
+    occupied_station = SimpleNamespace(
+        subentry_id="station-a",
+        subentry_type=SUBENTRY_TYPE_STATION,
+        data={CONF_HARDWARE_ID: "DIRECT:AA:BB:CC:DD:EE:04"},
+    )
+    first = SimpleNamespace(
+        entry_id="first",
+        data={CONF_ENTRY_KIND: ENTRY_KIND_LOCAL},
+        subentries={occupied_station.subentry_id: occupied_station},
+    )
+    second = SimpleNamespace(
+        entry_id="second",
+        data={CONF_ENTRY_KIND: ENTRY_KIND_LOCAL},
+        subentries={},
+    )
+    hass = SimpleNamespace(
+        config_entries=SimpleNamespace(
+            async_entries=lambda domain: [first, second] if domain == DOMAIN else []
+        )
+    )
+
+    assert flow_module._hardware_id_duplicate(
+        hass, second, "AA-BB-CC-DD-EE-04"
+    ) is True
+
+
+def test_v0110_new_local_source_modes_default_to_automatic(hass, enable_custom_integrations) -> None:
+    from custom_components.lueftungsberater.config_flow import SECTION_GENERAL, _global_schema
+    from custom_components.lueftungsberater.const import (
+        CONF_WARNING_SOURCE_MODE,
+        CONF_WEATHER_SOURCE_MODE,
+        WARNING_SOURCE_AUTO,
+        WEATHER_SOURCE_AUTO,
+    )
+
+    validated = _global_schema(hass)({SECTION_GENERAL: {}})
+    assert validated[SECTION_GENERAL][CONF_WEATHER_SOURCE_MODE] == WEATHER_SOURCE_AUTO
+    assert validated[SECTION_GENERAL][CONF_WARNING_SOURCE_MODE] == WARNING_SOURCE_AUTO
+
+
+def test_location_source_modes_default_to_auto_and_validate_manual_overrides(
+    hass, enable_custom_integrations
+) -> None:
+    """Auto is the new default while manual modes require an actual source."""
+    from custom_components.lueftungsberater.config_flow import (
+        SECTION_GENERAL,
+        _global_schema,
+        _local_source_errors,
+    )
+    from custom_components.lueftungsberater.const import (
+        CONF_WARNING_SOURCE,
+        CONF_WARNING_SOURCE_MODE,
+        CONF_WEATHER,
+        CONF_WEATHER_SOURCE_MODE,
+        DEFAULT_WARNING_SOURCE_MODE,
+        DEFAULT_WEATHER_SOURCE_MODE,
+        WARNING_SOURCE_AUTO_PLUS_MANUAL,
+        WARNING_SOURCE_MANUAL,
+        WARNING_SOURCE_NONE,
+        WEATHER_SOURCE_MANUAL,
+    )
+
+    validated = _global_schema(hass)({SECTION_GENERAL: {}})
+    general = validated[SECTION_GENERAL]
+    assert general[CONF_WEATHER_SOURCE_MODE] == DEFAULT_WEATHER_SOURCE_MODE
+    assert general[CONF_WARNING_SOURCE_MODE] == DEFAULT_WARNING_SOURCE_MODE
+
+    assert _local_source_errors(
+        {CONF_WEATHER_SOURCE_MODE: WEATHER_SOURCE_MANUAL}
+    ) == {"base": "manual_weather_required"}
+    assert not _local_source_errors(
+        {
+            CONF_WEATHER_SOURCE_MODE: WEATHER_SOURCE_MANUAL,
+            CONF_WEATHER: "weather.user_selected",
+        }
+    )
+    assert _local_source_errors(
+        {
+            CONF_WARNING_SOURCE_MODE: WARNING_SOURCE_MANUAL,
+            CONF_WARNING_SOURCE: WARNING_SOURCE_NONE,
+        }
+    ) == {"base": "manual_warning_required"}
+    assert not _local_source_errors(
+        {
+            CONF_WARNING_SOURCE_MODE: WARNING_SOURCE_AUTO_PLUS_MANUAL,
+            CONF_WARNING_SOURCE: "warning-entry-id",
+        }
+    )

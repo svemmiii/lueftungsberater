@@ -46,6 +46,9 @@ from .const import (
     CONF_SURFACE_TEMP,
     CONF_TARGET_TEMP,
     CONF_WARNING_SOURCE,
+    CONF_WARNING_SOURCE_MODE,
+    WARNING_SOURCE_AUTO,
+    WARNING_SOURCE_AUTO_PLUS_MANUAL,
     CONF_WEATHER_DANGER,
     CONF_WEATHER_REASON,
     CONF_WINDOWS,
@@ -237,7 +240,15 @@ def _is_on(hass: HomeAssistant, entity_id: str | None) -> bool:
 
 
 def warning_source_configured(entry: ConfigEntry) -> bool:
-    """Return whether the new warning-provider selector contains a real source."""
+    """Return whether normalized warning-provider evaluation is enabled.
+
+    Automatic warnings are a real source even though they have no foreign HA
+    ConfigEntry ID.  Legacy entries without an explicit mode retain the old
+    manual-source semantics until migration writes the v0.11 source mode.
+    """
+    mode = entry.data.get(CONF_WARNING_SOURCE_MODE)
+    if mode in {WARNING_SOURCE_AUTO, WARNING_SOURCE_AUTO_PLUS_MANUAL}:
+        return True
     source = entry.data.get(CONF_WARNING_SOURCE)
     return (
         isinstance(source, str)
@@ -774,6 +785,7 @@ def _warning_context(
         nina_original_reason = warnings.nina_original_reason
         provider_weather_caution = warnings.weather_caution
         provider_weather_danger = warnings.weather_danger
+        provider_weather_hard_lock = warnings.weather_hard_lock
         provider_weather_reason_key = warnings.weather_reason_key
         provider_weather_reason_args = dict(warnings.weather_reason_args)
         provider_weather_original_reason = warnings.weather_original_reason
@@ -795,6 +807,7 @@ def _warning_context(
         nina_original_reason = _text(hass, entry.data.get(CONF_NINA_STATUS))
         provider_weather_caution = False
         provider_weather_danger = False
+        provider_weather_hard_lock = False
         provider_weather_reason_key = None
         provider_weather_reason_args = {}
         provider_weather_original_reason = None
@@ -802,27 +815,43 @@ def _warning_context(
     legacy_weather_danger = _is_on(hass, entry.data.get(CONF_WEATHER_DANGER))
     legacy_weather_reason = _text(hass, entry.data.get(CONF_WEATHER_REASON))
 
-    # Pick the explanation from a source that has the same selected severity.
-    # An explicitly selected warning provider gets priority when it is itself a
-    # danger; otherwise the weather entity's hard danger must not inherit a
-    # provider's weaker caution wording.
+    # Keep severity and absolute lock separate. A severe DWD/CAP warning can be
+    # a strong outside disadvantage without being a command to keep windows
+    # closed. Only an explicit provider close instruction or a directly
+    # window-dangerous live weather condition may set weather_hard_lock.
     danger_sources = []
+    hard_sources = []
     if provider_weather_danger:
-        danger_sources.append((
+        item = (
             provider_weather_reason_key or "weather_danger",
             provider_weather_reason_args,
             provider_weather_original_reason,
-        ))
+        )
+        danger_sources.append(item)
+        if provider_weather_hard_lock:
+            hard_sources.append(item)
     if weather.weather_danger:
-        danger_sources.append((
+        item = (
             weather.weather_reason_key or "weather_danger",
             dict(weather.weather_reason_args),
             weather.weather_original_reason,
-        ))
+        )
+        danger_sources.append(item)
+        if weather.weather_hard_lock:
+            hard_sources.append(item)
     if legacy_weather_danger:
-        danger_sources.append(("weather_danger", {}, legacy_weather_reason))
+        item = ("weather_danger", {}, legacy_weather_reason)
+        danger_sources.append(item)
+        # Preserve explicit legacy hard-weather installations. New automatic
+        # providers no longer use severity alone for this flag.
+        hard_sources.append(item)
 
-    if danger_sources:
+    weather_hard_lock = bool(hard_sources)
+    if hard_sources:
+        weather_danger = True
+        weather_caution = False
+        weather_reason_key, weather_reason_args, weather_original_reason = hard_sources[0]
+    elif danger_sources:
         weather_danger = True
         weather_caution = False
         weather_reason_key, weather_reason_args, weather_original_reason = danger_sources[0]
@@ -854,6 +883,7 @@ def _warning_context(
         "nina_original_reason": nina_original_reason,
         "weather_caution": weather_caution,
         "weather_danger": weather_danger,
+        "weather_hard_lock": weather_hard_lock,
         "weather_reason_key": weather_reason_key,
         "weather_reason_args": weather_reason_args,
         "weather_original_reason": weather_original_reason,
@@ -870,7 +900,7 @@ def _incomplete_data_safety_result(
         reason_key = context["nina_reason_key"] or "nina_air_danger"
         reason_args = dict(context["nina_reason_args"])
         original_reason = context["nina_original_reason"]
-    elif context["weather_danger"]:
+    elif context["weather_hard_lock"]:
         mode = "wettergefahr"
         reason_key = context["weather_reason_key"] or "weather_danger"
         reason_args = dict(context["weather_reason_args"])
@@ -1023,6 +1053,7 @@ def build_room_snapshot(
         rain_minutes_until=weather.rain_minutes_until,
         weather_caution=weather_caution,
         weather_danger=weather_danger,
+        weather_hard_lock=bool(warning_context["weather_hard_lock"]),
         weather_reason_key=weather_reason_key,
         weather_reason_args=weather_reason_args,
         weather_original_reason=weather_original_reason,
@@ -1111,6 +1142,7 @@ def build_room_snapshot(
         nina_status=normalized_nina,
         weather_caution=weather_caution,
         weather_danger=weather_danger,
+        weather_hard_lock=bool(warning_context["weather_hard_lock"]),
         air_quality_typical=values.get("air_quality_typical"),
         air_quality_unusual=bool(values.get("air_quality_unusual")),
         air_quality_trend=str(values.get("air_quality_trend") or "unknown"),

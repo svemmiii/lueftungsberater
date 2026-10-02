@@ -4,7 +4,7 @@ Remote/Tailscale measurements remain snapshots in memory only: no mirrored
 entities, recorder rows or measurement history are created on the receiving
 Home Assistant. The registry contains only one lightweight device card per
 remote room so users can still see the connected topology without the former
-extra Remote-HA -> Lüftungsberater hierarchy.
+extra Remote-HA -> Lüftungsassistent hierarchy.
 """
 from __future__ import annotations
 

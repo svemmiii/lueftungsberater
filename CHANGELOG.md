@@ -1,5 +1,83 @@
 # Changelog
 
+## v0.11.0 TEST
+
+### TEST COMPLETE(11): GPS-Genauigkeit und internationale Schutzanweisungen
+- Mobile Tracker berücksichtigen `gps_accuracy` in Metern. Werte über 250 m sowie negative, nicht endliche oder ungültige Angaben werden nicht als neue Position akzeptiert. Fehlende optionale Genauigkeitsangaben bleiben kompatibel.
+- Ungenaue Meldungen halten die zuletzt gültige Position höchstens bis 30 Minuten seit deren tatsächlicher Meldung und verlängern diese Frist nicht. Ein Neustart mit ausschließlich ungenauem GPS verwendet keine vermeintlich gültige Position. Erst eine wieder ausreichend genaue Meldung kann den Standort und damit den Provider wechseln.
+- Belgien ergänzt BE-Alert über den offiziellen öffentlichen CAP-Gateway-Feed zusätzlich zu MeteoAlarm. Warnflächen, Lebensdauer und vollständige CAP-Meldungen werden geprüft. Probe-/Übungsmeldungen werden auch dann ausgeschlossen, wenn der CAP-Status „Actual“ lautet. Unvollständige Antworten und Ausfälle bleiben UNKNOWN.
+- Amtliche Schließ-/Lüftungsanweisungen werden zusätzlich auf Niederländisch, Französisch und Italienisch erkannt. Negierte Anweisungen, vollständige Entwarnungen und Teilentwarnungen besitzen eigene Regressionstests. Dies ist eine begrenzte regelbasierte Auswertung, keine freie Übersetzung beliebiger Warntexte.
+- CAP `Cancel` wird als amtliche Rücknahme auch ohne übersetzten Entwarnungstext erkannt; dies verhindert eine erneute Sperre durch kopierte alte Schutzanweisungen.
+- 730 Tests bestanden unter HA 2026.6.0 und 2026.10.0b0. Paketname, aktuelle Abdeckungsübersicht und Prüfbericht führen einheitlich COMPLETE(11). Integration bleibt v0.11.0.
+
+### TEST COMPLETE(10): Provider- und GPS-Korrekturen
+- DWD-MOSMIX-Stationskoordinaten werden korrekt als Grad.Minuten gelesen, inklusive negativer Werte und Prüfung ungültiger Minuten. Reale Katalogzeilen ersetzen künstliche Dezimalgrad-Testdaten.
+- MeteoAlarm löst CAP-Geocodes/EMMA_ID und bekannte NUTS-Aliase über mitgelieferte Regionsgeometrien auf. Explizite Warnpolygone haben Vorrang vor gröberen Regionscodes. Unbekannte Gebiete, unvollständige Detailabrufe und Providerfehler werden als UNKNOWN ausgewertet; es werden keine Meldungen still nach dem vierzigsten CAP-Link abgeschnitten.
+- Österreich ergänzt AT-Alert, die Schweiz ergänzt Alertswiss als Bevölkerungsschutzquelle zusätzlich zu MeteoAlarm. Probe-/Testmeldungen werden ausgeschlossen; amtliche Schließanweisungen bleiben hart, bloße Warnschwere bleibt weich. Fehler einer Quelle können die andere Quelle nicht entwarnen.
+- Das Land wird anhand der akzeptierten Koordinate und mitgelieferter Ländergeometrien bestimmt; eine Zeitzone wird im laufenden Providerpfad nicht mehr als Landesnachweis verwendet.
+- GPS-Aktualität basiert auf `last_reported` bzw. einem expliziten `gps_timestamp`/`location_updated_at`, nicht auf dem Zeitpunkt einer erneuten Assistentenabfrage. Identische frische Meldungen im Stillstand bleiben gültig. Nach maximal 30 Minuten seit der letzten Positionsmeldung werden automatische Abfragen angehalten und der Standort als unbekannt geführt; der mobile Assistent springt nicht nach Hause.
+- Diagnoseattribute `warning_provider_coverage` und `warning_provider_error` machen Bevölkerungsschutz-/Wetterabdeckung und Ausfälle sichtbar. Die bestehende Update-Migration und manuelle Quellen bleiben erhalten.
+- Beim Gesamtcheck zusätzlich korrigiert: Die HA-Diagnosesensor-Suche bevorzugt den exakten Namen, damit „Master“ nicht versehentlich den Credential-Sensor auswählt. Firmware und Protokoll bleiben unverändert. Ein fehlender Konstantenimport in der bestehenden Hardware-ID-Migration wurde ergänzt; veraltete Test-Fixtures wurden aktualisiert.
+- Versionsnummer bleibt 0.11.0; ESP-Vertrag und Lüftungs-/Raumentscheidungslogik werden nicht geändert.
+
+
+### Automatische Wetter- und Warnquellen nach Standort
+- **Automatik ist der Standard für neue lokale Installationen:** Wetter und amtliche Warnungen folgen dem wirksamen Home-/Mobilstandort. Eigene Home-Assistant-Quellen bleiben als bewusster Wetter-Override bzw. als Warn-Override/Zusatz auswählbar.
+- **Bestehende Installationen werden konservativ migriert:** Eine vorhandene `weather.*`-Entity bleibt zunächst manuelle Wetterquelle; eine vorhandene Warnintegration bleibt erhalten und wird zusätzlich zur neuen automatischen Warnquelle ausgewertet.
+- **Deutschland:** automatisch die nächstgelegene geeignete DWD-Station mit aktuellen Messdaten und MOSMIX-Vorhersage; DWD-ICON dient nur als Ausfall-Fallback. Warnungen kommen über NINA/warnung.bund.de. NINA-Meldungen werden gegen ihre tatsächliche GeoJSON-Warnfläche geprüft; DWD-Warnschwere bleibt Soft-Weather, eine harte amtliche Sperre entsteht weiterhin nur aus einer konkreten Fenster-/Lüftungsanweisung.
+- **International:** weltweites koordinatenbasiertes Wetter; automatische amtliche Warnungen über NWS in den USA und MeteoAlarm/CAP in unterstützten europäischen Ländern. Nicht unterstützte Länder werden ausdrücklich als ohne automatische amtliche Warnabdeckung behandelt, statt Sicherheit vorzutäuschen.
+- **Abdeckung transparent:** NINA ist in Deutschland der All-Hazard-/Bevölkerungsschutzpfad. AT-Alert (Österreich) und Alertswiss (Schweiz) ergänzen nationale Bevölkerungsschutzwarnungen. In den übrigen Ländern decken NWS und MeteoAlarm primär amtliche Wetterwarnungen ab und werden nicht als vollständiger Ersatz für nationale Zivilschutz-Warndienste ausgegeben.
+- **Standortwechsel:** `Home.location`-Änderungen bzw. ein optionaler mobiler GPS-`device_tracker` lösen eine kontrollierte Neuauflösung aus. Kurze GPS-Ausfälle halten begrenzt die letzte gültige mobile Position; alte Hardsperren eines vorherigen Orts werden nicht zum neuen Ort mitgenommen.
+- **Providerfehler sind nicht fatal:** Netzwerk-/Provider-Ausfälle brechen weder Setup noch Lüftungsentscheidung. Bestätigte Hardsperren verwenden weiterhin den vorhandenen begrenzten Safety-Fallback.
+
+### Provisionierung und Hardware-Authentifizierung gehärtet
+- **Physische ESP-MAC jetzt global eindeutig:** `DIRECT:<MAC>` und die rohe MAC gelten installationsweit als dieselbe Lüftungsstation. Ein ESP kann nicht mehr parallel in zwei lokalen Lüftungsassistent-Instanzen angelegt bzw. neu konfiguriert werden.
+- **Alte ON-Bestätigung reicht nicht mehr:** Das grobe `Provisioniert = Ein` ist nur noch Bereitschaftssignal. Als Bestätigung des Stations-Pushs müssen Rolle, Raum, Master-MAC und Standortmodus **nach** dem Push frisch gemeldet werden und exakt dem HA-Sollzustand entsprechen.
+- **Neues Master-Credential mit OFF→ON-Handshake:** Bei neuem bzw. physisch ersetztem Master wird ein eventuell alter Credential-Zustand zuerst über den vorhandenen Stationsvertrag gelöscht und frisch als `off` bestätigt; erst danach werden Masterrolle und neues Secret gesetzt und frisch als `on` bestätigt. Normale Rekonfiguration desselben Masters behält das Secret und benötigt diesen Reset nicht.
+- **WireGuard-Neuprovisionierung ebenfalls eindeutig:** Vor einem neuen Remote-Profil wird WireGuard bewusst gelöscht; ein zuvor aktiver Zustand muss dabei frisch auf `off` wechseln. Erst danach wird das neue Profil gesetzt und frisch als `on` bestätigt. Private Schlüssel werden dabei weiterhin weder geloggt noch als Entity veröffentlicht.
+- **HTTP-Report nicht länger schwächer:** Auch `POST /api/lueftungsberater/hardware/report` verlangt nun `master_id` **und** `master_secret` und verwendet denselben Master-/Topologie-/Credential-Check wie `lueftungsberater.hardware_report`.
+- **Retry mit Backoff:** Offene, bewusst gestartete Provisionierungen versuchen 1 → 2 → 5 → 10 Minuten statt jede Minute mit langen Wartezeiten erneut; die Retry-Aktionen warten außerdem kurz auf fehlende ESPHome-Services.
+- **Credential-Drift bei normalem Reconfigure geschlossen:** Dasselbe in HA gespeicherte Master-Secret wird bei jeder bewusst ausgelösten Master-Provisionierung erneut an die Firmware gesendet und frisch bestätigt. Dadurch wird ein manuell restaurierter Master mit einem abweichenden gespeicherten Secret wieder auf den HA-Sollwert gebracht, ohne das Credential zu rotieren.
+- **Legacy-Doppel-MACs werden sichtbar:** Migration 1.13 entscheidet bei bereits vorhandenen Cross-Entry-Kollisionen weiterhin keinen Gewinner, erzeugt jetzt aber eine Home-Assistant-Reparaturmeldung mit MAC und betroffenen Stationszuordnungen.
+- **Master-Teilnehmerliste als HA-Sollzustand vorbereitet:** Der Lüftungsassistent berechnet aus den gültigen Node-Subentries die komplette Teilnehmerliste und einen Topologie-Hash. Sobald eine Unified-Firmware `lueftungsstation_apply_participants` registriert, überträgt HA MAC-, Stations- und Raumlisten als vollständigen Replace und synchronisiert Node-Anlegen/-Löschen/-Umhängen/-Raumwechsel automatisch. Das Fehlen dieser neuen Firmware-Action blockiert ältere Firmware nicht.
+- **Teilnehmer-Sync selbstheilend:** Ein offline befindlicher Master kann keine Topologieänderung mehr dauerhaft verpassen. Soll- und Gerätehash werden mit 1→2→5→10 Minuten Backoff erneut abgeglichen; das ESPHome-`service_registered`-Event ist nur noch eine schnelle Zusatzchance und keine Voraussetzung für den Retry.
+- **Topologie-Hash ist verpflichtender Firmwarevertrag:** Der HA-seitig gespeicherte Hash wird nicht als Beweis einer angewandten Teilnehmerliste vertraut. Nur die vom Master gemeldete Diagnose `Lüftungsstation Topologie-Hash` bestätigt den exakten Replace. Damit wird ein geleerter Participant-Cache nach Reflash/Restore automatisch erkannt und erneut provisioniert.
+- **Duplicate-MAC-Repair räumt beim Entry-Löschen auf:** Wird eine komplette kollidierende Lüftungsassistent-Instanz entfernt, werden die installationsweiten Hardwarekonflikte sofort neu berechnet und erledigte Repairs verschwinden ohne Neustart.
+
+- **Direkter Display-Rückkanal für Standalone/Master:** Der neue Firmwarevertrag `lueftungsstation_apply_display_result` erhält `station_subentry_id`, `room_id`, `room_name`, `status`, `recommendation`, `recommendation_key`, `display_mode` und `safety_lock`. Standalone-Stationen und Master mit eigener direkter Raum-Sensorik bekommen damit jede neue HA-Raumentscheidung direkt zurück; Nodes bleiben ausschließlich auf dem bestehenden Master→`lueftungsberater.hardware_report`→Node-Pfad.
+- **Eine gemeinsame Display-Payload:** Node-Response und Direktdisplay verwenden denselben Builder. Wetter-/Warnänderungen, Fensterkontakte, Session-/Hysteresewechsel und Hard-Locks können deshalb auch ohne neuen SCD41-Messwert das lokale Display aktualisieren, ohne eine zweite Entscheidungslogik einzuführen.
+- **DEV-0.7 bleibt kompatibel:** Fehlt `lueftungsstation_apply_display_result`, bleibt der aktuelle Displaystand nur im Arbeitsspeicher pending. Raum-Auswertung, Setup und Node-Reports laufen unverändert weiter. Sobald eine spätere Firmware die Action registriert, sendet HA den neuesten Stand automatisch nach. Offline-Geräte werden mit 1→2→5→10 Minuten Backoff erneut versucht; identische bereits erfolgreiche Payloads werden nicht erneut gesendet. Ändert sich eine ausstehende Payload – insbesondere `safety_lock` – erhält der neue Zustand unabhängig vom Backoff der alten Payload sofort einen Zustellversuch.
+
+### Wetter- und Raumluftsemantik präzisiert
+- **Schweres Wetter ist nicht automatisch Hard-Lock:** DWD-Warnstufen bleiben reine Außenbewertung, solange keine explizite Schließanweisung vorliegt. Live-Wetter trennt jetzt zusätzlich Vorsicht, starke Gefahr und echte Fenster-Hardsperre. Hagel sowie sehr schwere Sturm-/Böenwerte sperren hart; Gewitter/`exceptional` allein nicht.
+- **Soft-Weather wartet, solange Warten vertretbar ist:** Bei `weather_danger` ohne Hardsperre bleibt z. B. ~1300 ppm CO₂ auf der Raumluftkarte grün. Ab etwa 1700 ppm wird der Zustand gelb beobachtenswert.
+- **Kritische Innenlage darf Soft-Weather überstimmen:** >2000 ppm CO₂, sehr schlechte Innenluft, ≥75 % rF, persistentes Schimmelrisiko oder echte Hitze können trotz stark ungünstigem Wetter wieder eine reale Abwägung erzeugen. Ein `weather_hard_lock` bleibt absolut und kann nie überstimmt werden.
+- **Raumluftfarben bleiben Aktionsfarben:** Grün = jetzt nichts tun, Gelb = beobachten/bald handeln, Orange = jetzt sinnvoll handeln, Rot = dringend; Weiß/Lock = nicht öffnen.
+- **Veralteten Wetter-Regressionstest korrigiert:** Der alte Test, der 2500 ppm + `weather_danger` fälschlich weiterhin auf Grün/Gelb deckeln wollte, erwartet jetzt wie die neue Produktlogik Orange. Damit widersprechen sich alter und neuer Soft-Weather-Test nicht mehr.
+
+### Standort-/UX-Nacharbeiten
+- **Mobiler Tracker steuert automatische Provider:** Home-Standort oder optionaler GPS-`device_tracker` bilden direkt den wirksamen Standort für Auto-Wetter und Auto-Warnungen. Kurze GPS-Ausfälle halten begrenzt die letzte gültige mobile Position.
+- **GPS-Ausfall springt nicht sofort nach Hause:** Die letzte gültige mobile Position wird bei kurzzeitig `unavailable` gewordenen Trackern begrenzt weiterverwendet, statt bei einem Wohnmobil sofort auf den möglicherweise hunderte Kilometer entfernten Home-Punkt zurückzufallen.
+- **Sichtbare Produkttexte bereinigt:** Benutzertexte sprechen konsequent vom Lüftungsassistenten; die technische Domain `lueftungsberater` bleibt aus Kompatibilitätsgründen unverändert.
+
+### Einheitliche ESPHome-Firmware wird jetzt vollständig aus Home Assistant provisioniert
+- **Normaler Stationsdialog statt Handarbeit:** Nach dem Anlegen oder Neukonfigurieren einer Station pusht der Lüftungsassistent Rolle, Config-Entry-/Stations-/Raumbezug, Master-Zuordnung und Standortmodus über die vorhandenen ESPHome-Native-API-Aktionen auf das ausgewählte Gerät. `.storage`, Developer-Actions und manuelles Secret-Kopieren sind dafür nicht mehr nötig.
+- **Echte MAC ist die physische Identität:** Migration 1.13 und neue Stationen verwenden ausschließlich `CONNECTION_NETWORK_MAC`. Direkte Geräte werden als `DIRECT:<MAC>` gespeichert; interne Home-Assistant-Device-IDs werden nie als Hardware-ID missbraucht.
+- **Master-Credential automatisch und persistent:** Ein Master erhält erst dann ein zufälliges `hardware_master_secret`, wenn er tatsächlich als Master angelegt wird. Normale Rekonfiguration erhält es, physischer Mastertausch rotiert es. Bestehende Standalone-/Node-Stationen erhalten durch das Update kein Secret.
+- **Provisionierung wird konkret bestätigt:** `Provisioniert = Ein` allein reicht nicht. Nach dem Push müssen Rolle, Raum, Master-MAC und Standortmodus frisch gemeldet werden und dem HA-Soll entsprechen; neue Master-Credentials und neue Remote-WireGuard-Profile werden zusätzlich über einen Reset→Apply-Handshake bestätigt. War der ESP beim Speichern offline, wird nur die explizit offene Provisionierung mit Backoff wiederholt. Danach gibt es kein Provisionierungs-Polling.
+- **Nodes sind ebenfalls HA-owned:** Ein Node wählt ein konkretes ESPHome-Gerät und genau einen bereits als Master angelegten Stations-Subentry. Die Firmware entscheidet diese Beziehung nicht selbst.
+
+### Wettergefahr, Außen-Nachteil und echte Hardsperre getrennt
+- **Amtliche Warnstufe allein sperrt nicht mehr:** Eine DWD-Warnung der Stufe 3/4 kann die Lüftungsentscheidung stark gegen Öffnen gewichten, erzeugt aber ohne konkrete Fenster-/Lüftungsanweisung keine weiße Hardsperre mehr.
+- **Explizite Schutzanweisung bleibt absolut:** Aussagen wie „Fenster geschlossen halten“, „Fenster schließen“ oder „Lüftung abschalten“ setzen weiterhin sofort die Hardsperre.
+- **Physische Wetter-Hardsperre separat:** Unmittelbar fensterrelevante Live-Bedingungen wie Hagel bzw. sehr hohe Wind-/Böenwerte können unabhängig von amtlichen Warnstufen weiterhin hart sperren. Gewitter/`exceptional` allein werden nicht mehr automatisch zur Hardsperre.
+- **Raumluftkarte bleibt semantisch sauber:** Stark ungünstiges Außenwetter ohne Hardsperre dämpft normalen Innen-Handlungsdruck bewusst: moderate Werte können grün bleiben, zunehmender Druck wird gelb. Wirklich kritische Innenzustände dürfen `weather_danger` jedoch überstimmen und wieder Orange/Rot erreichen. Eine echte Hardsperre überschreibt beide Karten weiterhin mit `locked`/weiß.
+
+### Standortgrundlage für automatische Provider
+- **Home-Standort wird live gelesen:** Koordinaten werden nicht in den Config-Entry kopiert. Änderungen der Home-Position werden ereignisbasiert übernommen.
+- **Mobiler Modus vorbereitet:** Optional kann ein `device_tracker` als Standortquelle gewählt werden. Kleine GPS-Bewegungen werden ignoriert; eine neue Standortauswertung erfolgt bei etwa 2 km Bewegung oder spätestens nach fünf Minuten während Bewegung.
+- **Automatische Provider-Schicht aktiv:** Neue Installationen verwenden standardmäßig koordinatenbasiertes Wetter und amtliche Warnadapter. Deutschland nutzt die nächstgelegene geeignete DWD-Station mit Messdaten + MOSMIX (DWD-ICON nur als Ausfall-Fallback) sowie NINA/warnung.bund.de, die USA NWS; unterstützte europäische Länder verwenden punktauflösbare MeteoAlarm/CAP-Warnungen. Bereits konfigurierte eigene Quellen bleiben bei der Migration erhalten und können in den Einstellungen weiterhin bewusst verwendet bzw. mit Auto-Warnungen kombiniert werden. Nicht unterstützte oder nicht sicher räumlich auflösbare Warnquellen werden nicht als garantierter Warnschutz ausgegeben.
+
 ## v0.10.2
 
 ### Native-API-Masterauthentifizierung
@@ -35,7 +113,7 @@
 - **Node-Hardware-ID ist beim normalen Reconfigure gesperrt:** Discovery- und Hardware-ID-Felder werden beim Umhängen eines vorhandenen Nodes nicht mehr angeboten; die bestehende Geräteidentität wird serverseitig unabhängig vom Forminput beibehalten. Ein späterer physischer Gerätetausch kann damit als eigener bewusster Ablauf umgesetzt werden.
 - **Gemeldete ESP-Firmware aktualisiert die Device Registry:** Sobald ein Hardware-Node erstmals eine echte Firmwareversion meldet oder sich diese ändert, wird `sw_version` des zugehörigen HA-Geräts direkt aktualisiert; ein Integrationsreload ist für die Geräteanzeige nicht mehr nötig.
 - **Node-Reports werden gegen den in HA gewählten Master geprüft:** Für v0.10.1-Nodes ist die stabile Master-Subentry-ID die einzige Topologiequelle. Fehlt dieser Master, werden Reports mit `409` abgewiesen; meldet ein anderer Master denselben Node, werden dessen Messwerte ebenfalls nicht übernommen. Legacy-v0.10.0-Nodes ohne stabile Beziehung behalten ihren bisherigen Hardware-ID-Fallback.
-- **Displayantwort ohne Advisor-Entity-Abhängigkeit:** `/hardware/report` baut `status`, `recommendation`, `recommendation_key`, `display_mode` und `safety_lock` direkt aus dem aktuellen `RoomCoordinator`/`RoomSnapshot`. Eine deaktivierte oder während eines Reloads noch nicht angelegte Advisor-Sensorentity kann den ESP damit nicht mehr mit einer leeren Anzeigeantwort zurücklassen.
+- **Displayantwort ohne Assistent-Entity-Abhängigkeit:** `/hardware/report` baut `status`, `recommendation`, `recommendation_key`, `display_mode` und `safety_lock` direkt aus dem aktuellen `RoomCoordinator`/`RoomSnapshot`. Eine deaktivierte oder während eines Reloads noch nicht angelegte Assistent-Sensorentity kann den ESP damit nicht mehr mit einer leeren Anzeigeantwort zurücklassen.
 - **Master-Reconfigure vollständig:** `lokal → remote` verlangt zwingend einen neuen WireGuard-Import, `remote → remote` kann das bestehende Profil behalten oder ersetzen und `remote → lokal` entfernt gespeicherte WireGuard-Schlüssel und Peer-Daten aus dem Stations-Subentry.
 - **Gelöschte/ersetzte Master hinterlassen keine zweite Wahrheit:** Nodes mit expliziter Master-Subentry-ID fallen bei einem gelöschten Master nicht auf eine alte Hardware-ID zurück und werden als `master_missing` diagnostiziert; ihre zuletzt noch frischen Messwerte werden sofort als ungültig behandelt. Die stabile Master-Subentry-ID ist bei v0.10.1-Nodes die einzige dauerhafte Beziehung.
 - **Node-Reconfigure behält seine Hardware-ID:** Beim bloßen Umhängen auf einen anderen Master muss die feste Hardware-ID nicht erneut eingegeben werden.
@@ -211,7 +289,7 @@
 - **Remote-Duplikate:** Dieselbe Remote-Gegenstelle kann auch beim Reconfigure nicht doppelt eingerichtet werden. Hosts werden für Speicherung und Vergleich einheitlich normalisiert (DNS-Namen klein/ohne abschließenden Punkt, IP-Adressen kanonisch).
 - **Remote-Reauth:** Ein vom entfernten Home Assistant abgelehnter/widerrufener Token wird nicht mehr dauerhaft als bloß „offline“ behandelt. Der Coordinator löst den Home-Assistant-Reauth-Pfad aus; der Config Flow kann einen neuen Long-Lived Access Token validieren und übernehmen.
 - **Remote-Raumauswahl:** Beim Reconfigure werden nur noch weiterhin existierende alte Raum-IDs vorausgewählt. Sind alle bisherigen IDs verschwunden, werden nicht stillschweigend sämtliche neu entdeckten Räume aktiviert.
-- **Übersichts-Karte:** Advisor-Entities werden nicht mehr nur bei geänderter Gesamtzahl aller HA-States neu entdeckt. Bekannte Advisoren werden bei normalen Updates günstig validiert; eine vollständige Discovery läuft nur bei Bedarf bzw. gebündelt spätestens nach kurzer Verzögerung. Ein bereits existierender Sensor, der erst später zum vollständigen Lüftungsassistent-Sensor wird, erscheint dadurch weiterhin zuverlässig, ohne bei jedem HA-State-Update alle Entities zu filtern und zu sortieren.
+- **Übersichts-Karte:** Assistent-Entities werden nicht mehr nur bei geänderter Gesamtzahl aller HA-States neu entdeckt. Bekannte Assistenten werden bei normalen Updates günstig validiert; eine vollständige Discovery läuft nur bei Bedarf bzw. gebündelt spätestens nach kurzer Verzögerung. Ein bereits existierender Sensor, der erst später zum vollständigen Lüftungsassistent-Sensor wird, erscheint dadurch weiterhin zuverlässig, ohne bei jedem HA-State-Update alle Entities zu filtern und zu sortieren.
 - **Frontend-Lokalisierung:** Die Übersichts-Karte rendert nach eintreffender WebSocket-Lokalisierung jetzt über ihren eigenen `_renderOverview()`-Pfad. Gemeinsam deduplizierte Localization-Requests verwalten außerdem alle wartenden Karten-Callbacks, sodass mehrere Räume mit identischen Textschlüsseln gleichzeitig aktualisiert werden statt nur der erste Aufrufer.
 - **Remote-Raumpräferenzen:** Verstecken/Sortieren verwendet bei aktuellen Gegenstellen die stabile Remote-Raum-ID vor dem editierbaren Namen; Umbenennen eines Raums verliert die Kartenpräferenzen nicht mehr. Der Name bleibt nur Legacy-Fallback.
 - **Datentypen:** Absolute Innen-/Außenfeuchte und Differenz sind im Ergebnis jetzt korrekt als `float | None` modelliert; Incomplete-Data-Pfade benötigen dafür keine Typunterdrückung mehr.
@@ -291,7 +369,7 @@
 - OutsideCoordinator prüft nach asynchronem Registry-Refresh erneut seinen Startzustand und kann nach `async_shutdown()` keinen Source-Listener mehr neu abonnieren. Seine Provider-Refresh-Tasks werden – wie von aktuellen Home-Assistant-Config-Entries vorgesehen – lifecycle-gebunden erstellt.
 - Eventbasierte Notification-Checks und Airing-Speicheraufgaben werden über den Config-Entry-Task-Lifecycle erzeugt. Zusätzlich räumt der jeweilige Coordinator/Tracker eigene noch laufende Jobs bereits in `async_shutdown()`/`async_stop()` auf: Notification-State kann dadurch nicht während des Unloads von einem alten Job erneut beschrieben werden, und ein älterer Airing-Save kann den finalen Shutdown-Snapshot nicht nachträglich überschreiben.
 - Remote-Protokoll wurde wegen der neuen Night-v3-Semantik auf **3** erhöht. Der v0.9.3-Client fordert v3 ausdrücklich an und akzeptiert weiterhin ältere Protokolle 1/2; ein älterer Client ohne Protokollangabe erhält serverseitig einen v2-kompatiblen Snapshot, in dem nur die neuen `short_only`/`not_recommended`-Nachtzustände ausgeblendet werden. Rolling Upgrades bleiben damit nutzbar, ohne neue Night-v3-Semantik stillschweigend falsch zu interpretieren.
-- Fehlt während Setup/Reload die lokale Advisor-Entity, exportiert der Remote-Fallback jetzt `availability=loading` und `window_open=null` statt einen geschlossenen Fensterzustand zu erfinden.
+- Fehlt während Setup/Reload die lokale Assistent-Entity, exportiert der Remote-Fallback jetzt `availability=loading` und `window_open=null` statt einen geschlossenen Fensterzustand zu erfinden.
 - Remote-Client-ID und -Name werden auf 128 Zeichen begrenzt; pro Raum werden maximal 32 gleichzeitig gemerkte Client-IDs gehalten und bei Überschreitung die ältesten transienten Einträge verworfen.
 
 ### Regressionstests erweitert
@@ -471,7 +549,7 @@
 - Nicht-endliche Messwerte (`NaN`, `+/-inf`) werden in Provider- und CO₂-Pfaden verworfen. Gespeicherte CO₂-Gnadenwerte werden ebenfalls validiert.
 - Unbekannte Temperatureinheiten werden nicht mehr stillschweigend als °C interpretiert. Ein nicht konvertierbarer Wert gilt stattdessen als nicht verwendbar; dabei wird auch der von aktuellen Home-Assistant-Konvertern verwendete `HomeAssistantError` sauber abgefangen.
 - Raum-Benachrichtigungen werden pro Raum serialisiert, damit nahezu gleichzeitige Sensorupdates denselben Zustandsübergang nicht doppelt melden können.
-- Der gemeinsame Outside-Coordinator beobachtet Änderungen der Home-Assistant-Entity-Registry und zieht seine Provider-Quellen dynamisch nach. Später erzeugte oder umbenannte Wetter-/Warnentitäten benötigen dadurch keinen Lüftungsberater-Reload mehr.
+- Der gemeinsame Outside-Coordinator beobachtet Änderungen der Home-Assistant-Entity-Registry und zieht seine Provider-Quellen dynamisch nach. Später erzeugte oder umbenannte Wetter-/Warnentitäten benötigen dadurch keinen Lüftungsassistent-Reload mehr.
 - Der notwendige Home-Assistant-Kompatibilitätsworkaround für den privaten Subentry-Capability-Cache ist in `compat.py` isoliert und greift nur, solange die betreffende interne HA-Struktur existiert.
 - Python-seitige Versionsangaben verwenden eine gemeinsame `INTEGRATION_VERSION`; Manifest, Frontend-Cache-Buster und Geräteanzeige stehen für dieses Release auf **0.8.0**.
 - `nina_status` ist im Datenmodell explizit als `none | caution | danger | clear` typisiert; nicht verwendete Warnparameter und kleine doppelte/mehrdeutige Stellen wurden bereinigt.
@@ -580,7 +658,7 @@
 
 - Entfernt die experimentelle, integrationseigene 30-Tage/40-MiB-`RoomHistory`. Sie duplizierte Recorder-Daten, wurde von keiner Beratungsfunktion ausgewertet und konnte unnötig RAM/Storage belegen.
 - Bestehende v0.7.2-`lueftungsberater.history.*`-Stores werden beim ersten lokalen Setup automatisch entfernt.
-- Die bereits eingeführten Recorder-Optimierungen bleiben erhalten: große/dynamische Advisor-Attribute, Warntexte, CO₂-Rohwertattribute und Lüftungs-Debugattribute werden nicht unnötig historisiert.
+- Die bereits eingeführten Recorder-Optimierungen bleiben erhalten: große/dynamische Assistent-Attribute, Warntexte, CO₂-Rohwertattribute und Lüftungs-Debugattribute werden nicht unnötig historisiert.
 - Neue gezielte Recorder-Aufbewahrung: Lüftungsassistent-Entities werden einmal täglich auf **maximal 20 Tage** State-Historie begrenzt. Andere Integrationen bleiben unberührt. Eine global kürzere Recorder-Aufbewahrung bleibt maßgeblich.
 - Der Purge verwendet die exakten aktuell registrierten Entity-IDs der Lüftungsassistent-ConfigEntries; umbenannte Entities werden dadurch ebenfalls korrekt erfasst.
 - Behebt den veralteten Config-Flow-Test, der `MINOR_VERSION == 7` verlangte, obwohl v0.7.2 korrekt Minor-Version 8 verwendet.
@@ -636,7 +714,7 @@
 ## v0.7.0
 
 ### Lüftungsassistent / Fresh Air Assistant
-- Sichtbarer deutscher Produktname von **Lüftungsberater** auf **Lüftungsassistent** umgestellt. Die technische Domain `lueftungsberater` und bestehende Entity-/Config-IDs bleiben unverändert.
+- Sichtbarer deutscher Produktname konsequent auf **Lüftungsassistent** vereinheitlicht. Die technische Domain `lueftungsberater` und bestehende Entity-/Config-IDs bleiben unverändert.
 - Englische und internationale Oberfläche verwendet **Fresh Air Assistant**; nicht unterstützte UI-Sprachen fallen weiterhin auf Englisch zurück.
 
 ### Amtliche Warnungen und Entwarnungen
@@ -668,7 +746,7 @@
 
 ### Datenmodell und Performance
 - Der bestehende Kartenumfang bleibt erhalten; v0.7.0 entfernt keine für die aktuelle Darstellung benötigten Attribute.
-- Der große Advisor-Attributsatz bleibt über `_unrecorded_attributes = MATCH_ALL` vom Recorder ausgeschlossen. Dadurch werden die sichtbaren Diagnose-/Kartendaten nicht bei jeder Aktualisierung als eigener Attributverlauf gespeichert.
+- Der große Assistent-Attributsatz bleibt über `_unrecorded_attributes = MATCH_ALL` vom Recorder ausgeschlossen. Dadurch werden die sichtbaren Diagnose-/Kartendaten nicht bei jeder Aktualisierung als eigener Attributverlauf gespeichert.
 - Remote-Exporte bleiben auf eine explizite Allowlist der tatsächlich für die Karte benötigten aktuellen Werte begrenzt; lokale Entity-IDs und vollständige Originalwarnpayloads werden nicht gespiegelt.
 - Mehrsprachige Kartentexte bleiben in v0.7.0 bewusst kompatibel erhalten, damit lokale und Remote-Karten weiterhin dieselben Inhalte in Deutsch, Englisch und Türkisch anzeigen können.
 
@@ -678,7 +756,7 @@
 
 ## 0.6.24 - Alpha
 
-- **Raumluftstatus ist jetzt die Standarddarstellung** für neue lokale Lüftungsberater: Grün = unauffällig, Gelb = leichte Abweichung, Orange = Lüften sinnvoll, Rot = deutlicher Lüftungsbedarf. Die bisherige Lüftungsampel bleibt vollständig auswählbar. Bestehende Installationen behalten ihre bereits gewählte Darstellung.
+- **Raumluftstatus ist jetzt die Standarddarstellung** für neue lokale Lüftungsassistent: Grün = unauffällig, Gelb = leichte Abweichung, Orange = Lüften sinnvoll, Rot = deutlicher Lüftungsbedarf. Die bisherige Lüftungsampel bleibt vollständig auswählbar. Bestehende Installationen behalten ihre bereits gewählte Darstellung.
 - Der separate **🔒-Sperrzustand** wurde optisch deutlich hervorgehoben: heller/weißer Kartenbereich mit dunklem Schloss und klarer Kontur statt eines unauffälligen grauen Zustands. Er bleibt außerhalb beider Ampelskalen.
 - **Nachtlüftung** wird in der Raumkarte direkt unter „Warum?“ als eigener, breiter Hinweis angezeigt. Die pro Raum einstellbare Startzeit verwendet einen echten Uhrzeit-Selector und bleibt klar von Temperaturwerten getrennt.
 - Die Einstellungsdialoge sind übersichtlicher gruppiert: Grundlage/Darstellung, eigene Außensensoren und Benachrichtigungen sowie pro Raum Raumklima, Nachtlüftung, Zusatzsensoren und Fenster/Türen stehen in klar getrennten Abschnitten.
@@ -690,9 +768,9 @@
 - Lokaler Außenluft-Kontext wurde von einer wachsenden Rohpunkthistorie auf eine **feste, größenbegrenzte Statistik** umgestellt. Bestehende v0.6.23-Historie wird beim ersten Laden in die kompakte Struktur überführt. Standort-Buckets und Kurzzeitpunkte besitzen feste Obergrenzen.
 - Keine zusätzliche Langzeitdatenbank für Raumtemperatur, Raumfeuchte oder CO₂: Home Assistants vorhandene Sensorhistorie wird nicht dupliziert.
 - Performance: Der 1-Minuten-Takt des Lüftungstrackers läuft nur noch bei tatsächlich geöffnetem Fenster. Bei geschlossenem Fenster wird der 24-Stunden-Fallback exakt terminiert.
-- Performance: Wetter, Warnungen, NINA und Außenluft werden einmal pro Lüftungsberater aufbereitet und von allen Räumen gemeinsam genutzt, statt pro Raum dieselben Providerdaten erneut zu zerlegen.
+- Performance: Wetter, Warnungen, NINA und Außenluft werden einmal pro Lüftungsassistent aufbereitet und von allen Räumen gemeinsam genutzt, statt pro Raum dieselben Providerdaten erneut zu zerlegen.
 - Performance: Stunden-Forecasts werden gemeinsam gecacht und nur während eines relevanten Nachtfensters regelmäßig nachgeladen.
-- Performance: Lokale Karten rendern nur noch bei für den Lüftungsberater relevanten Entity-Änderungen neu. Remote-Frontend-Polling wurde an den 30-Sekunden-Backend-Takt angepasst.
+- Performance: Lokale Karten rendern nur noch bei für den Lüftungsassistent relevanten Entity-Änderungen neu. Remote-Frontend-Polling wurde an den 30-Sekunden-Backend-Takt angepasst.
 - Performance: Große dynamische Attribute des Hauptsensors bleiben für die Karte verfügbar, werden aber vom Recorder ausgeschlossen; der eigentliche Empfehlungszustand bleibt historisierbar.
 - Performance: Remote-Geräte-Registry wird nur noch bei einer echten Änderung der Remote-Raumtopologie synchronisiert und nicht bei jedem neuen Messwert. Wiederholt benötigte abgeleitete Entity-IDs werden gecacht.
 - Sichtbare Texte und Einstellungsbeschreibungen in Deutsch, Englisch und Türkisch weiter auf kurze, natürliche Formulierungen ausgerichtet.
@@ -703,12 +781,12 @@
 - Neuer **Sperrzustand** außerhalb der normalen Ampel: konkrete Fenster-schließen-Warnungen und schwere Wettergefahren werden in der Karte mit Schloss dargestellt. Dadurch behält jede normale Ampelfarbe ihre Bedeutung und wird nie für zwei gegensätzliche Handlungen verwendet.
 - Neue wählbare **Ampeldarstellung**: Standard bleibt die Lüftungsampel (Grün = Lüften sinnvoll). Alternativ zeigt der Raumluftstatus die Dringlichkeit im Raum (Grün = alles gut, Rot = Lüften dringend sinnvoll). Der Sperrzustand übersteuert beide Darstellungen eindeutig.
 - Temperaturbewertung weiter verbessert: Richtung zum persönlichen Sollwert, Stärke der Temperaturwirkung und andere Raum-/Außenwerte werden gemeinsam betrachtet. Große Temperaturunterschiede wirken stärker, lösen aber nicht allein pauschal eine Farbe aus.
-- Plausibilitätsfilter absichtlich großzügig gehalten: extreme, aber mögliche Raumwerte bleiben gültig. Offensichtlich unbrauchbare Daten werden ignoriert statt durch erfundene Werte ersetzt. Unplausible Climate-Sollwerte fallen auf den gespeicherten Lüftungsberater-Sollwert zurück.
+- Plausibilitätsfilter absichtlich großzügig gehalten: extreme, aber mögliche Raumwerte bleiben gültig. Offensichtlich unbrauchbare Daten werden ignoriert statt durch erfundene Werte ersetzt. Unplausible Climate-Sollwerte fallen auf den gespeicherten Lüftungsassistent-Sollwert zurück.
 - CO₂-Lüftungen besitzen eine klarere Rücklaufhysterese: während einer sinnvollen Lüftung bleibt die Empfehlung stabil, geht nahe am Ziel in Gelb über und bewertet erst nach dem Schließen wieder die verbleibenden Außennachteile.
 - Optionaler **Außen-CO₂-Sensor** ergänzt. Ein plausibler lokaler Wert zeigt, wie groß das tatsächliche CO₂-Senkungspotenzial durchs Lüften ist; er wird nicht mit regionalen Daten gemittelt und macht hohe Innenwerte niemals künstlich gut.
-- Außenluftqualität erhält lokalen Kontext und Trend: Der UBA-LQI bleibt die absolute gesundheitliche Klasse. Zusätzlich merkt sich Lüftungsberater pro Standort einen rollierenden typischen Bereich und erkennt ungewöhnliche bzw. steigende Belastungen, ohne dauerhaft schlechte Luft gesundzurechnen.
+- Außenluftqualität erhält lokalen Kontext und Trend: Der UBA-LQI bleibt die absolute gesundheitliche Klasse. Zusätzlich merkt sich Lüftungsassistent pro Standort einen rollierenden typischen Bereich und erkennt ungewöhnliche bzw. steigende Belastungen, ohne dauerhaft schlechte Luft gesundzurechnen.
 - Standortbezogene Luftqualitäts-Historie verhindert, dass ein gelernter Normalbereich blind auf einen deutlich anderen Standort übertragen wird. Ohne brauchbare Standortinformation bleibt nur die absolute Bewertung.
-- Nachtlüftung überarbeitet: Die Startzeit der Anzeige ist pro Raum einstellbar (Standard 22 Uhr), aber keine feste Startanweisung. Lüftungsberater sucht in der Stundenprognose nach einem passenden Zeitfenster und kann z. B. „Später lüften – ab etwa 01:00 Uhr wird es draußen deutlich kühler“ anzeigen. Wenn nachts nichts Sinnvolles zu melden ist, bleibt die Zusatzzeile verborgen.
+- Nachtlüftung überarbeitet: Die Startzeit der Anzeige ist pro Raum einstellbar (Standard 22 Uhr), aber keine feste Startanweisung. Lüftungsassistent sucht in der Stundenprognose nach einem passenden Zeitfenster und kann z. B. „Später lüften – ab etwa 01:00 Uhr wird es draußen deutlich kühler“ anzeigen. Wenn nachts nichts Sinnvolles zu melden ist, bleibt die Zusatzzeile verborgen.
 - Nachtbewertung nutzt nur tatsächlich vorhandene Forecastfelder und berücksichtigt soweit verfügbar Temperatur, Feuchte, Regen, Wind, Warnungen und Außenluftqualität. Die aktuelle Hauptampel bleibt davon getrennt.
 - Remote-/Tailscale-Einträge werden robuster als read-only erkannt, einschließlich älterer Einträge ohne explizites `entry_kind`. Der gecachte Home-Assistant-Subentry-Status wird beim Setup aktualisiert, damit Remote-Verbindungen nicht mehr als Ziel beim Anlegen lokaler Räume angeboten werden.
 - Remote-Messwerte bleiben unverändert flüchtige Snapshots: keine gespiegelten Entities, keine Recorder-Historie und keine dauerhafte Messwertkopie auf dem empfangenden Home Assistant.
@@ -719,17 +797,17 @@
 - Vierstufige Ampel eingeführt: Grün = klar sinnvoll, Gelb = optional/nahe Abwägung, Orange = eher nachteilig bzw. besser geschlossen lassen, Rot = deutlicher Schutz-/Gefahrengrund zum Geschlossenhalten.
 - Bisherige harmlose Rot-Fälle wie ungünstige Feuchte, unnötiges Auskühlen, mäßige/schlechte Außenluftqualität oder starker Wind werden soweit passend nach Orange getrennt; echte Außenluftgefahren, sehr schlechte Luftqualität und schwere Wetterlagen bleiben Rot.
 - Rohwindwerte neu zur Vierfarbenlogik passend abgestuft: ungefähr 50 km/h anhaltender Wind bzw. 65 km/h Böen sind ein klarer Orange-Nachteil; erst deutlich extremere Rohwerte (ca. 75 km/h Dauerwind bzw. 105 km/h Böen) werden ohne zusätzliche Warnquelle als harter Rot-Fall behandelt.
-- Remote-/Tailscale-Lüftungsberater werden nicht mehr als Ziel beim Hinzufügen eines lokalen Raums angeboten. Legacy-Remoteeinträge mit Remote-Host werden ebenfalls erkannt; Remote-Topologie bleibt read-only.
+- Remote-/Tailscale-Lüftungsassistent werden nicht mehr als Ziel beim Hinzufügen eines lokalen Raums angeboten. Legacy-Remoteeinträge mit Remote-Host werden ebenfalls erkannt; Remote-Topologie bleibt read-only.
 - Neue kompakte Nachtlüftungs-Zusatzempfehlung am späten Abend. Wenn der gewählte Weather-Provider einen stündlichen Forecast unterstützt, werden persönliche Solltemperatur sowie vorhandene Temperatur-, Feuchte-, Regen- und Windprognosen für die kommende Nacht ausgewertet.
 - Nachtlüftung bleibt bewusst eine Zusatzinformation und ändert die aktuelle Hauptampel nicht. Fehlende Forecastdaten werden ignoriert statt geschätzt; Provider ohne Stundenforecast zeigen keine Nachtzeile.
-- Stündliche Forecasts werden über Home Assistants `weather.get_forecasts` bezogen und pro Lüftungsberater gecacht, damit mehrere Räume denselben Wetterdienst nicht unnötig mehrfach abfragen.
+- Stündliche Forecasts werden über Home Assistants `weather.get_forecasts` bezogen und pro Lüftungsassistent gecacht, damit mehrere Räume denselben Wetterdienst nicht unnötig mehrfach abfragen.
 - Deutsch, Englisch und Türkisch sowie Frontend- und Remote-Snapshot-Texte für die neuen Zustände aktualisiert.
 
 ## 0.6.21 - Alpha
 
 - Hotfix: Temperaturberatung bewertet kalte bzw. warme Außenluft jetzt nach der **Richtung der Temperaturänderung zum persönlichen Sollwert**. Außenluft muss nicht selbst näher am Sollwert liegen, um einen zu warmen/zu kalten Raum sinnvoll in Richtung Soll zu bewegen.
 - Temperatur-Hysterese korrigiert: Eine bereits laufende temperaturbedingte Lüftung bleibt bis auf etwa 0,2 K am Sollwert aktiv, statt beim Annähern plötzlich wegen der weiter entfernten Außentemperatur auf Rot zu springen.
-- Tailscale-Geräteansicht korrigiert: Die unnötigen Zwischenkarten für Remote-HA und Remote-Lüftungsberater bleiben entfernt, **Remote-Raumkarten werden wieder angezeigt**. Sie enthalten weiterhin ausschließlich Topologie-Metadaten – Remote-Messwerte bleiben flüchtig, ohne lokale Entities, Recorder-Historie oder Spiegelung.
+- Tailscale-Geräteansicht korrigiert: Die unnötigen Zwischenkarten für Remote-HA und Remote-Lüftungsassistent bleiben entfernt, **Remote-Raumkarten werden wieder angezeigt**. Sie enthalten weiterhin ausschließlich Topologie-Metadaten – Remote-Messwerte bleiben flüchtig, ohne lokale Entities, Recorder-Historie oder Spiegelung.
 
 ## 0.6.20 - Alpha
 
@@ -748,7 +826,7 @@
 - Lüftungsdauer überarbeitet: warme Außenbedingungen werden nicht mehr pauschal mit nur 5–10 Minuten als ausreichend dargestellt; empfohlene Normalzeiten beginnen bei mindestens 5 Minuten und bleiben mit der Lüftungsbestätigung konsistent.
 - 24-Stunden-Routinelüftung bewusst unverändert als letzter Fallback beibehalten.
 - Benachrichtigungen vereinheitlicht: nur noch moderne `notify`-Entity via `notify.send_message`. Companion-spezifischer `notify.mobile_app_*`-Pfad, Vibrationsstufen, Critical-Payloads, Channels und Tags entfernt. Alte Optionsschlüssel werden bei der Migration sicher verworfen; ein vorhandenes normales Notify-Ziel bleibt erhalten.
-- Tailscale-Remote bleibt vollständig flüchtig: weiterhin keine Remote-Entities, kein lokaler Recorder-Verlauf und keine gespiegelten Messsensoren. Die früher erzeugte leere Remote-Gerätehierarchie wird entfernt/aufgeräumt, sodass keine doppelten „Wohnmobil/Lüftungsberater/Raum“-Gerätekarten mehr entstehen.
+- Tailscale-Remote bleibt vollständig flüchtig: weiterhin keine Remote-Entities, kein lokaler Recorder-Verlauf und keine gespiegelten Messsensoren. Die früher erzeugte leere Remote-Gerätehierarchie wird entfernt/aufgeräumt, sodass keine doppelten „Wohnmobil/Lüftungsassistent/Raum“-Gerätekarten mehr entstehen.
 - UI-Texte bewusst kurz gehalten; komplexere Abwägungen passieren im Hintergrund und werden mit wenigen relevanten Gründen erklärt.
 - Deutsch, Englisch und Türkisch vollständig an neue Zustände und Texte angepasst.
 
@@ -784,8 +862,8 @@
 - Raumkarte vereinheitlicht: Nur der farbige Status-/Kopfbereich öffnet bei lokalen Räumen die Hauptentity. Begründung und empfohlene Lüftungsdauer sind reine Texte; echte Mess- und Statuswerte bleiben gezielt anklickbar. Remote-Raumkarten bleiben read-only.
 - Sensor-Auswahl im Config Flow eingeschränkt: Temperaturfelder zeigen nur Temperatursensoren, Feuchtefelder nur Luftfeuchtesensoren, CO₂ nur CO₂-Sensoren und Fenster-/Türfelder nur passende binäre Öffnungs-/Tür-/Fensterklassen.
 - Hysterese für normale Grenzbereiche ergänzt, damit Empfehlungen bei Sensorwerten direkt an Schwellen nicht unnötig zwischen Zuständen springen. Kritisches CO₂ und echte Warnlagen bleiben sofort wirksam.
-- Optionaler Schimmelschutz ergänzt: Wird eine Temperatur-Entity für eine kalte/kritische Oberfläche angegeben, berechnet Lüftungsberater daraus zusammen mit Raumtemperatur und Raumfeuchte die relative Feuchte an dieser Oberfläche. Ab 80 % Oberflächenfeuchte wird das Risiko still in der Empfehlung berücksichtigt; ein eigener Schimmel-Helfer ist nicht nötig. Ohne Oberflächensensor bleibt die bisherige Feuchtelogik unverändert aktiv.
-- Optionale Warn-Benachrichtigungen ergänzt. Ein `notify`-Ziel kann direkt beim lokalen Lüftungsberater gewählt werden. Standardmäßig wird nur bei ernster Außenluftgefahr oder schwerer Wettergefahr benachrichtigt, wenn tatsächlich ein konfiguriertes Fenster/eine Tür offen ist. Vorsichtshinweise können optional zusätzlich aktiviert werden.
+- Optionaler Schimmelschutz ergänzt: Wird eine Temperatur-Entity für eine kalte/kritische Oberfläche angegeben, berechnet Lüftungsassistent daraus zusammen mit Raumtemperatur und Raumfeuchte die relative Feuchte an dieser Oberfläche. Ab 80 % Oberflächenfeuchte wird das Risiko still in der Empfehlung berücksichtigt; ein eigener Schimmel-Helfer ist nicht nötig. Ohne Oberflächensensor bleibt die bisherige Feuchtelogik unverändert aktiv.
+- Optionale Warn-Benachrichtigungen ergänzt. Ein `notify`-Ziel kann direkt beim lokalen Lüftungsassistent gewählt werden. Standardmäßig wird nur bei ernster Außenluftgefahr oder schwerer Wettergefahr benachrichtigt, wenn tatsächlich ein konfiguriertes Fenster/eine Tür offen ist. Vorsichtshinweise können optional zusätzlich aktiviert werden.
 - Benachrichtigungen sind ereignisbezogen statt farbbezogen: Ein roter Zustand wegen ungünstiger Temperatur löst ausdrücklich keine Gefahrenmeldung aus. Pro Warnereignis/Fenster-Öffnungszyklus wird höchstens einmal benachrichtigt.
 - Keine zusätzliche redundante „Lüften empfohlen“-Binary-Entity: Der vorhandene Hauptsensor bleibt die zentrale Automation-Schnittstelle.
 - Generische `weather.get_forecasts`-Niederschlagsprognosen werden in diesem Release bewusst noch nicht zusätzlich abgefragt; vorhandenes Wetter-/Radar-Verhalten bleibt unverändert.
@@ -793,7 +871,7 @@
 ## 0.6.16 - Alpha
 
 - Begründungstexte unter **„Warum diese Empfehlung?“** sind jetzt reine Texte und nicht mehr anklickbar oder unterstrichen.
-- Ein Klick auf den Begründungstext öffnet weder die Lüftungsberater-Entity noch eine Warn-/Wetter-Entity.
+- Ein Klick auf den Begründungstext öffnet weder die Lüftungsassistent-Entity noch eine Warn-/Wetter-Entity.
 - Anklickbare Verläufe bleiben auf echte Mess- und Statuswerte beschränkt.
 - Keine Änderung an Entscheidungslogik, Warnlogik oder Schwellenwerten.
 
@@ -822,8 +900,8 @@
 Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
 
 - Erfolgreiche Tailscale-Remote-Verbindungen können wieder abgeschlossen und gespeichert werden; ein Fehler im Progress-/Bestätigungsübergang wurde behoben.
-- Remote-Protokoll bleibt Version 1 und damit kompatibel zu entfernten Lüftungsberater-Installationen ab v0.6.10.
-- Lokale Lüftungsberater verwenden keine zufällig erzeugte `ConfigEntry.unique_id` mehr; mehrere manuell angelegte lokale Installationen bleiben voneinander unabhängig.
+- Remote-Protokoll bleibt Version 1 und damit kompatibel zu entfernten Lüftungsassistent-Installationen ab v0.6.10.
+- Lokale Lüftungsassistent verwenden keine zufällig erzeugte `ConfigEntry.unique_id` mehr; mehrere manuell angelegte lokale Installationen bleiben voneinander unabhängig.
 - Die kurzfristig in v0.6.12 erzeugten `local:...`-Unique-IDs werden beim Update automatisch entfernt.
 - Der Aufbau der lokalen Einrichtung ist gegen fehlerhafte/ungewöhnliche Warnanbieter-Einträge abgesichert, damit ein einzelner Registry-Eintrag nicht den ganzen Config Flow mit „Fehler“ beendet.
 - Zusätzliche Config-Flow-Regressionstests decken erfolgreiche Remote-Einrichtung und mehrere lokale Installationen ab.
@@ -831,9 +909,9 @@ Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
 
 ## 0.6.12 - Alpha
 
-- Mehrere lokale Lüftungsberater-Installationen explizit unterstützt und neue lokale Config Entries mit eigener Unique-ID versehen.
-- Remote-Einrichtung nutzt jetzt Home Assistants nativen Fortschrittsdialog und zeigt anschließend Berater und gefundene Räume übersichtlicher an.
-- Remote-Topologie erscheint ohne Remote-Entities im Geräte-Register als Remote Home Assistant → Lüftungsberater → Räume.
+- Mehrere lokale Lüftungsassistent-Installationen explizit unterstützt und neue lokale Config Entries mit eigener Unique-ID versehen.
+- Remote-Einrichtung nutzt jetzt Home Assistants nativen Fortschrittsdialog und zeigt anschließend Lüftungsassistent und gefundene Räume übersichtlicher an.
+- Remote-Topologie erscheint ohne Remote-Entities im Geräte-Register als Remote Home Assistant → Lüftungsassistent → Räume.
 - Remote-Raumnamen bleiben auch bei fehlender oder noch nicht geladener Sensorik erhalten.
 - CO₂-Bewertung in der Raumkarte ist anklickbar und öffnet den Verlauf des CO₂-Statussensors.
 - Neuer Sensor für die absolute Feuchtedifferenz (Δ g/m³); der Delta-Wert ist dadurch ebenfalls anklickbar und historisierbar.
@@ -841,7 +919,7 @@ Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
 - Keine Änderung an Lüftungsschwellen, Farblogik, Tailscale-Sicherheitsmodell oder Remote-Historienprinzip.
 
 ## 0.6.11
-- Remote-Einrichtung und Remote-Rekonfiguration besitzen jetzt einen eigenen Verbindungstest mit sichtbarer Erfolgsbestätigung, bevor die Zugangsdaten gespeichert werden. Die Bestätigung zeigt zusätzlich, wie viele Lüftungsberater-Instanzen und Räume gefunden wurden.
+- Remote-Einrichtung und Remote-Rekonfiguration besitzen jetzt einen eigenen Verbindungstest mit sichtbarer Erfolgsbestätigung, bevor die Zugangsdaten gespeichert werden. Die Bestätigung zeigt zusätzlich, wie viele Lüftungsassistent-Instanzen und Räume gefunden wurden.
 - Der visuelle Editor der Übersicht zeigt jetzt lokale und Tailscale-Remote-Installationen gemeinsam an. Ganze Installationen sowie einzelne Räume können ein- oder ausgeblendet werden.
 - Installationen und Räume lassen sich direkt im Editor mit Pfeiltasten in die gewünschte Reihenfolge bringen; neue Räume werden weiterhin automatisch aufgenommen, solange sie nicht gezielt ausgeblendet wurden.
 - Der Editor rendert strukturelle Remote-Änderungen nicht mehr mitten während einer Texteingabe neu und schützt damit den Eingabefokus zusätzlich vor späten Remote-Updates.
@@ -854,7 +932,7 @@ Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
 - Keine Änderung an Lüftungs-Schwellenwerten oder der Grün/Gelb/Rot-Entscheidungslogik.
 
 ## 0.6.10
-- Mehrere lokale Lüftungsberater-Instanzen werden jetzt unterstützt und in der gemeinsamen Übersicht automatisch nach Instanz gruppiert. Bei nur einer Instanz wird die Gruppenebene übersprungen.
+- Mehrere lokale Lüftungsassistent-Instanzen werden jetzt unterstützt und in der gemeinsamen Übersicht automatisch nach Instanz gruppiert. Bei nur einer Instanz wird die Gruppenebene übersprungen.
 - Die Gesamtansicht wurde bewusst verkürzt: Pro Raum erscheinen nur Fenster-Symbol, Raumname, aktuelle Empfehlung, Statusfarbe und bei geöffnetem Fenster/Tür das kleine `offen`-Badge.
 - Ein Tipp auf einen Raum öffnet jetzt eine temporär erzeugte vollständige Raumkarte im Dialog statt der More-Info-Ansicht des Hauptsensors. Eine separat konfigurierte Raumkarte ist dafür nicht nötig; nach dem Schließen wird die temporäre Karte wieder entfernt.
 - Editor-Fokusfehler behoben: laufende Sensorupdates rendern den visuellen Karteneditor nicht mehr vollständig neu und werfen den Cursor dadurch nicht mehr aus Textfeldern.
@@ -862,8 +940,8 @@ Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
 - Eigener Sensor für die absolute Außenfeuchte ergänzt. Dadurch ist der Außenwert in `g/m³` auf lokalen Raumkarten anklickbar und besitzt einen eigenen Recorder-Verlauf.
 - Türkisch als dritte vollständig unterstützte Sprache ergänzt. Deutsche, englische und türkische Empfehlungen bleiben eigenständig und natürlich formuliert.
 - Englische Formulierungen weiter geglättet, u. a. `while your target is` und `opening the windows` statt technisch klingender Formulierungen.
-- Tailscale-Remote hinzugefügt: Andere Home-Assistant-Installationen mit Lüftungsberater können über eine Tailscale-IP bzw. einen auf Tailscale auflösenden MagicDNS-Namen und einen Home-Assistant-Access-Token eingebunden werden.
-- Remote überträgt ausschließlich aktuelle Lüftungsberater-Raum-Snapshots. Es werden keine fremden Sensor-Entities und keine Recorder-Historien auf der empfangenden Instanz angelegt.
+- Tailscale-Remote hinzugefügt: Andere Home-Assistant-Installationen mit Lüftungsassistent können über eine Tailscale-IP bzw. einen auf Tailscale auflösenden MagicDNS-Namen und einen Home-Assistant-Access-Token eingebunden werden.
+- Remote überträgt ausschließlich aktuelle Lüftungsassistent-Raum-Snapshots. Es werden keine fremden Sensor-Entities und keine Recorder-Historien auf der empfangenden Instanz angelegt.
 - Remote-Snapshots liegen nur flüchtig im RAM und werden durch neue Werte ersetzt. Abruf alle 30 Sekunden; kurze Aussetzer werden toleriert und erst nach rund 3 Minuten ohne erfolgreichen Abruf wird `Nicht erreichbar` angezeigt.
 - Remote-Raumdetails verwenden dieselbe vollständige Darstellung, bleiben aber bewusst read-only; lokale Karten behalten ihre anklickbaren Messwerte und Verläufe.
 - Tailscale wird beidseitig erzwungen: Zieladressen werden bei Einrichtung und jedem Abruf geprüft; zusätzlich lehnt der Snapshot-Endpunkt Anfragen ab, deren Quell-IP nicht aus einem Tailscale-Adressbereich stammt.
@@ -917,7 +995,7 @@ Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
 
 ## 0.6.4
 - Manifest-Typ von `helper` auf `hub` geändert.
-- Dadurch erscheint Lüftungsberater als normale Integration unter
+- Dadurch erscheint Lüftungsassistent als normale Integration unter
   Einstellungen → Geräte & Dienste → Integrationen und nicht mehr im Helfer-Bereich.
 - Keine Änderung an der Entscheidungslogik gegenüber v0.6.3.
 - Für HACS-Alpha-Tester sollte dieses Release als normales GitHub-Release
@@ -950,13 +1028,13 @@ Bugfix-Release für die Einrichtungsflüsse aus v0.6.12.
 ## 0.6.1
 - Keine Änderung an der Entscheidungslogik (`engine.py` unverändert).
 - Dashboard-JavaScript wird bei Lovelace im normalen Storage-Modus automatisch als Ressource registriert.
-- Vorhandene manuelle Lüftungsberater-Ressourcen werden erkannt und auf die neue versionierte URL aktualisiert statt dupliziert.
+- Vorhandene manuelle Lüftungsassistent-Ressourcen werden erkannt und auf die neue versionierte URL aktualisiert statt dupliziert.
 - Beide Karten sind für den Home-Assistant-Kartenpicker registriert.
 - Raumkarte hat jetzt einen visuellen Editor mit Raum-Auswahl und optionalem Kartennamen.
 - Mehrraumübersicht hat jetzt einen visuellen Editor für Titel und Raumauswahl.
 - Kein manuelles YAML mehr nötig, um eine Karte hinzuzufügen.
 - Picker-Vorschau deaktiviert, damit leere Stub-Konfigurationen den Kartenpicker nicht stören.
-- Karten heißen im Picker „Lüftungsberater – Raum“ und „Lüftungsberater – Übersicht“.
+- Karten heißen im Picker „Lüftungsassistent – Raum“ und „Lüftungsassistent – Übersicht“.
 - Nur bei ausdrücklich per YAML verwalteten Lovelace-Ressourcen bleibt eine manuelle Resource-Zeile nötig.
 - ZIP weiterhin flach gepackt.
 

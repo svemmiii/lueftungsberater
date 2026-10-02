@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .air_quality import get_air_quality_tracker
+from .auto_providers import async_refresh_auto_providers, uses_auto_warning
 from .const import (
     CONF_MANUAL_OUTDOOR,
+    CONF_LOCATION_TRACKER,
     CONF_OUTDOOR_CO2,
     CONF_OUTDOOR_HUMIDITY,
     CONF_OUTDOOR_TEMP,
@@ -34,6 +38,13 @@ from .const import (
     DATA_OUTSIDE_COORDINATORS,
     DOMAIN,
     FORECAST_REFRESH_INTERVAL,
+    AUTO_WARNING_REFRESH_INTERVAL,
+)
+from .location import (
+    LOCATION_MOBILE_STALE_HOLD,
+    EffectiveLocation,
+    effective_location,
+    materially_changed,
 )
 from .providers import (
     NINA_DETAILS_CACHE_MAX_AGE,
@@ -97,6 +108,9 @@ def _configured_outside_entities(entry: ConfigEntry) -> set[str]:
         value = entry.data.get(key)
         if isinstance(value, str) and value:
             entities.add(value)
+    tracker = entry.data.get(CONF_LOCATION_TRACKER)
+    if isinstance(tracker, str) and tracker:
+        entities.add(tracker)
     return entities
 
 
@@ -118,12 +132,48 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         self._source_entities: set[str] = set()
         self._registry_refresh_pending = False
         self._started = False
+        self._accepted_location: EffectiveLocation | None = None
+        self._last_valid_mobile_location: EffectiveLocation | None = None
+
+    def _candidate_location(self) -> EffectiveLocation:
+        """Return the throttled source candidate without jumping home on GPS loss."""
+        current = effective_location(self.hass, self.entry)
+        tracker = str(self.entry.data.get(CONF_LOCATION_TRACKER) or "").strip()
+        if not tracker:
+            self._last_valid_mobile_location = None
+            return current
+        if current.source == tracker and current.available and current.position_valid:
+            self._last_valid_mobile_location = current
+            return current
+
+        # Age the grace period from the actual report, never from polling time.
+        # A valid-but-stale point is useful after restart for the bounded hold.
+        previous = self._last_valid_mobile_location
+        if previous is None and current.position_valid and self.hass.states.get(tracker) is not None:
+            state = self.hass.states.get(tracker)
+            if state.state not in {"unknown", "unavailable", "none", ""} and current.updated_at < dt_util.utcnow():
+                previous = current
+        if (
+            previous is not None
+            and 0 <= (dt_util.utcnow() - previous.updated_at).total_seconds() <= LOCATION_MOBILE_STALE_HOLD.total_seconds()
+        ):
+            return replace(previous, available=True)
+        return replace(previous or current, available=False)
 
     async def _async_update_data(self) -> OutsideSnapshot:
-        # Keep one small shared hourly-forecast cache warm all day. The normal
-        # live card only looks at the next hour, while the night strategy can
-        # use the wider forecast later. This stays one provider call per advisor
-        # and is cache-limited to avoid per-room polling.
+        candidate_location = self._candidate_location()
+        if materially_changed(self._accepted_location, candidate_location):
+            self._accepted_location = candidate_location
+        # Automatic providers follow the accepted effective coordinate. They do
+        # not create/configure foreign Home Assistant integrations and failures
+        # are deliberately non-fatal to the ventilation engine.
+        await async_refresh_auto_providers(
+            self.hass,
+            self.entry,
+            self._accepted_location or candidate_location,
+        )
+        # Manual weather overrides keep Home Assistant's native forecast cache.
+        # In automatic mode this helper returns immediately.
         await async_refresh_hourly_forecast(self.hass, self.entry)
         await async_refresh_nina_details(self.hass, self.entry)
         weather = weather_assessment(self.hass, self.entry)
@@ -162,12 +212,20 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         # Provider integrations can add/rename/remove entities after this
         # coordinator has started. Re-discover sources on registry changes so a
         # newly created NINA/weather entity becomes event-driven without a
-        # Lüftungsberater reload. Registry changes are rare and are collapsed
+        # Lüftungsassistent reload. Registry changes are rare and are collapsed
         # while one refresh is already pending.
         self._unsubs.append(
             self.hass.bus.async_listen(
                 er.EVENT_ENTITY_REGISTRY_UPDATED,
                 self._handle_registry_change,
+            )
+        )
+        # Home location changes are already an HA core event. No polling and no
+        # copied coordinates are required for normal house installations.
+        self._unsubs.append(
+            self.hass.bus.async_listen(
+                EVENT_CORE_CONFIG_UPDATE,
+                self._handle_home_location_change,
             )
         )
 
@@ -189,6 +247,15 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
                     self.hass,
                     self._handle_nina_detail_tick,
                     NINA_DETAILS_CACHE_MAX_AGE,
+                )
+            )
+
+        if uses_auto_warning(self.entry):
+            self._unsubs.append(
+                async_track_time_interval(
+                    self.hass,
+                    self._handle_auto_warning_tick,
+                    AUTO_WARNING_REFRESH_INTERVAL,
                 )
             )
 
@@ -245,7 +312,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         self._registry_refresh_pending = True
         self._create_background_task(
             self._async_refresh_after_registry_change(),
-            f"Lüftungsberater provider discovery {self.entry.entry_id}",
+            f"Lüftungsassistent provider discovery {self.entry.entry_id}",
         )
 
     @callback
@@ -255,7 +322,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
             return
         self._create_background_task(
             self.async_request_refresh(),
-            f"Lüftungsberater forecast outside refresh {self.entry.entry_id}",
+            f"Lüftungsassistent forecast outside refresh {self.entry.entry_id}",
         )
 
     @callback
@@ -264,18 +331,44 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
             return
         self._create_background_task(
             self.async_request_refresh(),
-            f"Lüftungsberater NINA detail refresh {self.entry.entry_id}",
+            f"Lüftungsassistent NINA detail refresh {self.entry.entry_id}",
         )
 
     @callback
-    def _handle_source_change(self, _event: Event) -> None:
-        # Warning details and forecasts may require async provider calls, so use
-        # the coordinator refresh path instead of recomputing each room inline.
+    def _handle_auto_warning_tick(self, _now) -> None:
         if not self._started:
             return
         self._create_background_task(
             self.async_request_refresh(),
-            f"Lüftungsberater outside update {self.entry.entry_id}",
+            f"Lüftungsassistent automatic warning refresh {self.entry.entry_id}",
+        )
+
+    @callback
+    def _handle_source_change(self, event: Event) -> None:
+        # Warning details and forecasts may require async provider calls, so use
+        # the coordinator refresh path instead of recomputing each room inline.
+        if not self._started:
+            return
+        tracker = str(self.entry.data.get(CONF_LOCATION_TRACKER) or "")
+        if tracker and str(event.data.get("entity_id") or "") == tracker:
+            current = self._candidate_location()
+            if not materially_changed(self._accepted_location, current):
+                return
+        self._create_background_task(
+            self.async_request_refresh(),
+            f"Lüftungsassistent outside update {self.entry.entry_id}",
+        )
+
+    @callback
+    def _handle_home_location_change(self, _event: Event) -> None:
+        if not self._started or self.entry.data.get(CONF_LOCATION_TRACKER):
+            return
+        current = self._candidate_location()
+        if not materially_changed(self._accepted_location, current):
+            return
+        self._create_background_task(
+            self.async_request_refresh(),
+            f"Lüftungsassistent Home location update {self.entry.entry_id}",
         )
 
     async def async_shutdown(self) -> None:

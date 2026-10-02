@@ -1,4 +1,4 @@
-"""Sensor platform for Lüftungsberater."""
+"""Sensor platform for Lüftungsassistent."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -505,7 +505,16 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 or self.entry.data.get(CONF_NINA_STATUS)
             ),
             "weather_provider": weather.provider_domain,
+            "weather_station_id": weather.provider_station_id,
+            "weather_station_name": weather.provider_station_name,
+            "weather_station_distance_km": (
+                round(weather.provider_station_distance_km, 1)
+                if weather.provider_station_distance_km is not None
+                else None
+            ),
             "warning_provider": warnings.provider_domain,
+            "warning_provider_coverage": warnings.provider_coverage,
+            "warning_provider_error": warnings.provider_error,
             "radar_current_entity": weather.radar_current_entity,
             "radar_next_entity": weather.radar_next_entity,
             "source_wind_outside": weather.source_wind,

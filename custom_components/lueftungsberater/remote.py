@@ -1,4 +1,4 @@
-"""Tailscale-only remote Lüftungsberater support."""
+"""Tailscale-only remote Lüftungsassistent support."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -42,7 +42,7 @@ REMOTE_PATH = "/api/lueftungsberater/snapshot"
 
 
 class RemoteConnectionError(Exception):
-    """Remote Lüftungsberater could not be reached or returned invalid data."""
+    """Remote Lüftungsassistent could not be reached or returned invalid data."""
 
 
 class RemoteAuthError(RemoteConnectionError):
@@ -401,7 +401,7 @@ def _reconcile_remote_server_identity(
     if report_key not in reported:
         reported.add(report_key)
         _LOGGER.warning(
-            "Multiple Lüftungsberater remote entries identify Home Assistant %s; "
+            "Multiple Lüftungsassistent remote entries identify Home Assistant %s; "
             "keeping %s and rejecting duplicate %s",
             server_id,
             canonical.entry_id,
@@ -441,7 +441,7 @@ class LueftungsberaterRemoteCoordinator(DataUpdateCoordinator[RemoteData]):
                 elapsed = time.monotonic() - self._last_success_monotonic
                 if elapsed < REMOTE_OFFLINE_GRACE.total_seconds() and self.data:
                     _LOGGER.debug(
-                        "Remote Lüftungsberater %s temporarily unreachable: %s",
+                        "Remote Lüftungsassistent %s temporarily unreachable: %s",
                         self.entry.title,
                         err,
                     )
@@ -449,14 +449,14 @@ class LueftungsberaterRemoteCoordinator(DataUpdateCoordinator[RemoteData]):
 
             if not self._reported_unavailable:
                 _LOGGER.warning(
-                    "Remote Lüftungsberater %s is not reachable after the grace period: %s",
+                    "Remote Lüftungsassistent %s is not reachable after the grace period: %s",
                     self.entry.title,
                     err,
                 )
                 self._reported_unavailable = True
             else:
                 _LOGGER.debug(
-                    "Remote Lüftungsberater %s remains unreachable: %s",
+                    "Remote Lüftungsassistent %s remains unreachable: %s",
                     self.entry.title,
                     err,
                 )
@@ -485,7 +485,7 @@ class LueftungsberaterRemoteCoordinator(DataUpdateCoordinator[RemoteData]):
                 )
 
         if self._reported_unavailable:
-            _LOGGER.info("Remote Lüftungsberater %s is reachable again", self.entry.title)
+            _LOGGER.info("Remote Lüftungsassistent %s is reachable again", self.entry.title)
         self._reported_unavailable = False
         self._last_success_monotonic = time.monotonic()
         return RemoteData(

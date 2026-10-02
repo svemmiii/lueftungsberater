@@ -54,23 +54,21 @@ from .const import (
     HARDWARE_ROLE_NODE,
     HARDWARE_LOCATION_LOCAL,
     HARDWARE_LOCATION_REMOTE,
-    CONF_DISPLAY_MODE,
-    DEFAULT_DISPLAY_MODE,
-    DISPLAY_MODE_ROOM_AIR,
     entry_kind,
 )
 from .hardware_hub import (
     configured_master_for_station,
     configured_master_hardware_id,
     hardware_id_matches,
+    master_participants,
     remember_discovery,
     report_station,
     station_by_any_hardware_id,
     station_by_hardware_id,
     station_role,
-    station_subentries,
     station_topology_error,
 )
+from .display_payload import hardware_display_payload
 from .coordinator import get_room_coordinator
 from .localization import (
     duration_text,
@@ -189,7 +187,7 @@ REMOTE_ATTRIBUTE_KEYS = {
 
 
 class LueftungsberaterSnapshotView(HomeAssistantView):
-    """Expose only current local Lüftungsberater room snapshots."""
+    """Expose only current local Lüftungsassistent room snapshots."""
 
     url = "/api/lueftungsberater/snapshot"
     name = "api:lueftungsberater:snapshot"
@@ -309,28 +307,7 @@ def _station_config_payload(entry: ConfigEntry, station) -> dict[str, Any]:
         payload["master_secret"] = str(
             station.data.get(CONF_HARDWARE_MASTER_SECRET) or ""
         )
-        participants: list[dict[str, Any]] = []
-        for candidate in station_subentries(entry):
-            if station_role(candidate) != HARDWARE_ROLE_NODE:
-                continue
-            if station_topology_error(entry, candidate) is not None:
-                continue
-            master = configured_master_for_station(entry, candidate)
-            if master is None or master.subentry_id != station.subentry_id:
-                continue
-            candidate_room_id = str(candidate.data.get(CONF_HARDWARE_ROOM_ID) or "")
-            candidate_room = entry.subentries.get(candidate_room_id)
-            participants.append(
-                {
-                    "station_subentry_id": candidate.subentry_id,
-                    "hardware_id": str(candidate.data.get(CONF_HARDWARE_ID) or ""),
-                    "room_id": candidate_room_id,
-                    "room_name": (
-                        str(candidate_room.title) if candidate_room is not None else None
-                    ),
-                }
-            )
-        payload["participants"] = participants
+        payload["participants"] = master_participants(entry, station)
 
         if station.data.get(CONF_HARDWARE_LOCATION_MODE) == HARDWARE_LOCATION_REMOTE:
             wireguard = {
@@ -382,7 +359,7 @@ class LueftungsberaterHardwareConfigView(HomeAssistantView):
         entry = hass.config_entries.async_get_entry(entry_id)
         if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
             return self.json_message(
-                "Unknown local Lüftungsberater entry", status_code=HTTPStatus.NOT_FOUND
+                "Unknown local Lüftungsassistent entry", status_code=HTTPStatus.NOT_FOUND
             )
         station = station_by_any_hardware_id(entry, hardware_id)
         if station is None:
@@ -413,7 +390,7 @@ class LueftungsberaterHardwareDiscoverView(HomeAssistantView):
             return self.json_message("entry_id and hardware_id required", status_code=HTTPStatus.BAD_REQUEST)
         entry = hass.config_entries.async_get_entry(entry_id)
         if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
-            return self.json_message("Unknown local Lüftungsberater entry", status_code=HTTPStatus.NOT_FOUND)
+            return self.json_message("Unknown local Lüftungsassistent entry", status_code=HTTPStatus.NOT_FOUND)
 
         remember_discovery(
             hass,
@@ -478,54 +455,9 @@ def _hardware_report_native_auth_error(
     return None
 
 
-def _hardware_display_payload(
-    hass: HomeAssistant, entry: ConfigEntry, room_id: str
-) -> dict[str, Any]:
-    """Build the ESP display response directly from the room coordinator."""
-    room = entry.subentries.get(room_id)
-    if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
-        return {
-            "room_name": None,
-            "status": None,
-            "recommendation": None,
-            "recommendation_key": None,
-            "display_mode": entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
-            "safety_lock": False,
-        }
-
-    coordinator = get_room_coordinator(hass, entry, room)
-    snapshot = coordinator.data if coordinator is not None else None
-    display_mode = entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
-    if snapshot is None or snapshot.result is None:
-        return {
-            "room_name": str(room.title),
-            "status": "yellow",
-            "recommendation": recommendation_text("unknown", hass.config.language),
-            "recommendation_key": "unknown",
-            "display_mode": display_mode,
-            "safety_lock": False,
-        }
-
-    result = snapshot.result
-    room_view = display_mode == DISPLAY_MODE_ROOM_AIR and not result.safety_lock
-    recommendation_key = (
-        result.room_recommendation_key if room_view else result.recommendation_key
-    )
-    status = (
-        "locked"
-        if result.safety_lock
-        else (result.room_status_color if room_view else result.color)
-    )
-    return {
-        "room_name": str(room.title),
-        "status": status,
-        "recommendation": recommendation_text(
-            recommendation_key, hass.config.language
-        ),
-        "recommendation_key": recommendation_key,
-        "display_mode": display_mode,
-        "safety_lock": bool(result.safety_lock),
-    }
+# Private compatibility alias for existing tests/importers; the implementation
+# lives in display_payload.py and is shared with direct ESPHome display pushes.
+_hardware_display_payload = hardware_display_payload
 
 
 def _master_location_mode(entry: ConfigEntry, station) -> str | None:
@@ -680,23 +612,67 @@ class LueftungsberaterHardwareReportView(HomeAssistantView):
 
         entry_id = str(payload.get("entry_id") or "").strip()
         hardware_id = str(payload.get("hardware_id") or "").strip()
+        master_id = str(payload.get("master_id") or "").strip()
+        master_secret = str(payload.pop("master_secret", "") or "").strip()
         if not entry_id or not hardware_id:
-            return self.json_message("entry_id and hardware_id required", status_code=HTTPStatus.BAD_REQUEST)
+            return self.json_message(
+                "entry_id and hardware_id required",
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
         entry = hass.config_entries.async_get_entry(entry_id)
         if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
-            return self.json_message("Unknown local Lüftungsberater entry", status_code=HTTPStatus.NOT_FOUND)
+            return self.json_message("Unknown local Lüftungsassistent entry", status_code=HTTPStatus.NOT_FOUND)
         station = station_by_hardware_id(entry, hardware_id)
         if station is None:
             # Unknown stations stay discoverable but can never inject room values
             # until the user explicitly assigns them to a room.
             remember_discovery(
                 hass, entry, hardware_id=hardware_id,
-                master_id=str(payload.get("master_id") or "default"),
+                master_id=master_id or "default",
                 name=str(payload.get("name") or hardware_id),
-                capabilities=(payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {}),
+                capabilities=(
+                    payload.get("capabilities")
+                    if isinstance(payload.get("capabilities"), dict)
+                    else {}
+                ),
             )
-            return self.json({"paired": False, "hardware_id": hardware_id}, status_code=HTTPStatus.CONFLICT)
+            return self.json(
+                {"paired": False, "hardware_id": hardware_id},
+                status_code=HTTPStatus.CONFLICT,
+            )
 
+        # The legacy HTTP transport has the same application-level master
+        # authentication contract as the Native-API action. Normal HA request
+        # authentication alone proves the caller may use HA; it does not prove
+        # that the reporting ESP is the configured physical master. Never leave
+        # a weaker compatibility path around the per-master credential.
+        if not master_id or not master_secret:
+            return self.json_message(
+                "master_id and master_secret required",
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+        auth_error = _hardware_report_native_auth_error(
+            entry, station, master_id, master_secret
+        )
+        auth_messages = {
+            "node_required": "Hardware report accepts ESP-NOW node reports only",
+            "master_missing": "Configured master is missing",
+            "master_mismatch": "Report master does not match configured master",
+            "master_secret_missing": "Configured master has no report credential",
+            "master_auth_failed": "Master credential is invalid",
+        }
+        if auth_error is not None:
+            status = (
+                HTTPStatus.FORBIDDEN
+                if auth_error in {"master_secret_missing", "master_auth_failed"}
+                else HTTPStatus.CONFLICT
+            )
+            return self.json_message(
+                auth_messages.get(auth_error, "Hardware report rejected"),
+                status_code=status,
+            )
+
+        payload["master_id"] = master_id
         try:
             response = _apply_hardware_report(hass, entry, station, payload)
         except _HardwareReportRejected as err:
@@ -836,10 +812,6 @@ def _refresh_remote_access_entity(
     subentry = entry.subentries.get(room_id)
     if subentry is None:
         return
-    # Lazy import avoids making the API module part of the coordinator's import
-    # graph during Home Assistant startup.
-    from .coordinator import get_room_coordinator
-
     coordinator = get_room_coordinator(hass, entry, subentry)
     if coordinator is not None and coordinator.data is not None:
         coordinator.async_set_updated_data(coordinator.data)

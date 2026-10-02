@@ -141,6 +141,31 @@ def _warning_provider_availability(
     warnings: Any,
     previous: dict[str, Any] | None,
 ) -> tuple[SafetyAvailability, str]:
+    current_safety_key = str(getattr(warnings, "safety_source_key", None) or "")
+    availability_map = getattr(warnings, "provider_availability", {})
+    previous_key = str(previous.get("source_key") or "") if isinstance(previous, dict) else ""
+
+    if current_safety_key.startswith("auto_warning:") and (
+        bool(getattr(warnings, "official_close_instruction", False))
+        or bool(getattr(warnings, "weather_hard_lock", False))
+    ):
+        if isinstance(availability_map, dict) and availability_map.get(current_safety_key) is False:
+            return "unknown", current_safety_key
+        return "active", current_safety_key
+
+    if previous_key.startswith("auto_warning:"):
+        if isinstance(availability_map, dict) and previous_key in availability_map:
+            return ("clear" if availability_map[previous_key] else "unknown"), previous_key
+        # A different current automatic source key means the effective location
+        # moved; the old location's hard lock must not follow the vehicle. If no
+        # automatic provider result exists at all, retain the old lock only via
+        # the normal bounded UNKNOWN fallback.
+        if isinstance(availability_map, dict) and any(
+            str(key).startswith("auto_warning:") for key in availability_map
+        ):
+            return "clear", previous_key
+        return "unknown", previous_key
+
     source = entry.data.get(CONF_WARNING_SOURCE)
     source_key = str(source or "")
     if not source_key or source_key == WARNING_SOURCE_NONE:
@@ -154,12 +179,12 @@ def _warning_provider_availability(
     # persisted guard. This is deliberately checked before availability so a
     # provider with several slots cannot be downgraded by one unrelated slot.
     if source_entry.domain == "dwd_weather_warnings":
-        if bool(getattr(warnings, "weather_danger", False)):
-            return "active", source_key
+        if bool(getattr(warnings, "weather_hard_lock", False)):
+            return "active", str(getattr(warnings, "safety_source_key", None) or source_key)
     elif bool(getattr(warnings, "official_close_instruction", False)) and (
         getattr(warnings, "nina_status", "none") == "danger"
     ):
-        return "active", source_key
+        return "active", str(getattr(warnings, "safety_source_key", None) or source_key)
 
     # An explicit provider all-clear is authoritative even if old normalized
     # fallback data still exists.
@@ -257,12 +282,37 @@ def _weather_provider_availability(
     If any of those exact entities is unavailable, the state is UNKNOWN and the
     bounded fallback remains in force.
     """
+    auto_key = str(getattr(weather, "safety_source_key", None) or "")
+    previous_key = str(previous.get("source_key") or "") if isinstance(previous, dict) else ""
+    if auto_key.startswith("auto_weather:"):
+        available = getattr(weather, "provider_available", None)
+        if bool(getattr(weather, "weather_hard_lock", False)):
+            danger_sources = {
+                str(item)
+                for item in getattr(weather, "weather_danger_sources", set())
+                if item
+            }
+            # A configured local wind/gust/rain station remains authoritative
+            # even if the automatic forecast provider is temporarily offline.
+            # Pseudo auto-provider keys have no HA state and therefore do not
+            # satisfy this branch.
+            if any(hass.states.get(source) is not None for source in danger_sources):
+                return "active", auto_key
+            return ("active" if available is True else "unknown"), auto_key
+        if previous_key.startswith("auto_weather:") and previous_key != auto_key:
+            # Effective location changed: never carry the old place's lock into
+            # the new coordinate merely because the first weather request failed.
+            return "clear", previous_key
+        return ("clear" if available is True else "unknown"), auto_key
+    if previous_key.startswith("auto_weather:"):
+        return "unknown", previous_key
+
     entity_id = entry.data.get(CONF_WEATHER)
     # Keep a stable channel identity even for configurations that use only local
     # weather sensors. The concrete hazard entities are stored separately below.
     source_key = str(entity_id or f"entry:{entry.entry_id}:live_weather")
 
-    if bool(getattr(weather, "weather_danger", False)):
+    if bool(getattr(weather, "weather_hard_lock", False)):
         # The freshly normalized assessment is direct evidence of an active hard
         # danger. Do not downgrade it merely because an unrelated weather entity
         # is unavailable; its exact source entities are persisted with the record.
@@ -301,7 +351,7 @@ def _record_from_warning(
         kind = "nina_danger"
         reason_key = getattr(warnings, "nina_reason_key", None) or "nina_air_danger"
         reason_args = _json_reason_args(getattr(warnings, "nina_reason_args", {}))
-    elif bool(getattr(warnings, "weather_danger", False)):
+    elif bool(getattr(warnings, "weather_hard_lock", False)):
         kind = "warning_weather_danger"
         reason_key = getattr(warnings, "weather_reason_key", None) or "weather_danger"
         reason_args = _json_reason_args(getattr(warnings, "weather_reason_args", {}))
@@ -390,6 +440,7 @@ def _apply_warning_record(warnings: Any, record: dict[str, Any]) -> None:
     elif kind == "warning_weather_danger":
         warnings.source_weather_entity = record.get("source_entity") or warnings.source_weather_entity
         warnings.weather_danger = True
+        warnings.weather_hard_lock = True
         warnings.weather_caution = False
         warnings.weather_reason_key = str(record.get("reason_key") or "weather_danger")
         warnings.weather_reason_args = dict(record.get("reason_args") or {})
@@ -401,6 +452,7 @@ def _apply_warning_record(warnings: Any, record: dict[str, Any]) -> None:
 
 def _apply_weather_record(weather: Any, record: dict[str, Any]) -> None:
     weather.weather_danger = True
+    weather.weather_hard_lock = True
     weather.weather_caution = False
     weather.weather_reason_key = str(record.get("reason_key") or "weather_danger")
     weather.weather_reason_args = dict(record.get("reason_args") or {})

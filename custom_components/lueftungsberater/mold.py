@@ -1,4 +1,4 @@
-"""Optional long-term surface-moisture context for Lüftungsberater.
+"""Optional long-term surface-moisture context for Lüftungsassistent.
 
 The tracker deliberately stores only the advisor's derived local surface-risk
 intervals. It is never created for remote/Tailscale entries and it never tries

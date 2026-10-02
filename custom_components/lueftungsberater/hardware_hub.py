@@ -1,6 +1,6 @@
 """Home Assistant side of Lüftungsstation hub/station support.
 
-The ESP master remains a transport gateway. Home Assistant/Lüftungsberater stays
+The ESP master remains a transport gateway. Home Assistant/Lüftungsassistent stays
 responsible for all ventilation decisions. This module only tracks paired
 hardware stations and their latest raw measurements/diagnostics.
 """
@@ -387,6 +387,52 @@ def station_topology_error(entry: ConfigEntry, station: ConfigSubentry) -> str |
 def station_topology_valid(entry: ConfigEntry, station: ConfigSubentry) -> bool:
     """Return whether this station still has a usable HA-owned topology."""
     return station_topology_error(entry, station) is None
+
+
+def master_participants(
+    entry: ConfigEntry, master: ConfigSubentry
+) -> list[dict[str, str | None]]:
+    """Return the complete HA-owned participant list for one physical master.
+
+    This is the single source of truth used by both the authenticated config API
+    and automatic ESPHome provisioning. Invalid nodes are deliberately omitted;
+    a firmware master must never keep polling a node whose HA topology is broken.
+    """
+    if not station_is_master(master):
+        return []
+
+    participants: list[dict[str, str | None]] = []
+    for candidate in station_subentries(entry):
+        if station_role(candidate) != HARDWARE_ROLE_NODE:
+            continue
+        if station_topology_error(entry, candidate) is not None:
+            continue
+        configured_master = configured_master_for_station(entry, candidate)
+        if (
+            configured_master is None
+            or configured_master.subentry_id != master.subentry_id
+        ):
+            continue
+        room_id = str(candidate.data.get(CONF_HARDWARE_ROOM_ID) or "")
+        room = entry.subentries.get(room_id)
+        participants.append(
+            {
+                "station_subentry_id": candidate.subentry_id,
+                "hardware_id": _normalize_hardware_id(
+                    candidate.data.get(CONF_HARDWARE_ID)
+                ),
+                "room_id": room_id,
+                "room_name": str(room.title) if room is not None else None,
+            }
+        )
+
+    participants.sort(
+        key=lambda item: (
+            str(item["hardware_id"] or ""),
+            str(item["station_subentry_id"] or ""),
+        )
+    )
+    return participants
 
 
 def configured_master_hardware_id(

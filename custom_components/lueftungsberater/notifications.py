@@ -1,4 +1,4 @@
-"""Optional Home Assistant notifications for Lüftungsberater."""
+"""Optional Home Assistant notifications for Lüftungsassistent."""
 from __future__ import annotations
 
 import asyncio
@@ -42,7 +42,7 @@ def _trigger_for_mode(mode: str) -> str | None:
         "luftqualitaet_sehr_schlecht_typisch",
     }:
         return NOTIFY_TRIGGER_AIR_CAUTION
-    if mode == "wettergefahr":
+    if mode in {"wettergefahr", "wetter_stark_nachteilig"}:
         return NOTIFY_TRIGGER_WEATHER_DANGER
     if mode == "wetter_vorsicht":
         return NOTIFY_TRIGGER_WEATHER_CAUTION
@@ -183,7 +183,7 @@ def _assistant_warning_fingerprint(
             weather.air_quality_pollutant,
         )
 
-    if mode in {"wettergefahr", "wetter_vorsicht"}:
+    if mode in {"wettergefahr", "wetter_stark_nachteilig", "wetter_vorsicht"}:
         return (
             trigger,
             "weather_warning",

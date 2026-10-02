@@ -15,11 +15,11 @@
       },
       "local": {
         "title": "Lokalen Lüftungsassistenten einrichten",
-        "description": "Gib der Installation einen Namen und wähle Wetterdienst sowie optional einen Warndienst. Räume werden anschließend separat hinzugefügt.",
+        "description": "Standardmäßig bestimmt der Lüftungsassistent Wetter und amtliche Warnungen automatisch aus dem Home-Standort bzw. dem optionalen mobilen GPS-Tracker. Eigene Home-Assistant-Wetter- und Warninstanzen können stattdessen oder ergänzend gewählt werden. Räume werden anschließend separat hinzugefügt.",
         "data": {
           "instance_name": "Name dieser Installation",
-          "weather_entity": "Wetterdienst",
-          "warning_source": "Warn-App / Warndienst (optional)",
+          "weather_entity": "Eigene Wetter-Entity (bei manueller Wetterquelle)",
+          "warning_source": "Eigene Warn-App / Warndienst (optional)",
           "manual_outdoor": "Erweiterte Außensensoren (optional)",
           "outdoor_temperature": "Außentemperatur überschreiben",
           "outdoor_humidity": "Außenluftfeuchtigkeit überschreiben",
@@ -34,23 +34,35 @@
           "outdoor_pm10": "PM10 außen (optional)",
           "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
           "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
-          "outdoor_o3": "Ozon außen (optional)"
+          "outdoor_o3": "Ozon außen (optional)",
+          "location_tracker": "Mobiler Standort-Tracker (optional)",
+          "weather_source_mode": "Wetterquelle",
+          "warning_source_mode": "Warnquelle"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
-          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
+          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort.",
+          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
+          "weather_source_mode": "Automatisch nach Standort. Eigene Home-Assistant-Wetterinstanz.",
+          "warning_source_mode": "Automatisch nach Standort. Nur eigene Home-Assistant-Warninstanz. Automatisch + eigene Warninstanz."
         },
         "sections": {
           "general": {
             "name": "🎛️ Grundlage",
-            "description": "Wetter, Warnungen und die Darstellung des Beraters.",
+            "description": "Wetter, Warnungen und die Darstellung des Lüftungsassistenten.",
             "data": {
-              "weather_entity": "Wetterdienst",
-              "warning_source": "Warn-App / Warndienst (optional)",
-              "display_mode": "Ampeldarstellung"
+              "weather_entity": "Eigene Wetter-Entity (bei manueller Wetterquelle)",
+              "warning_source": "Eigene Warn-App / Warndienst (optional)",
+              "display_mode": "Ampeldarstellung",
+              "location_tracker": "Mobiler Standort-Tracker (optional)",
+              "weather_source_mode": "Wetterquelle",
+              "warning_source_mode": "Warnquelle"
             },
             "data_description": {
-              "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
+              "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
+              "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
+              "weather_source_mode": "Automatisch nach Standort. Eigene Home-Assistant-Wetterinstanz.",
+              "warning_source_mode": "Automatisch nach Standort. Nur eigene Home-Assistant-Warninstanz. Automatisch + eigene Warninstanz."
             }
           },
           "outdoor": {
@@ -75,7 +87,7 @@
           },
           "notifications": {
             "name": "🔔 Benachrichtigungen",
-            "description": "Lege fest, wohin und bei welchen Ereignissen der Berater eine kurze Nachricht senden darf.",
+            "description": "Lege fest, wohin und bei welchen Ereignissen der Lüftungsassistent eine kurze Nachricht senden darf.",
             "data": {
               "notify_target": "Benachrichtigungsziel (optional)",
               "notify_triggers": "Benachrichtigen bei (optional)"
@@ -118,23 +130,27 @@
           "outdoor_pm10": "PM10 außen (optional)",
           "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
           "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
-          "outdoor_o3": "Ozon außen (optional)"
+          "outdoor_o3": "Ozon außen (optional)",
+          "location_tracker": "Mobiler Standort-Tracker (optional)"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
-          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort."
+          "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort.",
+          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann hier ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position."
         },
         "sections": {
           "general": {
             "name": "🎛️ Grundlage",
-            "description": "Wetter, Warnungen und die Darstellung des Beraters.",
+            "description": "Wetter, Warnungen und die Darstellung des Lüftungsassistenten.",
             "data": {
               "weather_entity": "Wetterdienst",
               "warning_source": "Warn-App / Warndienst (optional)",
-              "display_mode": "Ampeldarstellung"
+              "display_mode": "Ampeldarstellung",
+              "location_tracker": "Mobiler Standort-Tracker (optional)"
             },
             "data_description": {
-              "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt."
+              "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
+              "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann hier ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position."
             }
           },
           "outdoor": {
@@ -159,7 +175,7 @@
           },
           "notifications": {
             "name": "🔔 Benachrichtigungen",
-            "description": "Lege fest, wohin und bei welchen Ereignissen der Berater eine kurze Nachricht senden darf.",
+            "description": "Lege fest, wohin und bei welchen Ereignissen der Lüftungsassistent eine kurze Nachricht senden darf.",
             "data": {
               "notify_target": "Benachrichtigungsziel (optional)",
               "notify_triggers": "Benachrichtigen bei (optional)"
@@ -199,7 +215,9 @@
       "cannot_connect": "Der entfernte Home Assistant ist über diese Tailscale-Adresse nicht erreichbar.",
       "select_room": "Wähle mindestens einen freigegebenen Raum aus.",
       "admin_required": "Der verwendete Home-Assistant-Benutzer benötigt Administratorrechte für die Remote-Verbindung.",
-      "duplicate_remote": "Diese Tailscale-Gegenstelle ist bereits als Remote-Verbindung eingerichtet."
+      "duplicate_remote": "Diese Tailscale-Gegenstelle ist bereits als Remote-Verbindung eingerichtet.",
+      "manual_weather_required": "Bei manueller Wetterquelle muss eine eigene weather.*-Entity gewählt werden.",
+      "manual_warning_required": "Bei eigener/zusätzlicher Warnquelle muss eine Warninstanz gewählt werden."
     },
     "abort": {
       "already_configured": "Dieser entfernte Home Assistant ist bereits verbunden.",
@@ -244,7 +262,7 @@
           },
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
-            "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+            "night_advice_start_time": "Ab dieser Uhrzeit kann der Lüftungsassistent einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
             "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen.",
             "area_id": "Ordnet diesen Lüftungsassistent-Raum einem vorhandenen Home-Assistant-Bereich zu. Wenn du keinen eigenen Raumnamen angibst, wird der Name des Bereichs verwendet.",
             "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs."
@@ -271,7 +289,7 @@
                 "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis"
               },
               "data_description": {
-                "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+                "night_advice_start_time": "Ab dieser Uhrzeit kann der Lüftungsassistent einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
                 "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
               }
             },
@@ -290,7 +308,7 @@
             },
             "room_openings": {
               "name": "🪟 Fenster & Türen",
-              "description": "Optional. Damit erkennt der Berater laufende Lüftungen und kann sie nach einem Neustart fortführen.",
+              "description": "Optional. Damit erkennt der Lüftungsassistent laufende Lüftungen und kann sie nach einem Neustart fortführen.",
               "data": {
                 "window_entities": "Fenster/Türen (optional)"
               }
@@ -336,7 +354,7 @@
           "description": "Temperatur und Luftfeuchtigkeit sind Pflicht. Optional kannst du den Raum einem vorhandenen Home-Assistant-Bereich zuordnen und/oder einen eigenen Namen vergeben. CO₂, Fenster-/Türkontakte und ein Oberflächentemperatursensor sind optional. Die Uhrzeiten legen nur fest, in welchem Zeitfenster ein sinnvoller Nacht-Hinweis angezeigt werden darf. Ohne Zusatzsensoren werden keine Werte geschätzt.",
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
-            "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+            "night_advice_start_time": "Ab dieser Uhrzeit kann der Lüftungsassistent einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
             "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen.",
             "area_id": "Ordnet diesen Lüftungsassistent-Raum einem vorhandenen Home-Assistant-Bereich zu. Wenn du keinen eigenen Raumnamen angibst, wird der Name des Bereichs verwendet.",
             "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs."
@@ -363,7 +381,7 @@
                 "night_advice_end_time": "🌙 Nacht-Hinweis anzeigen bis"
               },
               "data_description": {
-                "night_advice_start_time": "Ab dieser Uhrzeit kann der Berater einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
+                "night_advice_start_time": "Ab dieser Uhrzeit kann der Lüftungsassistent einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
                 "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen."
               }
             },
@@ -382,7 +400,7 @@
             },
             "room_openings": {
               "name": "🪟 Fenster & Türen",
-              "description": "Optional. Damit erkennt der Berater laufende Lüftungen und kann sie nach einem Neustart fortführen.",
+              "description": "Optional. Damit erkennt der Lüftungsassistent laufende Lüftungen und kann sie nach einem Neustart fortführen.",
               "data": {
                 "window_entities": "Fenster/Türen (optional)"
               }
@@ -630,6 +648,19 @@
         "airing_recommended": "Lüften ist wieder sinnvoll",
         "airing_finished": "Lüften kann beendet werden"
       }
+    },
+    "weather_source_mode": {
+      "options": {
+        "auto": "Automatisch nach Standort",
+        "manual": "Eigene Home-Assistant-Wetterinstanz"
+      }
+    },
+    "warning_source_mode": {
+      "options": {
+        "auto": "Automatisch nach Standort",
+        "manual": "Nur eigene Home-Assistant-Warninstanz",
+        "auto_plus_manual": "Automatisch + eigene Warninstanz"
+      }
     }
   },
   "services": {
@@ -694,6 +725,12 @@
           "description": "Unsigned-32-bit Kennung der konkreten Anfrage innerhalb der Runde."
         }
       }
+    }
+  },
+  "issues": {
+    "duplicate_station_mac": {
+      "title": "Physische Lüftungsstation wird mehrfach verwendet",
+      "description": "Die Netzwerk-MAC **{mac}** ist mehreren lokalen Lüftungsassistent-Stationen zugeordnet: {stations}. Das kann nach einem Upgrade einer älteren Installation sichtbar werden. Home Assistant wählt absichtlich keinen Besitzer automatisch aus, weil sonst ein reales Gerät umkonfiguriert werden könnte. Entferne oder rekonfiguriere die doppelte Stationszuordnung, sodass jede physische MAC nur einmal verwendet wird."
     }
   }
 }

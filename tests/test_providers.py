@@ -251,6 +251,7 @@ def test_dwd_level_3_warning_is_red_danger():
     )
     result = _evaluate_dwd_warning_entities(hass, [entity])
     assert result.weather_danger is True
+    assert result.weather_hard_lock is False
     assert result.weather_caution is False
     assert result.weather_reason_key == "weather_heavy_rain_danger"
 
@@ -482,6 +483,7 @@ def test_dwd_explicit_close_instruction_overrides_warning_level():
     )
     result = _evaluate_dwd_warning_entities(hass, [entity])
     assert result.weather_danger is True
+    assert result.weather_hard_lock is True
     assert result.weather_reason_key == "official_close_instruction"
     assert result.official_close_instruction is True
 
@@ -576,7 +578,7 @@ def test_wind_thresholds_split_orange_disadvantage_from_red_hazard():
         temp=None,
         humidity=None,
     )
-    hazard = assess(
+    danger = assess(
         {
             WEATHER: FakeState(
                 "sunny",
@@ -584,6 +586,22 @@ def test_wind_thresholds_split_orange_disadvantage_from_red_hazard():
                     "temperature": 18,
                     "humidity": 60,
                     "wind_speed": 75,
+                    "wind_gust_speed": 95,
+                    "wind_speed_unit": "km/h",
+                },
+            )
+        },
+        temp=None,
+        humidity=None,
+    )
+    hazard = assess(
+        {
+            WEATHER: FakeState(
+                "sunny",
+                {
+                    "temperature": 18,
+                    "humidity": 60,
+                    "wind_speed": 89,
                     "wind_gust_speed": 105,
                     "wind_speed_unit": "km/h",
                 },
@@ -594,7 +612,9 @@ def test_wind_thresholds_split_orange_disadvantage_from_red_hazard():
     )
     assert ordinary.weather_caution is False and ordinary.weather_danger is False
     assert disadvantage.weather_caution is True and disadvantage.weather_danger is False
+    assert danger.weather_danger is True and danger.weather_hard_lock is False
     assert hazard.weather_danger is True
+    assert hazard.weather_hard_lock is True
 
 
 async def test_nina_get_details_is_cached_by_warning_id(hass, enable_custom_integrations):

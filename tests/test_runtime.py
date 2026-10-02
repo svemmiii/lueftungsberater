@@ -13,10 +13,22 @@ def test_celsius_stays_celsius():
 
 def test_warning_source_none_is_not_configured():
     from types import SimpleNamespace
+
+    from custom_components.lueftungsberater.const import (
+        CONF_WARNING_SOURCE_MODE,
+        WARNING_SOURCE_AUTO,
+        WARNING_SOURCE_AUTO_PLUS_MANUAL,
+    )
     from custom_components.lueftungsberater.runtime import warning_source_configured
 
     assert warning_source_configured(SimpleNamespace(data={"warning_source": "none"})) is False
     assert warning_source_configured(SimpleNamespace(data={"warning_source": "abc123"})) is True
+    assert warning_source_configured(
+        SimpleNamespace(data={CONF_WARNING_SOURCE_MODE: WARNING_SOURCE_AUTO})
+    ) is True
+    assert warning_source_configured(
+        SimpleNamespace(data={CONF_WARNING_SOURCE_MODE: WARNING_SOURCE_AUTO_PLUS_MANUAL})
+    ) is True
 
 
 def test_plausibility_filters_keep_extreme_but_possible_values():
@@ -90,6 +102,7 @@ def test_missing_comfort_data_preserves_hard_weather_safety_result():
             "nina_reason_args": {},
             "nina_original_reason": None,
             "weather_danger": True,
+            "weather_hard_lock": True,
             "weather_reason_key": "weather_lightning_danger",
             "weather_reason_args": {},
             "weather_original_reason": "Amtliche Gewitterwarnung",
@@ -111,6 +124,7 @@ def test_warning_context_never_uses_weaker_caution_reason_for_hard_danger(hass):
     entry = SimpleNamespace(data={"warning_source": "provider-entry"})
     weather = WeatherAssessment(
         weather_danger=True,
+        weather_hard_lock=True,
         weather_reason_key="weather_lightning_danger",
         weather_original_reason="Gewitter / Blitz",
     )
@@ -161,6 +175,7 @@ def test_build_snapshot_keeps_hard_warning_when_humidity_sensor_is_unavailable(h
         temperature=20.0,
         humidity=50.0,
         weather_danger=True,
+        weather_hard_lock=True,
         weather_reason_key="weather_lightning_danger",
         weather_original_reason="Gewitter / Blitz",
     )

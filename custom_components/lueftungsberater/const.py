@@ -1,9 +1,9 @@
-"""Constants for Lüftungsberater."""
+"""Constants for Lüftungsassistent."""
 
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.10.2"
+INTEGRATION_VERSION = "0.11.0"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 SUBENTRY_TYPE_STATION = "station"
@@ -25,6 +25,10 @@ CONF_OUTDOOR_VOC = "outdoor_voc"
 CONF_OUTDOOR_NO2 = "outdoor_no2"
 CONF_OUTDOOR_O3 = "outdoor_o3"
 CONF_WEATHER = "weather_entity"
+CONF_WEATHER_SOURCE_MODE = "weather_source_mode"
+WEATHER_SOURCE_AUTO = "auto"
+WEATHER_SOURCE_MANUAL = "manual"
+DEFAULT_WEATHER_SOURCE_MODE = WEATHER_SOURCE_AUTO
 CONF_WEATHER_DANGER = "weather_danger_entity"
 CONF_WEATHER_REASON = "weather_reason_entity"
 CONF_NINA_STATUS = "nina_status_entity"
@@ -32,6 +36,12 @@ CONF_RAIN_NOW = "rain_now_entity"
 CONF_RAIN_SOON = "rain_soon_entity"
 
 CONF_WARNING_SOURCE = "warning_source"
+CONF_WARNING_SOURCE_MODE = "warning_source_mode"
+WARNING_SOURCE_AUTO = "auto"
+WARNING_SOURCE_MANUAL = "manual"
+WARNING_SOURCE_AUTO_PLUS_MANUAL = "auto_plus_manual"
+DEFAULT_WARNING_SOURCE_MODE = WARNING_SOURCE_AUTO
+CONF_LOCATION_TRACKER = "location_tracker"
 CONF_MANUAL_OUTDOOR = "manual_outdoor"
 WARNING_SOURCE_NONE = "none"
 
@@ -80,6 +90,9 @@ REMOTE_UPDATE_INTERVAL = timedelta(seconds=30)
 REMOTE_OFFLINE_GRACE = timedelta(minutes=3)
 REMOTE_PROTOCOL_VERSION = 3
 FORECAST_REFRESH_INTERVAL = timedelta(minutes=15)
+AUTO_WEATHER_REFRESH_INTERVAL = timedelta(minutes=15)
+AUTO_WARNING_REFRESH_INTERVAL = timedelta(minutes=5)
+AUTO_PROVIDER_STALE_MAX_AGE = timedelta(hours=1)
 
 # Hardware stations are expected to report about once per minute. After three
 # missed minutes their last sample is stale and must no longer drive decisions.
@@ -107,6 +120,21 @@ CONF_HARDWARE_MASTER_SUBENTRY_ID = "hardware_master_subentry_id"
 # stored only in the master subentry/device provisioning state and never
 # exposed as an entity/diagnostic attribute.
 CONF_HARDWARE_MASTER_SECRET = "hardware_master_secret"
+# One-shot HA -> ESPHome provisioning marker. New/reconfigured stations set this
+# flag; setup clears it only after all role-specific Native-API actions were sent.
+# Existing installations are intentionally not auto-provisioned by migration.
+CONF_HARDWARE_PROVISION_PENDING = "hardware_provision_pending"
+CONF_HARDWARE_PROVISIONED_AT = "hardware_provisioned_at"
+# Internal one-shot marker for a newly generated/replaced master credential.
+# While set, HA deliberately clears any previously stored firmware credential
+# before applying the new one, so an old ``credential configured = on`` state
+# cannot be mistaken for confirmation of the new secret.
+CONF_HARDWARE_MASTER_CREDENTIAL_RESET = "hardware_master_credential_reset"
+# Last participant topology which a master confirmed through the dedicated
+# HA -> ESPHome participant-replacement contract. This is a SHA-256 digest of
+# the full ordered participant payload; it contains no credential material.
+CONF_HARDWARE_PARTICIPANTS_HASH = "hardware_participants_hash"
+CONF_HARDWARE_PARTICIPANTS_SYNCED_AT = "hardware_participants_synced_at"
 
 CONF_HARDWARE_ROOM_MODE = "hardware_room_mode"
 HARDWARE_ROOM_CREATE = "create"
@@ -187,12 +215,14 @@ DATA_API_REGISTERED = "api_registered"
 DATA_NOTIFICATION_STATE = "notification_state"
 DATA_NOTIFICATION_LOCKS = "notification_locks"
 DATA_FORECAST_CACHE = "hourly_forecast_cache"
+DATA_AUTO_PROVIDER_CACHE = "auto_provider_cache"
 DATA_AIR_QUALITY_TRACKERS = "air_quality_trackers"
 DATA_REMOTE_ACCESS = "remote_access"
 DATA_RECORDER_RETENTION = "recorder_retention"
 DATA_SAFETY_STATE = "safety_state"
 DATA_HARDWARE_HUBS = "hardware_hubs"
 DATA_HARDWARE_SERVICE_REGISTERED = "hardware_service_registered"
+DATA_HARDWARE_DISPLAY_PUSHERS = "hardware_display_pushers"
 RECORDER_RETENTION_DAYS = 20
 SAFETY_FALLBACK_MAX_AGE = timedelta(hours=1)
 AIR_QUALITY_HISTORY_MIN_SAMPLES = 24

@@ -150,10 +150,37 @@ def test_critical_co2_accepts_modest_humidity_disadvantage():
     assert r.mode == "co2_kritisch"
 
 
-def test_critical_co2_does_not_override_real_weather_danger():
+def test_critical_co2_can_trade_off_with_severe_weather_without_hard_lock():
     r = evaluate_room(base(co2=2500, weather_danger=True))
-    assert r.color == "red"
+    assert r.safety_lock is False
+    assert r.color == "yellow"
+    assert r.mode != "wettergefahr"
+    # Severe weather delays normal airing, but >2000 ppm is a critical indoor
+    # state and may no longer be hidden behind a calm room-air colour.
+    assert r.room_status_color == "orange"
+
+
+def test_severe_weather_keeps_1300_ppm_room_air_green_for_now():
+    r = evaluate_room(base(co2=1300, weather_danger=True))
+    assert r.safety_lock is False
+    assert r.room_status_color == "green"
+    assert r.room_recommendation_key == "room_good"
+
+
+def test_severe_weather_moves_high_but_not_critical_co2_to_yellow_late():
+    below = evaluate_room(base(co2=1600, weather_danger=True))
+    approaching = evaluate_room(base(co2=1750, weather_danger=True))
+    assert below.room_status_color == "green"
+    assert approaching.room_status_color == "yellow"
+
+
+def test_weather_hard_lock_still_beats_critical_indoor_air():
+    r = evaluate_room(
+        base(co2=3000, weather_danger=True, weather_hard_lock=True)
+    )
+    assert r.safety_lock is True
     assert r.mode == "wettergefahr"
+    assert r.recommendation_key == "keep_closed"
 
 
 def test_light_rain_does_not_erase_critical_co2_need():
@@ -809,10 +836,26 @@ def test_agreed_matrix_13_critical_co2_with_wind_caution_is_yellow():
     assert r.safety_lock is False
 
 
-def test_agreed_matrix_14_severe_weather_uses_the_separate_safety_lock():
-    r = evaluate_room(base(co2=2600, weather_danger=True, weather_reason_key="weather_wind_danger"))
+def test_agreed_matrix_14_only_hard_weather_uses_the_separate_safety_lock():
+    r = evaluate_room(base(
+        co2=2600,
+        weather_danger=True,
+        weather_hard_lock=True,
+        weather_reason_key="weather_wind_danger",
+    ))
     assert r.safety_lock is True
     assert r.color == "red"
+
+
+def test_severe_weather_allows_critical_indoor_override_without_lock():
+    r = evaluate_room(base(
+        co2=2500,
+        weather_danger=True,
+        weather_hard_lock=False,
+        weather_reason_key="weather_thunderstorm_danger",
+    ))
+    assert r.safety_lock is False
+    assert r.room_status_color == "orange"
 
 
 def test_very_poor_air_quality_keeps_absolute_health_class_but_local_context_changes_urgency():

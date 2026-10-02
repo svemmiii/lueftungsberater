@@ -1,4 +1,4 @@
-"""Shared event-driven room coordinator for Lüftungsberater."""
+"""Shared event-driven room coordinator for Lüftungsassistent."""
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +29,7 @@ from .co2_hysteresis import (
 )
 from .reason_sessions import HumiditySessionState, IndoorAirSessionState
 from .engine import humidity_airing_can_improve
+from .hardware_display import async_queue_direct_display_result
 from .hardware_hub import (
     direct_station_entities,
     station_for_room,
@@ -175,7 +176,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             return
         task = self._create_background_task(
             async_handle_room_notification(self.hass, self.entry, self.subentry, snapshot),
-            f"Lüftungsberater notification check {self.subentry.subentry_id}",
+            f"Lüftungsassistent notification check {self.subentry.subentry_id}",
         )
         if isinstance(task, asyncio.Task):
             self._notification_tasks.add(task)
@@ -878,6 +879,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             await async_handle_room_notification(
                 self.hass, self.entry, self.subentry, snapshot
             )
+        async_queue_direct_display_result(
+            self.hass, self.entry, self.subentry.subentry_id, snapshot
+        )
         return snapshot
 
     async def async_start(self) -> None:
@@ -976,6 +980,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._remember_snapshot(snapshot)
         self.async_set_updated_data(snapshot)
         self._queue_notification(snapshot)
+        async_queue_direct_display_result(
+            self.hass, self.entry, self.subentry.subentry_id, snapshot
+        )
 
     @callback
     def _handle_night_start(self, _now: datetime) -> None:
@@ -986,7 +993,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             return
         self._create_background_task(
             outside.async_request_refresh(),
-            f"Lüftungsberater night forecast {self.subentry.subentry_id}",
+            f"Lüftungsassistent night forecast {self.subentry.subentry_id}",
         )
 
     @callback

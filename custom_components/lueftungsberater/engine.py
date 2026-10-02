@@ -296,9 +296,11 @@ def _color(mode: str) -> str:
         "innenluft_warten",
     }:
         return "orange"
-    # Red is now reserved for a genuinely strong keep-closed reason: an explicit
-    # outdoor-air danger, severe weather, very poor air quality, or another hard
-    # safety/health constraint.
+    if mode in {"wetter_stark_nachteilig", "wettergefahr", "nina_aussenluftgefahr"}:
+        return "red"
+    # Red on the ventilation-side card means a genuinely strong keep-closed
+    # reason. It is still an advisory colour; absolute locks are carried
+    # separately by ``safety_lock`` and rendered white/locked by the frontend.
     return "red"
 
 
@@ -689,12 +691,20 @@ def _non_co2_mode_for_need(
                     return "innenluft_abwaegung", "air_quality"
                 if data.air_quality == "very_poor":
                     return "innenluft_warten", "air_quality"
+                if data.weather_danger:
+                    return "innenluft_abwaegung", "weather_danger"
+                if data.weather_caution:
+                    return "innenluft_abwaegung", "weather"
                 return "innenluft_lueften", None
             if outside >= inside + margin:
                 return "innenluft_warten", "air_quality"
             return "innenluft_abwaegung", "air_quality"
         if outdoor_rank >= 0:
             if outdoor_rank < indoor_rank:
+                if data.weather_danger:
+                    return "innenluft_abwaegung", "weather_danger"
+                if data.weather_caution:
+                    return "innenluft_abwaegung", "weather"
                 return "innenluft_lueften", None
             if outdoor_rank > indoor_rank:
                 return "innenluft_warten", "air_quality"
@@ -788,6 +798,13 @@ def _non_co2_mode_for_need(
                 return air_quality_mode or "luftqualitaet_maessig", caution_kind
             if caution_kind == "air_warning":
                 return "nina_vorsicht", caution_kind
+            if caution_kind == "weather_danger":
+                # Severe-but-unlocked weather postpones ordinary temperature
+                # correction, but a real >=30 C heat need is allowed to form a
+                # cautious trade-off. Hard locks have already won above this path.
+                if need == "heat":
+                    return "komfort_abwaegung", caution_kind
+                return "wetter_stark_nachteilig", caution_kind
             if caution_kind == "weather":
                 return "wetter_vorsicht", caution_kind
             return "komfort_abwaegung", caution_kind
@@ -865,6 +882,8 @@ def _outdoor_soft_caution(data: RoomInput) -> str | None:
         return "air_quality"
     if data.nina_status == "caution":
         return "air_warning"
+    if data.weather_danger:
+        return "weather_danger"
     if data.weather_caution:
         return "weather"
     if _outdoor_co2_general_disadvantage(data):
@@ -967,6 +986,62 @@ def _room_status_color(urgency: int, ventilation_color: str, need: str) -> str:
         return "orange"
     if urgency >= 2:
         return "yellow"
+    return "green"
+
+
+def _soft_weather_room_cap(
+    active_needs: list[tuple[str, int]], data: RoomInput
+) -> str | None:
+    """Return the room-air display cap during severe-but-unlocked weather.
+
+    The room-air colours are action semantics: green means there is nothing
+    sensible to do *now*, not that every sensor is ideal. Severe weather should
+    therefore postpone ordinary indoor reasons without making the room card look
+    like an invitation to open a window. Truly critical indoor conditions are
+    different: without an actual hard lock they may overrule soft weather and
+    form a real trade-off. ``None`` means do not cap the normal room colour.
+    """
+    needs = {need for need, _urgency in active_needs}
+
+    critical = bool(
+        "co2_critical" in needs
+        or "heat" in needs
+        or "mold_persistent" in needs
+        or (
+            "humidity_urgent" in needs
+            and data.indoor_humidity >= 75.0
+        )
+        or (
+            "indoor_air_urgent" in needs
+            and data.indoor_air_quality == "very_poor"
+        )
+    )
+    if critical:
+        return None
+
+    # Under a real severe-weather disadvantage, elevated CO2 is deliberately
+    # quiet for longer than on a normal day. Around 1700 ppm the user should
+    # start watching for an opportunity; >2000 ppm is handled above as critical.
+    if any(need.startswith("co2_") for need in needs):
+        if data.co2 is not None and data.co2 >= 1700.0:
+            return "yellow"
+        return "green"
+
+    # Short-lived moisture above the comfort band is not enough to send someone
+    # to the window during severe weather. Make the approaching risk visible only
+    # late; >=75 % or persistent mould risk already escaped the cap above.
+    if any(need in {"humidity", "humidity_urgent"} for need in needs):
+        return "yellow" if data.indoor_humidity >= 70.0 else "green"
+
+    if "mold" in needs:
+        return "yellow"
+    if "indoor_air_urgent" in needs:
+        # ``poor`` but not ``very_poor`` indoor AQ: watch it, but severe weather
+        # still wins for the moment.
+        return "yellow"
+
+    # Routine, ordinary temperature correction, moderate indoor AQ and similar
+    # comfort reasons do not require an action while severe weather is active.
     return "green"
 
 
@@ -1136,7 +1211,9 @@ def _outside_baseline_mode(
 
     if data.nina_status == "caution":
         candidates.append(("nina_vorsicht", "air_warning"))
-    if data.weather_caution:
+    if data.weather_danger:
+        candidates.append(("wetter_stark_nachteilig", "weather_danger"))
+    elif data.weather_caution:
         candidates.append(("wetter_vorsicht", "weather"))
     if _strong_no_need_disadvantage(ti=ti, hi=hi, ta=ta, target=target, diff=diff):
         candidates.append(("aussen_stark_unpassend", "conditions"))
@@ -1188,6 +1265,8 @@ def _co2_mode_for_need(
         if air_penalty >= 2
         else "air_warning"
         if data.nina_status == "caution"
+        else "weather_danger"
+        if data.weather_danger
         else "weather"
         if data.weather_caution
         else None
@@ -1269,7 +1348,7 @@ def _co2_mode_for_need(
         if air_penalty >= 2 and _color(mode) != "orange":
             return "co2_warten", "air_quality"
         if (
-            (data.nina_status == "caution" or data.weather_caution)
+            (data.nina_status == "caution" or data.weather_danger or data.weather_caution)
             and _color(mode) == "green"
         ):
             return "co2_abwaegung", external_caution or "conditions"
@@ -1402,7 +1481,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     hard_mode: str | None = None
     if data.nina_status == "danger":
         hard_mode = "nina_aussenluftgefahr"
-    elif data.weather_danger:
+    elif data.weather_hard_lock:
         hard_mode = "wettergefahr"
 
     mode: str
@@ -1495,6 +1574,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         global_outdoor_modes = {
             "nina_vorsicht",
             "wetter_vorsicht",
+            "wetter_stark_nachteilig",
             "luftqualitaet_maessig",
             "luftqualitaet_schlecht",
             "luftqualitaet_sehr_schlecht_typisch",
@@ -1503,7 +1583,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         }
         if baseline_mode in global_outdoor_modes:
             baseline_urgency = (
-                2 if baseline_mode == "luftqualitaet_sehr_schlecht" else 1
+                2
+                if baseline_mode in {"luftqualitaet_sehr_schlecht", "wetter_stark_nachteilig"}
+                else 1
             )
             candidates.append(
                 ("outside", baseline_urgency, baseline_mode, baseline_caution)
@@ -2199,7 +2281,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_key = data.nina_reason_key or "nina_air_caution"
         reason_args = dict(data.nina_reason_args)
         original_reason = data.nina_original_reason
-    elif mode == "wettergefahr":
+    elif mode in {"wettergefahr", "wetter_stark_nachteilig"}:
         reason_key = data.weather_reason_key or "weather_danger"
         reason_args = dict(data.weather_reason_args)
         reason_args.update(_short_term_weather_args(data))
@@ -2470,6 +2552,11 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         room_urgency = 2
 
     room_color = _room_status_color(room_urgency, color, room_need)
+    soft_weather_room_cap = (
+        _soft_weather_room_cap(active_needs, data)
+        if data.weather_danger and not data.weather_hard_lock
+        else None
+    )
 
     # A running temperature session deliberately has a slightly wider 0.5 K
     # continuation band than the 0.7 K new-start band.  That marginal band must
@@ -2623,6 +2710,56 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             room_need = "co2_session"
             room_reason_key = reason_key
             room_reason_args = dict(reason_args)
+
+    # Apply severe-weather action semantics *after* session overlays as well. A
+    # remembered session must not turn 1300 ppm into an orange "keep airing"
+    # instruction while an unlocked storm is raging. Critical indoor needs return
+    # ``None`` above and deliberately keep their normal orange/red pressure.
+    if soft_weather_room_cap is not None:
+        room_color = soft_weather_room_cap
+        room_recommendation_key = _room_recommendation_key(
+            room_color, data.window_open, recommendation_key
+        )
+        if (
+            data.window_open
+            and room_recommendation_key in {"close_now", "better_close", "can_close"}
+            and room_recommendation_key == recommendation_key
+        ):
+            room_reason_key = reason_key
+            room_reason_args = dict(reason_args)
+        else:
+            room_reason_key = "room_perspective"
+            room_reason_args = {
+                "need": room_need,
+                "level": room_urgency,
+                "ventilation_color": color,
+                "mode": mode,
+                "co2": co2,
+                "humidity": hi,
+                "ti": ti,
+                "ta": ta,
+                "target": target,
+                "diff": diff,
+                "hours": hours,
+                "surface_humidity": surface_rh,
+                "caution": "weather_danger",
+                "air_quality": data.air_quality,
+                "indoor_air_quality": data.indoor_air_quality,
+                "indoor_air_quality_pollutant": data.indoor_air_quality_pollutant,
+                "indoor_air_quality_value": data.indoor_air_quality_value,
+                "indoor_air_quality_unit": data.indoor_air_quality_unit,
+                "indoor_air_quality_measurement_type": data.indoor_air_quality_measurement_type,
+                "window_open": data.window_open,
+                "humidity_disarmed": data.humidity_disarmed,
+                "humidity_peak_recovery": data.humidity_peak_recovery,
+                "co2_high_load": data.co2_high_load,
+                "co2_trend_ppm_per_min": data.co2_trend_ppm_per_min,
+                "co2_minutes_to_2000": data.co2_minutes_to_2000,
+                "room_color": room_color,
+                "weather_reason_key": data.weather_reason_key,
+                "weather_reason_args": dict(data.weather_reason_args),
+                **_short_term_weather_args(data),
+            }
 
     # Hard UI invariant: in the room-air perspective green always means that
     # the user has no current action. A future code path may change priorities,

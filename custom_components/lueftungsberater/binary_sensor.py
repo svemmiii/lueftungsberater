@@ -1,4 +1,4 @@
-"""Binary sensor platform for Lüftungsberater."""
+"""Binary sensor platform for Lüftungsassistent."""
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity

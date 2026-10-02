@@ -487,6 +487,7 @@ def evaluate_night_ventilation(
     nina_status: str = "none",
     weather_caution: bool = False,
     weather_danger: bool = False,
+    weather_hard_lock: bool = False,
     air_quality_typical: bool | None = None,
     air_quality_unusual: bool = False,
     air_quality_trend: str = "unknown",
@@ -641,6 +642,8 @@ def evaluate_night_ventilation(
         "co2_difference": co2_difference,
         "outdoor_co2_disadvantage": outdoor_co2_bad,
         "weather_caution": weather_caution,
+        "weather_danger": weather_danger,
+        "weather_hard_lock": weather_hard_lock,
         "air_warning": nina_status == "caution",
         "air_quality": air_quality,
         "air_quality_typical": air_quality_typical,
@@ -658,7 +661,7 @@ def evaluate_night_ventilation(
     # Hard current protection is independent of whether a long forecast segment
     # exists. Very poor but locally normal/stable air remains a strong drawback,
     # not a safety lock.
-    if nina_status == "danger" or weather_danger or current_wind_level >= 2:
+    if nina_status == "danger" or weather_hard_lock or current_wind_level >= 2:
         return NightAdvice(
             "blocked",
             "night_blocked",
@@ -841,12 +844,12 @@ def evaluate_night_ventilation(
         }
     )
 
-    if nina_status == "danger" or weather_danger or max_wind_level >= 2:
+    if nina_status == "danger" or weather_hard_lock or max_wind_level >= 2:
         return NightAdvice(
             "blocked",
             "night_blocked",
             args,
-            safety_block=(nina_status == "danger" or weather_danger),
+            safety_block=(nina_status == "danger" or weather_hard_lock),
         )
     if air_quality == "very_poor" and (
         air_quality_unusual or air_quality_trend == "rising"
@@ -857,6 +860,7 @@ def evaluate_night_ventilation(
         rain_risk
         or forecast_humidity_disadvantage
         or weather_caution
+        or weather_danger
         or nina_status == "caution"
         or max_wind_level == 1
         or air_quality in {"moderate", "poor", "very_poor"}

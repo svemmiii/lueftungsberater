@@ -102,6 +102,7 @@ async def test_dwd_hard_warning_survives_temporary_unavailable(
         active = WarningAssessment(
             provider_domain="dwd_weather_warnings",
             weather_danger=True,
+            weather_hard_lock=True,
             weather_reason_key="weather_thunderstorm_danger",
             warning_ids={"dwd-warning"},
             source_weather_entity=entity,
@@ -117,6 +118,7 @@ async def test_dwd_hard_warning_survives_temporary_unavailable(
             hass, advisor, WeatherAssessment(), restored
         )
         assert restored.weather_danger is True
+        assert restored.weather_hard_lock is True
         assert restored.weather_reason_key == "weather_thunderstorm_danger"
 
         # Available warning data with no hard danger is a real clear.
@@ -145,6 +147,7 @@ async def test_live_weather_hard_danger_survives_weather_entity_outage(
     active = WeatherAssessment(
         provider_domain="met",
         weather_danger=True,
+        weather_hard_lock=True,
         weather_reason_key="weather_thunderstorm_danger",
     )
     await async_apply_persistent_safety_state(
@@ -158,6 +161,7 @@ async def test_live_weather_hard_danger_survives_weather_entity_outage(
         hass, advisor, restored, WarningAssessment()
     )
     assert restored.weather_danger is True
+    assert restored.weather_hard_lock is True
     assert restored.weather_reason_key == "weather_thunderstorm_danger"
 
     hass.states.async_set("weather.home", "sunny", {})
@@ -333,6 +337,7 @@ async def test_local_gust_hard_danger_persists_when_exact_gust_source_becomes_un
     active = WeatherAssessment(
         provider_domain="met",
         weather_danger=True,
+        weather_hard_lock=True,
         weather_reason_key="weather_wind_danger",
         weather_reason_args={"speed_kmh": 110.0},
         weather_danger_sources={gust},
@@ -353,6 +358,7 @@ async def test_local_gust_hard_danger_persists_when_exact_gust_source_becomes_un
         hass, advisor, restored, WarningAssessment()
     )
     assert restored.weather_danger is True
+    assert restored.weather_hard_lock is True
     assert restored.weather_reason_key == "weather_wind_danger"
     assert restored.weather_danger_sources == {gust}
 

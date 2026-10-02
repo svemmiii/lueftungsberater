@@ -92,7 +92,7 @@ class RoomAiringTracker:
     def _queue_save(self) -> None:
         task = self._create_background_task(
             self._async_save(),
-            f"Lüftungsberater airing save {self.subentry.subentry_id}",
+            f"Lüftungsassistent airing save {self.subentry.subentry_id}",
         )
         if isinstance(task, asyncio.Task):
             self._save_tasks.add(task)

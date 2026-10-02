@@ -216,5 +216,5 @@ def test_legacy_remote_duplicate_warning_is_logged_only_once(caplog) -> None:
         _reconcile_remote_server_identity(hass, first, server_id)
         _reconcile_remote_server_identity(hass, first, server_id)
 
-    messages = [record.getMessage() for record in caplog.records if "Multiple Lüftungsberater remote entries" in record.getMessage()]
+    messages = [record.getMessage() for record in caplog.records if "Multiple Lüftungsassistent remote entries" in record.getMessage()]
     assert len(messages) == 1

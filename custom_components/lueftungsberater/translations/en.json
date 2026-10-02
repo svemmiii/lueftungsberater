@@ -15,11 +15,11 @@
       },
       "local": {
         "title": "Set up a local Fresh Air Assistant",
-        "description": "Give this installation a name, then select a weather provider and optionally a warning service. Rooms can be added afterwards.",
+        "description": "By default, Lüftungsassistent selects weather and official-warning providers automatically from the Home location or the optional mobile GPS tracker. Existing Home Assistant weather and warning instances can be used instead or alongside automatic warnings. Rooms are added separately afterwards.",
         "data": {
           "instance_name": "Installation name",
-          "weather_entity": "Weather provider",
-          "warning_source": "Warning service (optional)",
+          "weather_entity": "Own weather entity (for manual weather source)",
+          "warning_source": "Own warning app / service (optional)",
           "manual_outdoor": "Advanced outdoor sensors (optional)",
           "outdoor_temperature": "Override outdoor temperature",
           "outdoor_humidity": "Override outdoor humidity",
@@ -34,23 +34,35 @@
           "outdoor_pm10": "Outdoor PM10 (optional)",
           "outdoor_voc": "Outdoor VOC (index or raw value, optional)",
           "outdoor_no2": "Outdoor NO₂ / NOx (index or raw value, optional)",
-          "outdoor_o3": "Outdoor ozone (optional)"
+          "outdoor_o3": "Outdoor ozone (optional)",
+          "location_tracker": "Mobile location tracker (optional)",
+          "weather_source_mode": "Weather source",
+          "warning_source_mode": "Warning source"
         },
         "data_description": {
           "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
-          "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
+          "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location.",
+          "location_tracker": "Leave empty to use the Home Assistant Home location. For a camper/boat, select a device_tracker with GPS coordinates. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position.",
+          "weather_source_mode": "Automatic by location. Own Home Assistant weather instance.",
+          "warning_source_mode": "Automatic by location. Own Home Assistant warning instance only. Automatic + own warning instance."
         },
         "sections": {
           "general": {
             "name": "🎛️ Basics",
-            "description": "Weather, warnings and how the advisor is displayed.",
+            "description": "Weather, warnings and how the assistant is displayed.",
             "data": {
-              "weather_entity": "Weather provider",
-              "warning_source": "Warning service (optional)",
-              "display_mode": "Traffic-light view"
+              "weather_entity": "Own weather entity (for manual weather source)",
+              "warning_source": "Own warning app / service (optional)",
+              "display_mode": "Traffic-light view",
+              "location_tracker": "Mobile location tracker (optional)",
+              "weather_source_mode": "Weather source",
+              "warning_source_mode": "Warning source"
             },
             "data_description": {
-              "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒."
+              "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
+              "location_tracker": "Leave empty to use the Home Assistant Home location. For a camper/boat, select a device_tracker with GPS coordinates. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position.",
+              "weather_source_mode": "Automatic by location. Own Home Assistant weather instance.",
+              "warning_source_mode": "Automatic by location. Own Home Assistant warning instance only. Automatic + own warning instance."
             }
           },
           "outdoor": {
@@ -75,7 +87,7 @@
           },
           "notifications": {
             "name": "🔔 Notifications",
-            "description": "Choose where and for which events the advisor may send a short message.",
+            "description": "Choose where and for which events the assistant may send a short message.",
             "data": {
               "notify_target": "Notification target (optional)",
               "notify_triggers": "Notify me about (optional)"
@@ -118,23 +130,27 @@
           "outdoor_pm10": "Outdoor PM10 (optional)",
           "outdoor_voc": "Outdoor VOC (index or raw value, optional)",
           "outdoor_no2": "Outdoor NO₂ / NOx (index or raw value, optional)",
-          "outdoor_o3": "Outdoor ozone (optional)"
+          "outdoor_o3": "Outdoor ozone (optional)",
+          "location_tracker": "Mobile location tracker (optional)"
         },
         "data_description": {
           "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
-          "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location."
+          "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location.",
+          "location_tracker": "Leave empty to use the live Home Assistant Home location. For a camper/boat, select a GPS device_tracker here. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position."
         },
         "sections": {
           "general": {
             "name": "🎛️ Basics",
-            "description": "Weather, warnings and how the advisor is displayed.",
+            "description": "Weather, warnings and how the assistant is displayed.",
             "data": {
               "weather_entity": "Weather provider",
               "warning_source": "Warning service (optional)",
-              "display_mode": "Traffic-light view"
+              "display_mode": "Traffic-light view",
+              "location_tracker": "Mobile location tracker (optional)"
             },
             "data_description": {
-              "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒."
+              "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
+              "location_tracker": "Leave empty to use the live Home Assistant Home location. For a camper/boat, select a GPS device_tracker here. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position."
             }
           },
           "outdoor": {
@@ -159,7 +175,7 @@
           },
           "notifications": {
             "name": "🔔 Notifications",
-            "description": "Choose where and for which events the advisor may send a short message.",
+            "description": "Choose where and for which events the assistant may send a short message.",
             "data": {
               "notify_target": "Notification target (optional)",
               "notify_triggers": "Notify me about (optional)"
@@ -199,7 +215,9 @@
       "cannot_connect": "The remote Home Assistant cannot be reached through this Tailscale address.",
       "select_room": "Select at least one shared room.",
       "admin_required": "The Home Assistant user used for this remote connection must be an administrator.",
-      "duplicate_remote": "This Tailscale endpoint is already configured as a remote connection."
+      "duplicate_remote": "This Tailscale endpoint is already configured as a remote connection.",
+      "manual_weather_required": "A weather.* entity must be selected when manual weather is enabled.",
+      "manual_warning_required": "A warning instance must be selected when manual/additional warnings are enabled."
     },
     "abort": {
       "already_configured": "This remote Home Assistant is already connected.",
@@ -244,7 +262,7 @@
           },
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
-            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+            "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
             "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action.",
             "area_id": "Assigns this Fresh Air Assistant room to an existing Home Assistant area. If you do not enter a custom room name, the area name is used.",
             "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name."
@@ -271,7 +289,7 @@
                 "night_advice_end_time": "🌙 Show night advice until"
               },
               "data_description": {
-                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+                "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
                 "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
               }
             },
@@ -290,7 +308,7 @@
             },
             "room_openings": {
               "name": "🪟 Windows & doors",
-              "description": "Optional. Lets the advisor track an airing session and continue it after a restart.",
+              "description": "Optional. Lets the assistant track an airing session and continue it after a restart.",
               "data": {
                 "window_entities": "Windows / doors (optional)"
               }
@@ -336,7 +354,7 @@
           "description": "Indoor temperature and humidity are required. Optionally, you can assign the room to an existing Home Assistant area and/or give it a custom name. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
-            "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+            "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
             "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action.",
             "area_id": "Assigns this Fresh Air Assistant room to an existing Home Assistant area. If you do not enter a custom room name, the area name is used.",
             "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name."
@@ -363,7 +381,7 @@
                 "night_advice_end_time": "🌙 Show night advice until"
               },
               "data_description": {
-                "night_advice_start_time": "From this time onward the advisor may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
+                "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
                 "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action."
               }
             },
@@ -382,7 +400,7 @@
             },
             "room_openings": {
               "name": "🪟 Windows & doors",
-              "description": "Optional. Lets the advisor track an airing session and continue it after a restart.",
+              "description": "Optional. Lets the assistant track an airing session and continue it after a restart.",
               "data": {
                 "window_entities": "Windows / doors (optional)"
               }
@@ -430,7 +448,7 @@
         },
         "direct": {
           "title": "Set up standalone station",
-          "description": "Select the locally reachable ESPHome device. By default the station creates its own room with the ventilation advisor defaults; you can also use an existing room.",
+          "description": "Select the locally reachable ESPHome device. By default the station creates its own room with the ventilation assistant defaults; you can also use an existing room.",
           "data": {
             "hardware_device_id": "ESPHome device",
             "hardware_room_mode": "Room",
@@ -630,6 +648,19 @@
         "airing_recommended": "Opening the windows is useful again",
         "airing_finished": "Airing can be finished"
       }
+    },
+    "weather_source_mode": {
+      "options": {
+        "auto": "Automatic by location",
+        "manual": "Own Home Assistant weather instance"
+      }
+    },
+    "warning_source_mode": {
+      "options": {
+        "auto": "Automatic by location",
+        "manual": "Own Home Assistant warning instance only",
+        "auto_plus_manual": "Automatic + own warning instance"
+      }
     }
   },
   "services": {
@@ -694,6 +725,12 @@
           "description": "Unsigned 32-bit identifier of the concrete request within the round."
         }
       }
+    }
+  },
+  "issues": {
+    "duplicate_station_mac": {
+      "title": "Physical ventilation station is assigned more than once",
+      "description": "Network MAC **{mac}** is assigned to multiple local Lüftungsassistent stations: {stations}. This can become visible after upgrading an older installation. Home Assistant deliberately does not choose an owner automatically because that could reconfigure a real device. Remove or reconfigure the duplicate station assignment so each physical MAC is used only once."
     }
   }
 }

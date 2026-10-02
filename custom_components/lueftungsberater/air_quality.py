@@ -1,4 +1,4 @@
-"""Compact local outdoor-air-quality context for Lüftungsberater.
+"""Compact local outdoor-air-quality context for Lüftungsassistent.
 
 The UBA LQI remains the absolute health-oriented classification. This tracker
 adds only local context (typical/unusual and a short trend) and deliberately
