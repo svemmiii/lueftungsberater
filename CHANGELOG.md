@@ -1,5 +1,11 @@
 ## v0.11.1 TEST
 
+### TEST COMPLETE(4): Lifecycle-Test an neue Wirksamkeits-Subscription angepasst
+
+- Der Lifecycle-Hardening-Test initialisiert beim absichtlichen `object.__new__()`-Aufbau nun auch `_effectiveness_session_unsub = None`. Dadurch entspricht das künstliche Testobjekt wieder den Feldern, die der echte `LueftungsberaterRoomCoordinator.__init__()` seit COMPLETE(1) immer anlegt.
+- Die Produktionslogik von `async_shutdown()` bleibt unverändert. Der gemeldete `AttributeError` war auf die unvollständige Test-Fixture beschränkt; der nachfolgende „lingering task“-Fehler war lediglich die Folge des vorzeitig abgebrochenen Shutdowns vor `_drain_notification_tasks()`.
+- Wetter, Zonen, Temperatur-/Partikel-Wirksamkeit, PM-Ruhephase und die COMPLETE(3)-Enginekorrektur bleiben unverändert. Integrationsversion bleibt 0.11.1.
+
 ### TEST COMPLETE(3): PM-Ruhephase bleibt auf PM begrenzt
 
 - Die Partikel-Wirksamkeitsruhe wirkt in der Engine nur noch dann, wenn der aktuell maßgebliche Innenluft-Schadstoff tatsächlich `pm2_5` oder `pm10` ist.
