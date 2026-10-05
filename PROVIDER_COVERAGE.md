@@ -1,10 +1,10 @@
-# Automatische Wetter- und Warnquellen – COMPLETE(11)
+# Automatische Wetter- und Warnquellen – v0.11.1 TEST COMPLETE(2)
 
-Stand der Implementierung und Prüfung: 02.10.2026. Integrationsversion bleibt 0.11.0.
+Stand der Implementierung und Prüfung: 05.10.2026. Integrationsversion 0.11.1.
 
 | Land / Gebiet | Wetter | Amtliche Warnquellen | Bevölkerungsschutz |
 | --- | --- | --- | --- |
-| Deutschland (DE) | DWD-Stationsdaten / MOSMIX, vorhandene Wetter-Fallbacks | NINA: MoWaS, KATWARN, BIWAPP, DWD, Hochwasser, Polizei | Ja, über die von NINA veröffentlichten Quellen |
+| Deutschland (DE) | nächste verfügbare DWD-POI-Messstation für Ist-Werte + separater koordinatenbasierter DWD-ICON-Forecast | NINA: MoWaS, KATWARN, BIWAPP, DWD, Hochwasser, Polizei | Ja, über die von NINA veröffentlichten Quellen |
 | Österreich (AT) | Automatischer Wetteradapter | MeteoAlarm + AT-Alert | Ja, über AT-Alert |
 | Belgien (BE) | Automatischer Wetteradapter | MeteoAlarm + BE-Alert | Ja, über den öffentlichen BE-Alert-CAP-Feed |
 | Schweiz (CH) | Automatischer Wetteradapter | MeteoAlarm + Alertswiss | Ja, über Alertswiss |
@@ -17,6 +17,8 @@ Weitere MeteoAlarm-Länder: AD, BA, BG, HR, CY, CZ, DK, EE, FI, FR, GR, HU, IS, 
 ## Standort und GPS
 
 Die Länderwahl folgt den Koordinaten, nicht der Zeitzone. Die mitgelieferten Natural-Earth-Länderpolygone sind kartographische Grenzen; Grenzlinien, Küsten und kleine Gebiete sind keine amtliche Katasterauflösung. Ein nicht eindeutig zuordenbarer Punkt wird als unbekannt behandelt.
+
+Neben dem Home-Assistant-Heimpunkt kann eine `zone.*`-Entity als statischer wirksamer Standort gewählt werden. Für Zonen werden deren feste Latitude-/Longitude-Koordinaten verwendet; GPS-Frische- und Genauigkeitsregeln gelten ausschließlich für `device_tracker.*`.
 
 Bei einem mobilen Tracker gelten Positionsmeldungen höchstens fünf Minuten als frisch. Vorhandene `gps_timestamp` oder `location_updated_at` werden bevorzugt; ansonsten dient Home Assistants `last_reported`, ersatzweise `last_updated`, als Meldungszeit. Ein weiter verfügbarer, aber nicht mehr meldender Tracker gilt somit nicht unbegrenzt als aktuell. Die letzte Position darf bis insgesamt 30 Minuten seit der letzten Positionsmeldung gehalten werden. Danach sind die automatischen Quellen nicht verfügbar. Es erfolgt kein stiller Wechsel auf den Heimstandort.
 
@@ -44,8 +46,9 @@ Vorhandene manuelle Wetter-Entities und Warnintegrationen bleiben über die best
 
 ## Quellen
 
-- DWD MOSMIX-Stationskatalog: https://www.dwd.de/DE/leistungen/met_verfahren_mosmix/mosmix_stationskatalog.cfg?view=nasPublication
-- DWD MOSMIX-Verfahrensbeschreibung: https://www.dwd.de/DE/leistungen/met_verfahren_mosmix/mosmix_verfahrenbeschreibung_gesamt.pdf?__blob=publicationFile&v=6
+- DWD Synoptik-Stationskatalog: https://opendata.dwd.de/weather/weather_reports/stationlist_synoptic_germany.csv
+- DWD POI-Messdaten (`*-BEOB.csv`): https://opendata.dwd.de/weather/weather_reports/poi/
+- Open-Meteo DWD-ICON API (koordinatenbasierter Forecast aus DWD-ICON-Modellen): https://open-meteo.com/en/docs/dwd-api
 - MeteoAlarm: https://meteoalarm.org/en/live/ und https://api.meteoalarm.org/metadata/v1/docs/openapi.yaml
 - HA-MeteoAlarm-Dokumentation / Regionsübersicht: https://www.home-assistant.io/integrations/meteoalarm/
 - Offizieller BE-Alert-Dienst: https://www.be-alert.be/fr und https://publicalerts.be/CapGateway/

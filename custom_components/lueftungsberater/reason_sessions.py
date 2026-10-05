@@ -582,3 +582,167 @@ class IndoorAirSessionState:
             disarmed=disarmed,
             next_check_seconds=remaining,
         )
+
+EFFECTIVENESS_PROGRESS_WINDOW = timedelta(minutes=15)
+EFFECTIVENESS_QUIET = timedelta(minutes=30)
+
+
+@dataclass(slots=True)
+class EffectivenessSessionDecision:
+    """Generic lower-is-better progress check for one ventilation reason."""
+
+    session_active: bool = False
+    exhausted: bool = False
+    disarmed: bool = False
+    progress_drop: float | None = None
+    next_check_seconds: float | None = None
+
+
+@dataclass(slots=True)
+class EffectivenessSessionState:
+    """Track whether an open-window attempt still produces useful progress.
+
+    ``metric`` must be lower-is-better, for example absolute distance from the
+    temperature target or an indoor PM concentration. The state is intentionally
+    reason-specific and therefore cannot silence unrelated ventilation reasons.
+    """
+
+    session_active: bool = False
+    progress_anchor_at: datetime | None = None
+    progress_anchor_value: float | None = None
+    best_value: float | None = None
+    exhausted: bool = False
+    exhausted_at: datetime | None = None
+    quiet_until: datetime | None = None
+    reference_value: float | None = None
+
+    def reset(self) -> None:
+        self.session_active = False
+        self.progress_anchor_at = None
+        self.progress_anchor_value = None
+        self.best_value = None
+        self.exhausted = False
+        self.exhausted_at = None
+        self.quiet_until = None
+        self.reference_value = None
+
+    def _end_live(self) -> None:
+        self.session_active = False
+        self.progress_anchor_at = None
+        self.progress_anchor_value = None
+        self.best_value = None
+
+    def as_dict(self) -> dict[str, Any]:
+        stamp = lambda value: value.isoformat() if value else None
+        return {
+            "session_active": self.session_active,
+            "progress_anchor_at": stamp(self.progress_anchor_at),
+            "progress_anchor_value": self.progress_anchor_value,
+            "best_value": self.best_value,
+            "exhausted": self.exhausted,
+            "exhausted_at": stamp(self.exhausted_at),
+            "quiet_until": stamp(self.quiet_until),
+            "reference_value": self.reference_value,
+        }
+
+    def restore(self, data: dict[str, Any], *, parse_dt) -> None:
+        self.session_active = bool(data.get("session_active"))
+        self.progress_anchor_at = parse_dt(data.get("progress_anchor_at"))
+        self.progress_anchor_value = _float_or_none(data.get("progress_anchor_value"))
+        self.best_value = _float_or_none(data.get("best_value"))
+        self.exhausted = bool(data.get("exhausted"))
+        self.exhausted_at = parse_dt(data.get("exhausted_at"))
+        self.quiet_until = parse_dt(data.get("quiet_until"))
+        self.reference_value = _float_or_none(data.get("reference_value"))
+        if self.session_active and (
+            self.progress_anchor_at is None or self.progress_anchor_value is None
+        ):
+            self._end_live()
+
+    def evaluate(
+        self,
+        *,
+        now: datetime,
+        window_open: bool,
+        active: bool,
+        metric: float | None,
+        min_improvement: float,
+        rearm_worsening: float,
+        urgent: bool = False,
+        safety_lock: bool = False,
+    ) -> EffectivenessSessionDecision:
+        # Expire a completed quiet phase independently from the availability of
+        # the current metric. A reason that is deliberately suppressed while
+        # exhausted may otherwise feed no active metric and could remain stuck
+        # forever after its 30-minute quiet period.
+        if self.quiet_until is not None and now >= self.quiet_until:
+            self.exhausted = False
+            self.exhausted_at = None
+            self.quiet_until = None
+            self.reference_value = None
+
+        value = _float_or_none(metric)
+        if value is None:
+            self._end_live()
+            return self._decision(now, None)
+
+        # A clearly renewed/worse situation is allowed to break the calm state.
+        if (
+            self.reference_value is not None
+            and value >= self.reference_value + max(0.0, rearm_worsening)
+        ) or urgent:
+            self.exhausted = False
+            self.exhausted_at = None
+            self.quiet_until = None
+            self.reference_value = None
+
+        if safety_lock:
+            self._end_live()
+            return self._decision(now, None)
+
+        disarmed = bool(self.exhausted and self.quiet_until is not None and now < self.quiet_until)
+
+        if window_open and active and not disarmed and not self.session_active:
+            self.session_active = True
+            self.progress_anchor_at = now
+            self.progress_anchor_value = value
+            self.best_value = value
+
+        progress_drop = None
+        if self.session_active:
+            if not window_open or not active:
+                self._end_live()
+            else:
+                self.best_value = min(float(self.best_value if self.best_value is not None else value), value)
+                anchor_at = self.progress_anchor_at or now
+                anchor_value = float(self.progress_anchor_value if self.progress_anchor_value is not None else value)
+                if now - anchor_at >= EFFECTIVENESS_PROGRESS_WINDOW:
+                    progress_drop = anchor_value - float(self.best_value)
+                    if progress_drop < max(0.0, min_improvement):
+                        self._end_live()
+                        self.exhausted = True
+                        self.exhausted_at = now
+                        self.quiet_until = now + EFFECTIVENESS_QUIET
+                        self.reference_value = value
+                    else:
+                        self.progress_anchor_at = now
+                        self.progress_anchor_value = float(self.best_value)
+
+        return self._decision(now, progress_drop)
+
+    def _decision(self, now: datetime, progress_drop: float | None) -> EffectivenessSessionDecision:
+        remaining = None
+        if self.session_active and self.progress_anchor_at is not None:
+            remaining = max(
+                0.0,
+                (EFFECTIVENESS_PROGRESS_WINDOW - (now - self.progress_anchor_at)).total_seconds(),
+            )
+        elif self.quiet_until is not None and now < self.quiet_until:
+            remaining = max(0.0, (self.quiet_until - now).total_seconds())
+        return EffectivenessSessionDecision(
+            session_active=self.session_active,
+            exhausted=self.exhausted,
+            disarmed=bool(self.exhausted and self.quiet_until is not None and now < self.quiet_until),
+            progress_drop=progress_drop,
+            next_check_seconds=remaining,
+        )

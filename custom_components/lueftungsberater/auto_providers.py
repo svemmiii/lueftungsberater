@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field, replace
 from io import BytesIO
+import csv
 from datetime import datetime, timedelta, timezone
 import logging
 import math
@@ -45,6 +46,7 @@ from .const import (
     WEATHER_SOURCE_AUTO,
     WEATHER_SOURCE_MANUAL,
 )
+from .const import INTEGRATION_VERSION
 from .location import EffectiveLocation
 from .warning_regions import geocode_geometry, coordinate_country
 
@@ -52,7 +54,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
 _OPEN_METEO_DWD = "https://api.open-meteo.com/v1/dwd-icon"
-_DWD_STATION_CATALOG = "https://www.dwd.de/DE/leistungen/met_verfahren_mosmix/mosmix_stationskatalog.cfg?view=nasPublication"
+_DWD_STATION_CATALOG = "https://opendata.dwd.de/weather/weather_reports/stationlist_synoptic_germany.csv"
 _DWD_MEASUREMENT_INDEX = "https://opendata.dwd.de/weather/weather_reports/poi/"
 _DWD_FORECAST_INDEX = "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/single_stations/"
 _DWD_MEASUREMENT_URL = "https://opendata.dwd.de/weather/weather_reports/poi/{station_id:_<5}-BEOB.csv"
@@ -141,7 +143,7 @@ _TIMEZONE_COUNTRY: dict[str, str] = {
 
 @dataclass(frozen=True, slots=True)
 class DwdStation:
-    """One DWD station that provides both measurement and MOSMIX data."""
+    """One DWD station with current POI measurement data."""
 
     station_id: str
     name: str
@@ -501,42 +503,92 @@ def _dwd_catalog_coordinate(value: str, limit: int) -> float:
 
 
 def _parse_dwd_station_index(
-    catalog_text: str, measurement_index: str, forecast_index: str
+    catalog_text: str, measurement_index: str, forecast_index: str | None = None
 ) -> list[DwdStation]:
-    """Build a DWD station index from the official OpenData listings."""
+    """Build the current-measurement DWD station index.
+
+    v0.11.0 used the MOSMIX station catalogue and additionally intersected it
+    with the MOSMIX single-station forecast directory. That can hide a much
+    nearer real observation site. v0.11.1 instead reads DWD's synoptic station
+    list and filters only by stations that actually expose a current POI
+    ``*-BEOB.csv`` measurement. Forecasts are resolved independently.
+
+    The parser is header-driven because DWD has used slightly different column
+    names over time. A legacy MOSMIX-text fallback is kept for compatibility.
+    """
     measurement_ids = {
         station_id
         for href in _DWD_MEASUREMENT_HREF.findall(measurement_index)
         if (station_id := _dwd_station_id_from_measurement_href(href))
     }
-    forecast_ids = {
-        href.rstrip("/").rsplit("/", 1)[-1]
-        for href in _DWD_FORECAST_HREF.findall(forecast_index)
-        if href.rstrip("/").rsplit("/", 1)[-1]
-    }
-    available = measurement_ids & forecast_ids
+
+    def coordinate(raw: str, limit: int) -> float:
+        value = raw.strip().replace(",", ".")
+        # DWD station lists historically use DD.MM where MM are minutes. If
+        # more precision is present, treat it as ordinary decimal degrees.
+        unsigned = value.lstrip("+-")
+        fraction = unsigned.partition(".")[2]
+        if len(fraction) == 2:
+            return _dwd_catalog_coordinate(value, limit)
+        number = float(value)
+        if not -limit <= number <= limit:
+            raise ValueError("station coordinate out of range")
+        return number
+
+    lines = [line for line in catalog_text.splitlines() if line.strip()]
+    if lines and ";" in lines[0]:
+        reader = csv.DictReader(lines, delimiter=";")
+        result: list[DwdStation] = []
+        for row in reader:
+            normalized = {str(key or "").strip().lower(): str(value or "").strip() for key, value in row.items()}
+            station_id = next((normalized.get(key) for key in ("id", "station_id", "stations_id", "stationsid") if normalized.get(key)), None)
+            if not station_id or station_id not in measurement_ids:
+                continue
+            lat_raw = next((normalized.get(key) for key in ("latitude", "lat", "breite", "geobreite") if normalized.get(key)), None)
+            lon_raw = next((normalized.get(key) for key in ("longitude", "lon", "laenge", "geolaenge") if normalized.get(key)), None)
+            if lat_raw is None or lon_raw is None:
+                continue
+            try:
+                latitude = coordinate(lat_raw, 90)
+                longitude = coordinate(lon_raw, 180)
+            except (TypeError, ValueError):
+                continue
+            altitude = None
+            altitude_raw = next((normalized.get(key) for key in ("elevation", "altitude", "hoehe", "height") if normalized.get(key)), None)
+            if altitude_raw is not None:
+                altitude = _as_float(altitude_raw.replace(",", "."))
+            name = next((normalized.get(key) for key in ("name", "stationsname", "station_name") if normalized.get(key)), None) or station_id
+            result.append(DwdStation(
+                station_id=station_id,
+                name=" ".join(name.split()),
+                latitude=latitude,
+                longitude=longitude,
+                altitude=altitude,
+            ))
+        if result:
+            return result
+
+    # Compatibility fallback for the former whitespace MOSMIX catalogue.
     result: list[DwdStation] = []
     for raw_line in catalog_text.splitlines():
         match = _DWD_STATION_LINE.match(raw_line.strip())
         if not match:
             continue
         station_id, _icao, name, lat, lon, altitude = match.groups()
-        if station_id not in available:
+        if station_id not in measurement_ids:
             continue
         try:
             latitude = _dwd_catalog_coordinate(lat, 90)
             longitude = _dwd_catalog_coordinate(lon, 180)
         except ValueError:
             continue
-        result.append(
-            DwdStation(
-                station_id=station_id,
-                name=" ".join(name.split()),
-                latitude=latitude,
-                longitude=longitude,
-                altitude=float(altitude),
-            )
-        )
+        result.append(DwdStation(
+            station_id=station_id,
+            name=" ".join(name.split()),
+            latitude=latitude,
+            longitude=longitude,
+            altitude=float(altitude),
+        ))
     return result
 
 
@@ -562,15 +614,12 @@ async def _resolve_dwd_station(
     if state.dwd_station_index is None or not _fresh(
         state.dwd_station_index_at, timedelta(hours=24), now
     ):
-        catalog_raw, measurement_raw, forecast_raw = await asyncio.gather(
+        catalog_raw, measurement_raw = await asyncio.gather(
             _get_bytes(session, _DWD_STATION_CATALOG),
             _get_text(session, _DWD_MEASUREMENT_INDEX),
-            _get_text(session, _DWD_FORECAST_INDEX),
         )
         catalog_text = catalog_raw.decode("iso-8859-1", errors="replace")
-        stations = _parse_dwd_station_index(
-            catalog_text, measurement_raw, forecast_raw
-        )
+        stations = _parse_dwd_station_index(catalog_text, measurement_raw)
         if not stations:
             raise ValueError("DWD station index contains no usable stations")
         state.dwd_station_index = stations
@@ -756,16 +805,38 @@ async def _fetch_dwd_station_weather(
     state: AutoProviderState,
 ) -> AutoWeatherData:
     station, distance = await _resolve_dwd_station(session, location, state)
-    measurement_raw, forecast_raw = await asyncio.gather(
+    measurement_raw, forecast_payload = await asyncio.gather(
         _get_bytes(
             session, _DWD_MEASUREMENT_URL.format(station_id=station.station_id)
         ),
-        _get_bytes(
-            session, _DWD_FORECAST_URL.format(station_id=station.station_id)
+        _get_json(
+            session,
+            _OPEN_METEO_DWD,
+            params={
+                "latitude": location.latitude,
+                "longitude": location.longitude,
+                "current": ",".join((
+                    "temperature_2m", "relative_humidity_2m", "precipitation",
+                    "weather_code", "wind_speed_10m", "wind_gusts_10m",
+                )),
+                "hourly": ",".join((
+                    "temperature_2m", "relative_humidity_2m",
+                    "precipitation_probability", "precipitation", "weather_code",
+                    "wind_speed_10m", "wind_gusts_10m",
+                )),
+                "forecast_hours": 36,
+                "timezone": "auto",
+                "wind_speed_unit": "kmh",
+                **({"elevation": location.elevation} if location.elevation is not None else {}),
+            },
         ),
     )
     measurement = _parse_dwd_measurement(measurement_raw)
-    forecast = _parse_dwd_mosmix(forecast_raw)
+    forecast = (
+        _normalize_open_meteo_hourly(forecast_payload)
+        if isinstance(forecast_payload, dict)
+        else []
+    )
 
     def measurement_number(key: str) -> float | None:
         raw = measurement.get(key)
@@ -1177,7 +1248,7 @@ async def _fetch_nws_warnings(
         session,
         _NWS_ALERTS,
         params={"point": f"{location.latitude:.5f},{location.longitude:.5f}"},
-        headers={"User-Agent": "HomeAssistant-Lueftungsassistent/0.11.0"},
+        headers={"User-Agent": f"HomeAssistant-Lueftungsassistent/{INTEGRATION_VERSION}"},
     )
     features = payload.get("features") if isinstance(payload, dict) else None
     warnings: list[AutoWarningRecord] = []

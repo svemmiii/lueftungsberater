@@ -511,7 +511,10 @@ def _active_needs(
     humidity_session_active: bool = False,
     humidity_disarmed: bool = False,
     humidity_peak_recovery: bool = False,
+    temperature_session_exhausted: bool = False,
+    particulate_session_exhausted: bool = False,
     indoor_air_quality: str = "unknown",
+    indoor_air_quality_pollutant: str | None = None,
     indoor_air_disarmed: bool = False,
     co2_high_load: bool = False,
     co2_minutes_to_2000: float | None = None,
@@ -552,11 +555,21 @@ def _active_needs(
     ):
         needs.append(("co2_elevated", 1))
 
+    particulate_effectiveness_exhausted = bool(
+        particulate_session_exhausted
+        and indoor_air_quality_pollutant in {"pm2_5", "pm10"}
+    )
     if indoor_air_quality == "very_poor":
+        # Very poor indoor air remains a health-level reason even when a
+        # previous PM open-window attempt made little measurable progress.
         needs.append(("indoor_air_urgent", 3))
-    elif indoor_air_quality == "poor":
+    elif indoor_air_quality == "poor" and not particulate_effectiveness_exhausted:
         needs.append(("indoor_air_urgent", 2))
-    elif indoor_air_quality == "moderate" and not indoor_air_disarmed:
+    elif (
+        indoor_air_quality == "moderate"
+        and not indoor_air_disarmed
+        and not particulate_effectiveness_exhausted
+    ):
         needs.append(("indoor_air", 1))
 
     if ti >= 30 and ta <= ti - 1:
@@ -608,7 +621,7 @@ def _active_needs(
             or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
         )
     )
-    if temperature_start or temperature_continue:
+    if (temperature_start or temperature_continue) and not temperature_session_exhausted:
         needs.append(("temperature", 1))
 
     # Routine is a fallback, not a peer health/comfort signal. If a concrete
@@ -1463,7 +1476,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         humidity_session_active=data.humidity_session_active,
         humidity_disarmed=data.humidity_disarmed,
         humidity_peak_recovery=data.humidity_peak_recovery,
+        temperature_session_exhausted=data.temperature_session_exhausted,
+        particulate_session_exhausted=data.particulate_session_exhausted,
         indoor_air_quality=data.indoor_air_quality,
+        indoor_air_quality_pollutant=data.indoor_air_quality_pollutant,
         indoor_air_disarmed=data.indoor_air_disarmed,
         co2_high_load=data.co2_high_load,
         co2_minutes_to_2000=data.co2_minutes_to_2000,

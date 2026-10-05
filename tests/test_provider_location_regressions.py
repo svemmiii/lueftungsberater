@@ -214,3 +214,21 @@ async def test_nina_partial_outage_keeps_known_civil_source():
     assert data.error == "nina_partial_failure"
     assert data.source_availability["nina_auto_mowas"]
     assert not data.source_availability["nina_auto_biwapp"]
+
+
+def test_zone_can_be_used_as_effective_location_without_gps_freshness():
+    zone = SimpleNamespace(
+        state="0",
+        attributes={"latitude": 50.75, "longitude": 7.05, "altitude": 70},
+        last_reported=NOW - timedelta(days=5),
+        last_updated=NOW - timedelta(days=5),
+    )
+    hass = SimpleNamespace(
+        states=SimpleNamespace(get=lambda entity_id: zone if entity_id == "zone.home" else None),
+        config=SimpleNamespace(latitude=1, longitude=2, country="DE"),
+    )
+    with patch.object(ap.dt_util, "utcnow", return_value=NOW):
+        loc = effective_location(hass, SimpleNamespace(data={CONF_LOCATION_TRACKER: "zone.home"}))
+    assert loc.available and loc.position_valid
+    assert loc.source == "zone.home"
+    assert loc.latitude == 50.75 and loc.longitude == 7.05

@@ -3547,3 +3547,62 @@ def test_high_load_session_target_is_winter_friendly_but_not_looser_than_tradeof
     assert mild_good.co2_session_target is not None
     assert mild_good.co2_session_target >= 1150
     assert mild_good.co2_session_target <= cold_good.co2_session_target
+
+
+def test_exhausted_temperature_session_does_not_keep_temperature_reason_active():
+    normal = evaluate_room(base(indoor_temp=25, outdoor_temp=18, target_temp=22, window_open=True))
+    assert "temperature" in normal.active_reasons
+    exhausted = evaluate_room(base(indoor_temp=25, outdoor_temp=18, target_temp=22, window_open=True, temperature_session_exhausted=True))
+    assert "temperature" not in exhausted.active_reasons
+
+
+def test_exhausted_particulate_session_suppresses_poor_but_not_very_poor():
+    for pollutant, value in (("pm2_5", 40), ("pm10", 70)):
+        poor = evaluate_room(
+            base(
+                indoor_air_quality="poor",
+                indoor_air_quality_pollutant=pollutant,
+                indoor_air_quality_value=value,
+                particulate_session_exhausted=True,
+            )
+        )
+        assert not any(
+            reason in {"indoor_air", "indoor_air_urgent"}
+            for reason in poor.active_reasons
+        )
+
+        very_poor = evaluate_room(
+            base(
+                indoor_air_quality="very_poor",
+                indoor_air_quality_pollutant=pollutant,
+                indoor_air_quality_value=value * 2,
+                particulate_session_exhausted=True,
+            )
+        )
+        assert "indoor_air_urgent" in very_poor.active_reasons
+
+
+def test_exhausted_pm_session_does_not_suppress_other_indoor_pollutants():
+    # PM effectiveness memory is reason-specific. If a different pollutant
+    # becomes the worst indoor-air value during the PM quiet period, it must be
+    # actionable immediately instead of inheriting the PM suppression.
+    for pollutant in ("voc", "no2", "no2_parts", "formaldehyde"):
+        moderate = evaluate_room(
+            base(
+                indoor_air_quality="moderate",
+                indoor_air_quality_pollutant=pollutant,
+                indoor_air_quality_value=10,
+                particulate_session_exhausted=True,
+            )
+        )
+        assert "indoor_air" in moderate.active_reasons
+
+        poor = evaluate_room(
+            base(
+                indoor_air_quality="poor",
+                indoor_air_quality_pollutant=pollutant,
+                indoor_air_quality_value=20,
+                particulate_session_exhausted=True,
+            )
+        )
+        assert "indoor_air_urgent" in poor.active_reasons

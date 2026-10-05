@@ -1,9 +1,9 @@
 """Effective location for stationary and mobile Lüftungsassistent installs.
 
 Home Assistant remains the source of truth. Stationary installs read the live
-core latitude/longitude; mobile installs may point at a device_tracker. No
-coordinates are copied into ConfigEntry data, so moving Home or a tracker takes
-effect without reconfiguration.
+core latitude/longitude; an explicit zone or a mobile device_tracker may be used
+as the effective location. No coordinates are copied into ConfigEntry data, so
+moving Home, a zone or a tracker takes effect without reconfiguration.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def _position_reported_at(state: Any) -> datetime | None:
 
 
 def effective_location(hass: HomeAssistant, entry: ConfigEntry) -> EffectiveLocation:
-    """Return current tracker coordinates when configured, otherwise HA Home."""
+    """Return configured zone/tracker coordinates, otherwise HA Home."""
     tracker = str(entry.data.get(CONF_LOCATION_TRACKER) or "").strip()
     now = dt_util.utcnow()
     if tracker:
@@ -77,9 +77,23 @@ def effective_location(hass: HomeAssistant, entry: ConfigEntry) -> EffectiveLoca
             lat = _finite(state.attributes.get("latitude"))
             lon = _finite(state.attributes.get("longitude"))
             if lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180:
+                elevation = _finite(state.attributes.get("altitude"))
+                # Zones are static Home Assistant locations. They have no GPS
+                # freshness/accuracy semantics and remain valid until edited.
+                if tracker.startswith("zone."):
+                    return EffectiveLocation(
+                        latitude=lat,
+                        longitude=lon,
+                        elevation=elevation,
+                        country=None,
+                        source=tracker,
+                        updated_at=now,
+                        available=True,
+                        position_valid=True,
+                    )
+
                 reported_at = _position_reported_at(state)
                 age = now - reported_at if reported_at is not None else None
-                elevation = _finite(state.attributes.get("altitude"))
                 accuracy_present = "gps_accuracy" in state.attributes
                 accuracy = _finite(state.attributes.get("gps_accuracy"))
                 position_valid = (not accuracy_present or (accuracy is not None and not isinstance(state.attributes.get("gps_accuracy"), bool) and 0 <= accuracy <= LOCATION_MAX_GPS_ACCURACY_M))
@@ -98,7 +112,8 @@ def effective_location(hass: HomeAssistant, entry: ConfigEntry) -> EffectiveLoca
                     position_valid=position_valid,
                 )
 
-        # Home must not silently become the position of a vehicle with lost GPS.
+        # Home must not silently become the position of an explicitly selected
+        # tracker/zone that is unavailable.
         return EffectiveLocation(
             latitude=float(hass.config.latitude),
             longitude=float(hass.config.longitude),

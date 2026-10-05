@@ -27,7 +27,11 @@ from .co2_hysteresis import (
     Co2HysteresisState,
     Co2MinimumAiringState,
 )
-from .reason_sessions import HumiditySessionState, IndoorAirSessionState
+from .reason_sessions import (
+    HumiditySessionState,
+    IndoorAirSessionState,
+    EffectivenessSessionState,
+)
 from .engine import humidity_airing_can_improve
 from .hardware_display import async_queue_direct_display_result
 from .hardware_hub import (
@@ -76,6 +80,36 @@ _CO2_MINIMUM_CAUTION_START_MODES = {
     "co2_kritisch_vorsicht",
     "co2_abwaegung",
 }
+
+
+def _particulate_effectiveness_context(
+    values: dict[str, Any], active_reasons: set[str] | list[str] | tuple[str, ...]
+) -> tuple[bool, float | None, float, bool]:
+    """Return PM effectiveness inputs using the runtime's canonical pollutant keys.
+
+    The concentration remains observable while the PM reason is temporarily
+    suppressed so a quiet phase can expire and a renewed deterioration can
+    re-arm it before the timer ends.
+    """
+    pollutant = str(values.get("indoor_air_quality_pollutant") or "").lower()
+    pm25 = pollutant in {"pm2_5", "pm25", "pm2.5"}
+    particulate = pm25 or pollutant == "pm10"
+    active = particulate and any(
+        reason in {"indoor_air", "indoor_air_urgent"} for reason in active_reasons
+    )
+    raw_value = values.get("indoor_air_quality_value")
+    metric = None
+    if particulate and raw_value is not None:
+        try:
+            metric = float(raw_value)
+        except (TypeError, ValueError):
+            metric = None
+    min_improvement = 2.0 if pm25 else 3.0
+    urgent = (
+        particulate
+        and str(values.get("indoor_air_quality") or "unknown") == "very_poor"
+    )
+    return active, metric, min_improvement, urgent
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -151,9 +185,12 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._co2_hysteresis = Co2HysteresisState()
         self._co2_minimum_airing = Co2MinimumAiringState()
         self._humidity_session = HumiditySessionState()
+        self._temperature_session = EffectivenessSessionState()
+        self._particulate_session = EffectivenessSessionState()
         self._indoor_air_session = IndoorAirSessionState()
         self._co2_hysteresis_unsub: Callable[[], None] | None = None
         self._humidity_session_unsub: Callable[[], None] | None = None
+        self._effectiveness_session_unsub: Callable[[], None] | None = None
         self._indoor_air_session_unsub: Callable[[], None] | None = None
         self._night_memory: NightAdvice | None = None
         self._night_memory_start: datetime | None = None
@@ -320,6 +357,14 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if isinstance(humidity_memory, dict):
             self._humidity_session.restore(humidity_memory, parse_dt=_parse_dt)
 
+        temperature_memory = stored.get("temperature_session")
+        if isinstance(temperature_memory, dict):
+            self._temperature_session.restore(temperature_memory, parse_dt=_parse_dt)
+
+        particulate_memory = stored.get("particulate_session")
+        if isinstance(particulate_memory, dict):
+            self._particulate_session.restore(particulate_memory, parse_dt=_parse_dt)
+
         indoor_air_memory = stored.get("indoor_air_session")
         if isinstance(indoor_air_memory, dict):
             self._indoor_air_session.restore(indoor_air_memory, parse_dt=_parse_dt)
@@ -372,6 +417,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             "co2_hysteresis": self._co2_hysteresis.as_dict(),
             "co2_minimum_airing": self._co2_minimum_airing.as_dict(),
             "humidity_session": self._humidity_session.as_dict(),
+            "temperature_session": self._temperature_session.as_dict(),
+            "particulate_session": self._particulate_session.as_dict(),
             "indoor_air_session": self._indoor_air_session.as_dict(),
             "night": self._night_memory_payload(),
         }
@@ -620,6 +667,22 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self.hass, seconds + 0.05, _refresh
         )
 
+    def _schedule_effectiveness_session_check(self, seconds: float | None) -> None:
+        if self._effectiveness_session_unsub is not None:
+            self._effectiveness_session_unsub()
+            self._effectiveness_session_unsub = None
+        if seconds is None or seconds <= 0:
+            return
+
+        @callback
+        def _refresh(_now) -> None:
+            self._effectiveness_session_unsub = None
+            self._handle_tracker_change()
+
+        self._effectiveness_session_unsub = async_call_later(
+            self.hass, seconds + 0.05, _refresh
+        )
+
     def _schedule_indoor_air_session_check(self, seconds: float | None) -> None:
         if self._indoor_air_session_unsub is not None:
             self._indoor_air_session_unsub()
@@ -692,6 +755,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 humidity_disarmed=self._humidity_session.disarmed,
                 humidity_optional_opportunity=humidity_optional_opportunity,
                 humidity_peak_recovery=self._humidity_session.peak_recovery,
+                temperature_session_exhausted=self._temperature_session.exhausted,
+                particulate_session_exhausted=self._particulate_session.exhausted,
                 indoor_air_disarmed=self._indoor_air_session.disarmed,
                 co2_high_load=self._co2_hysteresis.high_load_active(now_utc),
                 co2_trend_ppm_per_min=self._co2_hysteresis.trend_ppm_per_min,
@@ -833,6 +898,73 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
 
         humidity_changed = self._humidity_session.as_dict() != humidity_before
 
+        # Temperature and particulate matter get the same practical
+        # "still worth airing?" treatment as humidity, but with reason-specific
+        # metrics. A stalled reason is retired for this attempt; unrelated
+        # reasons remain untouched.
+        temperature_before = self._temperature_session.as_dict()
+        particulate_before = self._particulate_session.as_dict()
+        effectiveness_checks: list[float] = []
+        if snapshot.result is not None:
+            active_reasons = set(snapshot.result.active_reasons)
+            ti = snapshot.values.get("temperature_inside")
+            target = snapshot.values.get("target_temperature")
+            temp_metric = (
+                abs(float(ti) - float(target))
+                if ti is not None and target is not None
+                else None
+            )
+            temp_decision = self._temperature_session.evaluate(
+                now=now_utc,
+                window_open=bool(snapshot.values.get("window_open")),
+                active="temperature" in active_reasons,
+                metric=temp_metric,
+                min_improvement=0.3,
+                rearm_worsening=0.8,
+                urgent=False,
+                safety_lock=bool(snapshot.result.safety_lock),
+            )
+            if temp_decision.next_check_seconds:
+                effectiveness_checks.append(temp_decision.next_check_seconds)
+
+            (
+                particle_active,
+                particle_metric,
+                min_particle_drop,
+                particle_urgent,
+            ) = _particulate_effectiveness_context(snapshot.values, active_reasons)
+            particle_decision = self._particulate_session.evaluate(
+                now=now_utc,
+                window_open=bool(snapshot.values.get("window_open")),
+                active=particle_active,
+                metric=particle_metric,
+                min_improvement=min_particle_drop,
+                rearm_worsening=max(3.0, min_particle_drop * 2.0),
+                urgent=particle_urgent,
+                safety_lock=bool(snapshot.result.safety_lock),
+            )
+            if particle_decision.next_check_seconds:
+                effectiveness_checks.append(particle_decision.next_check_seconds)
+
+            if (
+                self._temperature_session.as_dict() != temperature_before
+                or self._particulate_session.as_dict() != particulate_before
+            ):
+                snapshot = _snapshot_for_co2_state(
+                    minimum_active=minimum.active,
+                    minimum_cautious=minimum.cautious,
+                    humidity_optional_opportunity=(
+                        humidity_decision.optional_opportunity
+                        if humidity_decision is not None
+                        else False
+                    ),
+                )
+        self._schedule_effectiveness_session_check(
+            min(effectiveness_checks) if effectiveness_checks else None
+        )
+        temperature_changed = self._temperature_session.as_dict() != temperature_before
+        particulate_changed = self._particulate_session.as_dict() != particulate_before
+
         # Measured indoor pollutants own a short aftercare state. It only keeps
         # a lingering moderate value from reopening the same task immediately;
         # poor/very-poor or a renewed rising/unusual trend always re-arms.
@@ -863,7 +995,14 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self._schedule_indoor_air_session_check(None)
 
         indoor_air_changed = self._indoor_air_session.as_dict() != indoor_air_before
-        if hysteresis_changed or minimum_changed or humidity_changed or indoor_air_changed:
+        if (
+            hysteresis_changed
+            or minimum_changed
+            or humidity_changed
+            or temperature_changed
+            or particulate_changed
+            or indoor_air_changed
+        ):
             self._queue_memory_save()
 
         return self._apply_night_memory(snapshot)
@@ -1072,6 +1211,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if self._humidity_session_unsub is not None:
             self._humidity_session_unsub()
             self._humidity_session_unsub = None
+        if self._effectiveness_session_unsub is not None:
+            self._effectiveness_session_unsub()
+            self._effectiveness_session_unsub = None
         if self._indoor_air_session_unsub is not None:
             self._indoor_air_session_unsub()
             self._indoor_air_session_unsub = None

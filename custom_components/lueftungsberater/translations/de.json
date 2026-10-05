@@ -15,7 +15,7 @@
       },
       "local": {
         "title": "Lokalen Lüftungsassistenten einrichten",
-        "description": "Standardmäßig bestimmt der Lüftungsassistent Wetter und amtliche Warnungen automatisch aus dem Home-Standort bzw. dem optionalen mobilen GPS-Tracker. Eigene Home-Assistant-Wetter- und Warninstanzen können stattdessen oder ergänzend gewählt werden. Räume werden anschließend separat hinzugefügt.",
+        "description": "Standardmäßig bestimmt der Lüftungsassistent Wetter und amtliche Warnungen automatisch aus dem Home-Standort bzw. einer optional gewählten Zone oder einem mobilen GPS-Tracker. Eigene Home-Assistant-Wetter- und Warninstanzen können stattdessen oder ergänzend gewählt werden. Räume werden anschließend separat hinzugefügt.",
         "data": {
           "instance_name": "Name dieser Installation",
           "weather_entity": "Eigene Wetter-Entity (bei manueller Wetterquelle)",
@@ -35,14 +35,14 @@
           "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
           "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
           "outdoor_o3": "Ozon außen (optional)",
-          "location_tracker": "Mobiler Standort-Tracker (optional)",
+          "location_tracker": "Standortquelle (optional)",
           "weather_source_mode": "Wetterquelle",
           "warning_source_mode": "Warnquelle"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
           "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort.",
-          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
+          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Alternativ kann eine Home-Assistant-Zone (z. B. zone.home) oder für Wohnmobil/Boot ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
           "weather_source_mode": "Automatisch nach Standort. Eigene Home-Assistant-Wetterinstanz.",
           "warning_source_mode": "Automatisch nach Standort. Nur eigene Home-Assistant-Warninstanz. Automatisch + eigene Warninstanz."
         },
@@ -54,13 +54,13 @@
               "weather_entity": "Eigene Wetter-Entity (bei manueller Wetterquelle)",
               "warning_source": "Eigene Warn-App / Warndienst (optional)",
               "display_mode": "Ampeldarstellung",
-              "location_tracker": "Mobiler Standort-Tracker (optional)",
+              "location_tracker": "Standortquelle (optional)",
               "weather_source_mode": "Wetterquelle",
               "warning_source_mode": "Warnquelle"
             },
             "data_description": {
               "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
-              "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
+              "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Alternativ kann eine Home-Assistant-Zone (z. B. zone.home) oder für Wohnmobil/Boot ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
               "weather_source_mode": "Automatisch nach Standort. Eigene Home-Assistant-Wetterinstanz.",
               "warning_source_mode": "Automatisch nach Standort. Nur eigene Home-Assistant-Warninstanz. Automatisch + eigene Warninstanz."
             }
@@ -131,12 +131,12 @@
           "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
           "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
           "outdoor_o3": "Ozon außen (optional)",
-          "location_tracker": "Mobiler Standort-Tracker (optional)"
+          "location_tracker": "Standortquelle (optional)"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
           "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort.",
-          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann hier ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position."
+          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Alternativ kann hier eine Home-Assistant-Zone (z. B. zone.home) oder für Wohnmobil/Boot ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position."
         },
         "sections": {
           "general": {
@@ -146,11 +146,11 @@
               "weather_entity": "Wetterdienst",
               "warning_source": "Warn-App / Warndienst (optional)",
               "display_mode": "Ampeldarstellung",
-              "location_tracker": "Mobiler Standort-Tracker (optional)"
+              "location_tracker": "Standortquelle (optional)"
             },
             "data_description": {
               "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
-              "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Für Wohnmobil/Boot kann hier ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position."
+              "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Alternativ kann hier eine Home-Assistant-Zone (z. B. zone.home) oder für Wohnmobil/Boot ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position."
             }
           },
           "outdoor": {

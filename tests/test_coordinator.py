@@ -11,6 +11,7 @@ from custom_components.lueftungsberater.co2_hysteresis import (
 )
 from custom_components.lueftungsberater.coordinator import (
     LueftungsberaterRoomCoordinator,
+    _particulate_effectiveness_context,
 )
 
 UTC = timezone.utc
@@ -98,3 +99,33 @@ def test_coordinator_does_not_invent_session_when_engine_target_is_none(monkeypa
     assert coordinator._co2_hysteresis.session_active is False
     assert coordinator._co2_hysteresis.session_target_ppm is None
     assert coordinator._co2_minimum_airing.started_at is None
+
+
+def test_particulate_effectiveness_uses_runtime_canonical_pm2_5_key():
+    active, metric, min_drop, urgent = _particulate_effectiveness_context(
+        {
+            "indoor_air_quality_pollutant": "pm2_5",
+            "indoor_air_quality_value": 40.0,
+            "indoor_air_quality": "poor",
+        },
+        {"indoor_air"},
+    )
+    assert active is True
+    assert metric == 40.0
+    assert min_drop == 2.0
+    assert urgent is False
+
+
+def test_particulate_effectiveness_keeps_pm_metric_while_reason_is_suppressed():
+    active, metric, min_drop, urgent = _particulate_effectiveness_context(
+        {
+            "indoor_air_quality_pollutant": "pm2_5",
+            "indoor_air_quality_value": 44.0,
+            "indoor_air_quality": "poor",
+        },
+        set(),
+    )
+    assert active is False
+    assert metric == 44.0
+    assert min_drop == 2.0
+    assert urgent is False

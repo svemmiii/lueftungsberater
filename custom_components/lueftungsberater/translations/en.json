@@ -35,14 +35,14 @@
           "outdoor_voc": "Outdoor VOC (index or raw value, optional)",
           "outdoor_no2": "Outdoor NO₂ / NOx (index or raw value, optional)",
           "outdoor_o3": "Outdoor ozone (optional)",
-          "location_tracker": "Mobile location tracker (optional)",
+          "location_tracker": "Location source (optional)",
           "weather_source_mode": "Weather source",
           "warning_source_mode": "Warning source"
         },
         "data_description": {
           "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location.",
-          "location_tracker": "Leave empty to use the Home Assistant Home location. For a camper/boat, select a device_tracker with GPS coordinates. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position.",
+          "location_tracker": "Leave empty to use the Home Assistant Home location. Alternatively select a Home Assistant zone (for example zone.home), or a GPS device_tracker for a camper/boat. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position.",
           "weather_source_mode": "Automatic by location. Own Home Assistant weather instance.",
           "warning_source_mode": "Automatic by location. Own Home Assistant warning instance only. Automatic + own warning instance."
         },
@@ -54,13 +54,13 @@
               "weather_entity": "Own weather entity (for manual weather source)",
               "warning_source": "Own warning app / service (optional)",
               "display_mode": "Traffic-light view",
-              "location_tracker": "Mobile location tracker (optional)",
+              "location_tracker": "Location source (optional)",
               "weather_source_mode": "Weather source",
               "warning_source_mode": "Warning source"
             },
             "data_description": {
               "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
-              "location_tracker": "Leave empty to use the Home Assistant Home location. For a camper/boat, select a device_tracker with GPS coordinates. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position.",
+              "location_tracker": "Leave empty to use the Home Assistant Home location. Alternatively select a Home Assistant zone (for example zone.home), or a GPS device_tracker for a camper/boat. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position.",
               "weather_source_mode": "Automatic by location. Own Home Assistant weather instance.",
               "warning_source_mode": "Automatic by location. Own Home Assistant warning instance only. Automatic + own warning instance."
             }
@@ -131,12 +131,12 @@
           "outdoor_voc": "Outdoor VOC (index or raw value, optional)",
           "outdoor_no2": "Outdoor NO₂ / NOx (index or raw value, optional)",
           "outdoor_o3": "Outdoor ozone (optional)",
-          "location_tracker": "Mobile location tracker (optional)"
+          "location_tracker": "Location source (optional)"
         },
         "data_description": {
           "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
           "outdoor_co2": "Optional personal outdoor CO₂ sensor. When its reading is plausible, it represents the air directly at your location.",
-          "location_tracker": "Leave empty to use the live Home Assistant Home location. For a camper/boat, select a GPS device_tracker here. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position."
+          "location_tracker": "Leave empty to use the live Home Assistant Home location. Alternatively select a Home Assistant zone (for example zone.home), or a GPS device_tracker for a camper/boat. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position."
         },
         "sections": {
           "general": {
@@ -146,11 +146,11 @@
               "weather_entity": "Weather provider",
               "warning_source": "Warning service (optional)",
               "display_mode": "Traffic-light view",
-              "location_tracker": "Mobile location tracker (optional)"
+              "location_tracker": "Location source (optional)"
             },
             "data_description": {
               "display_mode": "Both views use the same overall assessment. Ventilation need: 🟢 nothing to do · 🟡 keep watching · 🟠 ventilation is worthwhile · 🔴 ventilate now. Ventilation light: 🟢 good opportunity · 🟡 only partly suitable · 🟠/🔴 better keep closed. Hard protection instructions are always shown as 🔒.",
-              "location_tracker": "Leave empty to use the live Home Assistant Home location. For a camper/boat, select a GPS device_tracker here. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position."
+              "location_tracker": "Leave empty to use the live Home Assistant Home location. Alternatively select a Home Assistant zone (for example zone.home), or a GPS device_tracker for a camper/boat. Automatic weather and warning providers follow the effective location; short GPS outages temporarily keep the last valid mobile position."
             }
           },
           "outdoor": {

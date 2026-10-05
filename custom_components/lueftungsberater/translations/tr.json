@@ -35,14 +35,14 @@
           "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
           "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
           "outdoor_o3": "Dış ozon (isteğe bağlı)",
-          "location_tracker": "Mobil konum takipçisi (isteğe bağlı)",
+          "location_tracker": "Konum kaynağı (isteğe bağlı)",
           "weather_source_mode": "Hava durumu kaynağı",
           "warning_source_mode": "Uyarı kaynağı"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder.",
-          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
+          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Alternatif olarak bir Home Assistant bölgesi (ör. zone.home) veya karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
           "weather_source_mode": "Konuma göre otomatik. Kendi Home Assistant hava durumu örneği.",
           "warning_source_mode": "Konuma göre otomatik. Yalnızca kendi Home Assistant uyarı örneği. Otomatik + kendi uyarı örneği."
         },
@@ -54,13 +54,13 @@
               "weather_entity": "Kendi hava durumu varlığı (manuel kaynak için)",
               "warning_source": "Kendi uyarı uygulaması / hizmeti (isteğe bağlı)",
               "display_mode": "Gösterge biçimi",
-              "location_tracker": "Mobil konum takipçisi (isteğe bağlı)",
+              "location_tracker": "Konum kaynağı (isteğe bağlı)",
               "weather_source_mode": "Hava durumu kaynağı",
               "warning_source_mode": "Uyarı kaynağı"
             },
             "data_description": {
               "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
-              "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
+              "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Alternatif olarak bir Home Assistant bölgesi (ör. zone.home) veya karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
               "weather_source_mode": "Konuma göre otomatik. Kendi Home Assistant hava durumu örneği.",
               "warning_source_mode": "Konuma göre otomatik. Yalnızca kendi Home Assistant uyarı örneği. Otomatik + kendi uyarı örneği."
             }
@@ -131,12 +131,12 @@
           "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
           "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
           "outdoor_o3": "Dış ozon (isteğe bağlı)",
-          "location_tracker": "Mobil konum takipçisi (isteğe bağlı)"
+          "location_tracker": "Konum kaynağı (isteğe bağlı)"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder.",
-          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur."
+          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Alternatif olarak bir Home Assistant bölgesi (ör. zone.home) veya karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur."
         },
         "sections": {
           "general": {
@@ -146,11 +146,11 @@
               "weather_entity": "Hava durumu hizmeti",
               "warning_source": "Uyarı hizmeti (isteğe bağlı)",
               "display_mode": "Gösterge biçimi",
-              "location_tracker": "Mobil konum takipçisi (isteğe bağlı)"
+              "location_tracker": "Konum kaynağı (isteğe bağlı)"
             },
             "data_description": {
               "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
-              "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur."
+              "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Alternatif olarak bir Home Assistant bölgesi (ör. zone.home) veya karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur."
             }
           },
           "outdoor": {

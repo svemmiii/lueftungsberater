@@ -4,6 +4,8 @@ from custom_components.lueftungsberater.reason_sessions import (
     HUMIDITY_MIN_REST,
     HUMIDITY_PROGRESS_WINDOW,
     HUMIDITY_REARM_STABLE,
+    EFFECTIVENESS_PROGRESS_WINDOW,
+    EffectivenessSessionState,
     HumiditySessionState,
 )
 
@@ -396,3 +398,96 @@ def test_better_outdoor_timer_keeps_remaining_minimum_rest_after_stability_is_me
 
     assert stable_before_rest.optional_opportunity is False
     assert stable_before_rest.next_check_seconds == 35 * 60
+
+
+def test_temperature_effectiveness_session_exhausts_without_measurable_progress():
+    state = EffectivenessSessionState()
+    start = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    first = state.evaluate(
+        now=start, window_open=True, active=True, metric=3.0,
+        min_improvement=0.3, rearm_worsening=0.8,
+    )
+    assert first.session_active and not first.exhausted
+    decision = state.evaluate(
+        now=start + EFFECTIVENESS_PROGRESS_WINDOW + timedelta(seconds=1),
+        window_open=True, active=True, metric=2.9,
+        min_improvement=0.3, rearm_worsening=0.8,
+    )
+    assert decision.exhausted and decision.disarmed
+    assert not decision.session_active
+
+
+def test_effectiveness_session_rearms_early_after_real_worsening():
+    state = EffectivenessSessionState()
+    start = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    state.evaluate(now=start, window_open=True, active=True, metric=30.0, min_improvement=2.0, rearm_worsening=4.0)
+    state.evaluate(now=start + EFFECTIVENESS_PROGRESS_WINDOW + timedelta(seconds=1), window_open=True, active=True, metric=29.5, min_improvement=2.0, rearm_worsening=4.0)
+    decision = state.evaluate(now=start + timedelta(minutes=16), window_open=True, active=True, metric=34.0, min_improvement=2.0, rearm_worsening=4.0)
+    assert decision.session_active
+    assert not decision.exhausted
+
+
+def test_effectiveness_quiet_phase_expires_even_without_metric():
+    state = EffectivenessSessionState()
+    start = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    state.evaluate(
+        now=start,
+        window_open=True,
+        active=True,
+        metric=40.0,
+        min_improvement=2.0,
+        rearm_worsening=4.0,
+    )
+    exhausted = state.evaluate(
+        now=start + EFFECTIVENESS_PROGRESS_WINDOW + timedelta(seconds=1),
+        window_open=True,
+        active=True,
+        metric=39.5,
+        min_improvement=2.0,
+        rearm_worsening=4.0,
+    )
+    assert exhausted.exhausted is True
+    assert exhausted.disarmed is True
+
+    after_quiet = state.evaluate(
+        now=start + EFFECTIVENESS_PROGRESS_WINDOW + timedelta(minutes=31),
+        window_open=True,
+        active=False,
+        metric=None,
+        min_improvement=2.0,
+        rearm_worsening=4.0,
+    )
+    assert after_quiet.exhausted is False
+    assert after_quiet.disarmed is False
+
+
+def test_particulate_quiet_phase_rearms_early_on_real_worsening_while_inactive():
+    state = EffectivenessSessionState()
+    start = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    state.evaluate(
+        now=start,
+        window_open=True,
+        active=True,
+        metric=40.0,
+        min_improvement=2.0,
+        rearm_worsening=4.0,
+    )
+    state.evaluate(
+        now=start + EFFECTIVENESS_PROGRESS_WINDOW + timedelta(seconds=1),
+        window_open=True,
+        active=True,
+        metric=39.5,
+        min_improvement=2.0,
+        rearm_worsening=4.0,
+    )
+
+    worsened = state.evaluate(
+        now=start + timedelta(minutes=20),
+        window_open=True,
+        active=False,
+        metric=44.0,
+        min_improvement=2.0,
+        rearm_worsening=4.0,
+    )
+    assert worsened.exhausted is False
+    assert worsened.disarmed is False

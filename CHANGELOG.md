@@ -1,3 +1,29 @@
+## v0.11.1 TEST
+
+### TEST COMPLETE(3): PM-Ruhephase bleibt auf PM begrenzt
+
+- Die Partikel-Wirksamkeitsruhe wirkt in der Engine nur noch dann, wenn der aktuell maßgebliche Innenluft-Schadstoff tatsächlich `pm2_5` oder `pm10` ist.
+- Wechselt während einer laufenden PM-Ruhephase der schlechteste Innenluftwert zu VOC, NO₂/NO₂-parts oder Formaldehyd, bleibt dieser eigenständige Innenluftgrund sofort aktiv; die alte PM-Session kann ihn nicht mehr unterdrücken.
+- Regressionstests decken PM2.5 und PM10 sowie `moderate`/`poor` für VOC, NO₂, NO₂-parts und Formaldehyd ab. `very_poor` bleibt wie zuvor unabhängig von der PM-Ruhephase dringend.
+- Wetter-/Providerlogik, Zonen-Unterstützung, Temperatur-Wirksamkeit und der in COMPLETE(2) reparierte PM-Timer bleiben unverändert. Integrationsversion bleibt 0.11.1.
+
+### TEST COMPLETE(2): PM-Wirksamkeit und Versionskonsistenz
+
+- PM2.5-Wirksamkeitskontrolle an den kanonischen Runtime-Schlüssel `pm2_5` angepasst; `pm25`/`pm2.5` bleiben nur als tolerierte Aliasformen akzeptiert.
+- Partikel-Ruhephase korrigiert: Ein erschöpfter PM-Grund wird nach 30 Minuten zuverlässig wieder freigegeben, auch wenn er während der Ruhephase nicht in `active_reasons` steht.
+- PM-Werte werden während der Ruhephase weiter beobachtet, sodass eine deutliche Verschlechterung den Grund vor Ablauf der 30 Minuten wieder aktivieren kann.
+- Regressionstests ergänzen den Ablauf Start → 15 Minuten ohne ausreichenden Effekt → Ruhephase → automatische Reaktivierung sowie frühe Reaktivierung bei Verschlechterung.
+- Python-Integrationsversion, Geräte-Softwareversion, Lovelace-Cache-Buster und NWS-User-Agent sind einheitlich auf 0.11.1. README und Provider-Dokumentation beschreiben den neuen DWD-POI/ICON-Aufbau konsistent.
+
+### TEST COMPLETE(1): Wetter, Zonen und grundspezifische Wirksamkeit
+
+- Automatische DWD-Wetterauswahl korrigiert: Messstationen werden nicht mehr mit MOSMIX-L-Einzelstationsprognosen geschnitten. Die nächste verfügbare DWD-POI-Messstation liefert die Ist-Werte; der Forecast wird getrennt standortbezogen über DWD ICON bezogen. Dadurch kann eine nähere reale Messstation nicht mehr allein wegen fehlender MOSMIX-Datei aussortiert werden.
+- Standortquelle erweitert: Neben `device_tracker.*` können jetzt auch `zone.*`-Entities wie `zone.home` direkt ausgewählt werden. Zonen werden als statische gültige Koordinaten behandelt; GPS-Alter/Genauigkeitsregeln gelten weiterhin nur für Tracker.
+- Neue grundspezifische Wirksamkeitskontrolle für Temperatur: Während eines temperaturgetriebenen Lüftungsvorgangs wird über 15 Minuten die Annäherung an die Zieltemperatur beobachtet. Weniger als 0,3 K Verbesserung beendet den Temperaturgrund für den aktuellen Versuch; andere Lüftungsgründe bleiben unberührt.
+- Neue Wirksamkeitskontrolle für Partikel (PM2.5/PM10): Bei geöffnetem Fenster muss die Partikelkonzentration innerhalb von 15 Minuten messbar sinken (PM2.5 mindestens 2 µg/m³, PM10 mindestens 3 µg/m³). Bleibt der Effekt aus, werden moderate/poor-Partikelgründe vorübergehend zurückgenommen; `very_poor` bleibt aus Sicherheitsgründen weiterhin voll wirksam.
+- Temperatur- und Partikel-Wirksamkeitszustände werden persistent gespeichert und besitzen eine 30-minütige Ruhephase; eine deutliche Verschlechterung reaktiviert den jeweiligen Grund früher.
+- Integrationsversion auf 0.11.1 angehoben.
+
 # Changelog
 
 ## v0.11.0 TEST

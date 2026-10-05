@@ -89,6 +89,10 @@ class RoomInput:
     humidity_disarmed: bool = False
     humidity_optional_opportunity: bool = False
     humidity_peak_recovery: bool = False
+    # Effectiveness sessions can retire temperature/particle reasons for the
+    # current attempt when an open window no longer produces measurable change.
+    temperature_session_exhausted: bool = False
+    particulate_session_exhausted: bool = False
     # Measured indoor pollutants own a short independent aftercare state. It
     # only suppresses a lingering moderate value after a successful airing;
     # poor/very-poor or a renewed rising trend remains immediately actionable.

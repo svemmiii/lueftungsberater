@@ -321,7 +321,7 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                                 translation_key="warning_source",
                             )
                         ),
-                        vol.Optional(CONF_LOCATION_TRACKER): _entity("device_tracker"),
+                        vol.Optional(CONF_LOCATION_TRACKER): _entity(["device_tracker", "zone"]),
                         vol.Optional(
                             CONF_DISPLAY_MODE, default=DEFAULT_DISPLAY_MODE
                         ): SelectSelector(

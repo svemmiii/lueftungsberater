@@ -75,26 +75,28 @@ def test_new_source_modes_allow_auto_and_auto_plus_manual():
 
 
 
-def test_dwd_station_index_uses_only_measurement_plus_forecast_stations():
-    catalog = """
-10505 ---- Aachen-Orsbach 50.48 6.02 231
-10655 ---- Wuerzburg 49.46 9.58 268
-99999 ---- Forecast-Only 50.42 7.06 100
+def test_dwd_station_index_uses_all_current_measurement_stations_even_without_forecast():
+    catalog = """clu;CofX;id;ICAO;name;latitude;longitude;elevation;Hmod_H;type
+1;8;10505;----;Aachen-Orsbach;50.48;6.02;231;;LAND
+2;8;10655;----;Wuerzburg;49.46;9.58;268;;LAND
+3;8;99999;----;Forecast-Only;50.42;7.06;100;;LAND
 """
     measurement = '<a href="10505-BEOB.csv">A</a><a href="10655_-BEOB.csv">B</a>'
-    forecast = '<a href="10505/">A</a><a href="10655/">B</a><a href="99999/">C</a>'
+    forecast = '<a href="99999/">C</a>'
 
     stations = _parse_dwd_station_index(catalog, measurement, forecast)
 
     assert [item.station_id for item in stations] == ["10505", "10655"]
     assert stations[0].name == "Aachen-Orsbach"
+    assert stations[0].longitude == pytest.approx(6 + 2 / 60)
 
 
 @pytest.mark.asyncio
 async def test_dwd_station_resolution_selects_nearest_usable_station():
     catalog = (
-        b"10505 ---- Aachen-Orsbach 50.48 6.02 231\n"
-        b"10655 ---- Wuerzburg 49.46 9.58 268\n"
+        b"clu;CofX;id;ICAO;name;latitude;longitude;elevation;Hmod_H;type\n"
+        b"1;8;10505;----;Aachen-Orsbach;50.48;6.02;231;;LAND\n"
+        b"2;8;10655;----;Wuerzburg;49.46;9.58;268;;LAND\n"
     )
     state = AutoProviderState()
     with (
@@ -104,10 +106,7 @@ async def test_dwd_station_resolution_selects_nearest_usable_station():
         ),
         patch(
             "custom_components.lueftungsberater.auto_providers._get_text",
-            AsyncMock(side_effect=[
-                '<a href="10505-BEOB.csv"></a><a href="10655-BEOB.csv"></a>',
-                '<a href="10505/"></a><a href="10655/"></a>',
-            ]),
+            AsyncMock(return_value='<a href="10505-BEOB.csv"></a><a href="10655-BEOB.csv"></a>'),
         ),
     ):
         station, distance = await _resolve_dwd_station(
