@@ -12,7 +12,15 @@ from custom_components.lueftungsberater.auto_providers import (
     _fetch_auto_warning,
     _fetch_auto_weather,
     _parse_dwd_station_index,
+    _parse_dwd_measurement,
+    _dwd_observation_is_fresh,
+    _parse_uba_stations,
+    _parse_uba_components,
+    _parse_uba_airquality,
+    _parse_nina_district_geometries,
+    _geojson_contains_point,
     _resolve_dwd_station,
+    _resolve_nina_region_arses,
     _fetch_nina_warnings,
     _parse_cap_document,
     warning_mode,
@@ -89,6 +97,85 @@ def test_dwd_station_index_uses_all_current_measurement_stations_even_without_fo
     assert [item.station_id for item in stations] == ["10505", "10655"]
     assert stations[0].name == "Aachen-Orsbach"
     assert stations[0].longitude == pytest.approx(6 + 2 / 60)
+
+
+def test_dwd_live_station_catalog_headers_are_supported():
+    catalog = """Kennung;Stationsname;Geog_Breite;Geog_Laenge;Stationshoehe
+10505;Aachen-Orsbach;50.7983;6.0244;231
+10655;Wuerzburg;49.7700;9.9570;268
+"""
+    measurement = '<a href="10505-BEOB.csv"></a><a href="10655-BEOB.csv"></a>'
+    stations = _parse_dwd_station_index(catalog, measurement)
+    assert [item.station_id for item in stations] == ["10505", "10655"]
+    assert stations[0].latitude == pytest.approx(50.7983)
+    assert stations[0].longitude == pytest.approx(6.0244)
+
+
+def test_dwd_measurement_uses_one_coherent_observation_row():
+    data = (
+        "meta;meta;dry_bulb_temperature_at_2_meter_above_ground;relative_humidity\n"
+        "unit;unit;C;%\n"
+        "desc;desc;temp;humidity\n"
+        "202610061400;X;18,0;---\n"
+        "202610061300;X;17,0;61\n"
+    ).encode("iso-8859-1")
+    parsed = _parse_dwd_measurement(data)
+    assert parsed["dry_bulb_temperature_at_2_meter_above_ground"] == "18,0"
+    assert "relative_humidity" not in parsed
+
+
+def test_uba_v4_metadata_and_airquality_arrays_are_supported():
+    stations = _parse_uba_stations({
+        "data": {
+            "123": [123, "DENW123", "Teststation", "City", None, None, None, 7.10, 50.70]
+        }
+    })
+    assert len(stations) == 1
+    assert stations[0].code == "DENW123"
+    assert stations[0].latitude == pytest.approx(50.70)
+    assert stations[0].longitude == pytest.approx(7.10)
+
+    components = _parse_uba_components({
+        "data": {
+            "1": [1, "PM10", "Feinstaub PM10"],
+            "5": [5, "NO2", "Stickstoffdioxid"],
+            "9": [9, "PM2.5", "Feinstaub PM2.5"],
+        }
+    })
+    assert components[1] == "pm10"
+    assert components[5] == "no2"
+    assert components[9] == "pm2_5"
+
+    values = _parse_uba_airquality({
+        "data": {
+            "123": {
+                "2026-10-06 14:00:00": [
+                    "2026-10-06 15:00:00", 1, 0,
+                    [1, 18.0, 1, "1.0"],
+                    [5, 22.0, 1, "1.0"],
+                    [9, 7.0, 1, "1.0"],
+                ]
+            }
+        }
+    }, components)
+    assert values == {"pm10": 18.0, "no2": 22.0, "pm2_5": 7.0}
+
+
+def test_nina_district_geometry_resolves_ars_and_polygon_border_is_inside():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"RS": "05314"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[7.0, 50.6], [7.2, 50.6], [7.2, 50.8], [7.0, 50.8], [7.0, 50.6]]],
+            },
+        }],
+    }
+    districts = _parse_nina_district_geometries(payload)
+    assert districts[0][0] == "053140000000"
+    assert _geojson_contains_point(districts[0][1], 50.7, 7.0) is True
 
 
 @pytest.mark.asyncio
@@ -460,3 +547,68 @@ async def test_v014_migration_defaults_empty_legacy_sources_to_auto(
     assert await async_migrate_entry(hass, entry) is True
     assert entry.data[CONF_WEATHER_SOURCE_MODE] == WEATHER_SOURCE_AUTO
     assert entry.data[CONF_WARNING_SOURCE_MODE] == WARNING_SOURCE_AUTO
+
+
+def test_dwd_measurement_chooses_newest_timestamp_and_exposes_it():
+    data = (
+        "date;time;dry_bulb_temperature_at_2_meter_above_ground;relative_humidity\n"
+        "unit;unit;C;%\n"
+        "desc;desc;temp;humidity\n"
+        "20261006;1300;17,0;61\n"
+        "20261006;1400;18,0;60\n"
+    ).encode("iso-8859-1")
+    parsed = _parse_dwd_measurement(data)
+    assert parsed["dry_bulb_temperature_at_2_meter_above_ground"] == "18,0"
+    assert parsed["relative_humidity"] == "60"
+    assert parsed["__observation_at"].startswith("2026-10-06T14:00:00")
+
+
+def test_dwd_observation_freshness_requires_recent_verified_timestamp():
+    now = datetime(2026, 10, 6, 16, 0, tzinfo=timezone.utc)
+    assert _dwd_observation_is_fresh({"__observation_at": "2026-10-06T14:00:00+00:00"}, now=now)
+    assert not _dwd_observation_is_fresh({"__observation_at": "2026-10-06T12:59:59+00:00"}, now=now)
+    assert not _dwd_observation_is_fresh({"__observation_at": "2026-10-06T16:31:00+00:00"}, now=now)
+    assert not _dwd_observation_is_fresh({}, now=now)
+
+
+@pytest.mark.asyncio
+async def test_nina_region_prefers_current_bkg_vg250_geometry():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"ars": "05314"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[7.0, 50.6], [7.2, 50.6], [7.2, 50.8], [7.0, 50.8], [7.0, 50.6]]],
+            },
+        }],
+    }
+    state = AutoProviderState()
+    with patch(
+        "custom_components.lueftungsberater.auto_providers._get_json",
+        AsyncMock(return_value=payload),
+    ) as get_json:
+        result = await _resolve_nina_region_arses(object(), _location(lat=50.7, lon=7.1), state)
+    assert result == ["053140000000"]
+    assert state.nina_region_source == "bkg_vg250"
+    assert "wfs_vg250" in get_json.await_args.args[1]
+    assert get_json.await_args.kwargs["params"]["typenames"] == "vg250_krs"
+
+
+@pytest.mark.asyncio
+async def test_nina_region_keeps_both_exact_boundary_districts():
+    left = {"type": "Polygon", "coordinates": [[[7.0, 50.6], [7.1, 50.6], [7.1, 50.8], [7.0, 50.8], [7.0, 50.6]]]}
+    right = {"type": "Polygon", "coordinates": [[[7.1, 50.6], [7.2, 50.6], [7.2, 50.8], [7.1, 50.8], [7.1, 50.6]]]}
+    payload = {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"ars": "05314"}, "geometry": left},
+        {"type": "Feature", "properties": {"ars": "05382"}, "geometry": right},
+    ]}
+    with patch(
+        "custom_components.lueftungsberater.auto_providers._get_json",
+        AsyncMock(return_value=payload),
+    ):
+        result = await _resolve_nina_region_arses(
+            object(), _location(lat=50.7, lon=7.1), AutoProviderState()
+        )
+    assert result == ["053140000000", "053820000000"]

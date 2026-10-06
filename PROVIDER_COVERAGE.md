@@ -1,6 +1,6 @@
-# Automatische Wetter- und Warnquellen – v0.11.1 TEST COMPLETE(2)
+# Automatische Wetter-, Luftqualitäts- und Warnquellen – v0.11.2 TEST
 
-Stand der Implementierung und Prüfung: 05.10.2026. Integrationsversion 0.11.1.
+Stand der Implementierung und Prüfung: 06.10.2026. Integrationsversion 0.11.2.
 
 | Land / Gebiet | Wetter | Amtliche Warnquellen | Bevölkerungsschutz |
 | --- | --- | --- | --- |
@@ -74,3 +74,18 @@ Grundlagen der neuen Textregeln:
 - FR-Alert-Beispiel: https://fr-alert.gouv.fr/les-alertes/FR-ALERT.1733392235.90000.0
 - Italienischer Zivilschutz: https://rischi.protezionecivile.gov.it/it/industriale/sei-preparato/
 - HA-Tracker-Genauigkeit: https://www.home-assistant.io/integrations/device_tracker/
+
+
+## v0.11.2 – automatische Zuordnung
+
+### Deutschland – Wetter
+
+Aktuelle Nahmesswerte werden feldweise aus den geografisch nächsten verfügbaren DWD-POI-Stationen zusammengesetzt. Der Live-Katalog mit `Kennung`, `Geog_Breite`, `Geog_Laenge` und `Stationsname` wird direkt unterstützt. Eine Station ohne einen benötigten Wert blockiert dadurch keine näheren Messwerte anderer Stationen. Ein POI-Messwert wird nur verwendet, wenn sein Beobachtungszeitpunkt plausibel und höchstens drei Stunden alt ist. DWD ICON liefert koordinatengenau nur die fehlenden aktuellen Werte sowie den Forecast. Die Diagnose enthält die Quelle je Messgröße einschließlich Stations-ID, Entfernung und – sofern vorhanden – Beobachtungszeit.
+
+### Deutschland – Luftqualität
+
+PM2.5, PM10, NO2, Ozon und SO2 bevorzugen aktuelle reale UBA/Länder-Messstationen. Die Auswahl geschieht pro Schadstoff nach Entfernung unter den Stationen, die aktuell einen Wert liefern. CAMS/Open-Meteo ist nur Fallback für fehlende Stationswerte. CO2 außen kann aus dem koordinatengenauen CAMS-Greenhouse-Gas-Modell ergänzt werden, sofern kein manueller Home-Assistant-Außensensor gesetzt ist.
+
+### Deutschland – Warnungen
+
+Der aktuelle Standort wird primär über den amtlichen **BKG-VG250-WFS** auf die aktuelle Kreisgeometrie und damit den Kreis-ARS aufgelöst. Die ältere BBK-Kreisgeometrie bleibt nur als Kompatibilitätsfallback. NINAs `dashboard/{ARS}.json` grenzt Kandidaten auf diese Region ein. Jede Warnung wird anschließend weiterhin gegen ihre tatsächliche GeoJSON-Warnfläche geprüft. Wenn die regionale Auflösung nicht sicher möglich ist, wird aus Sicherheitsgründen auf den bisherigen deutschlandweiten Aggregator zurückgefallen.

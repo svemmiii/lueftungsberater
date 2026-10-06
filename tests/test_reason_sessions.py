@@ -491,3 +491,97 @@ def test_particulate_quiet_phase_rearms_early_on_real_worsening_while_inactive()
     )
     assert worsened.exhausted is False
     assert worsened.disarmed is False
+
+
+def test_temperature_effectiveness_does_not_blindly_retry_after_30_minutes():
+    state = EffectivenessSessionState()
+    start = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
+    kwargs = dict(
+        min_improvement=0.3,
+        rearm_worsening=0.8,
+        context_metric=7.0,
+        rearm_context_improvement=1.0,
+        hold_after_quiet_if_active=True,
+        max_suppression=timedelta(hours=2),
+    )
+    state.evaluate(now=start, window_open=True, active=True, metric=3.0, **kwargs)
+    failed = state.evaluate(
+        now=start + timedelta(minutes=16), window_open=True, active=True, metric=2.9, **kwargs
+    )
+    assert failed.exhausted
+
+    # The real coordinator sees active=False here because the exhausted
+    # session itself filtered "temperature" from active_reasons. The separate
+    # raw applicability flag must keep the hold alive and avoid a 45-minute
+    # retry loop.
+    same_conditions = state.evaluate(
+        now=start + timedelta(minutes=47),
+        window_open=False,
+        active=False,
+        still_applicable=True,
+        metric=2.9,
+        **kwargs,
+    )
+    assert same_conditions.exhausted
+
+    improved_outside = state.evaluate(
+        now=start + timedelta(minutes=48),
+        window_open=False,
+        active=False,
+        still_applicable=True,
+        metric=2.9,
+        **{**kwargs, "context_metric": 8.1},
+    )
+    assert not improved_outside.exhausted
+
+
+def test_temperature_effectiveness_has_bounded_retry_ceiling():
+    state = EffectivenessSessionState()
+    start = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
+    kwargs = dict(
+        min_improvement=0.3, rearm_worsening=0.8, context_metric=7.0,
+        rearm_context_improvement=1.0, hold_after_quiet_if_active=True,
+        max_suppression=timedelta(hours=2),
+    )
+    state.evaluate(now=start, window_open=True, active=True, metric=3.0, **kwargs)
+    state.evaluate(now=start + timedelta(minutes=16), window_open=True, active=True, metric=2.9, **kwargs)
+    retried = state.evaluate(
+        now=start + timedelta(hours=2, minutes=17),
+        window_open=False,
+        active=False,
+        still_applicable=True,
+        metric=2.9,
+        **kwargs,
+    )
+    assert not retried.exhausted
+
+
+def test_temperature_effectiveness_releases_when_raw_reason_no_longer_applies():
+    state = EffectivenessSessionState()
+    start = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
+    kwargs = dict(
+        min_improvement=0.3,
+        rearm_worsening=0.8,
+        context_metric=7.0,
+        rearm_context_improvement=1.0,
+        hold_after_quiet_if_active=True,
+        max_suppression=timedelta(hours=2),
+    )
+    state.evaluate(now=start, window_open=True, active=True, metric=3.0, **kwargs)
+    state.evaluate(
+        now=start + timedelta(minutes=16),
+        window_open=True,
+        active=True,
+        metric=2.9,
+        **kwargs,
+    )
+    released = state.evaluate(
+        now=start + timedelta(minutes=47),
+        window_open=False,
+        active=False,
+        still_applicable=False,
+        metric=0.4,
+        **kwargs,
+    )
+    assert not released.exhausted
+    assert not released.disarmed

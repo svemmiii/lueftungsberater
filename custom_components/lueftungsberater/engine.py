@@ -19,6 +19,11 @@ AH_NEUTRAL = 0.5
 AH_CONTINUE = 0.3
 TEMP_NEED_ON = 1.0
 TEMP_NEED_OFF = 0.6
+# Without a configured window contact the integration cannot know whether the
+# user is actually airing.  A much broader comfort hysteresis prevents a small
+# target offset from keeping the room card permanently actionable.
+TEMP_NEED_ON_NO_CONTACT = 4.0
+TEMP_NEED_OFF_NO_CONTACT = 3.0
 
 
 def _previous_co2_context(previous_mode: str, previous_need: str) -> bool:
@@ -490,6 +495,49 @@ def _previous_temperature_context(previous_mode: str, previous_need: str) -> boo
         previous_mode == "weiter_lueften" and previous_need == "temperature"
     )
 
+
+def temperature_need_applicable(
+    *,
+    ti: float,
+    ta: float,
+    target: float,
+    previous_mode: str,
+    previous_need: str,
+    has_window_contacts: bool,
+) -> bool:
+    """Return the raw temperature need before effectiveness suppression.
+
+    The effectiveness session must be able to ask whether its own temperature
+    reason would still apply if ``temperature_session_exhausted`` were ignored.
+    Keeping this calculation in the engine prevents the coordinator from
+    duplicating (and eventually drifting from) the 1.0/0.6 K contact and
+    4.0/3.0 K no-contact hysteresis.
+    """
+    temperature_delta = abs(ti - target)
+    temperature_hysteresis = previous_need == "temperature"
+    temp_on = TEMP_NEED_ON if has_window_contacts else TEMP_NEED_ON_NO_CONTACT
+    temp_off = TEMP_NEED_OFF if has_window_contacts else TEMP_NEED_OFF_NO_CONTACT
+    temperature_start = (
+        temperature_delta >= (temp_off if temperature_hysteresis else temp_on)
+        and _temperature_moves_toward_target(ti, ta, target)
+    )
+    if has_window_contacts:
+        temperature_continue = (
+            _previous_temperature_context(previous_mode, previous_need)
+            and (
+                (ti > target + 0.2 and ta <= ti - 0.5)
+                or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
+            )
+        )
+    else:
+        temperature_continue = (
+            _previous_temperature_context(previous_mode, previous_need)
+            and temperature_delta >= temp_off
+            and _temperature_moves_toward_target(ti, ta, target)
+        )
+    return bool(temperature_start or temperature_continue)
+
+
 def _active_needs(
     *,
     co2: float | None,
@@ -504,6 +552,7 @@ def _active_needs(
     previous_mode: str,
     previous_need: str,
     window_open: bool,
+    has_window_contacts: bool,
     current_airing_qualified: bool,
     co2_pending_hold: bool,
     co2_airing_active: bool,
@@ -602,26 +651,15 @@ def _active_needs(
     if ti >= 26 and hi >= 65 and ta <= ti - 1 and diff >= -AH_NEUTRAL:
         needs.append(("humid_heat", 1))
 
-    temperature_delta = abs(ti - target)
-    temperature_hysteresis = previous_need == "temperature"
-    temperature_start = (
-        temperature_delta >= (TEMP_NEED_OFF if temperature_hysteresis else TEMP_NEED_ON)
-        and _temperature_moves_toward_target(ti, ta, target)
+    temperature_applicable = temperature_need_applicable(
+        ti=ti,
+        ta=ta,
+        target=target,
+        previous_mode=previous_mode,
+        previous_need=previous_need,
+        has_window_contacts=has_window_contacts,
     )
-    # The lower 0.5 K continuation band belongs to the remembered temperature
-    # session, not to the physical window contact.  v0.9.7 gated this path with
-    # ``window_open``; closing the window could therefore change the decision
-    # even when every measured value was identical.  Keep the proven session
-    # context independent of the contact state and let the later action layer
-    # decide whether that means open/continue/close.
-    temperature_continue = (
-        _previous_temperature_context(previous_mode, previous_need)
-        and (
-            (ti > target + 0.2 and ta <= ti - 0.5)
-            or (ti < target - 0.2 and ta >= ti + 0.5 and ta <= target + 4.0)
-        )
-    )
-    if (temperature_start or temperature_continue) and not temperature_session_exhausted:
+    if temperature_applicable and not temperature_session_exhausted:
         needs.append(("temperature", 1))
 
     # Routine is a fallback, not a peer health/comfort signal. If a concrete
@@ -1469,6 +1507,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         previous_mode=previous_mode,
         previous_need=previous_need,
         window_open=data.window_open,
+        has_window_contacts=data.has_window_contacts,
         current_airing_qualified=data.current_airing_qualified,
         co2_pending_hold=data.co2_pending_hold,
         co2_airing_active=data.co2_airing_active,

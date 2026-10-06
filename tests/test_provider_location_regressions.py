@@ -185,7 +185,11 @@ async def test_germany_neighbor_germany_resets_provider_caches(hass):
     seen=[]
     async def warning(_hass,_session,loc,country,state):
         seen.append(country)
-        assert not state.meteoalarm_cache and not state.nina_cache
+        assert not state.meteoalarm_cache
+        # NINA detail/GeoJSON cache is warning-revision keyed and intentionally
+        # survives movement; only location-dependent regional resolution changes.
+        if len(seen) > 1:
+            assert state.nina_cache
         return ap.AutoWarningData('nina_auto' if country=='DE' else 'meteoalarm_auto',NOW,True,country,safety_source_key=ap._safety_location_key('warning',loc))
     async def weather(_session,loc,country,state):return ap.AutoWeatherData('test',NOW,country=country)
     with patch.object(ap,'async_get_clientsession',return_value=object()),patch.object(ap,'_fetch_auto_weather',side_effect=weather),patch.object(ap,'_fetch_auto_warning',side_effect=warning):

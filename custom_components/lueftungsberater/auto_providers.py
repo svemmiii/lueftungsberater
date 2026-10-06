@@ -54,12 +54,22 @@ _LOGGER = logging.getLogger(__name__)
 
 _OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
 _OPEN_METEO_DWD = "https://api.open-meteo.com/v1/dwd-icon"
+_OPEN_METEO_AIR_QUALITY = "https://air-quality-api.open-meteo.com/v1/air-quality"
+_UBA_API_BASE = "https://luftdaten.umweltbundesamt.de/api-proxy"
+_UBA_STATIONS = f"{_UBA_API_BASE}/stations/json"
+_UBA_COMPONENTS = f"{_UBA_API_BASE}/components/json"
+_UBA_AIRQUALITY = f"{_UBA_API_BASE}/airquality/json"
 _DWD_STATION_CATALOG = "https://opendata.dwd.de/weather/weather_reports/stationlist_synoptic_germany.csv"
 _DWD_MEASUREMENT_INDEX = "https://opendata.dwd.de/weather/weather_reports/poi/"
 _DWD_FORECAST_INDEX = "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/single_stations/"
 _DWD_MEASUREMENT_URL = "https://opendata.dwd.de/weather/weather_reports/poi/{station_id:_<5}-BEOB.csv"
 _DWD_FORECAST_URL = "https://opendata.dwd.de/weather/local_forecasts/mos/MOSMIX_L/single_stations/{station_id}/kml/MOSMIX_L_LATEST_{station_id}.kmz"
 _NINA_BASE = "https://warnung.bund.de/api31"
+_NINA_DISTRICT_GEOMETRIES = "https://warnung.bund.de/assets/json/converted_corona_kreise.json"
+_BKG_DISTRICT_WFS = "https://sgx.geodatenzentrum.de/wfs_vg250"
+_DWD_STATION_CANDIDATE_LIMIT = 8
+_DWD_OBSERVATION_MAX_AGE = timedelta(hours=3)
+_UBA_STATION_CANDIDATE_LIMIT = 12
 _NWS_ALERTS = "https://api.weather.gov/alerts/active"
 _METEOALARM_FEED = "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-{slug}"
 _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=20)
@@ -152,6 +162,17 @@ class DwdStation:
     altitude: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class UbaStation:
+    """One German UBA/Länder air-quality measurement station."""
+
+    station_id: str
+    code: str
+    name: str
+    latitude: float
+    longitude: float
+
+
 @dataclass(slots=True)
 class AutoWeatherData:
     """Normalized coordinate weather from the automatic provider."""
@@ -172,6 +193,11 @@ class AutoWeatherData:
     station_id: str | None = None
     station_name: str | None = None
     station_distance_km: float | None = None
+    measurement_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
+    air_quality_values: dict[str, float] = field(default_factory=dict)
+    air_quality_sources: dict[str, str] = field(default_factory=dict)
+    outdoor_co2_ppm: float | None = None
+    outdoor_co2_source: str | None = None
 
 
 @dataclass(slots=True)
@@ -205,6 +231,8 @@ class AutoWarningData:
     error: str | None = None
     coverage: str = "weather_only"
     source_availability: dict[str, bool] = field(default_factory=dict)
+    region_ars: str | None = None
+    active_sources: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -218,10 +246,20 @@ class AutoProviderState:
     warning: AutoWarningData | None = None
     warning_attempted_at: datetime | None = None
     nina_cache: dict[str, tuple[datetime, dict[str, Any] | None, Any]] = field(default_factory=dict)
+    nina_districts: list[tuple[str, dict[str, Any], tuple[float, float, float, float] | None]] | None = None
+    nina_districts_at: datetime | None = None
+    nina_region_key: tuple[float, float] | None = None
+    nina_region_arses: list[str] = field(default_factory=list)
+    nina_region_at: datetime | None = None
+    nina_region_source: str | None = None
     meteoalarm_cache: dict[str, tuple[datetime, str]] = field(default_factory=dict)
     dwd_station_index: list[DwdStation] | None = None
     dwd_station_index_at: datetime | None = None
     dwd_station: DwdStation | None = None
+    uba_station_index: list[UbaStation] | None = None
+    uba_station_index_at: datetime | None = None
+    uba_components: dict[int, str] | None = None
+    uba_components_at: datetime | None = None
 
 
 def weather_mode(entry: ConfigEntry) -> str:
@@ -539,13 +577,29 @@ def _parse_dwd_station_index(
     if lines and ";" in lines[0]:
         reader = csv.DictReader(lines, delimiter=";")
         result: list[DwdStation] = []
+
+        def header_key(value: Any) -> str:
+            text = str(value or "").strip().casefold()
+            text = (text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss"))
+            return re.sub(r"[^a-z0-9]", "", text)
+
         for row in reader:
-            normalized = {str(key or "").strip().lower(): str(value or "").strip() for key, value in row.items()}
-            station_id = next((normalized.get(key) for key in ("id", "station_id", "stations_id", "stationsid") if normalized.get(key)), None)
+            normalized = {header_key(key): str(value or "").strip() for key, value in row.items()}
+            # Current DWD live catalogue (stationlist_synoptic_germany.csv) uses
+            # Kennung / Geog_Breite / Geog_Laenge / Stationsname.  Keep the
+            # older generic aliases because historical fixtures and mirrors use
+            # id/latitude/longitude/name.
+            station_id = next((normalized.get(key) for key in (
+                "kennung", "id", "stationid", "stationsid"
+            ) if normalized.get(key)), None)
             if not station_id or station_id not in measurement_ids:
                 continue
-            lat_raw = next((normalized.get(key) for key in ("latitude", "lat", "breite", "geobreite") if normalized.get(key)), None)
-            lon_raw = next((normalized.get(key) for key in ("longitude", "lon", "laenge", "geolaenge") if normalized.get(key)), None)
+            lat_raw = next((normalized.get(key) for key in (
+                "geogbreite", "latitude", "lat", "breite", "geobreite"
+            ) if normalized.get(key)), None)
+            lon_raw = next((normalized.get(key) for key in (
+                "geoglaenge", "longitude", "lon", "laenge", "geolaenge"
+            ) if normalized.get(key)), None)
             if lat_raw is None or lon_raw is None:
                 continue
             try:
@@ -554,10 +608,14 @@ def _parse_dwd_station_index(
             except (TypeError, ValueError):
                 continue
             altitude = None
-            altitude_raw = next((normalized.get(key) for key in ("elevation", "altitude", "hoehe", "height") if normalized.get(key)), None)
+            altitude_raw = next((normalized.get(key) for key in (
+                "stationshoehe", "elevation", "altitude", "hoehe", "height"
+            ) if normalized.get(key)), None)
             if altitude_raw is not None:
                 altitude = _as_float(altitude_raw.replace(",", "."))
-            name = next((normalized.get(key) for key in ("name", "stationsname", "station_name") if normalized.get(key)), None) or station_id
+            name = next((normalized.get(key) for key in (
+                "stationsname", "name", "stationname"
+            ) if normalized.get(key)), None) or station_id
             result.append(DwdStation(
                 station_id=station_id,
                 name=" ".join(name.split()),
@@ -605,14 +663,17 @@ def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
 
 
-async def _resolve_dwd_station(
+async def _dwd_station_candidates(
     session: aiohttp.ClientSession,
     location: EffectiveLocation,
     state: AutoProviderState,
-) -> tuple[DwdStation, float]:
+    *,
+    limit: int = _DWD_STATION_CANDIDATE_LIMIT,
+) -> list[tuple[DwdStation, float]]:
+    """Return nearest DWD POI measurement stations in geographic order."""
     now = dt_util.utcnow()
     if state.dwd_station_index is None or not _fresh(
-        state.dwd_station_index_at, timedelta(hours=24), now
+        state.dwd_station_index_at, timedelta(hours=6), now
     ):
         catalog_raw, measurement_raw = await asyncio.gather(
             _get_bytes(session, _DWD_STATION_CATALOG),
@@ -626,16 +687,33 @@ async def _resolve_dwd_station(
         state.dwd_station_index_at = now
 
     assert state.dwd_station_index is not None
-    station = min(
-        state.dwd_station_index,
-        key=lambda item: _distance_km(
-            location.latitude, location.longitude, item.latitude, item.longitude
+    ordered = sorted(
+        (
+            (
+                station,
+                _distance_km(
+                    location.latitude,
+                    location.longitude,
+                    station.latitude,
+                    station.longitude,
+                ),
+            )
+            for station in state.dwd_station_index
         ),
+        key=lambda item: item[1],
     )
+    return ordered[: max(1, limit)]
+
+
+async def _resolve_dwd_station(
+    session: aiohttp.ClientSession,
+    location: EffectiveLocation,
+    state: AutoProviderState,
+) -> tuple[DwdStation, float]:
+    """Compatibility helper returning the geographically nearest POI station."""
+    station, distance = (await _dwd_station_candidates(session, location, state, limit=1))[0]
     state.dwd_station = station
-    return station, _distance_km(
-        location.latitude, location.longitude, station.latitude, station.longitude
-    )
+    return station, distance
 
 
 def _dwd_current_condition(value: Any) -> str | None:
@@ -701,21 +779,102 @@ def _dwd_forecast_condition(value: Any) -> str | None:
     return None
 
 
+def _parse_dwd_observation_timestamp(columns: list[str], fields: list[str]) -> datetime | None:
+    """Parse the observation time from the leading DWD POI columns."""
+    if not fields:
+        return None
+    # DWD POI reports have historically used a date/time pair or a compact
+    # timestamp in the first columns. Accept both and keep UTC as the source
+    # time zone used by the reports.
+    candidates: list[str] = []
+    if len(fields) >= 2:
+        candidates.append(f"{fields[0].strip()} {fields[1].strip()}")
+    candidates.append(fields[0].strip())
+    formats = (
+        "%Y%m%d%H%M", "%Y%m%d %H%M", "%Y%m%d %H:%M",
+        "%d.%m.%Y %H:%M", "%d.%m.%y %H:%M",
+        "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S",
+    )
+    for raw in candidates:
+        raw = raw.strip()
+        if not raw:
+            continue
+        parsed = _parse_dt(raw)
+        if parsed is not None:
+            return parsed.astimezone(timezone.utc)
+        for fmt in formats:
+            try:
+                return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+    return None
+
+
 def _parse_dwd_measurement(data: bytes) -> dict[str, str]:
+    """Parse the newest coherent DWD POI observation row.
+
+    The observation timestamp is retained as ``__observation_at`` so callers
+    can reject a station whose downloadable file is present but whose actual
+    measurement is stale.
+    """
     text = data.decode("iso-8859-1", errors="replace")
     rows = [line.strip() for line in text.splitlines() if line.strip()]
     if len(rows) < 4:
         return {}
     columns = [item.strip() for item in rows[0].split(";")]
-    result: dict[str, str] = {}
-    for raw in rows[3:7]:
+    weather_keys = {
+        "dry_bulb_temperature_at_2_meter_above_ground",
+        "relative_humidity",
+        "present_weather",
+        "mean_wind_speed_during last_10_min_at_10_meters_above_ground",
+        "maximum_wind_speed_last_hour",
+        "precipitation_amount_last_hour",
+    }
+    candidates: list[tuple[datetime | None, int, dict[str, str]]] = []
+    for ordinal, raw in enumerate(rows[3:]):
         fields = [item.strip() for item in raw.split(";")]
+        row: dict[str, str] = {}
         for index in range(2, min(len(columns), len(fields))):
             value = fields[index]
-            if value and value != "---" and columns[index] not in result:
-                result[columns[index]] = value
-    return result
+            if value and value != "---":
+                row[columns[index]] = value
+        if not any(key in row for key in weather_keys):
+            continue
+        stamp = _parse_dwd_observation_timestamp(columns, fields)
+        if stamp is not None:
+            row["__observation_at"] = stamp.isoformat()
+        candidates.append((stamp, ordinal, row))
+    if not candidates:
+        return {}
+    dated = [item for item in candidates if item[0] is not None]
+    if dated:
+        return max(dated, key=lambda item: item[0])[2]
+    # Unknown legacy format: retain the provider ordering rather than mixing
+    # individual fields from several rows.
+    return min(candidates, key=lambda item: item[1])[2]
 
+
+
+
+def _dwd_observation_is_fresh(
+    measurement: dict[str, str], *, now: datetime | None = None
+) -> bool:
+    """Return whether a POI row has a plausible, recent observation time.
+
+    A downloadable file is not sufficient evidence that its payload is current.
+    Unknown timestamps deliberately fall back to coordinate-based ICON current
+    data instead of letting an unverified station value look like a live reading.
+    """
+    stamp = _parse_dt(measurement.get("__observation_at"))
+    if stamp is None or stamp.tzinfo is None:
+        return False
+    now_utc = (now or dt_util.utcnow()).astimezone(timezone.utc)
+    stamp_utc = stamp.astimezone(timezone.utc)
+    return (
+        now_utc - _DWD_OBSERVATION_MAX_AGE <= stamp_utc
+        <= now_utc + timedelta(minutes=30)
+    )
 
 def _rh_from_temp_dewpoint(temp_c: float | None, dew_c: float | None) -> float | None:
     if temp_c is None or dew_c is None:
@@ -799,87 +958,498 @@ def _parse_dwd_mosmix(data: bytes) -> list[dict[str, Any]]:
     return result
 
 
+def _auto_source(provider: str, **details: Any) -> dict[str, Any]:
+    source: dict[str, Any] = {"provider": provider}
+    source.update({key: value for key, value in details.items() if value is not None})
+    return source
+
+
+
+def _uba_pollutant_kind(value: Any) -> str | None:
+    """Normalize a UBA component label/code to the integration pollutant key."""
+    text = str(value or "").lower()
+    text = (
+        text.replace("₂", "2")
+        .replace("₃", "3")
+        .replace("₁", "1")
+        .replace("₀", "0")
+        .replace(".", "")
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+    )
+    if "pm25" in text or "particulatematter<25" in text:
+        return "pm2_5"
+    if "pm10" in text or "particulatematter<10" in text:
+        return "pm10"
+    if "no2" in text or "nitrogendioxide" in text or "stickstoffdioxid" in text:
+        return "no2"
+    if text == "o3" or "ozone" in text or "ozon" in text:
+        return "o3"
+    if "so2" in text or "sulphurdioxide" in text or "sulfurdioxide" in text or "schwefeldioxid" in text:
+        return "so2"
+    return None
+
+
+def _parse_uba_stations(payload: Any) -> list[UbaStation]:
+    """Parse UBA Air Data v4 station metadata defensively.
+
+    The API's JSON metadata uses compact indexed arrays. Named-object support is
+    kept as well so a harmless API representation change does not break Auto.
+    """
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, (dict, list)):
+        return []
+    items = data.values() if isinstance(data, dict) else data
+    result: list[UbaStation] = []
+    for raw in items:
+        station_id = code = name = None
+        latitude = longitude = None
+        if isinstance(raw, (list, tuple)):
+            if len(raw) >= 9:
+                station_id = str(raw[0] or "").strip()
+                code = str(raw[1] or station_id).strip()
+                name = str(raw[2] or code).strip()
+                longitude = _as_float(raw[7])
+                latitude = _as_float(raw[8])
+        elif isinstance(raw, dict):
+            station_id = str(raw.get("id") or raw.get("station_id") or raw.get("stationId") or "").strip()
+            code = str(raw.get("code") or raw.get("station_code") or station_id).strip()
+            name = str(raw.get("name") or raw.get("station_name") or raw.get("city") or code).strip()
+            latitude = _as_float(raw.get("latitude") or raw.get("lat"))
+            longitude = _as_float(raw.get("longitude") or raw.get("lon") or raw.get("lng"))
+        if not station_id or latitude is None or longitude is None:
+            continue
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            continue
+        result.append(UbaStation(station_id, code or station_id, name or code or station_id, latitude, longitude))
+    return result
+
+
+def _parse_uba_components(payload: Any) -> dict[int, str]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, (dict, list)):
+        return {}
+    items = data.values() if isinstance(data, dict) else data
+    result: dict[int, str] = {}
+    for raw in items:
+        component_id: int | None = None
+        labels: list[Any] = []
+        if isinstance(raw, (list, tuple)) and raw:
+            try:
+                component_id = int(raw[0])
+            except (TypeError, ValueError):
+                component_id = None
+            labels.extend(raw[1:])
+        elif isinstance(raw, dict):
+            try:
+                component_id = int(raw.get("id") or raw.get("component_id") or raw.get("componentId"))
+            except (TypeError, ValueError):
+                component_id = None
+            labels.extend((raw.get("code"), raw.get("symbol"), raw.get("name")))
+        if component_id is None:
+            continue
+        kind = next((_uba_pollutant_kind(label) for label in labels if _uba_pollutant_kind(label)), None)
+        if kind:
+            result[component_id] = kind
+    return result
+
+
+def _uba_measurement_tuple(raw: Any) -> tuple[int, float] | None:
+    if isinstance(raw, dict):
+        values = [raw.get(str(index), raw.get(index)) for index in range(4)]
+    elif isinstance(raw, (list, tuple)):
+        values = list(raw)
+    else:
+        return None
+    if len(values) < 2:
+        return None
+    try:
+        component_id = int(values[0])
+    except (TypeError, ValueError):
+        return None
+    value = _as_float(values[1])
+    if value is None or value < 0 or value > 5000:
+        return None
+    return component_id, value
+
+
+def _parse_uba_airquality(payload: Any, components: dict[int, str]) -> dict[str, float]:
+    """Return the latest hourly physical pollutant values from one UBA station."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return {}
+    rows: list[tuple[str, Any]] = []
+    for station_rows in data.values():
+        if isinstance(station_rows, dict):
+            rows.extend((str(stamp), values) for stamp, values in station_rows.items())
+    if not rows:
+        return {}
+    # ISO-like timestamps are lexicographically sortable. The API returns the
+    # latest available hourly observation in the requested one/two-day window.
+    _stamp, measure_set = max(rows, key=lambda item: item[0])
+    if isinstance(measure_set, dict):
+        ordered = [measure_set.get(str(index), measure_set.get(index)) for index in range(len(measure_set) + 3)]
+    elif isinstance(measure_set, (list, tuple)):
+        ordered = list(measure_set)
+    else:
+        return {}
+    result: dict[str, float] = {}
+    for raw in ordered[3:]:
+        parsed = _uba_measurement_tuple(raw)
+        if parsed is None:
+            continue
+        component_id, value = parsed
+        kind = components.get(component_id)
+        if kind:
+            result[kind] = value
+    return result
+
+
+async def _uba_station_candidates(
+    session: aiohttp.ClientSession,
+    location: EffectiveLocation,
+    state: AutoProviderState,
+    *,
+    limit: int = _UBA_STATION_CANDIDATE_LIMIT,
+) -> list[tuple[UbaStation, float]]:
+    now = dt_util.utcnow()
+    if state.uba_station_index is None or not _fresh(state.uba_station_index_at, timedelta(hours=6), now):
+        berlin_now = dt_util.utcnow().astimezone(ZoneInfo("Europe/Berlin"))
+        active_date = berlin_now.date().isoformat()
+        payload = await _get_json(
+            session,
+            _UBA_STATIONS,
+            params={
+                "use": "airquality",
+                "lang": "en",
+                "index": "id",
+                "date_from": active_date,
+                "date_to": active_date,
+                "time_from": 1,
+                "time_to": 24,
+            },
+        )
+        stations = _parse_uba_stations(payload)
+        if not stations:
+            raise ValueError("UBA station index contains no usable stations")
+        state.uba_station_index = stations
+        state.uba_station_index_at = now
+    assert state.uba_station_index is not None
+    ordered = sorted(
+        (
+            (
+                station,
+                _distance_km(location.latitude, location.longitude, station.latitude, station.longitude),
+            )
+            for station in state.uba_station_index
+        ),
+        key=lambda item: item[1],
+    )
+    return ordered[: max(1, limit)]
+
+
+async def _uba_component_index(
+    session: aiohttp.ClientSession,
+    state: AutoProviderState,
+) -> dict[int, str]:
+    now = dt_util.utcnow()
+    if state.uba_components is None or not _fresh(state.uba_components_at, timedelta(days=7), now):
+        payload = await _get_json(
+            session,
+            _UBA_COMPONENTS,
+            params={"lang": "en", "index": "id"},
+        )
+        components = _parse_uba_components(payload)
+        if not components:
+            raise ValueError("UBA component index contains no supported pollutants")
+        state.uba_components = components
+        state.uba_components_at = now
+    return dict(state.uba_components)
+
+
+async def _fetch_uba_air_quality(
+    session: aiohttp.ClientSession,
+    location: EffectiveLocation,
+    state: AutoProviderState,
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Use the nearest *measuring* UBA station separately per pollutant."""
+    candidates, components = await asyncio.gather(
+        _uba_station_candidates(session, location, state),
+        _uba_component_index(session, state),
+    )
+    berlin_now = dt_util.utcnow().astimezone(ZoneInfo("Europe/Berlin"))
+    date_from = (berlin_now - timedelta(days=1)).date().isoformat()
+    date_to = berlin_now.date().isoformat()
+    tasks = [
+        _get_json(
+            session,
+            _UBA_AIRQUALITY,
+            params={
+                "date_from": date_from,
+                "date_to": date_to,
+                "time_from": 1,
+                "time_to": 24,
+                "station": station.code,
+                "lang": "en",
+            },
+        )
+        for station, _distance in candidates
+    ]
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
+    values: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    wanted = {"pm2_5", "pm10", "no2", "o3", "so2"}
+    for (station, distance), response in zip(candidates, responses, strict=True):
+        if isinstance(response, Exception):
+            continue
+        station_values = _parse_uba_airquality(response, components)
+        for kind, value in station_values.items():
+            if kind not in wanted or kind in values:
+                continue
+            values[kind] = value
+            sources[kind] = (
+                f"uba_station:{station.code}:{station.name}:{distance:.1f}km"
+            )
+        if wanted.issubset(values):
+            break
+    return values, sources
+
+
+async def _fetch_coordinate_air_quality(
+    session: aiohttp.ClientSession,
+    location: EffectiveLocation,
+) -> tuple[dict[str, float], dict[str, str], float | None]:
+    """Fetch coordinate air-quality fallback from CAMS via Open-Meteo.
+
+    These are model/grid values, not physical station observations.  Explicit
+    local Home Assistant sensors are still applied later and therefore win per
+    pollutant whenever available.
+    """
+    payload = await _get_json(
+        session,
+        _OPEN_METEO_AIR_QUALITY,
+        params={
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "current": ",".join((
+                "pm2_5", "pm10", "nitrogen_dioxide", "ozone", "carbon_dioxide",
+            )),
+            "timezone": "auto",
+            # Let Open-Meteo pick the best model per requested variable. This
+            # matters because CO2 comes from the CAMS greenhouse-gas product,
+            # while particulate/gas pollution can use the denser Europe model.
+            "domains": "auto",
+        },
+    )
+    if not isinstance(payload, dict):
+        return {}, {}, None
+    current = payload.get("current")
+    if not isinstance(current, dict):
+        return {}, {}, None
+    mapping = {
+        "pm2_5": "pm2_5",
+        "pm10": "pm10",
+        "nitrogen_dioxide": "no2",
+        "ozone": "o3",
+    }
+    values: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    for raw_key, normalized in mapping.items():
+        value = _as_float(current.get(raw_key))
+        if value is None or value < 0:
+            continue
+        values[normalized] = value
+        sources[normalized] = "cams_air_quality_model"
+    co2 = _as_float(current.get("carbon_dioxide"))
+    if co2 is not None and not (250.0 <= co2 <= 2_000.0):
+        co2 = None
+    return values, sources, co2
+
+
 async def _fetch_dwd_station_weather(
     session: aiohttp.ClientSession,
     location: EffectiveLocation,
     state: AutoProviderState,
 ) -> AutoWeatherData:
-    station, distance = await _resolve_dwd_station(session, location, state)
-    measurement_raw, forecast_payload = await asyncio.gather(
-        _get_bytes(
-            session, _DWD_MEASUREMENT_URL.format(station_id=station.station_id)
-        ),
-        _get_json(
-            session,
-            _OPEN_METEO_DWD,
-            params={
-                "latitude": location.latitude,
-                "longitude": location.longitude,
-                "current": ",".join((
-                    "temperature_2m", "relative_humidity_2m", "precipitation",
-                    "weather_code", "wind_speed_10m", "wind_gusts_10m",
-                )),
-                "hourly": ",".join((
-                    "temperature_2m", "relative_humidity_2m",
-                    "precipitation_probability", "precipitation", "weather_code",
-                    "wind_speed_10m", "wind_gusts_10m",
-                )),
-                "forecast_hours": 36,
-                "timezone": "auto",
-                "wind_speed_unit": "kmh",
-                **({"elevation": location.elevation} if location.elevation is not None else {}),
-            },
-        ),
+    candidates = await _dwd_station_candidates(session, location, state)
+    forecast_task = _get_json(
+        session,
+        _OPEN_METEO_DWD,
+        params={
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "current": ",".join((
+                "temperature_2m", "relative_humidity_2m", "precipitation",
+                "weather_code", "wind_speed_10m", "wind_gusts_10m",
+            )),
+            "hourly": ",".join((
+                "temperature_2m", "relative_humidity_2m",
+                "precipitation_probability", "precipitation", "weather_code",
+                "wind_speed_10m", "wind_gusts_10m",
+            )),
+            "forecast_hours": 36,
+            "timezone": "auto",
+            "wind_speed_unit": "kmh",
+            **({"elevation": location.elevation} if location.elevation is not None else {}),
+        },
     )
-    measurement = _parse_dwd_measurement(measurement_raw)
-    forecast = (
-        _normalize_open_meteo_hourly(forecast_payload)
-        if isinstance(forecast_payload, dict)
-        else []
+    aq_task = _fetch_coordinate_air_quality(session, replace(location, country="DE"))
+    uba_task = _fetch_uba_air_quality(session, replace(location, country="DE"), state)
+    station_tasks = [
+        _get_bytes(session, _DWD_MEASUREMENT_URL.format(station_id=station.station_id))
+        for station, _distance in candidates
+    ]
+    results = await asyncio.gather(
+        forecast_task,
+        aq_task,
+        uba_task,
+        *station_tasks,
+        return_exceptions=True,
     )
+    forecast_payload = results[0] if isinstance(results[0], dict) else {}
+    aq_result = results[1] if isinstance(results[1], tuple) else ({}, {}, None)
+    model_air_quality_values, model_air_quality_sources, outdoor_co2 = aq_result
+    uba_result = results[2] if isinstance(results[2], tuple) else ({}, {})
+    uba_air_quality_values, uba_air_quality_sources = uba_result
+    # Physical UBA/Länder measurements win per pollutant. CAMS remains the
+    # coordinate-specific map/model fallback for pollutants that no nearby
+    # measuring station among the candidates currently supplies.
+    air_quality_values = dict(model_air_quality_values)
+    air_quality_values.update(uba_air_quality_values)
+    air_quality_sources = dict(model_air_quality_sources)
+    air_quality_sources.update(uba_air_quality_sources)
+    station_results = results[3:]
 
-    def measurement_number(key: str) -> float | None:
-        raw = measurement.get(key)
-        if raw is None:
-            return None
-        return _as_float(raw.replace(",", "."))
+    forecast = _normalize_open_meteo_hourly(forecast_payload)
+    current = forecast_payload.get("current") if isinstance(forecast_payload, dict) else None
+    if not isinstance(current, dict):
+        current = {}
 
-    temperature = measurement_number("dry_bulb_temperature_at_2_meter_above_ground")
-    humidity = measurement_number("relative_humidity")
-    condition = _dwd_current_condition(measurement.get("present_weather"))
-    wind = measurement_number(
+    observations: list[tuple[DwdStation, float, dict[str, str]]] = []
+    for (station, distance), raw in zip(candidates, station_results, strict=True):
+        if isinstance(raw, (bytes, bytearray)):
+            measurement = _parse_dwd_measurement(bytes(raw))
+            if measurement:
+                if not _dwd_observation_is_fresh(measurement, now=dt_util.utcnow()):
+                    continue
+                observations.append((station, distance, measurement))
+
+    def observation_number(key: str) -> tuple[float | None, dict[str, Any] | None]:
+        for station, distance, measurement in observations:
+            raw = measurement.get(key)
+            if raw is None:
+                continue
+            value = _as_float(raw.replace(",", "."))
+            if value is None:
+                continue
+            return value, _auto_source(
+                "dwd_station",
+                station_id=station.station_id,
+                station_name=station.name,
+                distance_km=round(distance, 3),
+                observation_at=measurement.get("__observation_at"),
+            )
+        return None, None
+
+    def observation_condition() -> tuple[str | None, dict[str, Any] | None]:
+        for station, distance, measurement in observations:
+            condition = _dwd_current_condition(measurement.get("present_weather"))
+            if condition:
+                return condition, _auto_source(
+                    "dwd_station",
+                    station_id=station.station_id,
+                    station_name=station.name,
+                    distance_km=round(distance, 3),
+                    observation_at=measurement.get("__observation_at"),
+                )
+        return None, None
+
+    measurement_sources: dict[str, dict[str, Any]] = {}
+    temperature, source = observation_number("dry_bulb_temperature_at_2_meter_above_ground")
+    if source:
+        measurement_sources["temperature"] = source
+    humidity, source = observation_number("relative_humidity")
+    if source:
+        measurement_sources["humidity"] = source
+    wind, source = observation_number(
         "mean_wind_speed_during last_10_min_at_10_meters_above_ground"
     )
-    gust = measurement_number("maximum_wind_speed_last_hour")
+    if source:
+        measurement_sources["wind_speed"] = source
+    gust, source = observation_number("maximum_wind_speed_last_hour")
+    if source:
+        measurement_sources["wind_gust"] = source
+    precipitation, source = observation_number("precipitation_amount_last_hour")
+    if source:
+        measurement_sources["precipitation"] = source
+    condition, source = observation_condition()
+    if source:
+        measurement_sources["condition"] = source
 
-    first = forecast[0] if forecast else {}
+    model_source = _auto_source("dwd_icon", location="coordinate")
     if temperature is None:
-        temperature = _as_float(first.get("temperature"))
+        temperature = _as_float(current.get("temperature_2m"))
+        if temperature is not None:
+            measurement_sources["temperature"] = model_source
     if humidity is None:
-        humidity = _as_float(first.get("humidity"))
+        humidity = _as_float(current.get("relative_humidity_2m"))
+        if humidity is not None:
+            measurement_sources["humidity"] = model_source
     if condition is None:
-        condition = str(first.get("condition") or "") or None
+        condition = _open_meteo_condition(current.get("weather_code"))
+        if condition:
+            measurement_sources["condition"] = model_source
     if wind is None:
-        wind = _as_float(first.get("wind_speed"))
+        wind = _as_float(current.get("wind_speed_10m"))
+        if wind is not None:
+            measurement_sources["wind_speed"] = model_source
     if gust is None:
-        gust = _as_float(first.get("wind_gust_speed"))
+        gust = _as_float(current.get("wind_gusts_10m"))
+        if gust is not None:
+            measurement_sources["wind_gust"] = model_source
+    if precipitation is None:
+        precipitation = _as_float(current.get("precipitation"))
+        if precipitation is not None:
+            measurement_sources["precipitation"] = model_source
+    precipitation = precipitation or 0.0
+
+    # Primary station metadata follows the nearest physical station that
+    # actually contributed a value.  This is diagnostic only; every field keeps
+    # its own source metadata above.
+    contributing_ids = {
+        str(source.get("station_id"))
+        for source in measurement_sources.values()
+        if source.get("provider") == "dwd_station" and source.get("station_id")
+    }
+    primary: tuple[DwdStation, float] | None = next(
+        ((station, distance) for station, distance in candidates if station.station_id in contributing_ids),
+        None,
+    )
+    if primary is not None:
+        state.dwd_station = primary[0]
 
     return AutoWeatherData(
-        provider_domain="dwd_station",
+        provider_domain="dwd_station+dwd_icon" if primary is not None else "dwd_icon",
         fetched_at=dt_util.utcnow(),
         safety_source_key=_safety_location_key("weather", location),
-        timezone="Europe/Berlin",
+        timezone=str(forecast_payload.get("timezone") or "Europe/Berlin") if isinstance(forecast_payload, dict) else "Europe/Berlin",
         country="DE",
         temperature=temperature,
         humidity=humidity,
         condition=condition,
-        precipitation=_as_float(first.get("precipitation")) or 0.0,
+        precipitation=precipitation,
         wind_speed_kmh=wind,
         wind_gust_kmh=gust,
         hourly_forecast=forecast,
-        station_id=station.station_id,
-        station_name=station.name,
-        station_distance_km=distance,
+        station_id=primary[0].station_id if primary else None,
+        station_name=primary[0].name if primary else None,
+        station_distance_km=primary[1] if primary else None,
+        measurement_sources=measurement_sources,
+        air_quality_values=air_quality_values,
+        air_quality_sources=air_quality_sources,
+        outdoor_co2_ppm=outdoor_co2,
+        outdoor_co2_source="cams_air_quality_model" if outdoor_co2 is not None else None,
     )
 
 
@@ -954,6 +1524,26 @@ async def _fetch_auto_weather(
     )
     if precipitation <= 0:
         precipitation = _as_float(current.get("precipitation")) or 0.0
+    try:
+        air_quality_values, air_quality_sources, outdoor_co2 = await _fetch_coordinate_air_quality(
+            session, replace(location, country=resolved_country)
+        )
+    except Exception as exc:  # noqa: BLE001 - air quality is an optional fallback
+        _LOGGER.debug("Coordinate air-quality fallback unavailable: %s", exc)
+        air_quality_values, air_quality_sources, outdoor_co2 = {}, {}, None
+    model_source = _auto_source(provider, location="coordinate")
+    measurement_sources = {
+        key: model_source
+        for key, value in {
+            "temperature": _as_float(current.get("temperature_2m")),
+            "humidity": _as_float(current.get("relative_humidity_2m")),
+            "condition": _open_meteo_condition(current.get("weather_code")),
+            "precipitation": precipitation,
+            "wind_speed": _as_float(current.get("wind_speed_10m")),
+            "wind_gust": _as_float(current.get("wind_gusts_10m")),
+        }.items()
+        if value is not None
+    }
     return AutoWeatherData(
         provider_domain=provider,
         fetched_at=dt_util.utcnow(),
@@ -967,6 +1557,11 @@ async def _fetch_auto_weather(
         wind_speed_kmh=_as_float(current.get("wind_speed_10m")),
         wind_gust_kmh=_as_float(current.get("wind_gusts_10m")),
         hourly_forecast=_normalize_open_meteo_hourly(payload),
+        measurement_sources=measurement_sources,
+        air_quality_values=air_quality_values,
+        air_quality_sources=air_quality_sources,
+        outdoor_co2_ppm=outdoor_co2,
+        outdoor_co2_source="cams_air_quality_model" if outdoor_co2 is not None else None,
     )
 
 
@@ -989,6 +1584,12 @@ def _point_in_ring(lat: float, lon: float, ring: list[Any], *, geojson: bool) ->
     j = len(points) - 1
     for i, (xi, yi) in enumerate(points):
         xj, yj = points[j]
+        # Treat an exact border point as covered. This is conservative for a
+        # safety warning and removes the old ray-casting ambiguity at district
+        # or warning-polygon borders.
+        cross = (lon - xi) * (yj - yi) - (lat - yi) * (xj - xi)
+        if abs(cross) <= 1e-10 and min(xi, xj) - 1e-10 <= lon <= max(xi, xj) + 1e-10 and min(yi, yj) - 1e-10 <= lat <= max(yi, yj) + 1e-10:
+            return True
         intersects = ((yi > lat) != (yj > lat)) and (
             lon < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi
         )
@@ -1066,6 +1667,283 @@ def _pick_info(payload: dict[str, Any]) -> dict[str, Any]:
     return infos[0]
 
 
+
+def _geometry_bbox(obj: Any) -> tuple[float, float, float, float] | None:
+    """Return west/south/east/north bounds for GeoJSON-like geometry."""
+    if not isinstance(obj, dict):
+        return None
+    if isinstance(obj.get("bbox"), list) and len(obj["bbox"]) >= 4:
+        try:
+            west, south, east, north = map(float, obj["bbox"][:4])
+            return west, south, east, north
+        except (TypeError, ValueError):
+            pass
+    values: list[tuple[float, float]] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, (list, tuple)):
+            if len(value) >= 2 and all(isinstance(item, (int, float)) for item in value[:2]):
+                values.append((float(value[0]), float(value[1])))
+                return
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            if "coordinates" in value:
+                visit(value["coordinates"])
+            for key in ("geometry", "geometries", "features"):
+                if key in value:
+                    visit(value[key])
+
+    visit(obj)
+    if not values:
+        return None
+    xs = [item[0] for item in values]
+    ys = [item[1] for item in values]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _nina_district_ars(value: Any) -> str | None:
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if len(digits) < 5:
+        return None
+    # NINA dashboard data is published at district/county level.  A district
+    # Regionalschluessel is represented by its first five digits plus 7 zeros.
+    return f"{digits[:5]}0000000"
+
+
+def _parse_nina_district_geometries(
+    payload: Any,
+) -> list[tuple[str, dict[str, Any], tuple[float, float, float, float] | None]]:
+    """Parse the BBK district geometry snapshot defensively.
+
+    The BBK asset is not part of the stable warning schema, so accept the
+    common FeatureCollection/list wrappers and several historical property
+    spellings.  If the format changes, callers safely fall back to the
+    nationwide source lists rather than guessing a region.
+    """
+    if isinstance(payload, dict) and isinstance(payload.get("features"), list):
+        features = payload["features"]
+    elif isinstance(payload, list):
+        features = payload
+    elif isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        features = payload["data"]
+    else:
+        return []
+
+    result: list[tuple[str, dict[str, Any], tuple[float, float, float, float] | None]] = []
+    for item in features:
+        if not isinstance(item, dict):
+            continue
+        properties = item.get("properties") if isinstance(item.get("properties"), dict) else item
+        code = None
+        for key in ("ars", "ARS", "rs", "RS", "ags", "AGS", "regionalschluessel", "Regionalschluessel", "id"):
+            if key in properties:
+                code = _nina_district_ars(properties.get(key))
+                if code:
+                    break
+        if code is None:
+            code = _nina_district_ars(item.get("id"))
+        geometry = item.get("geometry")
+        if code is None or not isinstance(geometry, dict):
+            continue
+        result.append((code, geometry, _geometry_bbox(geometry)))
+    return result
+
+
+async def _resolve_nina_region_arses(
+    session: aiohttp.ClientSession,
+    location: EffectiveLocation,
+    state: AutoProviderState,
+) -> list[str]:
+    """Resolve the current coordinate to current BKG district ARS values.
+
+    BKG's official VG250 WFS is the primary source. The older BBK Corona
+    geometry remains only a compatibility fallback. Multiple districts are
+    retained for an exact boundary point; final NINA warning GeoJSON still has
+    to contain the actual coordinate.
+    """
+    now = dt_util.utcnow()
+    key = (round(location.latitude, 3), round(location.longitude, 3))
+    if (
+        state.nina_region_key == key
+        and state.nina_region_arses
+        and _fresh(state.nina_region_at, timedelta(hours=12), now)
+    ):
+        return list(state.nina_region_arses)
+
+    delta = 0.03
+    try:
+        payload = await _get_json(
+            session,
+            _BKG_DISTRICT_WFS,
+            params={
+                "service": "WFS",
+                "version": "2.0.0",
+                "request": "GetFeature",
+                "typenames": "vg250_krs",
+                "bbox": (
+                    f"{location.longitude-delta:.6f},{location.latitude-delta:.6f},"
+                    f"{location.longitude+delta:.6f},{location.latitude+delta:.6f},EPSG:4326"
+                ),
+                "srsName": "EPSG:4326",
+                "outputFormat": "application/json",
+            },
+        )
+        features = payload.get("features") if isinstance(payload, dict) else None
+        matches: set[str] = set()
+        if isinstance(features, list):
+            for item in features:
+                if not isinstance(item, dict):
+                    continue
+                props = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+                code = None
+                for prop in ("ars", "ARS", "rs", "RS", "ags", "AGS"):
+                    if props.get(prop) is not None:
+                        code = _nina_district_ars(props.get(prop))
+                        if code:
+                            break
+                geometry = item.get("geometry")
+                if code and isinstance(geometry, dict) and _geojson_contains_point(
+                    geometry, location.latitude, location.longitude
+                ):
+                    matches.add(code)
+        if matches:
+            result = sorted(matches)
+            state.nina_region_key = key
+            state.nina_region_arses = result
+            state.nina_region_at = now
+            state.nina_region_source = "bkg_vg250"
+            return result
+    except Exception as exc:  # noqa: BLE001 - legacy safe fallback follows
+        _LOGGER.debug("BKG district resolution unavailable; using BBK fallback: %s", exc)
+
+    # Legacy BBK geometry fallback. Refresh daily so an old in-memory snapshot
+    # cannot survive for a week after the upstream asset changes.
+    if state.nina_districts is None or not _fresh(
+        state.nina_districts_at, timedelta(days=1), now
+    ):
+        payload = await _get_json(session, _NINA_DISTRICT_GEOMETRIES)
+        districts = _parse_nina_district_geometries(payload)
+        if not districts:
+            raise ValueError("NINA district geometry contains no usable districts")
+        state.nina_districts = districts
+        state.nina_districts_at = now
+    assert state.nina_districts is not None
+    matches: set[str] = set()
+    for ars, geometry, bbox in state.nina_districts:
+        if bbox is not None:
+            west, south, east, north = bbox
+            if not (west <= location.longitude <= east and south <= location.latitude <= north):
+                continue
+        if _geojson_contains_point(geometry, location.latitude, location.longitude):
+            matches.add(ars)
+    result = sorted(matches)
+    if result:
+        state.nina_region_key = key
+        state.nina_region_arses = result
+        state.nina_region_at = now
+        state.nina_region_source = "bbk_legacy_geometry"
+    return result
+
+
+async def _resolve_nina_region_ars(
+    session: aiohttp.ClientSession,
+    location: EffectiveLocation,
+    state: AutoProviderState,
+) -> str | None:
+    """Compatibility helper returning the first exact district match."""
+    matches = await _resolve_nina_region_arses(session, location, state)
+    return matches[0] if matches else None
+
+
+def _nina_source_from_item(item: dict[str, Any]) -> str:
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    provider = str(data.get("provider") or "").strip().lower()
+    aliases = {
+        "dwd": "dwd",
+        "mowas": "mowas",
+        "katwarn": "katwarn",
+        "biwapp": "biwapp",
+        "lhp": "lhp",
+        "police": "police",
+        "polizei": "police",
+    }
+    for token, source in aliases.items():
+        if token in provider:
+            return source
+    identifier = str(item.get("id") or payload.get("id") or "").lower()
+    prefixes = {
+        "dwd.": "dwd",
+        "mow.": "mowas",
+        "kat.": "katwarn",
+        "biw.": "biwapp",
+        "lhp.": "lhp",
+        "pol.": "police",
+    }
+    return next((source for prefix, source in prefixes.items() if identifier.startswith(prefix)), "mowas")
+
+
+async def _nina_regional_candidates(
+    session: aiohttp.ClientSession,
+    location: EffectiveLocation,
+    state: AutoProviderState,
+) -> tuple[str, dict[str, tuple[str, str, Any]]] | None:
+    arses = await _resolve_nina_region_arses(session, location, state)
+    if not arses:
+        return None
+    responses = await asyncio.gather(
+        *(_get_json(session, f"{_NINA_BASE}/dashboard/{ars}.json") for ars in arses),
+        return_exceptions=True,
+    )
+    # At an administrative boundary all matching dashboards matter. If one of
+    # them cannot be read, use the nationwide safety fallback instead of
+    # silently trusting an incomplete regional prefilter.
+    if any(not isinstance(response, list) for response in responses):
+        raise ValueError("NINA regional dashboard unavailable")
+    candidates: dict[str, tuple[str, str, Any]] = {}
+    for response in responses:
+        assert isinstance(response, list)
+        for item in response:
+            if not isinstance(item, dict):
+                continue
+            identifier = str(item.get("id") or "").strip()
+            payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            if not identifier or data.get("valid") is False:
+                continue
+            source = _nina_source_from_item(item)
+            version = str(payload.get("version") or item.get("version") or "")
+            candidates[identifier] = (source, version, item)
+    return arses[0], candidates
+
+
+async def _nina_nationwide_candidates(
+    session: aiohttp.ClientSession,
+) -> tuple[dict[str, tuple[str, str, Any]], dict[str, bool]]:
+    endpoints = ("mowas", "katwarn", "biwapp", "dwd", "lhp", "police")
+    responses = await asyncio.gather(
+        *(_get_json(session, f"{_NINA_BASE}/{name}/mapData.json") for name in endpoints),
+        return_exceptions=True,
+    )
+    if all(isinstance(item, Exception) for item in responses):
+        raise RuntimeError("all NINA map-data endpoints failed")
+    source_availability = {
+        f"nina_auto_{source}": isinstance(response, list)
+        for source, response in zip(endpoints, responses, strict=True)
+    }
+    candidates: dict[str, tuple[str, str, Any]] = {}
+    for source, response in zip(endpoints, responses, strict=True):
+        if not isinstance(response, list):
+            continue
+        for item in response:
+            if not isinstance(item, dict):
+                continue
+            identifier = str(item.get("id") or "").strip()
+            if identifier:
+                candidates[identifier] = (source, str(item.get("version") or ""), item)
+    return candidates, source_availability
+
 def _nina_parameter_text(info: dict[str, Any], *names: str) -> str:
     wanted = {name.lower() for name in names}
     params = info.get("parameter")
@@ -1116,38 +1994,37 @@ async def _fetch_nina_warnings(
     location: EffectiveLocation,
     state: AutoProviderState,
 ) -> AutoWarningData:
-    now = dt_util.utcnow()
-    # NINA/warnung.bund.de combines civil-protection and official warning
-    # sources. DWD is normalized as weather (soft severity semantics), while
-    # flood/police/civil sources can create a hard lock only from an explicit
-    # close/ventilation instruction.
-    endpoints = ("mowas", "katwarn", "biwapp", "dwd", "lhp", "police")
-    responses = await asyncio.gather(
-        *(_get_json(session, f"{_NINA_BASE}/{name}/mapData.json") for name in endpoints),
-        return_exceptions=True,
-    )
-    if all(isinstance(item, Exception) for item in responses):
-        raise RuntimeError("all NINA map-data endpoints failed")
-    candidates: dict[str, tuple[str, str, Any]] = {}
-    source_availability = {
-        f"nina_auto_{source}": isinstance(response, list)
-        for source, response in zip(endpoints, responses, strict=True)
-    }
-    for source, response in zip(endpoints, responses, strict=True):
-        if not isinstance(response, list):
-            continue
-        for item in response:
-            if not isinstance(item, dict):
-                continue
-            identifier = str(item.get("id") or "").strip()
-            if not identifier:
-                continue
-            candidates[identifier] = (source, str(item.get("version") or ""), item)
+    """Fetch Germany warnings for the actual location, then verify geometry.
 
-    # A nationwide NINA map can contain many simultaneous warnings.  Limit
-    # detail/GeoJSON fetches so the first uncached refresh does not create a
-    # burst of hundreds of concurrent HTTP requests.  Cached revisions bypass
-    # the semaphore entirely.
+    v0.11.1 downloaded all six nationwide map lists and resolved every active
+    German warning before it could know whether the warning covered the user.
+    v0.11.2 first maps the coordinate to a district ARS and uses NINA's official
+    ``dashboard/{ARS}.json`` endpoint as a regional candidate filter. Warning
+    GeoJSON remains the final authority, so district borders or broad district
+    matches cannot create a false local warning. If regional resolution itself
+    is unavailable, the former nationwide path remains as a safe fallback.
+    """
+    now = dt_util.utcnow()
+    region_ars: str | None = None
+    regional_mode = False
+    candidates: dict[str, tuple[str, str, Any]]
+    source_availability: dict[str, bool]
+
+    try:
+        regional = await _nina_regional_candidates(session, location, state)
+    except Exception as exc:  # noqa: BLE001 - safe nationwide fallback below
+        _LOGGER.debug("NINA regional prefilter unavailable; using nationwide fallback: %s", exc)
+        regional = None
+
+    if regional is not None:
+        region_ars, candidates = regional
+        regional_mode = True
+        source_availability = {"nina_auto_dashboard": True}
+        for source, _version, _item in candidates.values():
+            source_availability[f"nina_auto_{source}"] = True
+    else:
+        candidates, source_availability = await _nina_nationwide_candidates(session)
+
     detail_limit = asyncio.Semaphore(8)
 
     async def resolve(
@@ -1168,22 +2045,26 @@ async def _fetch_nina_warnings(
             geometry = None if isinstance(geometry_result, Exception) else geometry_result
             if detail is not None and isinstance(geometry, dict):
                 state.nina_cache[cache_key] = (now, detail, geometry)
+
+        source_key = f"nina_auto_{source}"
         if not isinstance(geometry, dict) or geometry.get("type") not in {
             "Feature", "FeatureCollection", "GeometryCollection", "Polygon", "MultiPolygon"
         }:
-            source_availability[f"nina_auto_{source}"] = False
+            source_availability[source_key] = False
             return None
+        # The regional dashboard deliberately only narrows candidates. Exact
+        # point-in-warning-polygon remains mandatory for every source.
         if not _geojson_contains_point(geometry, location.latitude, location.longitude):
             return None
         if detail is None:
-            source_availability[f"nina_auto_{source}"] = False
+            source_availability[source_key] = False
             return None
         if str(detail.get("status") or "Actual").lower() != "actual":
             return None
         try:
             return _nina_record(identifier, detail, source=source)
         except (ValueError, TypeError):
-            source_availability[f"nina_auto_{source}"] = False
+            source_availability[source_key] = False
             return None
 
     records = await asyncio.gather(
@@ -1194,29 +2075,31 @@ async def _fetch_nina_warnings(
         return_exceptions=True,
     )
     warnings = [item for item in records if isinstance(item, AutoWarningRecord)]
-    # Drop old cache revisions once the active map no longer references them.
-    active_prefixes = {
-        f"{source}:{identifier}:"
-        for identifier, (source, _version, _item) in candidates.items()
-    }
+
+    # Cache revisions are location-independent (detail + geometry). Keep them
+    # briefly across camper movement instead of redownloading the same warning
+    # every time the accepted GPS position changes.
     state.nina_cache = {
         key: value
         for key, value in state.nina_cache.items()
-        if any(key.startswith(prefix) for prefix in active_prefixes)
-        and _fresh(value[0], timedelta(hours=2), now)
+        if _fresh(value[0], timedelta(hours=2), now)
     }
+    record_errors = any(isinstance(item, Exception) for item in records)
+    all_available = all(source_availability.values()) if source_availability else True
+    active_sources = sorted({item.provider_domain for item in warnings})
     return AutoWarningData(
         provider_domain="nina_auto",
         fetched_at=now,
-        available=all(source_availability.values()) and not any(isinstance(item, Exception) for item in records),
+        available=all_available and not record_errors,
         country="DE",
         safety_source_key=_safety_location_key("warning", location),
         warnings=warnings,
-        error="nina_partial_failure" if not all(source_availability.values()) or any(isinstance(item, Exception) for item in records) else None,
+        error="nina_partial_failure" if not all_available or record_errors else None,
         coverage="civil_and_weather",
         source_availability=source_availability,
+        region_ars=region_ars,
+        active_sources=active_sources,
     )
-
 
 def _nws_record(feature: dict[str, Any]) -> AutoWarningRecord | None:
     props = feature.get("properties")
@@ -1573,7 +2456,10 @@ async def async_refresh_auto_providers(
         state.warning = None
         state.weather_attempted_at = None
         state.warning_attempted_at = None
-        state.nina_cache.clear()
+        # NINA detail/geometry cache is keyed by warning revision and remains
+        # valid across location changes; regional candidate filtering prevents
+        # unrelated warnings from being evaluated. Keep it to avoid refetching
+        # the same warning while a mobile tracker moves.
         state.meteoalarm_cache.clear()
         state.dwd_station = None
 

@@ -574,6 +574,12 @@ def _room_values(
         and station_topology_valid(entry, hardware_station)
         and station_is_fresh(hardware_state)
     )
+    manual_outdoor_co2 = _plausible_co2(
+        state_number(
+            hass, _manual_outdoor_entity(entry, CONF_OUTDOOR_CO2),
+            minimum=250.0, maximum=1_000_000.0,
+        ).value
+    )
 
     values = {
         # All temperatures exposed by this snapshot are Celsius. The frontend
@@ -614,11 +620,10 @@ def _room_values(
         "air_quality_measurement_type": weather.air_quality_measurement_type,
         "air_quality_values": dict(weather.air_quality_values),
         "co2_ppm": co2_ppm,
-        "outdoor_co2_ppm": _plausible_co2(
-            state_number(
-                hass, _manual_outdoor_entity(entry, CONF_OUTDOOR_CO2),
-                minimum=250.0, maximum=1_000_000.0,
-            ).value
+        "outdoor_co2_ppm": (
+            manual_outdoor_co2
+            if manual_outdoor_co2 is not None
+            else _plausible_co2(weather.outdoor_co2_ppm)
         ),
         "surface_temperature": _temperature_state_celsius(
             hass, subentry.data.get(CONF_SURFACE_TEMP)
@@ -1046,6 +1051,7 @@ def build_room_snapshot(
         co2=values["co2_ppm"],
         outdoor_co2=values.get("outdoor_co2_ppm"),
         window_open=bool(values["window_open"]),
+        has_window_contacts=bool(values.get("has_window_contacts")),
         window_data_status=str(values.get("window_data_status") or "not_configured"),
         open_minutes=values.get("open_minutes"),
         current_airing_qualified=bool(values.get("current_airing_qualified")),

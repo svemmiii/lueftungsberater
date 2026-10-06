@@ -1,10 +1,43 @@
+## v0.11.2 TEST
+
+### TEST COMPLETE(3): Temperatur-Wirksamkeit End-to-End korrigiert
+
+- Coordinator-Zirkelschluss der Temperatur-Wirksamkeit behoben: Die Session unterscheidet jetzt zwischen dem bereits gefilterten `active`-Status und `still_applicable`, also der Frage, ob der Temperaturgrund ohne seine eigene `temperature_session_exhausted`-Sperre weiterhin gelten würde.
+- Nach einem erfolglosen 15-Minuten-Versuch bleibt der Temperaturgrund deshalb nach der 30-Minuten-Mindestpause bei unveränderten Bedingungen wirklich unterdrückt, auch wenn die Engine ihn wegen derselben Sperre aus `active_reasons` entfernt hat.
+- Sofortige Reaktivierung bleibt wie vorgesehen bei ca. +0,8 K schlechterer Raumabweichung oder ca. +1 K besserem Temperaturvorteil draußen erhalten; spätestens nach zwei Stunden wird ein neuer Versuch zugelassen.
+- Die eigentliche 15-Minuten-Messung startet weiterhin nur bei einem real aktiven Temperaturgrund und bekannt geöffnetem Fenster. PM verwendet den neuen Rohzustand nicht und behält sein bisheriges automatisches 30-Minuten-Rearm-Verhalten.
+- Die Temperatur-Hysterese selbst bleibt unverändert: mit Fensterkontakt 1,0/0,6 K, ohne Fensterkontakt 4,0/3,0 K. DWD-, Luftqualitäts- und NINA-Providerlogik aus COMPLETE(2) bleibt unverändert.
+- Regressionstest bildet jetzt ausdrücklich den realen Coordinator-Fall `active=False` + `still_applicable=True` nach und verhindert damit den bisherigen ca. 45-Minuten-Retry-Zyklus.
+
+### TEST COMPLETE(2): Live-DWD, Warnregionen und kontaktlose Temperaturtoleranz
+
+- DWD-Live-Stationskatalog repariert: Der Parser unterstützt die aktuellen Spalten `Kennung`, `Geog_Breite`, `Geog_Laenge` und `Stationsname` zusätzlich zu den bisherigen Aliasnamen. Die Mehrstationslogik kann dadurch den echten aktuellen Stationskatalog wieder vollständig nutzen.
+- DWD-POI-Messungen werden nur noch als aktuelle Stationswerte akzeptiert, wenn ihr Beobachtungszeitpunkt plausibel und höchstens drei Stunden alt ist. Fehlende/unklare Zeitstempel oder deutlich zukünftige Werte fallen sicher auf den koordinatengenauen ICON-Current-Pfad zurück.
+- DWD-Werte bleiben zeitlich kohärent: pro Station wird die neueste vollständige Beobachtungszeile verwendet statt einzelne Felder aus mehreren Zeitpunkten zusammenzusetzen.
+- NINA-Kreiszuordnung verwendet primär den amtlichen BKG-VG250-WFS (`vg250_krs`) und behält die ältere BBK-Kreisgeometrie nur als Fallback. Das regionale Dashboard bleibt ausschließlich Vorfilter; die tatsächliche GeoJSON-Warnfläche entscheidet weiterhin endgültig über die Standortrelevanz.
+- Der standortunabhängige NINA Detail-/GeoJSON-Cache bleibt bei Wohnmobilbewegung erhalten; der widersprüchliche Regressionstest wurde an dieses beabsichtigte Verhalten angepasst.
+- Temperatur ohne Fensterkontakt erhält eine grobe Komfort-Hysterese von **4,0 K Start / 3,0 K Ende**. Mit Fensterkontakt bleiben die bestehenden **1,0 K / 0,6 K** sowie die bisherige feine Fortsetzungslogik unverändert. Andere Lüftungsgründe werden nicht abgeschwächt.
+- Temperatur-„bringt nichts“-Sessions mit Fensterkontakt starten nach 30 Minuten nicht mehr blind denselben Versuch. Bei praktisch unveränderten Bedingungen bleibt nur der Temperaturgrund zunächst pausiert; eine deutlich bessere Außenwirkung (ca. +1 K), eine Verschlechterung der Raumabweichung (ca. +0,8 K) oder spätestens die begrenzte 2-Stunden-Sperrzeit reaktiviert ihn.
+- Laufzeitfehler im neuen Wiederholungs-Timer behoben (`timedelta` im Coordinator korrekt importiert).
+
+### Automatische Standort-, Wetter-, Luftqualitäts- und Warnquellen
+
+- Deutsche Wetter-Messwerte werden nicht mehr blind von genau einer Station übernommen. Die nächsten DWD-POI-Stationen werden geografisch sortiert und jede Messgröße verwendet die nächstgelegene Station, die für diesen Wert tatsächlich einen aktuellen Messwert liefert.
+- Fällt die nächstgelegene DWD-Station aus oder fehlt ihr z. B. Feuchte/Wind/Niederschlag, wird für genau dieses Feld automatisch die nächste brauchbare Station versucht. Erst danach greift der koordinatengenaue DWD-ICON-Current-Fallback.
+- DWD-POI-Messzeilen werden als zusammenhängender Zeitpunkt gelesen; Temperatur, Feuchte und Wind werden nicht mehr aus unterschiedlichen Zeilen zusammengesammelt.
+- Der bereits angeforderte ICON-`current`-Block wird jetzt auch tatsächlich für aktuelle Fallback-Werte verwendet; der Stundenforecast bleibt Forecast.
+- Die Quelle jeder Wetter-Messgröße wird separat gespeichert (Provider, Station, Entfernung), damit Mischquellen in der Diagnose sichtbar sind.
+- Für deutsche Außenluft-Schadstoffe werden aktuelle UBA/Länder-Messstationen nach Entfernung geprüft. PM2.5, PM10, NO2, Ozon und SO2 verwenden pro Schadstoff die nächstgelegene Station, die diesen Stoff aktuell misst.
+- Fehlt ein realer Luftqualitäts-Messwert, dient CAMS/Open-Meteo koordinatengenau als Modell-/Kartenfallback. CO2 außen kann ebenfalls aus dem CAMS-Greenhouse-Gas-Modell ergänzt werden; ein manuell gesetzter Home-Assistant-Sensor behält immer Vorrang.
+- Deutsche Warnungen werden zuerst aus dem aktuellen Standort auf einen Kreis-ARS eingegrenzt und über NINAs regionalen `dashboard/{ARS}.json`-Endpunkt vorgefiltert.
+- Die Warnfläche selbst bleibt die letzte Sicherheitsinstanz: Jede Kandidatenwarnung muss den tatsächlichen Standort weiterhin per GeoJSON enthalten. Die Kreiszuordnung allein kann daher keine Warnung aktivieren.
+- Kann der Kreis nicht sicher bestimmt werden, bleibt der bisherige deutschlandweite NINA-Pfad als sicherer Fallback erhalten.
+- Die tatsächlichen aktiven Warnquellen (z. B. DWD, KATWARN, MoWaS, BIWAPP, LHP, Polizei) und der aufgelöste ARS werden in der Diagnose sichtbar gemacht.
+- Warnungs-Detail-/Geometriecache bleibt bei mobilen Standortänderungen erhalten, damit ein fahrendes Wohnmobil dieselben Warnungen nicht ständig erneut herunterladen muss.
+- Punkte exakt auf einer Warnpolygonkante gelten konservativ als innerhalb der Warnfläche.
+- Integrationsversion auf 0.11.2 angehoben.
+
 ## v0.11.1 TEST
-
-### TEST COMPLETE(4): Lifecycle-Test an neue Wirksamkeits-Subscription angepasst
-
-- Der Lifecycle-Hardening-Test initialisiert beim absichtlichen `object.__new__()`-Aufbau nun auch `_effectiveness_session_unsub = None`. Dadurch entspricht das künstliche Testobjekt wieder den Feldern, die der echte `LueftungsberaterRoomCoordinator.__init__()` seit COMPLETE(1) immer anlegt.
-- Die Produktionslogik von `async_shutdown()` bleibt unverändert. Der gemeldete `AttributeError` war auf die unvollständige Test-Fixture beschränkt; der nachfolgende „lingering task“-Fehler war lediglich die Folge des vorzeitig abgebrochenen Shutdowns vor `_drain_notification_tasks()`.
-- Wetter, Zonen, Temperatur-/Partikel-Wirksamkeit, PM-Ruhephase und die COMPLETE(3)-Enginekorrektur bleiben unverändert. Integrationsversion bleibt 0.11.1.
 
 ### TEST COMPLETE(3): PM-Ruhephase bleibt auf PM begrenzt
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from typing import Any
 
@@ -32,7 +32,7 @@ from .reason_sessions import (
     IndoorAirSessionState,
     EffectivenessSessionState,
 )
-from .engine import humidity_airing_can_improve
+from .engine import humidity_airing_can_improve, temperature_need_applicable
 from .hardware_display import async_queue_direct_display_result
 from .hardware_hub import (
     direct_station_entities,
@@ -914,15 +914,45 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 if ti is not None and target is not None
                 else None
             )
+            ta = snapshot.values.get("temperature_outside")
+            temp_context = None
+            if ti is not None and target is not None and ta is not None:
+                ti_f, target_f, ta_f = float(ti), float(target), float(ta)
+                if ti_f > target_f and ta_f < ti_f:
+                    temp_context = ti_f - ta_f
+                elif ti_f < target_f and ta_f > ti_f:
+                    temp_context = ta_f - ti_f
+                else:
+                    temp_context = 0.0
+            temperature_still_applicable = bool(
+                ti is not None
+                and target is not None
+                and ta is not None
+                and temperature_need_applicable(
+                    ti=float(ti),
+                    ta=float(ta),
+                    target=float(target),
+                    previous_mode=previous_mode,
+                    previous_need=previous_need,
+                    has_window_contacts=bool(
+                        snapshot.values.get("has_window_contacts")
+                    ),
+                )
+            )
             temp_decision = self._temperature_session.evaluate(
                 now=now_utc,
                 window_open=bool(snapshot.values.get("window_open")),
                 active="temperature" in active_reasons,
+                still_applicable=temperature_still_applicable,
                 metric=temp_metric,
                 min_improvement=0.3,
                 rearm_worsening=0.8,
                 urgent=False,
                 safety_lock=bool(snapshot.result.safety_lock),
+                context_metric=temp_context,
+                rearm_context_improvement=1.0,
+                hold_after_quiet_if_active=True,
+                max_suppression=timedelta(hours=2),
             )
             if temp_decision.next_check_seconds:
                 effectiveness_checks.append(temp_decision.next_check_seconds)

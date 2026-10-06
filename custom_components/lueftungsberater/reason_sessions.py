@@ -615,6 +615,8 @@ class EffectivenessSessionState:
     exhausted_at: datetime | None = None
     quiet_until: datetime | None = None
     reference_value: float | None = None
+    reference_context: float | None = None
+    retry_until: datetime | None = None
 
     def reset(self) -> None:
         self.session_active = False
@@ -625,6 +627,8 @@ class EffectivenessSessionState:
         self.exhausted_at = None
         self.quiet_until = None
         self.reference_value = None
+        self.reference_context = None
+        self.retry_until = None
 
     def _end_live(self) -> None:
         self.session_active = False
@@ -643,6 +647,8 @@ class EffectivenessSessionState:
             "exhausted_at": stamp(self.exhausted_at),
             "quiet_until": stamp(self.quiet_until),
             "reference_value": self.reference_value,
+            "reference_context": self.reference_context,
+            "retry_until": stamp(self.retry_until),
         }
 
     def restore(self, data: dict[str, Any], *, parse_dt) -> None:
@@ -654,6 +660,8 @@ class EffectivenessSessionState:
         self.exhausted_at = parse_dt(data.get("exhausted_at"))
         self.quiet_until = parse_dt(data.get("quiet_until"))
         self.reference_value = _float_or_none(data.get("reference_value"))
+        self.reference_context = _float_or_none(data.get("reference_context"))
+        self.retry_until = parse_dt(data.get("retry_until"))
         if self.session_active and (
             self.progress_anchor_at is None or self.progress_anchor_value is None
         ):
@@ -665,42 +673,66 @@ class EffectivenessSessionState:
         now: datetime,
         window_open: bool,
         active: bool,
+        still_applicable: bool | None = None,
         metric: float | None,
         min_improvement: float,
         rearm_worsening: float,
         urgent: bool = False,
         safety_lock: bool = False,
+        context_metric: float | None = None,
+        rearm_context_improvement: float | None = None,
+        hold_after_quiet_if_active: bool = False,
+        max_suppression: timedelta | None = None,
     ) -> EffectivenessSessionDecision:
-        # Expire a completed quiet phase independently from the availability of
-        # the current metric. A reason that is deliberately suppressed while
-        # exhausted may otherwise feed no active metric and could remain stuck
-        # forever after its 30-minute quiet period.
-        if self.quiet_until is not None and now >= self.quiet_until:
+        value = _float_or_none(metric)
+        context = _float_or_none(context_metric)
+        applicable = active if still_applicable is None else bool(still_applicable)
+
+        # A clearly renewed/worse indoor state, a health-level override, or a
+        # materially better outdoor opportunity may re-arm immediately.
+        value_rearmed = bool(
+            value is not None
+            and self.reference_value is not None
+            and value >= self.reference_value + max(0.0, rearm_worsening)
+        )
+        context_rearmed = bool(
+            context is not None
+            and self.reference_context is not None
+            and rearm_context_improvement is not None
+            and context >= self.reference_context + max(0.0, rearm_context_improvement)
+        )
+        if value_rearmed or context_rearmed or urgent:
             self.exhausted = False
             self.exhausted_at = None
             self.quiet_until = None
+            self.retry_until = None
             self.reference_value = None
+            self.reference_context = None
 
-        value = _float_or_none(metric)
+        # The normal PM behaviour still re-arms automatically after the 30 min
+        # quiet phase. Temperature can opt into a smarter hold: after 30 min it
+        # stays retired while the raw reason would still apply without its own
+        # exhausted filter and the outside opportunity has not improved, with an
+        # absolute retry ceiling.
+        if self.exhausted and self.quiet_until is not None and now >= self.quiet_until:
+            retry_expired = self.retry_until is not None and now >= self.retry_until
+            if not hold_after_quiet_if_active or not applicable or retry_expired:
+                self.exhausted = False
+                self.exhausted_at = None
+                self.quiet_until = None
+                self.retry_until = None
+                self.reference_value = None
+                self.reference_context = None
+
         if value is None:
             self._end_live()
             return self._decision(now, None)
-
-        # A clearly renewed/worse situation is allowed to break the calm state.
-        if (
-            self.reference_value is not None
-            and value >= self.reference_value + max(0.0, rearm_worsening)
-        ) or urgent:
-            self.exhausted = False
-            self.exhausted_at = None
-            self.quiet_until = None
-            self.reference_value = None
 
         if safety_lock:
             self._end_live()
             return self._decision(now, None)
 
-        disarmed = bool(self.exhausted and self.quiet_until is not None and now < self.quiet_until)
+        disarmed = bool(self.exhausted)
 
         if window_open and active and not disarmed and not self.session_active:
             self.session_active = True
@@ -723,7 +755,13 @@ class EffectivenessSessionState:
                         self.exhausted = True
                         self.exhausted_at = now
                         self.quiet_until = now + EFFECTIVENESS_QUIET
+                        self.retry_until = (
+                            now + max_suppression
+                            if hold_after_quiet_if_active and max_suppression is not None
+                            else self.quiet_until
+                        )
                         self.reference_value = value
+                        self.reference_context = context
                     else:
                         self.progress_anchor_at = now
                         self.progress_anchor_value = float(self.best_value)
@@ -737,12 +775,19 @@ class EffectivenessSessionState:
                 0.0,
                 (EFFECTIVENESS_PROGRESS_WINDOW - (now - self.progress_anchor_at)).total_seconds(),
             )
-        elif self.quiet_until is not None and now < self.quiet_until:
-            remaining = max(0.0, (self.quiet_until - now).total_seconds())
+        elif self.exhausted:
+            target = None
+            if self.quiet_until is not None and now < self.quiet_until:
+                target = self.quiet_until
+            elif self.retry_until is not None and now < self.retry_until:
+                target = self.retry_until
+            if target is not None:
+                remaining = max(0.0, (target - now).total_seconds())
         return EffectivenessSessionDecision(
             session_active=self.session_active,
             exhausted=self.exhausted,
-            disarmed=bool(self.exhausted and self.quiet_until is not None and now < self.quiet_until),
+            disarmed=bool(self.exhausted),
             progress_drop=progress_drop,
             next_check_seconds=remaining,
         )
+

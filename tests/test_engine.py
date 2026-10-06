@@ -3549,6 +3549,40 @@ def test_high_load_session_target_is_winter_friendly_but_not_looser_than_tradeof
     assert mild_good.co2_session_target <= cold_good.co2_session_target
 
 
+def test_no_window_contact_uses_broad_temperature_hysteresis():
+    # No contact means the integration cannot know whether ventilation is
+    # actually happening. Small target offsets must therefore stay calm.
+    assert evaluate_room(base(
+        indoor_temp=23.5, outdoor_temp=18.0, target_temp=22.0,
+        has_window_contacts=False,
+    )).decision_need != "temperature"
+    assert evaluate_room(base(
+        indoor_temp=25.9, outdoor_temp=18.0, target_temp=22.0,
+        has_window_contacts=False,
+    )).decision_need != "temperature"
+    assert evaluate_room(base(
+        indoor_temp=26.0, outdoor_temp=18.0, target_temp=22.0,
+        has_window_contacts=False,
+    )).decision_need == "temperature"
+
+
+def test_no_window_contact_temperature_continuation_releases_below_three_kelvin():
+    common = dict(
+        outdoor_temp=18.0, target_temp=22.0, has_window_contacts=False,
+        previous_mode="kuehlen", previous_need="temperature",
+    )
+    assert evaluate_room(base(indoor_temp=25.1, **common)).decision_need == "temperature"
+    assert evaluate_room(base(indoor_temp=24.9, **common)).decision_need != "temperature"
+
+
+def test_window_contact_keeps_existing_fine_temperature_tolerance():
+    result = evaluate_room(base(
+        indoor_temp=23.0, outdoor_temp=18.0, target_temp=22.0,
+        has_window_contacts=True,
+    ))
+    assert result.decision_need == "temperature"
+
+
 def test_exhausted_temperature_session_does_not_keep_temperature_reason_active():
     normal = evaluate_room(base(indoor_temp=25, outdoor_temp=18, target_temp=22, window_open=True))
     assert "temperature" in normal.active_reasons

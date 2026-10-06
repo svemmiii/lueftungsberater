@@ -267,6 +267,9 @@ class WeatherAssessment:
     provider_station_id: str | None = None
     provider_station_name: str | None = None
     provider_station_distance_km: float | None = None
+    measurement_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
+    outdoor_co2_ppm: float | None = None
+    outdoor_co2_source: str | None = None
     radar_current_entity: str | None = None
     radar_next_entity: str | None = None
     wind_speed_kmh: float | None = None
@@ -323,6 +326,8 @@ class WarningAssessment:
     provider_availability: dict[str, bool] = field(default_factory=dict)
     provider_coverage: str | None = None
     provider_error: str | None = None
+    provider_region_ars: str | None = None
+    provider_active_sources: list[str] = field(default_factory=list)
 
 
 def _float(value: Any) -> float | None:
@@ -1197,13 +1202,26 @@ def _automatic_weather_assessment(
         result.provider_station_id = data.station_id
         result.provider_station_name = data.station_name
         result.provider_station_distance_km = data.station_distance_km
+        result.measurement_sources = dict(data.measurement_sources)
         result.safety_source_key = data.safety_source_key
         result.temperature = data.temperature
         result.humidity = data.humidity
+        result.outdoor_co2_ppm = data.outdoor_co2_ppm
+        result.outdoor_co2_source = data.outdoor_co2_source
         result.temperature_source_kind = "automatic_weather" if data.temperature is not None else "unavailable"
         result.humidity_source_kind = "automatic_weather" if data.humidity is not None else "unavailable"
-        result.source_temperature = data.provider_domain
-        result.source_humidity = data.provider_domain
+        temp_source = data.measurement_sources.get("temperature", {})
+        humidity_source = data.measurement_sources.get("humidity", {})
+        result.source_temperature = (
+            f"{temp_source.get('provider')}:{temp_source.get('station_id')}"
+            if temp_source.get("station_id")
+            else str(temp_source.get("provider") or data.provider_domain)
+        )
+        result.source_humidity = (
+            f"{humidity_source.get('provider')}:{humidity_source.get('station_id')}"
+            if humidity_source.get("station_id")
+            else str(humidity_source.get("provider") or data.provider_domain)
+        )
         result.wind_speed_kmh = data.wind_speed_kmh
         result.wind_gust_kmh = data.wind_gust_kmh
         result.source_wind = data.safety_source_key if data.wind_speed_kmh is not None else None
@@ -1211,6 +1229,23 @@ def _automatic_weather_assessment(
         result.hourly_forecast = list(data.hourly_forecast)
         result.hourly_forecast_updated = data.fetched_at
         result.forecast_data_status = "fresh" if data.hourly_forecast else "unavailable"
+        result.air_quality_values = dict(data.air_quality_values)
+        result.air_quality_sources = dict(data.air_quality_sources)
+        worst_class = "unknown"
+        worst_kind = None
+        worst_value = None
+        for kind, value in result.air_quality_values.items():
+            classification = _air_quality_class(kind, value)
+            if classification != "unknown" and AIR_QUALITY_RANK[classification] > AIR_QUALITY_RANK[worst_class]:
+                worst_class = classification
+                worst_kind = kind
+                worst_value = value
+        if worst_kind is not None:
+            result.air_quality_index = worst_class
+            result.air_quality_pollutant = worst_kind
+            result.air_quality_value = worst_value
+            result.air_quality_unit = "µg/m³"
+            result.air_quality_measurement_type = "mass"
         condition = str(data.condition or "")
         result.rain_now = bool((data.precipitation or 0.0) > 0 or condition in RAIN_CONDITIONS)
         if condition == "pouring":
@@ -2374,6 +2409,8 @@ def _automatic_warning_assessment(
     result.safety_source_key = data.safety_source_key or None
     result.provider_coverage = data.coverage
     result.provider_error = data.error
+    result.provider_region_ars = data.region_ars
+    result.provider_active_sources = list(data.active_sources)
     if data.safety_source_key:
         result.provider_availability[data.safety_source_key] = bool(data.available)
         for domain, available in data.source_availability.items():
@@ -2467,6 +2504,8 @@ def _copy_warning_assessment(target: WarningAssessment, source: WarningAssessmen
     target.provider_domain = source.provider_domain
     target.provider_coverage = source.provider_coverage
     target.provider_error = source.provider_error
+    target.provider_region_ars = source.provider_region_ars
+    target.provider_active_sources = list(source.provider_active_sources)
     target.warning_ids = set(source.warning_ids)
     target.source_nina_entity = source.source_nina_entity
     target.source_weather_entity = source.source_weather_entity

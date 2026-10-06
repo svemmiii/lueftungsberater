@@ -18,6 +18,9 @@ class RoomInput:
     co2: float | None = None
     outdoor_co2: float | None = None
     window_open: bool = False
+    # Keep the pure-engine default compatible with historical callers/tests.
+    # Runtime passes the actual room capability explicitly.
+    has_window_contacts: bool = True
     window_data_status: str = "not_configured"
     open_minutes: float | None = None
     current_airing_qualified: bool = False

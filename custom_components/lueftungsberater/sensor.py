@@ -463,9 +463,12 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "source_no2_inside": self.subentry.data.get(CONF_INDOOR_NO2),
             "source_formaldehyde_inside": self.subentry.data.get(CONF_INDOOR_FORMALDEHYDE),
             "source_outdoor_co2": (
-                (self.entry.data.get(CONF_MANUAL_OUTDOOR) or {}).get(CONF_OUTDOOR_CO2)
-                if isinstance(self.entry.data.get(CONF_MANUAL_OUTDOOR), dict)
-                else self.entry.data.get(CONF_OUTDOOR_CO2)
+                (
+                    (self.entry.data.get(CONF_MANUAL_OUTDOOR) or {}).get(CONF_OUTDOOR_CO2)
+                    if isinstance(self.entry.data.get(CONF_MANUAL_OUTDOOR), dict)
+                    else self.entry.data.get(CONF_OUTDOOR_CO2)
+                )
+                or weather.outdoor_co2_source
             ),
             "source_pm25_outside": weather.air_quality_sources.get("pm2_5"),
             "source_pm10_outside": weather.air_quality_sources.get("pm10"),
@@ -512,9 +515,12 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 if weather.provider_station_distance_km is not None
                 else None
             ),
+            "weather_measurement_sources": dict(weather.measurement_sources),
             "warning_provider": warnings.provider_domain,
             "warning_provider_coverage": warnings.provider_coverage,
             "warning_provider_error": warnings.provider_error,
+            "warning_region_ars": warnings.provider_region_ars,
+            "warning_active_sources": list(warnings.provider_active_sources),
             "radar_current_entity": weather.radar_current_entity,
             "radar_next_entity": weather.radar_next_entity,
             "source_wind_outside": weather.source_wind,

@@ -84,7 +84,6 @@ async def test_room_coordinator_shutdown_drains_notification_tasks_before_cleari
     coordinator._source_registry_unsub = None
     coordinator._co2_hysteresis_unsub = None
     coordinator._humidity_session_unsub = None
-    coordinator._effectiveness_session_unsub = None
     coordinator._indoor_air_session_unsub = None
     coordinator._unsubs = []
     coordinator._notification_tasks = set()
