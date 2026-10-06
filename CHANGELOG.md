@@ -1,5 +1,33 @@
 ## v0.11.2 TEST
 
+### TEST COMPLETE(6): vergangene Night-Memory-Grenzzeit entfernt
+
+- Final-Hour-Memory behält einen noch gültigen `short_only`-Plan weiterhin bis zu dessen `end_time`, entfernt aber ein bereits vergangenes `limit_time` sofort aus den gespeicherten Argumenten.
+- Dadurch kann eine alte Grenze wie `05:45` um `05:55` nicht mehr als zukünftiges „Ab etwa 05:45 …“ erscheinen; die Lokalisierung fällt stattdessen auf die zeitlose aktuelle Warnung für zu kalte/warme Außenluft zurück.
+- Der bereinigte Plan wird auch als Memory zurückgegeben, sodass der vergangene Zeitpunkt beim nächsten Coordinator-Lauf nicht wieder auftaucht.
+- Zeitzonenfix, 4/3-K-Regel ohne Fensterkontakt, DWD/NINA und übrige Nachtlogik bleiben unverändert.
+
+
+### TEST COMPLETE(5): Nachtlüftung – lokale Uhrzeit und 4/3-K-Regel ohne Fensterkontakt
+
+- Nachtplan-Zeitpunkte werden vor dem Speichern der sichtbaren `start_time`, `end_time` und `limit_time` konsequent in die lokale Zeitzone des aktuellen Home-Assistant-Zeitpunkts umgerechnet. Ein Forecast `22:00+00:00` erscheint in Deutschland im Sommer dadurch als `00:00+02:00` statt fälschlich als „22:00“ in einem bereits laufenden 22:44-Uhr-Plan.
+- Die neue grobe Temperaturtoleranz für Räume **ohne Fensterkontakt** gilt jetzt auch in der Nachtlüftung: 4,0 K zum Start eines thermischen Nachtplans und 3,0 K zum Fortsetzen eines bereits gemerkten thermischen Nachtplans.
+- Räume **mit Fensterkontakt** behalten die bestehende empfindlichere Nachtkarten-Logik unverändert. Die Änderung betrifft ausschließlich die Weitergabe der No-Contact-Regel an Nachtplaner und Nacht-Memory.
+- Die 4/3-K-Werte kommen über die zentrale Engine-Toleranzfunktion; Nachtplaner und Memory deklarieren die No-Contact-Grenzen nicht erneut separat.
+- Die Night-Memory verwendet dieselbe `night_temperature_need()`-Entscheidung wie der Nachtplaner. Damit kann sie nicht mehr mit einer eigenen `target + 0.5`-Formel von der No-Contact-Regel abweichen.
+- Regressionstest ergänzt: Ausfall des regionalen NINA-`dashboard/{ARS}` muss automatisch auf den deutschlandweiten Quellenpfad zurückfallen.
+- Verpackung bereinigt: der veraltete `TEST_REPORT_COMPLETE_4.md` ist nicht mehr enthalten.
+- Integrationsversion bleibt **v0.11.2**; DWD-, NINA-, PM- und Temperatur-Wirksamkeitslogik aus COMPLETE(4) bleibt unverändert.
+
+### TEST COMPLETE(4): GitHub-Actions-Regressions bereinigt
+
+- Ruff-Fehler in der NINA-Regionalabfrage behoben: die nicht mehr verwendete Variable `regional_mode` wurde entfernt.
+- Wetter-Regressionstests isolieren den optionalen CAMS-/Luftqualitätsaufruf jetzt ausdrücklich. Dadurch prüfen sie wieder nur den beabsichtigten DWD-/ICON-Pfad und hängen nicht von einem zusätzlichen `_get_json()`-Aufruf ab.
+- Der mobile Deutschland-Wechseltest erwartet wieder exakt die zwei Wetterabrufe (globales Modell zur Länderauflösung, danach DWD ICON); die Luftqualitätsabfrage wird separat gemockt.
+- Der NINA-Partial-Outage-Test erzwingt ausdrücklich den deutschlandweiten Fallbackpfad. Damit prüft er weiterhin gezielt, dass z. B. ein BIWAPP-Ausfall eine weiterhin gesunde MoWaS-Quelle nicht fälschlich auf `False` setzt, ohne vom neuen regionalen ARS-Vorfilter beeinflusst zu werden.
+- Lifecycle-Hardening-Test an das seit v0.11.2 vorhandene `_effectiveness_session_unsub`-Handle angepasst. Der vorherige `AttributeError` entstand ausschließlich durch das absichtlich per `object.__new__()` erzeugte, unvollständige Testobjekt; der gemeldete lingering notification task war dessen Folgefehler.
+- Produktionslogik für DWD, NINA, Temperatur-Wirksamkeit, 4/3-K-Regel ohne Fensterkontakt und PM wurde durch diesen CI-Fix nicht verändert.
+
 ### TEST COMPLETE(3): Temperatur-Wirksamkeit End-to-End korrigiert
 
 - Coordinator-Zirkelschluss der Temperatur-Wirksamkeit behoben: Die Session unterscheidet jetzt zwischen dem bereits gefilterten `active`-Status und `still_applicable`, also der Frage, ob der Temperaturgrund ohne seine eigene `temperature_session_exhausted`-Sperre weiterhin gelten würde.

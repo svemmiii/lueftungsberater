@@ -285,6 +285,20 @@ def test_short_only_night_advice_is_localized_in_all_languages():
             assert fragment.lower() in text.lower()
 
 
+def test_short_only_without_future_limit_uses_current_generic_temperature_warning():
+    from custom_components.lueftungsberater.localization import night_advice_text
+
+    args = {
+        "temperature_limit_direction": "cold",
+        "thermal_need": True,
+        "humidity_need": False,
+        "current_thermal_advantage": True,
+    }
+    text = night_advice_text("night_short_only", args, "de", "°C")
+    assert "Ab etwa" not in text
+    assert "Außenluft zu kalt" in text
+
+
 def test_not_recommended_night_advice_is_localized_in_all_languages():
     from custom_components.lueftungsberater.localization import night_advice_text
 

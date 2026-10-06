@@ -2006,7 +2006,6 @@ async def _fetch_nina_warnings(
     """
     now = dt_util.utcnow()
     region_ars: str | None = None
-    regional_mode = False
     candidates: dict[str, tuple[str, str, Any]]
     source_availability: dict[str, bool]
 
@@ -2018,7 +2017,6 @@ async def _fetch_nina_warnings(
 
     if regional is not None:
         region_ars, candidates = regional
-        regional_mode = True
         source_availability = {"nina_auto_dashboard": True}
         for source, _version, _item in candidates.values():
             source_availability[f"nina_auto_{source}"] = True

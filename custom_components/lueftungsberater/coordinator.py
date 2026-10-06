@@ -66,7 +66,12 @@ from .notifications import (
 )
 from .time_utils import clamp_not_future, timestamp_is_fresh, utc_timeline
 from .outside import async_get_or_create_outside_coordinator, get_outside_coordinator
-from .night import NightAdvice, display_interval, stabilize_night_advice
+from .night import (
+    NightAdvice,
+    display_interval,
+    night_temperature_need,
+    stabilize_night_advice,
+)
 from .runtime import RoomSnapshot, build_room_snapshot, room_co2_window_values, room_source_entities
 
 _LOGGER = logging.getLogger(__name__)
@@ -489,15 +494,37 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
 
         # If the actual reason for a long night opening is gone, do not preserve
         # an old plan merely for visual stability. CO2 alone intentionally does
-        # not create the all-night hint, matching night.py.
+        # not create the all-night hint, matching night.py.  The no-contact
+        # temperature tolerance must be identical to the night planner's 4/3 K
+        # rule rather than re-declared here.
+        memory_valid = (
+            self._night_memory is not None
+            and self._night_memory_start == start
+            and self._night_memory_end == end
+        )
+        previous = self._night_memory if memory_valid else None
+
         ti = values.get("temperature_inside")
         hi = values.get("humidity_inside")
         target = values.get("target_temperature")
-        planning_need = (
+        previous_thermal = bool(
+            previous is not None and previous.reason_args.get("thermal_need")
+        )
+        thermal_need = bool(
+            ti is not None
+            and target is not None
+            and night_temperature_need(
+                indoor_temp=float(ti),
+                target_temp=float(target),
+                has_window_contacts=bool(values.get("has_window_contacts")),
+                already_active=previous_thermal,
+            )
+        )
+        planning_need = bool(
             ti is not None
             and hi is not None
             and target is not None
-            and (float(ti) > float(target) + 0.5 or float(hi) >= 60.0)
+            and (thermal_need or float(hi) >= 60.0)
         )
         if not planning_need:
             self._clear_night_memory()
@@ -507,13 +534,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         # disappear. Keep that state eligible for the same final-hour memory as
         # the long-opening states.
         current_delta_ok = True
-
-        memory_valid = (
-            self._night_memory is not None
-            and self._night_memory_start == start
-            and self._night_memory_end == end
-        )
-        previous = self._night_memory if memory_valid else None
         chosen, remembered = stabilize_night_advice(
             now=now,
             interval_end=end,

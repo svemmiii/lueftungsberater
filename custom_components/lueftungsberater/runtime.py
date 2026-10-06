@@ -1158,6 +1158,7 @@ def build_room_snapshot(
         air_quality_trend=str(values.get("air_quality_trend") or "unknown"),
         live_recommendation_key=result.recommendation_key,
         live_mode=result.mode,
+        has_window_contacts=bool(values.get("has_window_contacts")),
     )
     values["night_ventilation_status"] = night_advice.status
     values["night_ventilation_key"] = night_advice.reason_key

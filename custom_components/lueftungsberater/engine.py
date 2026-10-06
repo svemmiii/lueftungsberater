@@ -26,6 +26,17 @@ TEMP_NEED_ON_NO_CONTACT = 4.0
 TEMP_NEED_OFF_NO_CONTACT = 3.0
 
 
+def temperature_need_limits(*, has_window_contacts: bool) -> tuple[float, float]:
+    """Return the shared temperature start/end hysteresis in kelvin.
+
+    Consumers that make their own presentation/planning decision must use these
+    values instead of re-declaring the no-contact 4/3 K rule.
+    """
+    if has_window_contacts:
+        return TEMP_NEED_ON, TEMP_NEED_OFF
+    return TEMP_NEED_ON_NO_CONTACT, TEMP_NEED_OFF_NO_CONTACT
+
+
 def _previous_co2_context(previous_mode: str, previous_need: str) -> bool:
     return previous_need in {"co2_elevated", "co2_high", "co2_critical"} or previous_mode in {
         "co2_kritisch",
@@ -515,8 +526,9 @@ def temperature_need_applicable(
     """
     temperature_delta = abs(ti - target)
     temperature_hysteresis = previous_need == "temperature"
-    temp_on = TEMP_NEED_ON if has_window_contacts else TEMP_NEED_ON_NO_CONTACT
-    temp_off = TEMP_NEED_OFF if has_window_contacts else TEMP_NEED_OFF_NO_CONTACT
+    temp_on, temp_off = temperature_need_limits(
+        has_window_contacts=has_window_contacts
+    )
     temperature_start = (
         temperature_delta >= (temp_off if temperature_hysteresis else temp_on)
         and _temperature_moves_toward_target(ti, ta, target)

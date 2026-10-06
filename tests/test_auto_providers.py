@@ -254,10 +254,16 @@ async def test_german_auto_weather_uses_dwd_icon_and_normalizes_current_forecast
             "wind_gusts_10m": [35.0],
         },
     }
-    with patch(
-        "custom_components.lueftungsberater.auto_providers._get_json",
-        AsyncMock(return_value=payload),
-    ) as get_json:
+    with (
+        patch(
+            "custom_components.lueftungsberater.auto_providers._get_json",
+            AsyncMock(return_value=payload),
+        ) as get_json,
+        patch(
+            "custom_components.lueftungsberater.auto_providers._fetch_coordinate_air_quality",
+            AsyncMock(return_value=({}, {}, None)),
+        ),
+    ):
         result = await _fetch_auto_weather(object(), _location(), "DE")
 
     assert result.provider_domain == "dwd_icon"
@@ -290,10 +296,16 @@ async def test_mobile_location_switches_to_dwd_after_timezone_country_resolution
         source="device_tracker.wohnmobil",
         updated_at=NOW,
     )
-    with patch(
-        "custom_components.lueftungsberater.auto_providers._get_json",
-        AsyncMock(side_effect=[generic, dwd]),
-    ) as get_json:
+    with (
+        patch(
+            "custom_components.lueftungsberater.auto_providers._get_json",
+            AsyncMock(side_effect=[generic, dwd]),
+        ) as get_json,
+        patch(
+            "custom_components.lueftungsberater.auto_providers._fetch_coordinate_air_quality",
+            AsyncMock(return_value=({}, {}, None)),
+        ),
+    ):
         result = await _fetch_auto_weather(object(), tracker_location, None)
 
     assert get_json.await_count == 2

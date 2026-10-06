@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from custom_components.lueftungsberater.night import (
     NightAdvice,
     evaluate_night_ventilation,
+    night_temperature_need,
     stabilize_night_advice,
     display_interval,
 )
@@ -454,6 +455,39 @@ def test_final_hour_holds_last_reliable_night_advice_when_forecast_thins_out():
     )
     assert chosen.status == "now"
     assert remembered is previous
+
+
+def test_final_hour_memory_drops_past_limit_time_without_expiring_plan():
+    now = datetime(2026, 8, 25, 5, 55, tzinfo=TZ)
+    end = datetime(2026, 8, 25, 6, 0, tzinfo=TZ)
+    previous = NightAdvice(
+        "short_only",
+        "night_short_only",
+        {
+            "start_time": datetime(2026, 8, 25, 5, 0, tzinfo=TZ).isoformat(),
+            "limit_time": datetime(2026, 8, 25, 5, 45, tzinfo=TZ).isoformat(),
+            "end_time": end.isoformat(),
+            "temperature_limit_direction": "cold",
+            "current_thermal_advantage": True,
+            "thermal_need": True,
+        },
+    )
+
+    chosen, remembered = stabilize_night_advice(
+        now=now,
+        interval_end=end,
+        raw=NightAdvice(),
+        previous=previous,
+        planning_need=True,
+        current_delta_ok=False,
+    )
+
+    assert chosen.status == "short_only"
+    assert "limit_time" not in chosen.reason_args
+    assert remembered is not None
+    assert "limit_time" not in remembered.reason_args
+    assert remembered.reason_args["end_time"] == end.isoformat()
+    assert remembered.reason_args["temperature_limit_direction"] == "cold"
 
 
 def test_final_hour_hard_safety_overrides_but_does_not_replace_base_plan():
@@ -916,7 +950,7 @@ def test_tiny_cooling_need_does_not_justify_many_hours_of_very_cold_air():
         now=NOW,
         indoor_temp=25,
         indoor_humidity=50,
-        target_temp=24.4,
+        target_temp=23.9,
         outdoor_temp=16,
         outdoor_humidity=50,
         hourly_forecast=forecast(temps=[16, 16, 16, 16]),
@@ -957,3 +991,98 @@ def test_dry_but_much_hotter_air_does_not_override_active_cooling_need():
     )
     assert result.status == "not_recommended"
     assert result.reason_args["current_thermal_disadvantage"] is True
+
+
+
+def test_night_no_window_contact_uses_four_kelvin_start_threshold():
+    below = evaluate_night_ventilation(
+        now=NOW,
+        indoor_temp=27.9,
+        indoor_humidity=50,
+        target_temp=24.0,
+        outdoor_temp=23.0,
+        outdoor_humidity=50,
+        hourly_forecast=forecast(temps=[23, 22, 21, 20]),
+        has_window_contacts=False,
+    )
+    at_limit = evaluate_night_ventilation(
+        now=NOW,
+        indoor_temp=28.0,
+        indoor_humidity=50,
+        target_temp=24.0,
+        outdoor_temp=23.0,
+        outdoor_humidity=50,
+        hourly_forecast=forecast(temps=[23, 22, 21, 20]),
+        has_window_contacts=False,
+    )
+    assert below.status == "unavailable"
+    assert at_limit.status in {"now", "conditional", "short_only"}
+    assert at_limit.reason_args["thermal_need"] is True
+
+
+def test_night_window_contact_keeps_existing_sensitive_threshold():
+    result = evaluate_night_ventilation(
+        now=NOW,
+        indoor_temp=24.6,
+        indoor_humidity=50,
+        target_temp=24.0,
+        outdoor_temp=23.8,
+        outdoor_humidity=50,
+        hourly_forecast=forecast(temps=[23.8, 23.6, 23.4, 23.2]),
+        has_window_contacts=True,
+    )
+    assert result.status != "unavailable"
+    assert result.reason_args["thermal_need"] is True
+
+
+def test_night_no_contact_temperature_continuation_uses_three_kelvin_release():
+    assert night_temperature_need(
+        indoor_temp=27.1,
+        target_temp=24.0,
+        has_window_contacts=False,
+        already_active=True,
+    )
+    assert not night_temperature_need(
+        indoor_temp=26.9,
+        target_temp=24.0,
+        has_window_contacts=False,
+        already_active=True,
+    )
+
+
+def test_night_reason_times_are_serialized_in_local_wall_clock():
+    # 22:00 UTC is midnight in Berlin on this date.  The planner compares the
+    # point correctly as future data; the user-facing time must not say 22:00.
+    now = datetime(2026, 10, 6, 22, 44, tzinfo=TZ)
+    rows = [
+        {
+            "datetime": datetime(2026, 10, 6, 22, 0, tzinfo=timezone.utc),
+            "temperature": 10,
+            "humidity": 50,
+            "condition": "clear-night",
+            "precipitation_probability": 0,
+            "wind_speed": 10,
+            "wind_gust_speed": 20,
+        },
+        {
+            "datetime": datetime(2026, 10, 6, 23, 0, tzinfo=timezone.utc),
+            "temperature": 10,
+            "humidity": 50,
+            "condition": "clear-night",
+            "precipitation_probability": 0,
+            "wind_speed": 10,
+            "wind_gust_speed": 20,
+        },
+    ]
+    result = evaluate_night_ventilation(
+        now=now,
+        indoor_temp=25.0,
+        indoor_humidity=50,
+        target_temp=22.0,
+        outdoor_temp=20.0,
+        outdoor_humidity=50,
+        hourly_forecast=rows,
+        has_window_contacts=True,
+    )
+    assert result.status == "short_only"
+    assert result.reason_args["limit_time"].startswith("2026-10-07T00:00:00+02:00")

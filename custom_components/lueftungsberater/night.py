@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .engine import AH_NEUTRAL, absolute_humidity
+from .engine import AH_NEUTRAL, absolute_humidity, temperature_need_limits
 
 NIGHT_MAX_TEMP_DELTA = 9.0
 NIGHT_TARGET_OVERSHOOT_MARGIN = 4.0
@@ -103,6 +103,42 @@ def _timeline(value: datetime) -> datetime:
     return value.astimezone(timezone.utc) if value.tzinfo is not None else value
 
 
+def _local_display_iso(value: datetime, now: datetime) -> str:
+    """Serialize a plan timestamp in the same local zone as ``now``.
+
+    Home Assistant weather forecasts commonly arrive as UTC timestamps.  Night
+    planning compares them correctly on an absolute timeline, but user-facing
+    clock text must use the Home Assistant/local wall clock rather than the
+    source timestamp's offset.
+    """
+    if value.tzinfo is not None and now.tzinfo is not None:
+        value = value.astimezone(now.tzinfo)
+    return value.isoformat()
+
+
+def night_temperature_need(
+    *,
+    indoor_temp: float,
+    target_temp: float,
+    has_window_contacts: bool,
+    already_active: bool = False,
+) -> bool:
+    """Return whether temperature alone justifies a night-cooling plan.
+
+    Rooms with a window contact deliberately keep the established night-card
+    sensitivity.  Without a contact, the planner must respect the same broad
+    4 K start / 3 K continuation tolerance as the main assistant, because it
+    cannot know whether an earlier recommendation was actually followed.
+    """
+    if indoor_temp <= target_temp:
+        return False
+    delta = indoor_temp - target_temp
+    if has_window_contacts:
+        return delta > 0.5
+    temp_on, temp_off = temperature_need_limits(has_window_contacts=False)
+    return delta >= (temp_off if already_active else temp_on)
+
+
 
 def _parse_advice_time(advice: NightAdvice, key: str) -> datetime | None:
     raw = advice.reason_args.get(key)
@@ -120,6 +156,23 @@ def _advice_expired(advice: NightAdvice, now: datetime) -> bool:
     end = _parse_advice_time(advice, "end_time")
     return end is not None and _timeline(end) <= _timeline(now)
 
+
+def _sanitize_held_limit_time(advice: NightAdvice, now: datetime) -> NightAdvice:
+    """Drop a remembered future-limit once that limit is already in the past.
+
+    Final-hour memory may intentionally keep a cautious ``short_only`` plan
+    until its ``end_time``.  Its old ``limit_time`` must not survive past the
+    actual limit, however, or localization would describe a past clock time as
+    if it were still upcoming.  Keep the strategy and limit direction, only
+    remove the stale timestamp.
+    """
+    limit = _parse_advice_time(advice, "limit_time")
+    if limit is None or _timeline(limit) > _timeline(now):
+        return advice
+
+    args = dict(advice.reason_args)
+    args.pop("limit_time", None)
+    return NightAdvice(advice.status, advice.reason_key, args, advice.safety_block)
 
 
 def _advance_held_advice(advice: NightAdvice, now: datetime) -> NightAdvice:
@@ -164,6 +217,8 @@ def stabilize_night_advice(
 
     if previous is not None and _advice_expired(previous, now):
         previous = None
+    elif previous is not None:
+        previous = _sanitize_held_limit_time(previous, now)
 
     if raw.safety_block:
         # Hard official/weather protection always wins, but must not overwrite
@@ -493,6 +548,7 @@ def evaluate_night_ventilation(
     air_quality_trend: str = "unknown",
     live_recommendation_key: str | None = None,
     live_mode: str | None = None,
+    has_window_contacts: bool = True,
 ) -> NightAdvice:
     """Return a reason-aware night strategy using live state plus forecast.
 
@@ -528,7 +584,11 @@ def evaluate_night_ventilation(
     if len(raw_points) < 2:
         return NightAdvice()
 
-    thermal_need = indoor_temp > target_temp + 0.5
+    thermal_need = night_temperature_need(
+        indoor_temp=indoor_temp,
+        target_temp=target_temp,
+        has_window_contacts=has_window_contacts,
+    )
     humidity_need = indoor_humidity >= 60
     if not (thermal_need or humidity_need):
         return NightAdvice()
@@ -631,6 +691,7 @@ def evaluate_night_ventilation(
         "indoor_temp": indoor_temp,
         "outdoor_temp": outdoor_temp,
         "target_temp": target_temp,
+        "has_window_contacts": has_window_contacts,
         "thermal_need": thermal_need,
         "humidity_need": humidity_need,
         "current_thermal_advantage": current_thermal_advantage,
@@ -700,15 +761,15 @@ def evaluate_night_ventilation(
             limit_direction = "cold" if current_assessment.temperature < indoor_temp else "warm"
         elif limited_point is not None:
             limit_direction = "cold" if limited_point.temperature < indoor_temp else "warm"
-            limit_time = limited_point.item["datetime"].isoformat()
+            limit_time = _local_display_iso(limited_point.item["datetime"], now)
 
         args = dict(common_args)
         args.update(
             {
                 "minimum_temp": minimum_temp,
                 "maximum_temp": maximum_temp,
-                "start_time": now.isoformat(),
-                "end_time": interval_end.isoformat(),
+                "start_time": _local_display_iso(now, now),
+                "end_time": _local_display_iso(interval_end, now),
                 "limit_time": limit_time,
                 "temperature_limit_direction": limit_direction,
                 "max_temp_delta": NIGHT_MAX_TEMP_DELTA,
@@ -828,8 +889,8 @@ def evaluate_night_ventilation(
     args.update(
         {
             "minimum_temp": minimum_temp,
-            "start_time": start_time.isoformat(),
-            "end_time": end_time.isoformat(),
+            "start_time": _local_display_iso(start_time, now),
+            "end_time": _local_display_iso(end_time, now),
             "rain_risk": rain_risk,
             "forecast_rain_risk": forecast_rain_risk,
             "forecast_max_wind_level": forecast_max_wind_level,

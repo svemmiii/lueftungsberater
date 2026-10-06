@@ -210,9 +210,39 @@ def test_malformed_explicit_footprint_is_unknown(polygon):
         ap._parse_cap_document(document, 50, 5.5)
 
 @pytest.mark.asyncio
+async def test_nina_regional_dashboard_failure_falls_back_to_nationwide_sources():
+    availability = {
+        "nina_auto_mowas": True,
+        "nina_auto_katwarn": True,
+        "nina_auto_biwapp": True,
+        "nina_auto_dwd": True,
+        "nina_auto_lhp": True,
+        "nina_auto_police": True,
+    }
+    nationwide = AsyncMock(return_value=({}, availability))
+    with (
+        patch.object(
+            ap,
+            "_nina_regional_candidates",
+            AsyncMock(side_effect=RuntimeError("dashboard offline")),
+        ),
+        patch.object(ap, "_nina_nationwide_candidates", nationwide),
+    ):
+        data = await ap._fetch_nina_warnings(object(), LOCATION, ap.AutoProviderState())
+    nationwide.assert_awaited_once()
+    assert data.available
+    assert data.error is None
+    assert data.region_ars is None
+    assert data.source_availability == availability
+
+
+@pytest.mark.asyncio
 async def test_nina_partial_outage_keeps_known_civil_source():
     responses = [[], [], RuntimeError("offline"), [], [], []]
-    with patch.object(ap, "_get_json", AsyncMock(side_effect=responses)):
+    with (
+        patch.object(ap, "_nina_regional_candidates", AsyncMock(return_value=None)),
+        patch.object(ap, "_get_json", AsyncMock(side_effect=responses)),
+    ):
         data = await ap._fetch_nina_warnings(object(), LOCATION, ap.AutoProviderState())
     assert not data.available
     assert data.error == "nina_partial_failure"
