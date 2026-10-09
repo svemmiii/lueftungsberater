@@ -1,4 +1,11 @@
 <p align="center">
+
+### Neue Kartenansicht ab v0.11.3 (Test)
+
+Der **Raumkarteneditor** bietet unter „Messwerte auf der Karte“ das klassische Layout (für bestehende Karten unverändert) und die neue **Innen | Außen**-Ansicht mit dünnem Trennstrich. Die Anzeige wird nur für diese Lovelace-Karte gespeichert: Felder ein-/ausblenden, Messwert-Reihenfolge und die Innen-/Außenposition ziehen, eigene Symbole/Beschriftungen sowie kompakte/ausführliche Darstellung wählen. Nur Werte, die der Raum bereitstellt oder deren Sensor konfiguriert ist, werden angeboten. Zusätzliche Messgrößen sind zunächst aus. Der Reset erfordert eine Bestätigung und ändert niemals die Lüftungsberechnung oder Sensorzuordnung.
+
+Die **Übersichtskarte** besitzt dieselben Anzeigeoptionen für ihre geöffneten Raumdetails, verwendet dabei aber eine gemeinsame Anordnung für alle Räume. Räume und Instanzen sind in ihrem Editor per Drag & Drop sortierbar. Bei kurzzeitig ausgefallenen entfernten Instanzen bleiben zuletzt bekannte Messwerte als **nicht aktuell** erkennbar; die alte Empfehlung wird nicht mehr als aktuell angezeigt. Die Nachtkarte informiert vor dem Schlafengehen und vermeidet Aufforderungen, nachts extra zum Fenster aufzustehen.
+
   <img src="custom_components/lueftungsberater/brand/icon@2x.png" width="180" alt="Lüftungsassistent">
 </p>
 

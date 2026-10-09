@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import re
 import secrets
 import uuid
 from types import MappingProxyType
@@ -221,6 +223,72 @@ def _entity(
     return EntitySelector(EntitySelectorConfig(**config))
 
 
+def _air_sensor_selector(kind: str, hass: HomeAssistant | None = None) -> EntitySelector:
+    """Prefer pollutant-specific classes without rejecting compatible legacy units.
+
+    Index-based VOC/NO2 sensors are valid inputs; some integrations publish
+    those as plain numeric sensors. This is a *picker* filter, not a new
+    validation or evaluation rule: existing selections remain untouched.
+    """
+    device_classes = {
+        "pm25": [SensorDeviceClass.PM25],
+        "pm10": [SensorDeviceClass.PM10],
+        "voc": [SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
+                SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS_PARTS],
+        "no2": [SensorDeviceClass.NITROGEN_DIOXIDE],
+        "o3": [SensorDeviceClass.OZONE],
+        "formaldehyde": [SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS],
+    }
+    units = {
+        "pm25": ["µg/m³", "ug/m3"],
+        "pm10": ["µg/m³", "ug/m3"],
+        "voc": ["µg/m³", "mg/m³", "ppb", "ppm", "index"],
+        "no2": ["µg/m³", "ppb", "ppm", "index"],
+        "o3": ["µg/m³", "ppb", "ppm"],
+        "formaldehyde": ["mg/m³", "µg/m³"],
+    }
+    # In some integrations a VOC/NO₂ index has neither device_class nor
+    # unit_of_measurement. The built-in selector cannot filter by entity name.
+    # Build a narrow allowlist from the *currently registered* sensors instead:
+    # official classes/units as before, plus recognisable unitless indices.
+    # Keep the existing simple selectors for other pollutants unchanged.
+    if hass is not None and kind in {"voc", "no2"}:
+        pattern = (r"(?:^|[^a-z0-9])(?:t?voc|volatile.organic.compounds)(?:$|[^a-z0-9])"
+                   if kind == "voc" else
+                   r"(?:^|[^a-z0-9])(?:no2|nitrogen.dioxide|stickstoffdioxid)(?:$|[^a-z0-9])")
+        matches = []
+        for state in hass.states.async_all("sensor"):
+            attrs = state.attributes
+            device_class = attrs.get("device_class")
+            unit = attrs.get("unit_of_measurement")
+            name = f"{state.entity_id} {attrs.get('friendly_name', '')}".lower()
+            clearly_named_index = (
+                not unit and
+                re.search(pattern, name) and
+                re.search(r"(?:^|[^a-z0-9])(?:index|indices|indeks|indeksi)(?:$|[^a-z0-9])", name) and
+                (str(state.state).lower() in {"unavailable", "unknown"}
+                     or _is_numeric_sensor_state(state.state))
+            )
+            if device_class in device_classes[kind] or unit in units[kind] or clearly_named_index:
+                matches.append(state.entity_id)
+        if matches:
+            # Explicit entity allowlists avoid making *all* unclassified HA
+            # sensors available merely to support an index sensor.
+            return EntitySelector(EntitySelectorConfig(include_entities=matches))
+
+    return EntitySelector(EntitySelectorConfig(filter=[
+        {"domain": "sensor", "device_class": device_classes[kind]},
+        {"domain": "sensor", "unit_of_measurement": units[kind]},
+    ]))
+
+
+def _is_numeric_sensor_state(value: Any) -> bool:
+    try:
+        return math.isfinite(float(value))  # Also exclude positive/negative infinity.
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
 def _warning_source_options(hass: HomeAssistant) -> list[SelectOptionDict]:
     """Build a friendly list of installed warning providers.
 
@@ -283,7 +351,7 @@ def _warning_source_options(hass: HomeAssistant) -> list[SelectOptionDict]:
     return options
 
 
-def _global_schema(hass: HomeAssistant) -> vol.Schema:
+def _global_schema(hass: HomeAssistant, *, compact_auto: bool = False) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(SECTION_GENERAL): section(
@@ -298,7 +366,7 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                                 translation_key="weather_source_mode",
                             )
                         ),
-                        vol.Optional(CONF_WEATHER): _entity("weather"),
+                        **({} if compact_auto else {vol.Optional(CONF_WEATHER): _entity("weather")}),
                         vol.Optional(
                             CONF_WARNING_SOURCE_MODE, default=DEFAULT_WARNING_SOURCE_MODE
                         ): SelectSelector(
@@ -312,15 +380,15 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                                 translation_key="warning_source_mode",
                             )
                         ),
-                        vol.Optional(
-                            CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE
-                        ): SelectSelector(
-                            SelectSelectorConfig(
-                                options=_warning_source_options(hass),
-                                mode=SelectSelectorMode.DROPDOWN,
-                                translation_key="warning_source",
+                        **({} if compact_auto else {
+                            vol.Optional(CONF_WARNING_SOURCE, default=WARNING_SOURCE_NONE): SelectSelector(
+                                SelectSelectorConfig(
+                                    options=_warning_source_options(hass),
+                                    mode=SelectSelectorMode.DROPDOWN,
+                                    translation_key="warning_source",
+                                )
                             )
-                        ),
+                        }),
                         vol.Optional(CONF_LOCATION_TRACKER): _entity(["device_tracker", "zone"]),
                         vol.Optional(
                             CONF_DISPLAY_MODE, default=DEFAULT_DISPLAY_MODE
@@ -347,8 +415,8 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                         vol.Optional(CONF_OUTDOOR_CO2): _entity(
                             "sensor", device_class=SensorDeviceClass.CO2
                         ),
-                        vol.Optional(CONF_OUTDOOR_WIND): _entity("sensor"),
-                        vol.Optional(CONF_OUTDOOR_GUST): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_WIND): EntitySelector(EntitySelectorConfig(filter=[{"domain": "sensor", "device_class": SensorDeviceClass.SPEED}, {"domain":"sensor", "unit_of_measurement":["km/h", "m/s", "mph"]}])),
+                        vol.Optional(CONF_OUTDOOR_GUST): EntitySelector(EntitySelectorConfig(filter=[{"domain": "sensor", "device_class": SensorDeviceClass.SPEED}, {"domain":"sensor", "unit_of_measurement":["km/h", "m/s", "mph"]}])),
                         vol.Optional(CONF_OUTDOOR_RAIN): EntitySelector(
                             EntitySelectorConfig(
                                 filter=[
@@ -360,11 +428,11 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
                                 ]
                             )
                         ),
-                        vol.Optional(CONF_OUTDOOR_PM25): _entity("sensor"),
-                        vol.Optional(CONF_OUTDOOR_PM10): _entity("sensor"),
-                        vol.Optional(CONF_OUTDOOR_VOC): _entity("sensor"),
-                        vol.Optional(CONF_OUTDOOR_NO2): _entity("sensor"),
-                        vol.Optional(CONF_OUTDOOR_O3): _entity("sensor"),
+                        vol.Optional(CONF_OUTDOOR_PM25): _air_sensor_selector("pm25"),
+                        vol.Optional(CONF_OUTDOOR_PM10): _air_sensor_selector("pm10"),
+                        vol.Optional(CONF_OUTDOOR_VOC): _air_sensor_selector("voc", hass),
+                        vol.Optional(CONF_OUTDOOR_NO2): _air_sensor_selector("no2", hass),
+                        vol.Optional(CONF_OUTDOOR_O3): _air_sensor_selector("o3"),
                     }
                 ),
                 SectionConfig(collapsed=True),
@@ -391,13 +459,13 @@ def _global_schema(hass: HomeAssistant) -> vol.Schema:
     )
 
 
-def _local_schema(hass: HomeAssistant) -> vol.Schema:
+def _local_schema(hass: HomeAssistant, *, compact_auto: bool = False) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_INSTANCE_NAME, default="Lüftungsassistent"): TextSelector(
                 TextSelectorConfig()
             ),
-            **dict(_global_schema(hass).schema),
+            **dict(_global_schema(hass, compact_auto=compact_auto).schema),
         }
     )
 
@@ -614,11 +682,11 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
                         vol.Optional(CONF_SURFACE_TEMP): _entity(
                             "sensor", device_class=SensorDeviceClass.TEMPERATURE
                         ),
-                        vol.Optional(CONF_INDOOR_PM25): _entity("sensor"),
-                        vol.Optional(CONF_INDOOR_PM10): _entity("sensor"),
-                        vol.Optional(CONF_INDOOR_VOC): _entity("sensor"),
-                        vol.Optional(CONF_INDOOR_NO2): _entity("sensor"),
-                        vol.Optional(CONF_INDOOR_FORMALDEHYDE): _entity("sensor"),
+                        vol.Optional(CONF_INDOOR_PM25): _air_sensor_selector("pm25"),
+                        vol.Optional(CONF_INDOOR_PM10): _air_sensor_selector("pm10"),
+                        vol.Optional(CONF_INDOOR_VOC): _air_sensor_selector("voc", hass),
+                        vol.Optional(CONF_INDOOR_NO2): _air_sensor_selector("no2", hass),
+                        vol.Optional(CONF_INDOOR_FORMALDEHYDE): _air_sensor_selector("formaldehyde"),
                     }
                 ),
                 SectionConfig(collapsed=True),
@@ -967,7 +1035,10 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=title, data=data)
 
         try:
-            schema = _local_schema(self.hass)
+            # On first setup, show only the automatic source modes and location.
+            # Selecting a manual mode reveals its specific source fields if the
+            # first submission needs them. Existing reconfigures are unaffected.
+            schema = _local_schema(self.hass, compact_auto=user_input is None)
         except Exception:  # noqa: BLE001 - never strand the user on a generic error
             _LOGGER.exception("Unable to build local Lüftungsassistent setup form")
             schema = vol.Schema(

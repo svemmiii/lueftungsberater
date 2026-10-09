@@ -15,7 +15,7 @@
       },
       "local": {
         "title": "Set up a local Fresh Air Assistant",
-        "description": "By default, Lüftungsassistent selects weather and official-warning providers automatically from the Home location or the optional mobile GPS tracker. Existing Home Assistant weather and warning instances can be used instead or alongside automatic warnings. Rooms are added separately afterwards.",
+        "description": "Weather and official warnings are selected automatically for your location. Set up manual sources or GPS only if needed.",
         "data": {
           "instance_name": "Installation name",
           "weather_entity": "Own weather entity (for manual weather source)",
@@ -351,7 +351,7 @@
             "indoor_no2": "Indoor NO₂ / NOx (index or raw value, optional)",
             "indoor_formaldehyde": "Indoor formaldehyde (optional)"
           },
-          "description": "Indoor temperature and humidity are required. Optionally, you can assign the room to an existing Home Assistant area and/or give it a custom name. CO₂, window/door contacts and a surface-temperature sensor are optional. The configured times only define when useful night advice may be shown. Missing optional sensor values are never estimated.",
+          "description": "Choose temperature and humidity sensors, or use an assigned hardware station. Other sensors are optional. You can change the room and its name later.",
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
             "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",

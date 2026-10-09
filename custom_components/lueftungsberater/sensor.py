@@ -31,6 +31,8 @@ from .const import (
     CONF_WEATHER_REASON,
     CONF_WINDOWS,
     CONF_REMOTE_ROOM_SHARE,
+    CONF_NIGHT_END_TIME,
+    DEFAULT_NIGHT_END_TIME,
     DOMAIN,
     DEFAULT_DISPLAY_MODE,
     DISPLAY_MODE_ROOM_AIR,
@@ -279,6 +281,22 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
         night_key = values.get("night_ventilation_key")
         night_args = dict(values.get("night_ventilation_args") or {})
+        # Display-only context: the configured end of the sleeping period.
+        # No decision in the planner is changed by this metadata.
+        night_args["requested_night_end"] = self.subentry.data.get(
+            CONF_NIGHT_END_TIME, DEFAULT_NIGHT_END_TIME
+        )
+        # The text-only CO₂ hint needs the same confirmed short-term estimate
+        # exposed on the room entity. Do not calculate a new trend or change
+        # the night planner, its memory, or the current recommendation.
+        confirmed_co2_minutes = (
+            r.reason_args.get("co2_minutes_to_2000")
+            if r is not None and isinstance(r.reason_args, dict) else None
+        )
+        if confirmed_co2_minutes is not None:
+            night_args["co2_minutes_to_2000"] = confirmed_co2_minutes
+        # Compare the end of the user's night as a local wall clock on DST days.
+        night_args["local_timezone"] = self.hass.config.time_zone
         remote_active, remote_clients = remote_access_info(
             self.hass, self.entry.entry_id, self.subentry.subentry_id
         )
@@ -305,6 +323,10 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "duration_key": duration_key,
             "co2_status": current_co2_status,
             "co2_data_status": values.get("co2_data_status", "not_configured"),
+            "co2_minutes_to_2000": (
+                getattr(r, "reason_args", {}).get("co2_minutes_to_2000")
+                if r is not None and isinstance(getattr(r, "reason_args", None), dict) else None
+            ),
             "co2_ppm": (
                 round(values["co2_ppm"])
                 if values["co2_ppm"] is not None

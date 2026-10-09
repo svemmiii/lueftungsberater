@@ -1,3 +1,52 @@
+## v0.11.3 TEST QOL COMPLETE(6) – Bereichsreihenfolge hat Vorrang (09.10.2026)
+
+- **Drag & Drop in „Klassisch“:** Die ausdrücklich konfigurierte Reihenfolge `settings.sides` bestimmt jetzt immer zuerst, ob Innen oder Außen vorangestellt wird. Eine reine Umordnung von Innen- oder Außenmesswerten darf diese Bereichsreihenfolge nicht mehr übersteuern.
+- **Sortierung innerhalb der Bereiche:** `settings.order.inside` und `settings.order.outside` bleiben unabhängig und gelten jeweils nur innerhalb der durch `settings.sides` bestimmten Bereiche. Gleiche Kategorien werden nur innerhalb desselben Bereichs in einer Zeile zusammengefasst.
+- **Bisheriges Layout bleibt erhalten:** Ohne veränderte Bereichs- oder Messwertsortierung bleiben die bekannten klassischen Temperatur-, Feuchte-, CO₂- und Luftqualitätszeilen unverändert. Die Reihenfolge allgemeiner Messwerte bleibt unabhängig konfigurierbar.
+- **Regressionstests:** Drei gemeldete Fehlfälle, die vollständige Karten-Renderstrecke, frühere Tests und 3.000 deterministische Kombinationen von Bereichen, Reihenfolgen, Sichtbarkeiten und optionalen Feldern geprüft. Ein widersprechender COMPLETE(5)-Test wurde auf die verbindliche Bereichs-Vorrangregel angepasst.
+- **Kein Eingriff in Entscheidungen:** Engine, Nachtplaner, Hysterese, Sensorauswertung und Quellenwahl sind unverändert.
+
+## v0.11.3 TEST QOL COMPLETE(5) – klassische Karten-Sortierung vollständig berücksichtigen (09.10.2026)
+
+- **Nur Außen sortiert:** Auch wenn ausschließlich Außensensoren per Drag & Drop umgestellt werden, respektiert „Klassisch“ deren gespeicherte Reihenfolge. Eine unveränderte Innensortierung hat keinen automatischen Vorrang.
+- **Allgemeine Werte frei sortierbar:** Eine explizite Reihenfolge für den Bereich „Allgemein“ schließt nun auch „Solltemperatur“ und „Feuchtedifferenz“ ein; sie werden nicht mehr ungefragt zurück in die Temperatur-/Feuchtezeile verschoben.
+- **Unterschiedliche Innen-/Außenreihenfolgen:** Beide werden jeweils in ihrer gespeicherten Reihenfolge ausgegeben. Gleiche Messwertfamilien bleiben nur dann in einer gemeinsamen Zeile, wenn sie in der gewählten Anordnung unmittelbar aufeinanderfolgen.
+- **Alte Darstellung geschützt:** Ohne eigene Sortierung bleiben die vertrauten klassischen Gruppenzeilen und deren Reihenfolge unverändert; auch reine Sichtbarkeitsänderungen lösen keine automatische Neuordnung aus.
+- **Nur Frontend:** Lüftungsengine, Nachtplaner, Hysterese, Coordinator, Sensoren, automatische Provider und Einrichtung bleiben bytegenau unverändert.
+- **Tests:** Neue klassische Sortierregressionen ergänzt (Innen, Außen, beide Seiten, Allgemein, optional angezeigte Spezialwerte, altes Standardlayout und CO₂-Ausfallhinweis).
+
+## v0.11.3 TEST QOL COMPLETE(4) – vier gezielte QoL-Reparaturen (09.10.2026)
+
+- **CO₂-Ausfall sichtbar lassen:** Auch bei ausgeblendetem CO₂-Messwert bleibt eine aktuelle Ausfall- oder Grace-Meldung in der erweiterten Kartenansicht sichtbar. Keine doppelte Meldung, kein Durchreichen des bewusst ausgeblendeten Zahlenwertes.
+- **Drag & Drop im klassischen Layout:** Die klassische gruppierte Einspaltenansicht berücksichtigt jetzt die gespeicherte Reihenfolge der Messwertgruppen, ohne deren vertraute Zusammenfassung aufzugeben. Ohne benutzerdefinierte Sortierung bleibt die alte Reihenfolge erhalten.
+- **Darstellungsdichte in „Klassisch“:** Kompakt und ausführlich erhalten passende CSS-Klassen und Abstände/Schriftgrößen; der Standard bleibt unverändert.
+- **VOC-/NO₂-Indexauswahl präzisiert:** Zusätzliche einheitenlose Kandidaten brauchen jetzt eine erkennbare Schadstoff- **und** Indexbezeichnung; Baseline/Kalibrierungswerte werden nicht mehr nur wegen des Schadstoffnamens angeboten. Unendliche und NaN-Zahlen gelten nicht als gültige numerische Sensorwerte. Reguläre Geräteklassen-/Einheitenfilter bleiben erhalten.
+- **Testabdeckung:** Neue Frontend- und Python-Regressionstests; der isolierte Test-Harness für die `math`-Prüfung ist angepasst.
+- **Unverändert:** `engine.py`, `night.py`, `co2_hysteresis.py`, `coordinator.py`, `sensor.py`, `localization.py`, `providers.py`, `auto_providers.py`. Keine geänderte Lüftungs-/Nachtentscheidung oder automatische Quellenwahl.
+
+## v0.11.3 TEST QOL COMPLETE(3) – Reparaturen (09.10.2026)
+
+- Reine Nachttext-Datenwege für bestätigten CO₂-Trend sowie korrekten Ortszeitvergleich beim Sommer-/Winterzeitwechsel korrigiert.
+- Alte Entwarnung bei Remote-Verbindungsverlust ausgeblendet; Schimmelrisiko ohne Eingangswerte als nicht bewertbar gekennzeichnet.
+- Klassische Kartendarstellung bei Anzeigeoptionen wieder als gruppierte Einspaltenansicht ausgegeben.
+- Kalenderbasierte Zeitangaben bei „Zuletzt gelüftet“ korrigiert.
+- VOC-/NO₂-Indexsensoren mit passenden Bezeichnungen auch ohne Geräteklasse/Einheit auswählbar; Auswahl bleibt eingegrenzt.
+- Drei alte Text-Regressionen korrigiert; fachlicher Hinweis zum nicht zwingend erreichbaren Temperaturziel bleibt erhalten.
+- Keine Änderung der Engine, Nachtplaner-Regeln, CO₂-Hysterese oder Provider-Auswahl.
+
+## v0.11.3 TEST – Karten, Bedienung und Sprache
+
+- **Raumkarte:** Bestehende Darstellung bleibt Standard. Neuer visueller Karteneditor mit klassischer oder zweispaltiger Innen-/Außenansicht, dezentem senkrechten Trennstrich, Messwerte-Auswahl, Reihenfolge per Drag & Drop, optionalen Zusatzwerten, Beschriftungen, Symbolen und Darstellungsdichte. Obere Empfehlung, Nachtkarte und sicherheitsrelevante Hinweise bleiben erhalten.
+- **Sicheres Zurücksetzen:** Anzeigeeinstellungen nur im Karteneditor zurücksetzen; immer mit Bestätigungsdialog. Raum- und Sensor-Konfiguration wird nicht verändert.
+- **Gesamtübersicht:** Gemeinsame Anzeigeeinstellungen für die geöffneten Raumdetails, Installation- und Raum-Reihenfolge per Drag & Drop zusätzlich zu den bisherigen Pfeilen.
+- **Sensoren:** Unabhängige Innen-/Außenwerte und verständliche Platzhalter bei eingerichteten, momentan fehlenden Sensorwerten. Vorhandene CO₂-Ausfallbehandlung und gepunktete Verlaufs-Unterstreichung bleiben erhalten. Zulässige Sensoren für Luftschadstoffe in der Einrichtung besser eingegrenzt, gültige Index-/Sonderwerte bleiben möglich.
+- **Einrichtung:** Neue automatische Wetter-/Warn-Konfiguration zeigt zunächst weniger manuelle Felder. Bestehende manuelle Einstellungen bleiben beim Bearbeiten verfügbar. Nur ein Raum vorhanden: automatische Vorauswahl im Raumkarteneditor.
+- **Remote:** Ein geöffnetes entferntes Raumdetail bleibt bei Ausfall der Verbindung sichtbar, zeigt aber ausdrücklich nur alte Messwerte und keine alte Handlungsempfehlung als aktuell.
+- **Nachtlüften:** Kürzere und schlafgerechte Hinweise in Deutsch, Englisch und Türkisch; ein zu früh endendes Prognosefenster wird nicht als Durchlüften bis zum Morgen dargestellt. Aktuelle Empfehlung und Nachtplaner-Schwellen bleiben unangetastet.
+- **Darstellung:** „Zuletzt gelüftet“ als Heute/Gestern/Vorgestern oder Datum; verständlichere Meldung bei fehlender Raum-Entität; kürzere Empfehlung-, Dauer-, Warn- und Benachrichtigungstexte in DE/EN/TR.
+- **Keine neue Profil- oder Simulationsvorschau, kein Datenquellen-Aufklappknopf.**
+- **Regressionstests:** `tests/frontend_qol_v0113_test.mjs`, `tests/test_qol_v0113_standalone.py` sowie die bestehende Frontend-Cache-Prüfung. Für einen produktiven Release sind HA-Integrationstests und ein Praxistest in der Home-Assistant-Oberfläche noch erforderlich.
+
 ## v0.11.2 TEST
 
 ### TEST COMPLETE(6): vergangene Night-Memory-Grenzzeit entfernt

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from typing import Any
+from datetime import datetime, timedelta, time, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 SUPPORTED_LANGUAGES = ("de", "en", "tr")
 NNBSP = "\u202f"
@@ -10,16 +12,16 @@ RECOMMENDATIONS = {
     "de": {
         "open_now": "Jetzt lüften",
         "keep_open": "Weiter lüften",
-        "can_close": "Lüften kann beendet werden",
-        "short_observation": "Nur kurz lüften und die Situation im Blick behalten",
-        "optional": "Lüften ist aktuell optional",
+        "can_close": "Du kannst das Fenster schließen",
+        "short_observation": "Nur kurz lüften und dabei aufpassen",
+        "optional": "Lüften ist gerade nicht nötig",
         "better_close": "Besser wieder schließen",
-        "caution_keep_closed": "Vorsicht – lieber geschlossen lassen",
+        "caution_keep_closed": "Fenster lieber geschlossen lassen",
         "keep_closed": "Geschlossen lassen",
         "close_now": "Jetzt schließen",
-        "wait": "Besser noch etwas warten",
+        "wait": "Noch etwas warten",
         "unknown": "Aktuell keine zuverlässige Empfehlung möglich",
-        "window_state_unknown": "Fensterzustand derzeit nicht verfügbar – bitte prüfen",
+        "window_state_unknown": "Fensterzustand unbekannt. Bitte prüfen.",
         "room_good": "Aktuell kein Lüftungsgrund",
         "room_watch": "Werte im Blick behalten",
         "room_need": "Lüften ist sinnvoll",
@@ -28,10 +30,10 @@ RECOMMENDATIONS = {
     },
     "en": {
         "open_now": "Open the windows now",
-        "keep_open": "Keep the windows open a little longer",
+        "keep_open": "Keep airing for now",
         "can_close": "You can close the windows now",
-        "short_observation": "Open the windows briefly and keep an eye on it",
-        "optional": "Ventilation is optional",
+        "short_observation": "Air briefly and keep an eye on it",
+        "optional": "No need to air the room now",
         "better_close": "Better close the windows",
         "caution_keep_closed": "Better keep the windows closed for now",
         "keep_closed": "Keep the windows closed",
@@ -47,7 +49,7 @@ RECOMMENDATIONS = {
     },
     "tr": {
         "open_now": "Şimdi pencereleri aç",
-        "keep_open": "Pencereleri biraz daha açık tut",
+        "keep_open": "Biraz daha havalandır",
         "can_close": "Artık pencereleri kapatabilirsin",
         "short_observation": "Kısa süre havalandır ve durumu takip et",
         "optional": "Havalandırma isteğe bağlı",
@@ -55,7 +57,7 @@ RECOMMENDATIONS = {
         "caution_keep_closed": "Şimdilik pencereleri kapalı tutmak daha iyi",
         "keep_closed": "Pencereleri kapalı tut",
         "close_now": "Pencereleri şimdi kapat",
-        "wait": "Biraz daha beklemek daha iyi",
+        "wait": "Biraz daha bekle",
         "unknown": "Şu anda güvenilir bir öneri verilemiyor",
         "window_state_unknown": "Pencere durumu şu anda kullanılamıyor — lütfen kontrol et",
         "room_good": "Şu anda havalandırma nedeni yok",
@@ -68,14 +70,14 @@ RECOMMENDATIONS = {
 
 DURATIONS = {
     "de": {
-        "until_targets": "Bis die noch offenen Lüftungsziele erreicht sind",
-        "while_temperature_helps": "Solange die Außenluft die Raumtemperatur noch sinnvoll Richtung Sollwert bewegt – nicht zwingend bis zum Sollwert",
-        "can_end": "Die Lüftung kann jetzt beendet werden",
-        "brief_observation": "Etwa 5 Minuten – dabei die Situation im Blick behalten",
+        "until_targets": "Bis die Luft wieder gut ist",
+        "while_temperature_helps": "Solange sich die Raumtemperatur verbessert. Der Sollwert muss dabei nicht zwingend erreicht werden.",
+        "can_end": "Du kannst wieder schließen",
+        "brief_observation": "Etwa 5 Minuten, dabei aufpassen",
         "co2_recheck": "5–10 Minuten, danach CO₂ erneut prüfen",
         "co2_until_good": "5–10 Minuten, danach CO₂ erneut prüfen",
         "co2_minimum": "Mindestens 5 Minuten ab dem Öffnen",
-        "cooling": "15–30 Minuten – oder länger, solange die Außenluft weiterhin beim Abkühlen hilft",
+        "cooling": "15–30 Minuten, solange es beim Abkühlen hilft",
         "warming": "5–10 Minuten",
         "2_4": "2–4 Minuten",
         "3_5": "3–5 Minuten",
@@ -89,14 +91,14 @@ DURATIONS = {
         "incomplete_data": "Eine Lüftungsdauer lässt sich mit den aktuellen Sensordaten noch nicht zuverlässig bestimmen.",
     },
     "en": {
-        "until_targets": "Until the remaining ventilation targets are reached",
-        "while_temperature_helps": "While outdoor air still moves the room temperature usefully toward the target — not necessarily all the way to the target",
+        "until_targets": "Until the air is good again",
+        "while_temperature_helps": "While outdoor air helps the room temperature",
         "can_end": "You can close the windows now",
         "brief_observation": "About 5 minutes, while keeping an eye on the conditions",
         "co2_recheck": "5–10 minutes, then check CO₂ again",
         "co2_until_good": "5–10 minutes, then check CO₂ again",
         "co2_minimum": "At least 5 minutes from opening the window",
-        "cooling": "15–30 minutes, or longer if the cooler outdoor air continues to help",
+        "cooling": "15–30 minutes, while cooler air still helps",
         "warming": "5–10 minutes",
         "2_4": "2–4 minutes",
         "3_5": "3–5 minutes",
@@ -107,17 +109,17 @@ DURATIONS = {
         "10_20": "10–20 minutes",
         "5_10": "5–10 minutes",
         "not_needed": "No window-opening time is needed right now",
-        "incomplete_data": "A reliable window-opening time cannot be determined from the current sensor data yet.",
+        "incomplete_data": "Not enough sensor data to estimate the airing time.",
     },
     "tr": {
-        "until_targets": "Kalan havalandırma hedeflerine ulaşılana kadar",
-        "while_temperature_helps": "Dış hava oda sıcaklığını hedefe doğru anlamlı biçimde taşımaya devam ettiği sürece — hedefe mutlaka tamamen ulaşmak gerekmez",
+        "until_targets": "Hava yeniden düzelene kadar",
+        "while_temperature_helps": "Dış hava oda sıcaklığını iyileştirdiği sürece",
         "can_end": "Artık pencereleri kapatabilirsin",
         "brief_observation": "Yaklaşık 5 dakika; bu sırada durumu takip et",
         "co2_recheck": "5–10 dakika, ardından CO₂ seviyesini yeniden kontrol et",
         "co2_until_good": "5–10 dakika, ardından CO₂ seviyesini yeniden kontrol et",
         "co2_minimum": "Pencere açıldıktan sonra en az 5 dakika",
-        "cooling": "15–30 dakika; dışarıdaki serin hava işe yaramaya devam ederse daha uzun da olabilir",
+        "cooling": "15–30 dakika, dışarıdaki serin hava işe yaradığı sürece",
         "warming": "5–10 dakika",
         "2_4": "2–4 dakika",
         "3_5": "3–5 dakika",
@@ -128,7 +130,7 @@ DURATIONS = {
         "10_20": "10–20 dakika",
         "5_10": "5–10 dakika",
         "not_needed": "Şu anda pencereleri açmaya gerek yok",
-        "incomplete_data": "Mevcut sensör verileriyle güvenilir bir havalandırma süresi henüz belirlenemiyor.",
+        "incomplete_data": "Süreyi hesaplamak için yeterli sensör verisi yok.",
     },
 }
 
@@ -708,9 +710,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
         }[lang]
     else:
         inside = {
-            "de": "Die Innenwerte geben aktuell keinen relevanten Grund zum Lüften.",
-            "en": "The indoor values do not indicate a relevant reason to ventilate right now.",
-            "tr": "İç değerler şu anda belirgin bir havalandırma nedeni göstermiyor.",
+            "de": "Drinnen ist alles im grünen Bereich.",
+            "en": "Indoor air looks fine right now.",
+            "tr": "İçerideki değerler şu an iyi.",
         }[lang]
 
     # Keep the front of the card short: add only the outdoor factor that best
@@ -725,9 +727,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             }[lang]
         else:
             outside = {
-                "de": " Die Außenluft ist derzeit feuchter und spricht gegen längeres Lüften.",
-                "en": " Outdoor air is currently more humid, which argues against prolonged airing.",
-                "tr": " Dış hava şu anda daha nemli ve uzun süre havalandırmayı daha az uygun hâle getiriyor.",
+                "de": " Die Außenluft ist feuchter. Lieber nicht länger lüften.",
+                "en": " It is more humid outside. Avoid airing for long.",
+                "tr": " Dışarısı daha nemli. Uzun süre havalandırma.",
             }[lang]
     elif caution == "temperature":
         if ventilation_color == "green" and level > 0:
@@ -738,9 +740,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
             }[lang]
         else:
             outside = {
-                "de": " Die Außentemperatur ist derzeit ungünstig und spricht gegen längeres Lüften.",
-                "en": " The outdoor temperature is currently unfavorable and argues against prolonged airing.",
-                "tr": " Dış sıcaklık şu anda elverişsiz ve uzun süre havalandırmayı daha az uygun hâle getiriyor.",
+                "de": " Draußen passt die Temperatur nicht für längeres Lüften.",
+                "en": " Outdoor temperature is not suitable for long airing.",
+                "tr": " Dışarıdaki sıcaklık uzun havalandırmaya uygun değil.",
             }[lang]
     elif mode == "aussen_zu_warm":
         outside = {
@@ -756,9 +758,9 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
         }[lang]
     elif mode in {"luftqualitaet_maessig", "luftqualitaet_schlecht", "luftqualitaet_sehr_schlecht", "luftqualitaet_sehr_schlecht_typisch"} or caution == "air_quality":
         outside = {
-            "de": " Die Außenluftqualität ist momentan ein Nachteil beim Lüften.",
-            "en": " Outdoor air quality currently makes ventilation less favorable.",
-            "tr": " Dış hava kalitesi şu anda havalandırmayı daha az uygun hâle getiriyor.",
+            "de": " Die Außenluft ist gerade belastet.",
+            "en": " Outdoor air is polluted right now.",
+            "tr": " Dış hava şu anda kirli.",
         }[lang]
     elif caution == "weather_forecast":
         forecast = _short_term_weather_sentence(
@@ -878,16 +880,16 @@ def reason_text(
 
     if key == "humidity_exhausted":
         return {
-            "de": "Weitere Lüftung bringt derzeit kaum zusätzlichen Trocknungseffekt. Das Fenster kann geschlossen werden.",
-            "en": "Further ventilation is currently bringing hardly any additional drying effect. You can close the window.",
-            "tr": "Daha fazla havalandırma şu anda neredeyse ek kurutma sağlamıyor. Pencereyi kapatabilirsin.",
+            "de": "Mehr Lüften trocknet kaum noch. Du kannst das Fenster schließen.",
+            "en": "More airing will not dry the room much further. You can close the window.",
+            "tr": "Daha fazla havalandırmak pek kurutmuyor. Pencereyi kapatabilirsin.",
         }[lang]
 
     if key == "humidity_opportunity":
         return {
-            "de": "Die Außenluft bietet inzwischen deutlich mehr Trocknungspotenzial. Die Bedingungen zum Lüften sind günstiger, aber aktuell besteht noch keine neue Pflicht zum Lüften.",
-            "en": "Outdoor air now offers clearly more drying potential. Conditions for ventilation are better, but there is no new need to act right now.",
-            "tr": "Dış hava artık belirgin biçimde daha fazla kurutma potansiyeli sunuyor. Havalandırma koşulları daha uygun, ancak şu anda yeni bir zorunluluk yok.",
+            "de": "Draußen ist es jetzt trockener. Lüften wäre günstig, ist aber nicht nötig.",
+            "en": "Outdoor air is drier now. Airing could help, but there is no urgent need.",
+            "tr": "Dışarıdaki hava artık daha kuru. Havalandırmak faydalı olabilir ama şu an şart değil.",
         }[lang]
 
     if key in {"indoor_air_ventilate", "indoor_air_tradeoff", "indoor_air_wait"}:
@@ -910,14 +912,14 @@ def reason_text(
             }[lang]
         if key == "indoor_air_wait":
             return {
-                "de": f"Die Innenluft ist durch {pollutant} auffällig, aber die Außenluft ist dafür derzeit nicht besser. Fenster lieber geschlossen lassen und – falls vorhanden – filtern.",
-                "en": f"Indoor air is elevated for {pollutant}, but outdoor air is not better right now. Keep the windows closed and filter the air if possible.",
-                "tr": f"İç havada {pollutant} yüksek, ancak dış hava şu anda daha iyi değil. Pencereleri kapalı tut ve mümkünse havayı filtrele.",
+                "de": f"{pollutant} ist drinnen erhöht, draußen ist es nicht besser. Fenster geschlossen lassen und möglichst filtern.",
+                "en": f"Indoor {pollutant} is high, and outdoor air is not better. Keep windows closed and filter if possible.",
+                "tr": f"İçeride {pollutant} yüksek, dış hava da daha iyi değil. Pencereleri kapalı tut, mümkünse filtrele.",
             }[lang]
         return {
-            "de": f"Die Innenluft ist durch {pollutant} auffällig. Die Außenluft ist dafür nicht sicher genug einzuordnen; beobachte kurz und lüfte nur, wenn die Außenbedingungen passen.",
-            "en": f"Indoor air is elevated for {pollutant}. Outdoor air cannot be classified confidently enough, so observe briefly and ventilate only when outside conditions are suitable.",
-            "tr": f"İç havada {pollutant} yüksek. Dış hava yeterince güvenli sınıflandırılamıyor; kısa süre izle ve yalnızca dış koşullar uygunsa havalandır.",
+            "de": f"Drinnen ist {pollutant} erhöht. Außenluft unklar: Nur lüften, wenn es draußen passt.",
+            "en": f"Indoor {pollutant} is high, but outdoor air is uncertain. Only air when outside conditions are safe.",
+            "tr": f"İçeride {pollutant} yüksek, ancak dış hava belirsiz. Yalnızca dış koşullar uygunsa havalandır.",
         }[lang]
 
     if key == "co2_minimum_airing":
@@ -1375,6 +1377,90 @@ def _clock(value: Any, lang: str) -> str:
     return value.strftime("%H:%M") if lang in {"de", "tr"} else value.strftime("%H:%M")
 
 
+
+def _night_covers_requested_end(a: dict[str, Any]) -> bool:
+    """Only say 'overnight' if the forecast window reaches the user's end.
+
+    Time-zone-aware ISO datetimes are supplied by night.py; compare instants,
+    not just displayed clock values (which would fail over midnight).
+    """
+    raw_end = a.get("requested_night_end")
+    if not isinstance(raw_end, str) or not raw_end:
+        return False
+    try:
+        start = datetime.fromisoformat(str(a["start_time"]))
+        finish = datetime.fromisoformat(str(a["end_time"]))
+        parts = raw_end.split(":")
+        h, m = int(parts[0]), int(parts[1])
+        # start/end_time often carry only an ISO UTC offset. At a DST change
+        # that fixed offset is not the zone for the configured morning end.
+        tz_name = a.get("local_timezone")
+        zone = ZoneInfo(tz_name) if tz_name else start.tzinfo
+        if zone is None or start.tzinfo is None or finish.tzinfo is None:
+            return False
+        local_start = start.astimezone(zone)
+        requested_day = local_start.date()
+        requested = datetime.combine(requested_day, time(h, m), tzinfo=zone)
+        if requested.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
+            requested = datetime.combine(requested_day + timedelta(days=1), time(h, m), tzinfo=zone)
+        return finish.astimezone(timezone.utc) >= requested.astimezone(timezone.utc) - timedelta(minutes=10)
+    except (KeyError, ValueError, TypeError, OverflowError, ZoneInfoNotFoundError):
+        return False
+
+
+def _simple_night_text(key: str, a: dict[str, Any], lang: str) -> str | None:
+    """Sleep-aware copy; no alarm to open/close a window while asleep.
+
+    The live card keeps responsibility for current, safety-relevant advice.
+    Nothing in this function changes the night planner's decisions.
+    """
+    if not a.get("requested_night_end"):
+        return None  # Old callers without the new metadata keep old behavior.
+    end = _clock(a.get("end_time"), lang)
+    covers_night = _night_covers_requested_end(a)
+    current_allowed = bool(a.get("live_open_now"))
+    co2_soon = False
+    try:
+        co2_soon = 0 < float(a.get("co2_minutes_to_2000")) <= 45
+    except (TypeError, ValueError):
+        pass
+    note = {
+        "de": " CO₂ steigt schnell. Prüfe die aktuelle Lüftungsempfehlung, solange du noch wach bist.",
+        "en": " CO₂ is rising fast. Check the current advice while you are still awake.",
+        "tr": " CO₂ hızla artıyor. Hâlâ uyanıksan güncel öneriyi kontrol et.",
+    }[lang] if co2_soon and current_allowed else ""
+    if key == "night_now" and covers_night:
+        return {
+            "de": f"Längeres Nachtlüften ist voraussichtlich bis {end} Uhr möglich.",
+            "en": f"Leaving the window open overnight may work until {end}.",
+            "tr": f"Gece boyunca havalandırma yaklaşık {end} saatine kadar uygun görünüyor.",
+        }[lang] + note
+    if key in {"night_now", "night_later", "night_now_conditional", "night_later_conditional", "night_short_only"}:
+        if key == "night_now" or key == "night_short_only":
+            return {
+                "de": "Nicht über Nacht offen lassen. Bei Bedarf nur kurz lüften, solange du wach bist.",
+                "en": "Do not leave the window open overnight. If you are awake, air briefly only if needed.",
+                "tr": "Pencereyi gece boyu açık bırakma. Uyanıksan ve gerekliyse kısa süre havalandır.",
+            }[lang] + note
+        return {
+            "de": "Die ganze Nacht zu lüften lohnt sich nicht. Wenn du noch wach bist, gilt die normale Empfehlung.",
+            "en": "Conditions are not suitable all night. If you are awake, follow the normal advice.",
+            "tr": "Koşullar bütün gece uygun değil. Uyanıksan normal öneriye göre hareket et.",
+        }[lang] + note
+    if key == "night_not_recommended":
+        direction = str(a.get("temperature_limit_direction") or "")
+        if direction == "cold":
+            return {"de":"Heute nicht über Nacht lüften. Es wird zu kalt.","en":"Don't leave the window open overnight. It will get too cold.","tr":"Bu gece pencereyi açık bırakma. Hava fazla soğuyacak."}[lang] + note
+        if direction == "warm":
+            return {"de":"Heute nicht über Nacht lüften. Es wird zu warm.","en":"Don't leave the window open overnight. It will get too warm.","tr":"Bu gece pencereyi açık bırakma. Hava fazla ısınacak."}[lang] + note
+        return {"de":"Längeres Nachtlüften lohnt sich heute nicht.","en":"Leaving a window open overnight won't help much tonight.","tr":"Bu gece pencereyi uzun süre açık bırakmak pek faydalı değil."}[lang] + note
+    if key == "night_blocked":
+        return {"de":"Fenster wegen der aktuellen Warnung besser geschlossen lassen.","en":"Keep the windows closed because of the current warning.","tr":"Mevcut uyarı nedeniyle pencereleri kapalı tut."}[lang]
+    if key == "night_air_too_bad":
+        return {"de":"Über Nacht lieber nicht lüften. Die Außenluft ist stark belastet.","en":"Avoid leaving the window open overnight. Outdoor air is heavily polluted.","tr":"Bu gece pencereyi açık bırakma. Dış hava çok kirli."}[lang]
+    return None
+
+
 def night_advice_text(
     key: str | None,
     args: dict[str, Any] | None,
@@ -1386,6 +1472,9 @@ def night_advice_text(
         return ""
     lang = normalize_language(language)
     a = args or {}
+    simpler = _simple_night_text(key, a, lang)
+    if simpler is not None:
+        return simpler
     start = _clock(a.get("start_time"), lang)
     end = _clock(a.get("end_time"), lang)
     thermal = bool(a.get("thermal_need"))

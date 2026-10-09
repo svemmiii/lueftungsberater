@@ -15,7 +15,7 @@
       },
       "local": {
         "title": "Yerel Fresh Air Assistant kur",
-        "description": "Varsayılan olarak Lüftungsassistent hava durumu ve resmî uyarı sağlayıcılarını Home konumundan veya isteğe bağlı mobil GPS takipçisinden otomatik seçer. İstenirse mevcut Home Assistant hava durumu ve uyarı örnekleri kullanılabilir ya da otomatik uyarılara eklenebilir. Odalar daha sonra ayrı eklenir.",
+        "description": "Hava durumu ve resmî uyarılar konuma göre otomatik seçilir. Gerekirse manuel kaynak veya GPS ayarla.",
         "data": {
           "instance_name": "Kurulum adı",
           "weather_entity": "Kendi hava durumu varlığı (manuel kaynak için)",
@@ -351,7 +351,7 @@
             "indoor_no2": "İç NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
             "indoor_formaldehyde": "İç formaldehit (isteğe bağlı)"
           },
-          "description": "İç ortam sıcaklığı ve nemi zorunludur. İsteğe bağlı olarak odayı mevcut bir Home Assistant alanına atayabilir ve/veya özel bir ad verebilirsiniz. CO₂, pencere/kapı kontakları ve yüzey sıcaklık sensörü isteğe bağlıdır. Ayarlanan saatler yalnızca yararlı gece havalandırma bilgisinin hangi zaman aralığında gösterilebileceğini belirler. Eksik isteğe bağlı sensör değerleri tahmin edilmez.",
+          "description": "Sıcaklık ve nem sensörlerini seç veya atanmış donanım istasyonunu kullan. Diğer sensörler isteğe bağlıdır. Oda ve adını sonradan değiştirebilirsin.",
           "data_description": {
             "target_temperature": "Climate entity üzerinden uygun bir hedef sıcaklık alınamıyorsa kullanılır.",
             "night_advice_start_time": "Bu saatten itibaren asistan gece önerisi gösterebilir. 22:00 yalnızca “bu saatten sonra kontrol et” demektir; “bu saatte pencereyi aç” anlamına gelmez.",
