@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 COMP = Path(__file__).resolve().parents[1] / 'custom_components' / 'lueftungsberater'

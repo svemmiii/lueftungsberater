@@ -28,7 +28,7 @@ def test_remote_summary_handles_missing_payload() -> None:
 
 
 async def test_multiple_local_entries_can_be_created(hass, enable_custom_integrations) -> None:
-    """A second local Lüftungsassistent must not be blocked by the first one."""
+    """Two local entries can use the new compact automatic-source setup independently."""
     from unittest.mock import AsyncMock, patch
 
     from homeassistant.config_entries import SOURCE_USER
@@ -37,11 +37,12 @@ async def test_multiple_local_entries_can_be_created(hass, enable_custom_integra
     from custom_components.lueftungsberater.const import (
         CONF_ENTRY_KIND,
         CONF_INSTANCE_NAME,
-        CONF_WARNING_SOURCE,
-        CONF_WEATHER,
+        CONF_WARNING_SOURCE_MODE,
+        CONF_WEATHER_SOURCE_MODE,
         DOMAIN,
         ENTRY_KIND_LOCAL,
-        WARNING_SOURCE_NONE,
+        WARNING_SOURCE_AUTO,
+        WEATHER_SOURCE_AUTO,
     )
 
     async def create_local(title: str):
@@ -56,18 +57,16 @@ async def test_multiple_local_entries_can_be_created(hass, enable_custom_integra
         assert result["type"] is FlowResultType.FORM
         assert result["step_id"] == "local"
 
+        # First-time setup deliberately hides manual weather/warning fields.
+        # The default source modes are automatic, so neither field is needed.
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {
-                CONF_INSTANCE_NAME: title,
-                SECTION_GENERAL: {
-                    CONF_WEATHER: "weather.home",
-                    CONF_WARNING_SOURCE: WARNING_SOURCE_NONE,
-                },
-            },
+            {CONF_INSTANCE_NAME: title, SECTION_GENERAL: {}},
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         assert result["data"][CONF_ENTRY_KIND] == ENTRY_KIND_LOCAL
+        assert result["data"][CONF_WEATHER_SOURCE_MODE] == WEATHER_SOURCE_AUTO
+        assert result["data"][CONF_WARNING_SOURCE_MODE] == WARNING_SOURCE_AUTO
         return result
 
     with patch(
@@ -79,9 +78,64 @@ async def test_multiple_local_entries_can_be_created(hass, enable_custom_integra
 
     assert first["title"] == "Wohnung 1"
     assert second["title"] == "Wohnung 2"
-    # Repeatable manual local entries intentionally have no ConfigEntry unique_id.
+    # Repeatable local entries intentionally have no ConfigEntry unique_id.
     assert first["context"].get("unique_id") is None
     assert second["context"].get("unique_id") is None
+
+
+async def test_local_setup_manual_weather_field_appears_when_required(
+    hass, enable_custom_integrations
+) -> None:
+    """Selecting manual weather reveals the field without changing the auto default."""
+    from unittest.mock import AsyncMock, patch
+
+    from homeassistant.config_entries import SOURCE_USER
+    from homeassistant.data_entry_flow import FlowResultType
+
+    from custom_components.lueftungsberater.const import (
+        CONF_INSTANCE_NAME,
+        CONF_WEATHER,
+        CONF_WEATHER_SOURCE_MODE,
+        DOMAIN,
+        WEATHER_SOURCE_MANUAL,
+    )
+
+    with patch(
+        "custom_components.lueftungsberater.async_setup_entry",
+        AsyncMock(return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "local"}
+        )
+        assert result["type"] is FlowResultType.FORM
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_INSTANCE_NAME: "Manuelles Wetter",
+                SECTION_GENERAL: {CONF_WEATHER_SOURCE_MODE: WEATHER_SOURCE_MANUAL},
+            },
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["errors"]["base"] == "manual_weather_required"
+
+        # After switching to manual, the follow-up form accepts weather_entity.
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_INSTANCE_NAME: "Manuelles Wetter",
+                SECTION_GENERAL: {
+                    CONF_WEATHER_SOURCE_MODE: WEATHER_SOURCE_MANUAL,
+                    CONF_WEATHER: "weather.home",
+                },
+            },
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_WEATHER_SOURCE_MODE] == WEATHER_SOURCE_MANUAL
+        assert result["data"][CONF_WEATHER] == "weather.home"
 
 
 async def test_remote_success_progress_reaches_confirmation(hass, enable_custom_integrations) -> None:

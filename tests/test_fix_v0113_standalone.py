@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import math
 import re
-from datetime import datetime
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import SimpleNamespace
