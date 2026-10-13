@@ -57,6 +57,7 @@ from .const import (
     CONF_OUTDOOR_NO2,
     CONF_OUTDOOR_O3,
     CONF_WARNING_SOURCE,
+    CONF_SHOW_GENERAL_WARNINGS,
     CONF_WEATHER,
     DATA_FORECAST_CACHE,
     DOMAIN,
@@ -128,6 +129,15 @@ CLEAR_NEGATIONS = (
     "keine entwarnung",
     "entwarnung liegt nicht vor",
     "entwarnung liegt noch nicht vor",
+    "bis zur entwarnung",
+    "bis zur ausdrücklichen entwarnung",
+    "bis zur ausdruecklichen entwarnung",
+    "bis zur abschließenden entwarnung",
+    "bis zur abschliessenden entwarnung",
+    "bis zur aufhebung der warnung",
+    "erst nach entwarnung",
+    "nach erfolgter entwarnung",
+    "auf die entwarnung warten",
     "entwarnung wurde nicht",
     "entwarnung wurde noch nicht",
     "noch nicht entwarnt",
@@ -315,6 +325,23 @@ class WarningAssessment:
     source_entities: set[str] = field(default_factory=set)
     provider_domain: str | None = None
     warning_ids: set[str] = field(default_factory=set)
+    # Persist the origin of each hard warning; NINA feeds and a separately
+    # configured HA warning source can share the same provider prefix.
+    warning_origins: dict[str, str] = field(default_factory=dict)
+    # Full CAP sender + sent identity for each source-qualified warning ID.
+    # Kept separate from display/legacy IDs so existing configurations and
+    # persisted windows remain readable after an update.
+    warning_cap_identities: dict[str, set[str]] = field(default_factory=dict)
+    # Collision-safe per-hazard identities; never keyed by the short warning ID.
+    # Two CAP senders can issue the same ID within one NINA provider.
+    warning_components: list[dict[str, str]] = field(default_factory=list)
+    # Per-active-CAP-message proof time, independent of whichever alert was
+    # selected to drive the visible recommendation. Never refresh a different
+    # authority's cached warning with the selected message's newer timestamp.
+    warning_observations: list[dict[str, str]] = field(default_factory=list)
+    # Unresolved partial/future withdrawal: do not treat a reachable feed as
+    # proof that ALL previously stored window hazards were cancelled.
+    warning_ambiguous_clear: bool = False
     source_nina_entity: str | None = None
     source_weather_entity: str | None = None
     # Timestamp of the last provider evidence that actually contained the hard
@@ -1163,11 +1190,24 @@ def _apply_live_weather_safety(
         result.weather_danger = True
         result.weather_caution = False
         result.weather_hard_lock = hard_live_weather
-        if condition in WEATHER_DANGER_CONDITIONS and condition_source:
+        # A persistent hard window lock must attribute only the measurements
+        # that actually crossed a HARD threshold. If hail is the hard cause
+        # while a separate gust is merely in the caution/danger band, that
+        # lower gust must not inherit an hour-long hard safety fallback after
+        # the hail report clears. This changes provenance only, not thresholds
+        # or the existing current weather recommendation.
+        if condition_source and (
+            condition == "hail" if hard_live_weather
+            else condition in WEATHER_DANGER_CONDITIONS
+        ):
             result.weather_danger_sources.add(condition_source)
-        if wind_kmh >= WIND_DANGER_KMH and result.source_wind:
+        if result.source_wind and wind_kmh >= (
+            WIND_HARD_LOCK_KMH if hard_live_weather else WIND_DANGER_KMH
+        ):
             result.weather_danger_sources.add(result.source_wind)
-        if gust_kmh >= GUST_DANGER_KMH and result.source_gust:
+        if result.source_gust and gust_kmh >= (
+            GUST_HARD_LOCK_KMH if hard_live_weather else GUST_DANGER_KMH
+        ):
             result.weather_danger_sources.add(result.source_gust)
         if condition in {"lightning", "lightning-rainy"}:
             result.weather_reason_key = "weather_thunderstorm_danger"
@@ -1616,26 +1656,203 @@ def _contains_any(text: str, words: tuple[str, ...]) -> bool:
     return any(word in low for word in words)
 
 
-def _is_clear_warning(text: str) -> bool:
-    """Return whether text communicates an unqualified all-clear."""
+def _warning_reference_ids(value: Any) -> set[str]:
+    """Extract original warning IDs from CAP references (sender,id,sent).
+
+    CAP references may be a space-delimited sequence of comma triples; some
+    provider integrations expose a list/dict instead. Never infer an ID from
+    arbitrary warning prose, and never match substrings of another ID.
+    """
+    if not value:
+        return set()
+    if isinstance(value, dict):
+        identifier = value.get("identifier") or value.get("id")
+        return {str(identifier).strip()} if identifier else set()
+    if isinstance(value, (list, tuple, set)):
+        found: set[str] = set()
+        for item in value:
+            found.update(_warning_reference_ids(item))
+        return found
+    if not isinstance(value, str):
+        return set()
+    found = set()
+    for item in value.split():
+        fields = item.split(",")
+        if len(fields) >= 3 and fields[1].strip():
+            found.add(fields[1].strip())
+    return found
+
+
+_NINA_CAP_PREFIXES = {
+    "mow": "mow", "mowas": "mow", "dwd": "dwd", "lhp": "lhp",
+    "kat": "kat", "katwarn": "kat", "biw": "biw", "biwapp": "biw",
+    "pol": "pol", "police": "pol", "polizei": "pol",
+}
+
+
+def _sourced_warning_reference_ids(
+    value: Any, *, message_id: str = "", provider_domain: str = ""
+) -> set[str]:
+    """Scope CAP references to the *issuing source* when established.
+
+    NINA dashboard IDs expose a source prefix, and automatic records expose
+    their fetched provider. CAP 'references' itself normally holds a bare ID.
+    Preserving that provenance prevents one provider's cancellation from
+    lifting another provider's identically numbered alert.
+    """
+    source = ""
+    prefix, sep, _ = str(message_id or "").partition(".")
+    if sep:
+        source = _NINA_CAP_PREFIXES.get(prefix.lower(), "")
+    if not source and provider_domain.startswith("nina_auto_"):
+        source = _NINA_CAP_PREFIXES.get(provider_domain[len("nina_auto_"):], "")
+    result: set[str] = set()
+    for warning_id in _warning_reference_ids(value):
+        reference_prefix, dot, _ = warning_id.partition(".")
+        if dot and reference_prefix.lower() in _NINA_CAP_PREFIXES:
+            explicit_source = _NINA_CAP_PREFIXES[reference_prefix.lower()]
+            # A cancellation from one known feed cannot claim another feed's
+            # source-qualified identity without verified CAP sender evidence.
+            if source and explicit_source != source:
+                continue
+            result.add(f"{explicit_source}.{warning_id.split('.', 1)[1]}")
+        elif source:
+            result.add(f"{source}.{warning_id}")
+        else:
+            # For an external/manual source with no source-identifying
+            # metadata, keep the bare reference rather than inventing one.
+            result.add(warning_id)
+    return result
+
+
+def _cap_identity_signature(sender: Any, sent: Any) -> str:
+    """Canonical CAP sender/sent pair; warning ID is checked independently.
+
+    A CAP reference identifies the original message via sender, identifier,
+    sent. Never infer a sender or time from the provider name or the Cancel
+    message's own timestamp.
+    """
+    sender_text = str(sender or "").strip()
+    if not sender_text or not sent:
+        return ""
+    try:
+        stamp = (
+            sent if isinstance(sent, datetime)
+            else datetime.fromisoformat(str(sent).strip().replace("Z", "+00:00"))
+        )
+        if stamp.tzinfo is None:
+            return ""
+        normalized = stamp.astimezone(timezone.utc).isoformat()
+    except (TypeError, ValueError, OverflowError):
+        return ""
+    return f"{sender_text}\x1f{normalized}"
+
+
+def _sourced_cap_reference_identities(
+    value: Any, *, message_id: str = "", provider_domain: str = ""
+) -> dict[str, set[str]]:
+    """Return full sender+sent CAP evidence scoped to the reference source.
+
+    An ID-only source match is not sufficient for a CAP cancellation when two
+    authorities share an identifier inside the same provider (e.g. MoWaS).
+    """
+    found: dict[str, set[str]] = {}
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            for ident, signatures in _sourced_cap_reference_identities(
+                item, message_id=message_id, provider_domain=provider_domain
+            ).items():
+                found.setdefault(ident, set()).update(signatures)
+        return found
+    if isinstance(value, dict):
+        ref_id = value.get("identifier") or value.get("id")
+        if ref_id:
+            sig = _cap_identity_signature(value.get("sender"), value.get("sent"))
+            for ident in _sourced_warning_reference_ids(
+                f"{value.get('sender')},{ref_id},{value.get('sent')}",
+                message_id=message_id, provider_domain=provider_domain,
+            ) if sig else ():
+                found.setdefault(ident, set()).add(sig)
+        return found
+    if not isinstance(value, str):
+        return found
+    for ref in value.split():
+        parts = ref.split(",", 2)
+        if len(parts) != 3:
+            continue
+        sig = _cap_identity_signature(parts[0], parts[2])
+        if not sig:
+            continue
+        for ident in _sourced_warning_reference_ids(
+            ref, message_id=message_id, provider_domain=provider_domain
+        ):
+            found.setdefault(ident, set()).add(sig)
+    return found
+
+
+def _is_ambiguous_clear_update(text: str, message_type: str = "") -> bool:
+    """Partial/conditional withdrawal is not an authoritative full clear."""
     low = " ".join(str(text).lower().split())
-    if any(word in low for word in CLEAR_QUALIFIERS):
+    if str(message_type).strip().lower() == "cancel":
         return False
-    if any(word in low for word in CLEAR_NEGATIONS):
+    return bool(
+        any(phrase in low for phrase in CLEAR_QUALIFIERS)
+        or re.search(
+            r"\bwarnung[^.!?]{0,70}\bwird\b[^.!?]{0,70}\baufgehoben\b"
+            r"[^.!?]{0,60}\b(?:sobald|wenn|falls|erst|zukünftig)\b",
+            low,
+        )
+    )
+
+
+def _is_clear_warning(text: str) -> bool:
+    """Only accept an affirmative, completed all-clear, not future references.
+
+    A live warning often instructs people to keep precautions *until* an
+    all-clear.  The bare noun in a description is never evidence of a cancel.
+    """
+    low = " ".join(str(text).lower().split())
+    if any(word in low for word in CLEAR_QUALIFIERS + CLEAR_NEGATIONS):
         return False
-    # Catch natural negations around the word "Entwarnung" without requiring
-    # an exhaustive list of sentence variants. Examples: "Entwarnung noch
-    # nicht möglich", "keine vollständige Entwarnung".
-    if re.search(r"(?:keine|keinerlei|noch keine|nicht|noch nicht)[^.!?]{0,50}entwarnung", low):
+    if re.search(r"(?:keine|keinerlei|noch nicht|nicht)[^.!?]{0,65}entwarnung", low):
         return False
-    if re.search(r"entwarnung[^.!?]{0,50}(?:noch nicht|nicht möglich|nicht erfolgt)", low):
+    if re.search(r"entwarnung[^.!?]{0,65}(?:nicht|erst|ausstehend|offen|erfolgt noch)", low):
         return False
+    if re.search(r"(?:bis zur|erst nach|bis zu einer|warten auf|sobald)[^.!?]{0,100}entwarnung", low):
+        return False
+    # A planned or conditional lifting is NOT a completed all-clear.
     if re.search(
-        r"entwarnung[^.!?]{0,60}(?:nur\s+teilweise|teilweise|bedingt|mit\s+einschränkungen|mit\s+einschraenkungen)",
+        r"\b(?:warnung|gefahr)[^.!?]{0,70}\b(?:wird|soll|kann|würde)\b"
+        r"[^.!?]{0,70}\b(?:aufgehoben|beendet|entwarnt)\b"
+        r"[^.!?]{0,60}\b(?:sobald|wenn|falls|nachdem|erst|zukünftig)\b",
         low,
     ):
         return False
-    return any(word in low for word in CLEAR_WORDS) or foreign_all_clear(low)
+    if re.search(
+        r"\b(?:warnung|gefahr)[^.!?]{0,60}\b(?:soll|kann|würde)\b"
+        r"[^.!?]{0,70}\b(?:aufgehoben|beendet|entwarnt)\b",
+        low,
+    ):
+        return False
+    if re.search(
+        r"\b(?:warnung|gefahr)[^.!?]{0,70}\baufgehoben\b"
+        r"[^.!?]{0,60}\b(?:sobald|wenn|falls|nachdem|erst|zukünftig)\b",
+        low,
+    ):
+        return False
+    # The word at the END of a description is not evidence of an all-clear:
+    # "Wir informieren Sie nach der Entwarnung" is still an active warning.
+    # Dedicated all-clear headlines are handled separately by the caller.
+    if re.fullmatch(r"(?:entwarnung|all[- ]clear)", low):
+        return True
+    return (any(word in low for word in STRONG_CLEAR_WORDS)
+        or bool(re.search(
+            r"(?:es wurde|hiermit wird|wir geben|die behörde gibt)\s+(?:ausdrücklich\s+)?entwarnung(?:\s+gegeben|\s+erteilt)?\b"
+            r"|\bentwarnung\s+(?:wurde\s+)?(?:gegeben|erteilt|ausgesprochen)\b"
+            r"|\bkeine\s+gefahr\s+mehr\b",
+            low,
+        ))
+        or foreign_all_clear(low))
 
 
 # A strong all-clear is allowed to beat stale action text copied from the old
@@ -1773,7 +1990,8 @@ def _evaluate_air_warning(
     headline_low = " ".join(str(headline).lower().split())
     explicit_clear_headline = bool(
         re.match(r"^(?:entwarnung|all[- ]clear)\s*[:–-]\s*\S", headline_low)
-    ) and _is_clear_warning(headline_low)
+        or re.fullmatch(r"(?:entwarnung|all[- ]clear)", headline_low)
+    ) and not any(word in headline_low for word in CLEAR_QUALIFIERS + CLEAR_NEGATIONS)
 
     if _is_strong_clear_warning(alltext, message_type) or explicit_clear_headline:
         return "clear"
@@ -2052,7 +2270,9 @@ def _evaluate_nina_like_entities(
     result = WarningAssessment()
     slot_details = _nina_slot_sensor_values(hass, entity_ids)
     registry = _optional_entity_registry(hass) if slot_details else None
-    clear_candidates: list[tuple[str, str, str]] = []
+    clear_candidates: list[tuple[set[str], str, str, dict[str, set[str]]]] = []
+    info_candidates: list[str] = []
+    show_general = bool(advisor_entry and advisor_entry.data.get(CONF_SHOW_GENERAL_WARNINGS, False))
     fresh_hard_danger_seen = False
     cached_hard_danger_times: list[datetime] = []
 
@@ -2164,6 +2384,12 @@ def _evaluate_nina_like_entities(
             message_type,
         )
         if air_state == "none" or (stale_active and air_state != "danger"):
+            if live_active and _is_ambiguous_clear_update(
+                " ".join((headline, description, actions)), message_type
+            ):
+                result.warning_ambiguous_clear = True
+            if air_state == "none" and live_active and show_general and (headline or description):
+                info_candidates.append(headline or description)
             continue
 
         warning_id = (
@@ -2172,10 +2398,49 @@ def _evaluate_nina_like_entities(
             else cached_record.get("warning_id")
         )
         warning_key = str(warning_id) if warning_id else entity_id
+        reference_ids: set[str] = set()
+        reference_cap_identities: dict[str, set[str]] = {}
+        if air_state == "clear":
+            for raw in (
+                *(state.attributes.get(field) for field in ("references", "reference") if live_active),
+                *(full.get(field) for field in ("references", "reference")),
+            ):
+                reference_ids.update(
+                    _sourced_warning_reference_ids(raw, message_id=warning_key)
+                )
+                for ident, signatures in _sourced_cap_reference_identities(
+                    raw, message_id=warning_key
+                ).items():
+                    reference_cap_identities.setdefault(ident, set()).update(signatures)
         display_text = headline or description or actions or None
 
         if air_state == "danger":
             result.warning_ids.add(warning_key)
+            original_sender = (
+                (state.attributes.get("sender") if live_active else None)
+                or full.get("sender")
+            )
+            original_sent = (
+                (state.attributes.get("sent") if live_active else None)
+                or full.get("sent")
+            )
+            signature = _cap_identity_signature(original_sender, original_sent)
+            if signature:
+                result.warning_cap_identities.setdefault(warning_key, set()).add(signature)
+            # Store the actual HA warning slot for each CAP message, not only
+            # source_nina_entity (which identifies the strongest slot).  This
+            # matters when one slot turns off and another becomes unavailable.
+            result.warning_components.append({
+                "id": warning_key, "origin": "", "cap": signature or "",
+                "entity": entity_id,
+            })
+            observed = (dt_util.utcnow() if live_air_state == "danger" else
+                        _parse_datetime(cached_record.get("cached_at")))
+            if observed is not None:
+                result.warning_observations.append({
+                    "id": warning_key, "origin": "", "cap": signature or "",
+                    "entity": entity_id, "confirmed_at": observed.isoformat(),
+                })
             result.official_close_instruction = True
             result.nina_status = "danger"
             if live_air_state == "danger":
@@ -2193,7 +2458,10 @@ def _evaluate_nina_like_entities(
         # Delay publishing the all-clear until every slot has been inspected.
         # A separate simultaneous hazard must suppress the global all-clear
         # notice instead of producing contradictory UI/notifications.
-        clear_candidates.append((warning_key, entity_id, display_text or ""))
+        clear_candidates.append((
+            reference_ids or {warning_key}, entity_id, display_text or "",
+            reference_cap_identities,
+        ))
 
     if result.nina_status == "danger":
         result.warning_notice_kind = None
@@ -2207,12 +2475,18 @@ def _evaluate_nina_like_entities(
         return result
 
     if clear_candidates:
-        warning_key, entity_id, display_text = clear_candidates[0]
+        _reference_ids, entity_id, display_text, _signatures = clear_candidates[0]
         result.nina_status = "clear"
-        result.warning_ids = {item[0] for item in clear_candidates}
+        result.warning_ids = set().union(*(item[0] for item in clear_candidates))
+        for _identifiers, _entity, _notice_text, signatures in clear_candidates:
+            for ident, values in signatures.items():
+                result.warning_cap_identities.setdefault(ident, set()).update(values)
         result.warning_notice_kind = "all_clear"
         result.warning_notice_text = display_text or None
         result.source_nina_entity = entity_id
+    elif info_candidates:
+        result.warning_notice_kind = "info"
+        result.warning_notice_text = info_candidates[0]
 
     return result
 
@@ -2390,6 +2664,19 @@ def _manual_warning_assessment(
     result.warning_notice_text = assessed.warning_notice_text
     result.official_close_instruction = assessed.official_close_instruction
     result.warning_ids = set(assessed.warning_ids)
+    result.warning_origins = {ident: f"manual:{source}" for ident in result.warning_ids}
+    result.warning_components = [
+        {**item, "origin": f"manual:{source}"}
+        for item in _assessment_warning_components(assessed)
+    ]
+    result.warning_observations = [
+        {**item, "origin": f"manual:{source}"}
+        for item in assessed.warning_observations
+    ]
+    result.warning_cap_identities = {
+        ident: set(signatures) for ident, signatures in assessed.warning_cap_identities.items()
+    }
+    result.warning_ambiguous_clear = assessed.warning_ambiguous_clear
     result.source_nina_entity = assessed.source_nina_entity
     result.source_weather_entity = assessed.source_weather_entity
     result.hard_safety_evidence_at = assessed.hard_safety_evidence_at
@@ -2417,6 +2704,8 @@ def _automatic_warning_assessment(
             result.provider_availability[f"{data.safety_source_key}:{domain}"] = available
 
     hard_records: list[AutoWarningRecord] = []
+    clear_records: list[AutoWarningRecord] = []
+    info_records: list[AutoWarningRecord] = []
     weather_danger_records: list[AutoWarningRecord] = []
     weather_caution_records: list[AutoWarningRecord] = []
     for warning in data.warnings:
@@ -2436,12 +2725,27 @@ def _automatic_warning_assessment(
         )
         if air_status == "danger":
             hard_records.append(warning)
+            result.warning_ids.add(warning.warning_id)
+            signature = _cap_identity_signature(
+                getattr(warning, "sender", ""), warning.issued_at
+            )
+            if signature:
+                result.warning_cap_identities.setdefault(warning.warning_id, set()).add(signature)
+        elif air_status == "clear":
+            clear_records.append(warning)
+        else:
+            if _is_ambiguous_clear_update(
+                " ".join((warning.headline, combined_description, warning.instruction)),
+                warning.msg_type,
+            ):
+                result.warning_ambiguous_clear = True
+            if bool(entry.data.get(CONF_SHOW_GENERAL_WARNINGS, False)):
+                info_records.append(warning)
         # A CAP/NINA cancellation or explicit all-clear must never be re-read as
         # a current weather disadvantage merely because it retained the former
         # warning severity/text. The provider's active set will normally drop it
         # on the next refresh; this guard makes the transition deterministic.
         if air_status == "clear":
-            result.warning_ids.add(warning.warning_id)
             continue
         if warning.category == "weather":
             severity = str(warning.severity or "").strip().lower()
@@ -2449,12 +2753,12 @@ def _automatic_warning_assessment(
                 weather_danger_records.append(warning)
             elif severity in {"moderate", "minor"}:
                 weather_caution_records.append(warning)
-        result.warning_ids.add(warning.warning_id)
+        # Only official close warnings identify the persisted fenster lock.
 
     if hard_records:
         strongest = max(
             hard_records,
-            key=lambda item: item.evidence_at or datetime.min.replace(tzinfo=timezone.utc),
+            key=lambda item: item.issued_at or item.evidence_at or datetime.min.replace(tzinfo=timezone.utc),
         )
         result.official_close_instruction = True
         result.nina_status = "danger"
@@ -2469,6 +2773,30 @@ def _automatic_warning_assessment(
         result.hard_safety_evidence_at = strongest.evidence_at
         if data.source_availability and data.safety_source_key:
             result.safety_source_key = f"{data.safety_source_key}:{strongest.provider_domain}"
+    # Provide the same normalized cancellation and optional info view as a
+    # manually selected NINA source, without altering hazard/wind evaluation.
+    if not hard_records and not weather_danger_records:
+        if clear_records:
+            result.warning_notice_kind = "all_clear"
+            result.warning_notice_text = clear_records[0].headline or clear_records[0].event
+            result.nina_status = "clear"
+            result.warning_ids = set().union(*(
+                _sourced_warning_reference_ids(
+                    record.references, message_id=record.warning_id,
+                    provider_domain=record.provider_domain
+                ) or {record.warning_id}
+                for record in clear_records
+            ))
+            for record in clear_records:
+                for ident, signatures in _sourced_cap_reference_identities(
+                    record.references, message_id=record.warning_id,
+                    provider_domain=record.provider_domain,
+                ).items():
+                    result.warning_cap_identities.setdefault(ident, set()).update(signatures)
+        elif info_records:
+            result.warning_notice_kind = "info"
+            result.warning_notice_text = info_records[0].headline or info_records[0].event
+
     if weather_danger_records:
         strongest = weather_danger_records[0]
         result.weather_danger = True
@@ -2483,7 +2811,58 @@ def _automatic_warning_assessment(
         result.weather_caution = True
         result.weather_reason_key = "weather_caution"
         result.weather_original_reason = strongest.headline or strongest.event or None
+    if data.safety_source_key:
+        for warning in hard_records:
+            signature = _cap_identity_signature(
+                getattr(warning, "sender", ""), warning.issued_at
+            )
+            proof = warning.evidence_at or dt_util.utcnow()
+            if isinstance(proof, str):
+                proof = datetime.fromisoformat(proof)
+            result.warning_observations.append({
+                "id": warning.warning_id, "origin": f"auto:{data.safety_source_key}",
+                "cap": signature or "", "confirmed_at": proof.isoformat(),
+            })
+        result.warning_origins = {
+            ident: f"auto:{data.safety_source_key}" for ident in result.warning_ids
+        }
+        result.warning_components = [
+            {**item, "origin": f"auto:{data.safety_source_key}"}
+            for item in _assessment_warning_components(result)
+        ]
     return result
+
+
+def _assessment_warning_components(assessment: WarningAssessment) -> list[dict[str, str]]:
+    """Retain each distinct CAP identity and origin, even if IDs collide.
+
+    Legacy assessments may only have warning_ids / origins / CAP signatures.
+    Preserve their representation without modifying public warning IDs.
+    """
+    explicit = getattr(assessment, "warning_components", None)
+    if explicit:
+        values = [dict(item) for item in explicit]
+    else:
+        values = []
+        for ident in sorted(assessment.warning_ids):
+            origin = str(assessment.warning_origins.get(ident) or "")
+            signatures = assessment.warning_cap_identities.get(ident) or {""}
+            for signature in sorted(signatures):
+                values.append({"id": str(ident), "origin": origin,
+                               "cap": str(signature)})
+    # The optional entity differentiates the slots of one manual NINA
+    # integration.  Keep the historic 3-field representation for older
+    # assessments and automatic CAP messages without a HA entity.
+    unique = {
+        (str(item.get("id") or ""), str(item.get("origin") or ""),
+         str(item.get("cap") or ""), str(item.get("entity") or ""))
+        for item in values if item.get("id")
+    }
+    return [
+        {**{"id": ident, "origin": origin, "cap": cap},
+         **({"entity": entity} if entity else {})}
+        for ident, origin, cap, entity in sorted(unique)
+    ]
 
 
 def _copy_warning_assessment(target: WarningAssessment, source: WarningAssessment) -> None:
@@ -2507,6 +2886,13 @@ def _copy_warning_assessment(target: WarningAssessment, source: WarningAssessmen
     target.provider_region_ars = source.provider_region_ars
     target.provider_active_sources = list(source.provider_active_sources)
     target.warning_ids = set(source.warning_ids)
+    target.warning_origins = dict(source.warning_origins)
+    target.warning_components = _assessment_warning_components(source)
+    target.warning_observations = [dict(item) for item in source.warning_observations]
+    target.warning_cap_identities = {
+        ident: set(signatures) for ident, signatures in source.warning_cap_identities.items()
+    }
+    target.warning_ambiguous_clear = source.warning_ambiguous_clear
     target.source_nina_entity = source.source_nina_entity
     target.source_weather_entity = source.source_weather_entity
     target.hard_safety_evidence_at = source.hard_safety_evidence_at
@@ -2525,8 +2911,50 @@ def _merge_warning_assessments(
     _copy_warning_assessment(result, manual if manual_active or not auto_active else automatic)
     result.source_entities.update(automatic.source_entities)
     result.source_entities.update(manual.source_entities)
-    result.warning_ids.update(automatic.warning_ids)
-    result.warning_ids.update(manual.warning_ids)
+    # A simultaneous all-clear from one provider must not become a *hazard*
+    # ID of the other provider. When hard instructions exist, track only their
+    # actual warning IDs, not the unrelated cancellation's new message ID.
+    active_assessments = [
+        item for item in (automatic, manual)
+        if item.official_close_instruction or item.weather_hard_lock
+    ]
+    if active_assessments:
+        result.warning_ids = set().union(*(item.warning_ids for item in active_assessments))
+        selected_assessments = active_assessments
+    else:
+        clears = [
+            item for item in (automatic, manual)
+            if item.warning_notice_kind == "all_clear"
+        ]
+        result.warning_ids = set().union(*(item.warning_ids for item in clears)) if clears else set()
+        selected_assessments = clears
+    # A merged hard lock may contain warnings from two *different* input
+    # paths. The strongest warning's source_key does not describe the others.
+    result.warning_origins = {
+        ident: assessed.warning_origins.get(ident, "")
+        for assessed in selected_assessments
+        for ident in assessed.warning_ids
+        if ident in result.warning_ids
+    }
+    # Neither origins nor CAP identities may be deduplicated by warning ID:
+    # a manual and an automatic CAP alert can use the same provider + ID but
+    # originate from different authorities and require separate verification.
+    result.warning_components = []
+    for assessed in selected_assessments:
+        result.warning_components.extend(_assessment_warning_components(assessed))
+    result.warning_components = _assessment_warning_components(result)
+    result.warning_observations = [
+        dict(proof) for assessed in selected_assessments
+        for proof in assessed.warning_observations
+    ]
+    result.warning_cap_identities = {}
+    for assessed in selected_assessments:
+        for ident, signatures in assessed.warning_cap_identities.items():
+            if ident in result.warning_ids:
+                result.warning_cap_identities.setdefault(ident, set()).update(signatures)
+    result.warning_ambiguous_clear = (
+        automatic.warning_ambiguous_clear or manual.warning_ambiguous_clear
+    )
     result.provider_availability.update(automatic.provider_availability)
     result.provider_availability.update(manual.provider_availability)
     if automatic.provider_domain and manual.provider_domain:
@@ -2570,7 +2998,11 @@ def _merge_warning_assessments(
         result.nina_status = "none"
 
     if result.nina_status != "danger" and not result.weather_danger:
-        notice = manual if manual.warning_notice_kind else automatic
+        # An actual cancellation takes precedence over purely optional info.
+        notice = next(
+            (item for item in (manual, automatic) if item.warning_notice_kind == "all_clear"),
+            manual if manual.warning_notice_kind else automatic,
+        )
         result.warning_notice_kind = notice.warning_notice_kind
         result.warning_notice_text = notice.warning_notice_text
     else:

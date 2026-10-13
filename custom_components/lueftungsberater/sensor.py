@@ -11,6 +11,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers import entity_registry as er
 
 from .airing import get_tracker
+from .air_sensors import state_is_fresh
 from .api import remote_access_info
 from .const import (
     CONF_CLIMATE,
@@ -44,6 +45,7 @@ from .const import (
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
 from .engine import co2_status
+from .history_support import HISTORY_METRICS, current_value, history_data, finite_value, history_sensor_unique_id
 from .hardware_hub import (
     configured_master_hardware_id,
     direct_station_entities,
@@ -129,7 +131,111 @@ async def async_setup_entry(
                 ]
             )
 
+        enabled = history_data(hass, entry.entry_id).get(subentry.subentry_id, [])
+        entities.extend(HistoryRoomSensor(entry, subentry, coordinator, key) for key in enabled)
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
+
+    # The websocket opt-in can create sensors while HA is running. A missing
+    # frontend/card is irrelevant once the persisted opt-in has been made.
+    def add_history(room_id: str, keys: list[str]) -> None:
+        room = entry.subentries.get(room_id)
+        if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
+            return
+        coordinator = hass.data.get(DOMAIN, {}).get("coordinators", {}).get((entry.entry_id, room_id))
+        if coordinator is None:
+            # Coordinators are held in the runtime cache, not assumed to live
+            # under a stable public hass.data key.
+            from .coordinator import get_room_coordinator
+            coordinator = get_room_coordinator(hass, entry, room)
+        if coordinator is not None:
+            async_add_entities(
+                [HistoryRoomSensor(entry, room, coordinator, key) for key in keys],
+                config_subentry_id=room_id,
+            )
+    hass.data.setdefault(DOMAIN, {}).setdefault("history_adders", {})[entry.entry_id] = add_history
+    entry.async_on_unload(lambda: hass.data.get(DOMAIN, {}).get("history_adders", {}).pop(entry.entry_id, None))
+
+
+class HistoryRoomSensor(LueftungsberaterRoomEntity, SensorEntity):
+    """Opt-in Recorder sensor, only created when a history card needs it."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry, subentry, coordinator, metric):
+        super().__init__(entry, subentry, coordinator)
+        self.metric = metric
+        self._attr_unique_id = history_sensor_unique_id(subentry.subentry_id, metric)
+        self._attr_name = (
+            "Historie Entscheidung" if metric == "decision"
+            else "Historie Oberflächenfeuchte (berechnet)" if metric == "surface_humidity"
+            else f"Historie {HISTORY_METRICS[metric][0]}"
+        )
+        if metric == "decision":
+            self._attr_state_class = None
+        else:
+            self._attr_native_unit_of_measurement = HISTORY_METRICS[metric][1]
+
+    def _raw_source_state(self):
+        """Use the source's actual unit if its own Recorder history is missing."""
+        if self.metric in {"decision", "surface_humidity"}:
+            # This is a calculated relative humidity, never the underlying
+            # surface temperature measurement in °C.
+            return None
+        source_key = HISTORY_METRICS[self.metric][3]
+        if not source_key:
+            return None
+        registry = er.async_get(self.hass)
+        advisor_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{self.subentry.subentry_id}_advisor"
+        )
+        advisor = self.hass.states.get(advisor_id) if advisor_id else None
+        source_id = advisor.attributes.get(source_key) if advisor else None
+        if not isinstance(source_id, str) or not source_id.startswith(("sensor.", "number.", "input_number.")):
+            return None
+        return self.hass.states.get(source_id)
+
+    @property
+    def native_unit_of_measurement(self):
+        if self.metric == "decision":
+            return None
+        state = self._raw_source_state()
+        return (state.attributes.get("unit_of_measurement") if state else None) or HISTORY_METRICS[self.metric][1]
+
+    @property
+    def native_value(self):
+        if self.metric != "decision":
+            source = self._raw_source_state()
+            if source is not None:
+                # An explicitly failed source must not be replaced with an
+                # outdated coordinator value. A valid source is copied in the
+                # *original* unit, making the original metadata meaningful.
+                return finite_value(source.state) if state_is_fresh(source) else None
+            return current_value(self.snapshot, self.metric)
+        result = self.snapshot.result if self.snapshot else None
+        if result is None:
+            return None
+        display = self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
+        return result.room_recommendation_key if display == DISPLAY_MODE_ROOM_AIR and not result.safety_lock else result.recommendation_key
+
+    @property
+    def extra_state_attributes(self):
+        if self.metric != "decision":
+            result = {"history_metric": self.metric, "history_room": self.subentry.subentry_id}
+            if self.metric == "surface_humidity":
+                result["history_revision"] = 2
+            return result
+        result = self.snapshot.result if self.snapshot else None
+        if result is None:
+            return {"history_metric": "decision", "history_room": self.subentry.subentry_id}
+        return {
+            "history_metric": "decision", "history_room": self.subentry.subentry_id,
+            "room_status": result.room_status_color,
+            "ventilation_status": result.color,
+            "room_recommendation_key": result.room_recommendation_key,
+            "ventilation_recommendation_key": result.recommendation_key,
+            "safety_lock": result.safety_lock,
+            "display_mode": self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
+        }
 
 
 class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):

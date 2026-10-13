@@ -549,6 +549,7 @@ def evaluate_night_ventilation(
     live_recommendation_key: str | None = None,
     live_mode: str | None = None,
     has_window_contacts: bool = True,
+    temperature_already_active: bool = False,
 ) -> NightAdvice:
     """Return a reason-aware night strategy using live state plus forecast.
 
@@ -588,6 +589,7 @@ def evaluate_night_ventilation(
         indoor_temp=indoor_temp,
         target_temp=target_temp,
         has_window_contacts=has_window_contacts,
+        already_active=temperature_already_active,
     )
     humidity_need = indoor_humidity >= 60
     if not (thermal_need or humidity_need):

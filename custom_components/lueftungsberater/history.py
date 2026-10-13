@@ -17,9 +17,10 @@ _LEGACY_PREFIX = f"{DOMAIN}.history."
 _CLEANUP_FLAG = "legacy_room_history_cleaned"
 
 
-def _legacy_history_keys(names: list[str]) -> list[str]:
+def _legacy_history_keys(names: list[str], protected_entry_ids=()) -> list[str]:
     """Return only storage keys owned by the removed v0.7.2 history feature."""
-    return sorted(name for name in names if name.startswith(_LEGACY_PREFIX))
+    protected = {f"{_LEGACY_PREFIX}{entry_id}" for entry_id in protected_entry_ids}
+    return sorted(name for name in names if name.startswith(_LEGACY_PREFIX) and name not in protected)
 
 
 async def async_cleanup_legacy_room_history(hass: HomeAssistant) -> None:
@@ -36,7 +37,10 @@ async def async_cleanup_legacy_room_history(hass: HomeAssistant) -> None:
         return [path.name for path in storage_dir.iterdir() if path.is_file()]
 
     names = await hass.async_add_executor_job(_list_storage_names)
-    for key in _legacy_history_keys(names):
+    # Other config entries may not have loaded/migrated their history yet.
+    # Never delete an active entry's former COMPLETE(14/15) opt-in store.
+    active_ids = {entry.entry_id for entry in hass.config_entries.async_entries(DOMAIN)}
+    for key in _legacy_history_keys(names, active_ids):
         # Use Store.async_remove instead of unlinking directly so any matching
         # delayed-write bookkeeping is cleaned up through Home Assistant.
         await Store(hass, STORAGE_VERSION, key).async_remove()

@@ -9,6 +9,10 @@ Die **Übersichtskarte** besitzt dieselben Anzeigeoptionen für ihre geöffneten
   <img src="custom_components/lueftungsberater/brand/icon@2x.png" width="180" alt="Lüftungsassistent">
 </p>
 
+### Historienkarte – Recorder-Hinweis (v0.11.4 TEST)
+
+Die neue Karte `custom:lueftungsberater-history-card` verwendet Home-Assistant-Recorder-Aufzeichnungen der eingerichteten Sensoren; fehlende Werte können nach expliziter Aktivierung als eigene, dauerhaft aufgezeichnete Hilfssensoren ergänzt werden. Die Aktivierung muss ein Administrator vornehmen, die anschließende Historienansicht ist auch für normale Benutzer möglich. Die Karte erlaubt 6 Stunden, 24 Stunden, 7 Tage und 30 Tage. Für **volle 30 Tage** muss der HA Recorder entsprechend konfiguriert sein (unter anderem `recorder: purge_keep_days: 30` und passende Include-/Exclude-Regeln), da unsere integrationsseitige 30-Tage-Bereinigung eine frühere globale Löschung nicht verhindern kann. Ältere Daten, die nie aufgezeichnet wurden, lassen sich nicht wiederherstellen. Der Editor bietet einen speicherbaren Standard-Zeitraum; das Umschalten des Zeitraums direkt in der Karte ist eine temporäre Ansicht. Explizite Sensorausfälle und leere Recorder-Zustände sind keine Nullmessungen und unterbrechen die Kurve; historische Entscheidungsfarben bleiben bei unverändertem Empfehlungsschlüssel erhalten.
+
 # Lüftungsassistent
 
 ## Hardware-Lüftungsstationen (v0.11.0)
@@ -365,3 +369,31 @@ v0.6.14 ist ein kleiner Test- und Config-Flow-Hotfix. Er hält die Remote-Erfolg
 ### Hinweis zu v0.6.13
 
 v0.6.13 behebt einen Fehler im neuen Remote-Fortschrittsdialog von v0.6.12, durch den erfolgreiche Tailscale-Verbindungen nach der Prüfung nicht gespeichert werden konnten. Außerdem wurde der lokale Mehrfach-Setup-Pfad vereinfacht und die automatische Pytest-Prüfung im GitHub-Workflow ausdrücklich aktiviert.
+
+
+### Historienkarte (v0.11.4 TEST COMPLETE(15))
+
+Im Dashboard eine neue manuelle Karte anlegen:
+
+```yaml
+type: custom:lueftungsberater-history-card
+entity: sensor.dein_lueftungsassistent_raum
+hours: 24
+metrics:
+  - co2_in
+  - co2_out
+  - humidity_in
+  - pm25_out
+colors:
+  co2_in: "#3c90df"
+  humidity_in: "#2eaa8b"
+perspective: room_air
+```
+
+Im visuellen Karteneditor lassen sich ausschließlich für den Raum konfigurierte Messgrößen und die gewünschten Kurvenfarben auswählen. Neben Originalwerten aus Home Assistants Recorder kann die Integration fehlende Verläufe ab Aktivierung als eigene sensorbasierte Historie speichern. Die erste automatische Aktivierung benötigt Administratorrechte, weil neue HA-Entitäten dauerhaft angelegt werden. Recorder-Ausschlüsse gelten weiterhin; eine Historie wird niemals nachträglich erfunden. Die Aufbewahrungsdauer hängt von der Recorder-Konfiguration und den vorhandenen Langzeitstatistiken ab. Manche älteren Entscheidungen besitzen keine aufgezeichnete Ampelfarbe und werden deshalb mit neutraler Markierung statt einer geratenen Farbe angezeigt.
+
+Der Diagramm-Cursor zeigt gemessene Rohwerte sowie den damaligen Empfehlungsschlüssel als lokalisierten Text, ohne eine erneute Entscheidungsberechnung. Die farbigen oberen und unteren Qualitätszonen stammen aus den aktuellen, pro Messgröße gültigen Bewertungsgrenzen der Integration und bilden keine zusätzlichen Grenzwerte.
+
+**Hinweis für TEST COMPLETE(14)-Tester:** Falls bereits eine fehlerhafte Hilfssensor-Historie zur Oberflächenfeuchte existiert, kann sie nicht rückwirkend bereinigt werden. Die korrigierte Version legt bei aktivierter Historie einen neuen Sensor "Historie Oberflächenfeuchte (berechnet)" mit separater Entity-Registry-Identität an und berücksichtigt die alte fehlerhafte Historie in der Karte nicht mehr. Der alte Hilfssensor kann bei Bedarf nach Prüfung der eigenen Dashboards in Home Assistant entfernt werden. Vorhandene, korrekte andere Sensorhistorien bleiben unverändert.
+
+Normale Benutzer können bereits aktivierte Historien ab COMPLETE(15) über die lesende Raumauflösung abrufen. Das erstmalige Aktivieren einer nicht vorhandenen Aufzeichnung erfordert weiterhin Administratorrechte. Bei einem temporären Schreibfehler lässt sich die Aktivierung erneut ausführen.

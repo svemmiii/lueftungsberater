@@ -978,6 +978,7 @@ def build_room_snapshot(
     co2_high_load: bool = False,
     co2_trend_ppm_per_min: float | None = None,
     co2_minutes_to_2000: float | None = None,
+    night_temperature_already_active: bool = False,
     weather: WeatherAssessment | None = None,
     warnings: WarningAssessment | None = None,
 ) -> RoomSnapshot:
@@ -1159,6 +1160,7 @@ def build_room_snapshot(
         live_recommendation_key=result.recommendation_key,
         live_mode=result.mode,
         has_window_contacts=bool(values.get("has_window_contacts")),
+        temperature_already_active=night_temperature_already_active,
     )
     values["night_ventilation_status"] = night_advice.status
     values["night_ventilation_key"] = night_advice.reason_key

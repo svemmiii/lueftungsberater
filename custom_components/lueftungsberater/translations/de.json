@@ -37,14 +37,16 @@
           "outdoor_o3": "Ozon außen (optional)",
           "location_tracker": "Standortquelle (optional)",
           "weather_source_mode": "Wetterquelle",
-          "warning_source_mode": "Warnquelle"
+          "warning_source_mode": "Warnquelle",
+          "show_general_warnings": "Auch allgemeine Warnungen anzeigen"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
           "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort.",
           "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Alternativ kann eine Home-Assistant-Zone (z. B. zone.home) oder für Wohnmobil/Boot ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
           "weather_source_mode": "Automatisch nach Standort. Eigene Home-Assistant-Wetterinstanz.",
-          "warning_source_mode": "Automatisch nach Standort. Nur eigene Home-Assistant-Warninstanz. Automatisch + eigene Warninstanz."
+          "warning_source_mode": "Automatisch nach Standort. Nur eigene Home-Assistant-Warninstanz. Automatisch + eigene Warninstanz.",
+          "show_general_warnings": "Nur zur Information, ohne Einfluss auf Fenstersperren oder Lüftung."
         },
         "sections": {
           "general": {
@@ -92,6 +94,10 @@
               "notify_target": "Benachrichtigungsziel (optional)",
               "notify_triggers": "Benachrichtigen bei (optional)"
             }
+          },
+          "advanced_warnings": {
+            "name": "Weitere Warnhinweise",
+            "description": "Nur zur Information, ohne Einfluss auf Fenstersperren oder Lüftung."
           }
         }
       },
@@ -131,12 +137,14 @@
           "outdoor_voc": "VOC außen (Index oder Rohwert, optional)",
           "outdoor_no2": "NO₂ / NOx außen (Index oder Rohwert, optional)",
           "outdoor_o3": "Ozon außen (optional)",
-          "location_tracker": "Standortquelle (optional)"
+          "location_tracker": "Standortquelle (optional)",
+          "show_general_warnings": "Auch allgemeine Warnungen anzeigen"
         },
         "data_description": {
           "display_mode": "Beide Ansichten nutzen dieselbe Gesamtbewertung. Lüftungsbedarf: 🟢 nichts zu tun · 🟡 beobachten · 🟠 Lüften sinnvoll · 🔴 jetzt lüften. Lüftungsampel: 🟢 gute Gelegenheit · 🟡 nur bedingt passend · 🟠/🔴 besser geschlossen lassen. Harte Schutzanweisungen werden immer als 🔒 angezeigt.",
           "outdoor_co2": "Optionaler eigener CO₂-Sensor draußen. Wenn er plausible Werte liefert, beschreibt er die Außenluft direkt an deinem Standort.",
-          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Alternativ kann hier eine Home-Assistant-Zone (z. B. zone.home) oder für Wohnmobil/Boot ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position."
+          "location_tracker": "Leer lassen = Home-Standort von Home Assistant. Alternativ kann hier eine Home-Assistant-Zone (z. B. zone.home) oder für Wohnmobil/Boot ein device_tracker mit GPS-Koordinaten gewählt werden. Automatische Wetter- und Warnprovider folgen dem wirksamen Standort; kurze GPS-Ausfälle verwenden vorübergehend die letzte gültige mobile Position.",
+          "show_general_warnings": "Nur zur Information, ohne Einfluss auf Fenstersperren oder Lüftung."
         },
         "sections": {
           "general": {
@@ -180,6 +188,10 @@
               "notify_target": "Benachrichtigungsziel (optional)",
               "notify_triggers": "Benachrichtigen bei (optional)"
             }
+          },
+          "advanced_warnings": {
+            "name": "Weitere Warnhinweise",
+            "description": "Nur zur Information, ohne Einfluss auf Fenstersperren oder Lüftung."
           }
         }
       },

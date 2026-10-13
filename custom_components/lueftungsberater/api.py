@@ -1096,6 +1096,100 @@ def websocket_remote_overview(
     connection.send_result(msg["id"], _remote_instances(hass))
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "lueftungsberater/history_enable",
+        vol.Required("entity"): str,
+        vol.Required("metrics"): [str],
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def websocket_history_enable(hass, connection, msg) -> None:
+    """Create persisted helper sensors for selected missing histories only."""
+    from .history_support import HISTORY_METRICS, allowed_metric, async_enable_history
+    state = hass.states.get(msg["entity"])
+    attrs = state.attributes if state else {}
+    entry = hass.config_entries.async_get(attrs.get("instance_id"))
+    if entry is None or entry_kind(entry) != ENTRY_KIND_LOCAL:
+        connection.send_error(msg["id"], "invalid_room", "Select a local room advisor")
+        return
+    registered = er.async_get(hass).async_get(msg["entity"])
+    identity = str(registered.unique_id or "") if registered and registered.platform == DOMAIN else ""
+    room_id = identity[:-len("_advisor")] if identity.endswith("_advisor") else ""
+    selected_room = entry.subentries.get(room_id)
+    if selected_room is None or selected_room.subentry_type != SUBENTRY_TYPE_ROOM:
+        connection.send_error(msg["id"], "invalid_room", "Room is unavailable")
+        return
+    requested = list(dict.fromkeys(msg["metrics"]))
+    if any(key != "decision" and (key not in HISTORY_METRICS or not allowed_metric(attrs, key)) for key in requested):
+        connection.send_error(msg["id"], "invalid_metrics", "Only configured measurements are allowed")
+        return
+    enabled = await async_enable_history(hass, entry, selected_room.subentry_id, requested)
+    connection.send_result(msg["id"], {"enabled": enabled, "room": selected_room.subentry_id})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "lueftungsberater/history_room_info", vol.Required("entity"): str}
+)
+@callback
+def websocket_history_room_info(hass, connection, msg) -> None:
+    """Read-only access to existing history for any HA user with room access.
+
+    Opt-in creation is a separate, admin-only command. Resolve the room from
+    its registered advisor unique ID rather than guessing a frontend room ID.
+    """
+    from .history_support import history_data, history_sensor_unique_id
+    advisor = hass.states.get(msg["entity"])
+    attrs = advisor.attributes if advisor else {}
+    entry = hass.config_entries.async_get(attrs.get("instance_id"))
+    if entry is None or entry_kind(entry) != ENTRY_KIND_LOCAL:
+        connection.send_error(msg["id"], "invalid_room", "Select a local room advisor")
+        return
+    registry = er.async_get(hass)
+    registered = registry.async_get(msg["entity"])
+    uid = str(registered.unique_id or "") if registered and registered.platform == DOMAIN else ""
+    room_id = uid.removesuffix("_advisor") if uid.endswith("_advisor") else ""
+    room = entry.subentries.get(room_id)
+    if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
+        connection.send_error(msg["id"], "invalid_room", "Room is unavailable")
+        return
+    enabled = list(history_data(hass, entry.entry_id).get(room_id, []))
+    helpers = {}
+    for metric in enabled:
+        helper_id = registry.async_get_entity_id("sensor", DOMAIN, history_sensor_unique_id(room_id, metric))
+        if helper_id and hass.states.get(helper_id) is not None:
+            helpers[metric] = helper_id
+    connection.send_result(msg["id"], {"room": room_id, "enabled": enabled, "helpers": helpers})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "lueftungsberater/history_recommendations", vol.Required("language"): str}
+)
+@callback
+def websocket_history_recommendations(hass, connection, msg) -> None:
+    """Use the existing DE/EN/TR translations, not a second frontend map."""
+    from .sensor import RECOMMENDATION_STATES
+    keys = (*RECOMMENDATION_STATES, "room_good", "room_watch", "room_need", "room_urgent", "room_keep_brief", "unknown", "window_state_unknown")
+    connection.send_result(msg["id"], {
+        key: recommendation_text(key, msg["language"]) for key in keys
+    })
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "lueftungsberater/history_metrics", vol.Required("entity"): str}
+)
+@callback
+def websocket_history_metrics(hass, connection, msg) -> None:
+    """Read current evaluation bands directly from Python source definitions."""
+    from .history_support import configured_metrics
+    state = hass.states.get(msg["entity"])
+    if state is None or not state.attributes.get("instance_id"):
+        connection.send_error(msg["id"], "invalid_room", "Room advisor unavailable")
+        return
+    connection.send_result(msg["id"], configured_metrics(state.attributes, hass.states))
+
+
 @callback
 def async_register_hardware_service(hass: HomeAssistant) -> None:
     """Register the ESPHome runtime action once at integration setup."""
@@ -1130,3 +1224,7 @@ def async_register_api(hass: HomeAssistant) -> None:
     hass.http.register_view(LueftungsberaterHardwareReportView())
     websocket_api.async_register_command(hass, websocket_localize)
     websocket_api.async_register_command(hass, websocket_remote_overview)
+    websocket_api.async_register_command(hass, websocket_history_enable)
+    websocket_api.async_register_command(hass, websocket_history_room_info)
+    websocket_api.async_register_command(hass, websocket_history_metrics)
+    websocket_api.async_register_command(hass, websocket_history_recommendations)

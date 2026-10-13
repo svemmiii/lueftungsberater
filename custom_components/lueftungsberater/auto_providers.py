@@ -213,9 +213,12 @@ class AutoWarningRecord:
     event: str = ""
     severity: str = "unknown"
     msg_type: str = "Alert"
+    references: Any = ""
     effective: datetime | None = None
     expires: datetime | None = None
-    evidence_at: datetime | None = None
+    evidence_at: datetime | None = None  # Last successful observation as active
+    issued_at: datetime | None = None  # Original CAP sent date (not fresh evidence)
+    sender: str = ""  # Original CAP sender, not the NINA feed/provider name
 
 
 @dataclass(slots=True)
@@ -1965,7 +1968,8 @@ def _nina_parameter_text(info: dict[str, Any], *names: str) -> str:
 
 
 def _nina_record(
-    identifier: str, detail: dict[str, Any], *, source: str = "mowas"
+    identifier: str, detail: dict[str, Any], *, source: str = "mowas",
+    observed_at: datetime | None = None,
 ) -> AutoWarningRecord:
     info = _pick_info(detail)
     instruction = str(info.get("instruction") or detail.get("instruction") or "").strip()
@@ -1983,9 +1987,12 @@ def _nina_record(
         event=str(info.get("event") or detail.get("event") or "").strip(),
         severity=str(info.get("severity") or detail.get("severity") or "unknown"),
         msg_type=str(detail.get("msgType") or info.get("msgType") or "Alert"),
+        references=detail.get("references") or info.get("references") or "",
         effective=_parse_dt(info.get("effective") or info.get("onset") or detail.get("effective")),
         expires=_parse_dt(info.get("expires") or detail.get("expires")),
-        evidence_at=_parse_dt(detail.get("sent") or info.get("sent")) or dt_util.utcnow(),
+        evidence_at=observed_at or dt_util.utcnow(),
+        issued_at=_parse_dt(detail.get("sent") or info.get("sent")),
+        sender=str(detail.get("sender") or info.get("sender") or "").strip(),
     )
 
 
@@ -2060,7 +2067,7 @@ async def _fetch_nina_warnings(
         if str(detail.get("status") or "Actual").lower() != "actual":
             return None
         try:
-            return _nina_record(identifier, detail, source=source)
+            return _nina_record(identifier, detail, source=source, observed_at=now)
         except (ValueError, TypeError):
             source_availability[source_key] = False
             return None
@@ -2116,9 +2123,12 @@ def _nws_record(feature: dict[str, Any]) -> AutoWarningRecord | None:
         event=str(props.get("event") or "").strip(),
         severity=str(props.get("severity") or "unknown"),
         msg_type=str(props.get("messageType") or "Alert"),
+        references=props.get("references") or "",
         effective=_parse_dt(props.get("effective") or props.get("onset")),
         expires=_parse_dt(props.get("expires") or props.get("ends")),
-        evidence_at=_parse_dt(props.get("sent")) or dt_util.utcnow(),
+        evidence_at=dt_util.utcnow(),
+        issued_at=_parse_dt(props.get("sent")),
+        sender=str(props.get("sender") or "").strip(),
     )
 
 
@@ -2267,8 +2277,11 @@ def _cap_element_record(
         instruction=_first_text(info, "instruction"), event=_first_text(info, "event"),
         severity=_first_text(info, "severity") or "unknown",
         msg_type=_first_text(element, "msgType") or "Alert",
+        references=_first_text(element, "references"),
         effective=_parse_dt(_first_text(info, "onset") or _first_text(info, "effective")), expires=expires,
-        evidence_at=_parse_dt(_first_text(element, "sent", "updated")) or dt_util.utcnow(),
+        evidence_at=dt_util.utcnow(),
+        issued_at=_parse_dt(_first_text(element, "sent", "updated")),
+        sender=_first_text(element, "sender"),
     )
 
 

@@ -14,6 +14,7 @@ from .const import (
     DATA_RECORDER_RETENTION,
     DOMAIN,
     RECORDER_RETENTION_DAYS,
+    HISTORY_RECORDER_RETENTION_DAYS,
     STORAGE_VERSION,
 )
 
@@ -54,7 +55,7 @@ def _partition_history(entries: Iterable[Any]) -> tuple[list[str], list[str]]:
     for item in _selected_entries(entries):
         entity_id = str(item.entity_id)
         unique_id = str(getattr(item, "unique_id", "") or "")
-        if unique_id.endswith(_RETAINED_HISTORY_SUFFIXES):
+        if unique_id.endswith(_RETAINED_HISTORY_SUFFIXES) or "_history_" in unique_id:
             retained.add(entity_id)
         else:
             transient.add(entity_id)
@@ -318,6 +319,7 @@ async def async_purge_recorder_history(
 
     registry = er.async_get(hass)
     retained_ids: set[str] = set()
+    history_ids: set[str] = set()
     transient_ids: set[str] = set()
     for entry_id in entry_ids:
         retained, transient = _partition_history(
@@ -325,11 +327,18 @@ async def async_purge_recorder_history(
         )
         retained_ids.update(retained)
         transient_ids.update(transient)
+        for item in _selected_entries(er.async_entries_for_config_entry(registry, entry_id)):
+            if "_history_" in str(getattr(item, "unique_id", "") or ""):
+                history_ids.add(str(item.entity_id))
+    retained_ids.difference_update(history_ids)
 
     await _async_purge_ids(
         hass,
         retained_ids,
         keep_days=RECORDER_RETENTION_DAYS,
+    )
+    await _async_purge_ids(
+        hass, history_ids, keep_days=HISTORY_RECORDER_RETENTION_DAYS,
     )
     await _async_purge_ids(hass, transient_ids, keep_days=0)
 

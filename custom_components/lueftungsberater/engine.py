@@ -17,6 +17,10 @@ from .models import RoomInput, VentilationResult
 # noise and tiny practical differences as a strong reason for/against airing.
 AH_NEUTRAL = 0.5
 AH_CONTINUE = 0.3
+# Shared boundaries for the isolated measurement bands and history card.
+CO2_GOOD_UPPER_PPM = 1000.0
+RH_GOOD_LOWER = 40.0
+RH_GOOD_UPPER = 60.0
 TEMP_NEED_ON = 1.0
 TEMP_NEED_OFF = 0.6
 # Without a configured window contact the integration cannot know whether the
@@ -100,7 +104,7 @@ def co2_status(ppm: float | None) -> str:
         return "critical"
     if ppm >= 1400:
         return "high"
-    if ppm >= 1000:
+    if ppm >= CO2_GOOD_UPPER_PPM:
         return "elevated"
     if ppm >= 800:
         return "good"
@@ -142,6 +146,9 @@ def _duration_key(mode: str, outdoor_temp: float) -> str:
         return "cooling"
     if mode == "erwaermen":
         return "warming"
+    if mode == "feuchte_befeuchten":
+        # Short, conservative comfort ventilation; not a moisture setpoint.
+        return "5_8"
     if mode in {
         "feuchte_lueften",
         "schimmel_lueften",
@@ -269,6 +276,7 @@ def _color(mode: str) -> str:
         "co2_mindestlueftung",
         "weiter_lueften",
         "feuchte_lueften",
+        "feuchte_befeuchten",
         "schimmel_lueften",
         "schimmel_langzeit_lueften",
         "kuehlen",
@@ -301,6 +309,7 @@ def _color(mode: str) -> str:
         "co2_warten",
         "schimmel_warten",
         "feuchte_warten",
+        "trocken_warten",
         "routine_warten",
         "aussen_zu_warm",
         "aussen_zu_kalt",
@@ -610,7 +619,7 @@ def _active_needs(
     elif co2_allowed and co2 is not None and co2 >= 1400:
         needs.append(("co2_high", 2))
     elif co2_allowed and co2 is not None and (
-        co2 >= 1000
+        co2 >= CO2_GOOD_UPPER_PPM
         or (_previous_co2_context(previous_mode, previous_need) and co2 >= 900)
         or co2_pending_hold
     ):
@@ -652,13 +661,21 @@ def _active_needs(
     elif not humidity_suppressed and hi >= 65:
         needs.append(("humidity_urgent", 2))
     elif not humidity_suppressed and (
-        hi >= 60 or (
+        hi >= RH_GOOD_UPPER or (
             (humidity_session_active or _previous_humidity_context(previous_mode, previous_need))
             and hi >= 58
             and diff >= AH_CONTINUE
         )
     ):
         needs.append(("humidity", 2))
+
+    # Only a new, independent low-humidity comfort need. This does not change
+    # the 60/65/75% dehumidification engine or imply a rigid 50% target.
+    dry_continuation = previous_need == "humidity_low" or previous_mode == "feuchte_befeuchten"
+    if hi < (RH_GOOD_LOWER + 0.5 if dry_continuation else RH_GOOD_LOWER):
+        # Even marked dryness is a *comfort* signal: it must never outrank an
+        # independent heating/cooling, CO2 or health ventilation reason.
+        needs.append(("humidity_low", 1))
 
     if ti >= 26 and hi >= 65 and ta <= ti - 1 and diff >= -AH_NEUTRAL:
         needs.append(("humid_heat", 1))
@@ -695,11 +712,12 @@ def _active_needs(
         "co2_high": 5,
         "mold": 6,
         "humidity": 7,
+        "humidity_low": 12,
         "indoor_air": 8,
         "co2_elevated": 9,
         "humid_heat": 10,
         "temperature": 11,
-        "routine": 12,
+        "routine": 13,
     }
     needs.sort(key=lambda item: (-item[1], priority.get(item[0], 99)))
     return needs
@@ -834,6 +852,19 @@ def _non_co2_mode_for_need(
             return "feuchte_warten", "humidity"
         return "feuchte_neutral", None
 
+    if need == "humidity_low":
+        # Negative diff means outdoor air has *more* water vapour in g/m³.
+        # Do not mistake high outdoor relative humidity for useful moisture.
+        if diff > -AH_NEUTRAL:
+            return "trocken_warten", "humidity"
+        if data.air_quality in {"poor", "very_poor"}:
+            return air_quality_mode or "komfort_abwaegung", "air_quality"
+        if data.air_quality == "moderate" or caution_kind is not None:
+            return "komfort_abwaegung", caution_kind or "air_quality"
+        if _temperature_drawback(ti, ta, target) >= 3.0:
+            return "komfort_abwaegung", "temperature"
+        return "feuchte_befeuchten", None
+
     if need in {"heat", "humid_heat", "temperature"}:
         temperature_continuation = (
             need == "temperature"
@@ -881,7 +912,7 @@ def _non_co2_mode_for_need(
         bad = (
             caution_kind is not None
             or diff < -AH_NEUTRAL
-            or (hi < 40 and diff > AH_NEUTRAL)
+            or (hi < RH_GOOD_LOWER and diff > AH_NEUTRAL)
             or _temperature_moves_away(ti, ta, target)
         )
         return ("routine_warten" if bad else "routine_lueften"), caution_kind
@@ -996,6 +1027,8 @@ def _room_display_urgency(need: str, data: RoomInput) -> int:
         return 2
     if need == "humidity_urgent":
         return 3 if data.indoor_humidity >= 75 else 2
+    if need == "humidity_low":
+        return 2 if data.indoor_humidity < 30.0 else 1
     if need == "humidity":
         # Around the normal 60 % edge this is intentionally only a mild signal.
         # It must not turn a room with otherwise good values orange merely
@@ -1185,7 +1218,7 @@ def co2_outdoor_context(data: RoomInput) -> dict[str, int | bool]:
     if data.outdoor_co2 is not None:
         if data.outdoor_co2 >= 1200:
             outdoor_co2 = 3
-        elif data.outdoor_co2 >= 1000:
+        elif data.outdoor_co2 >= CO2_GOOD_UPPER_PPM:
             outdoor_co2 = 2
         elif data.outdoor_co2 >= 800:
             outdoor_co2 = 1
@@ -1282,7 +1315,7 @@ def _outside_baseline_mode(
         candidates.append(("aussen_stark_unpassend", "conditions"))
     if _outdoor_co2_general_disadvantage(data):
         candidates.append(("aussen_co2_hoeher", "outdoor_co2"))
-    if (hi < 40 and diff > AH_NEUTRAL) or (
+    if (hi < RH_GOOD_LOWER and diff > AH_NEUTRAL) or (
         previous_mode == "innen_zu_trocken"
         and hi < 42
         and diff >= AH_CONTINUE
@@ -1338,7 +1371,7 @@ def _co2_mode_for_need(
     if need == "co2_critical":
         if outdoor_co2_limited:
             mode, caution = "co2_kritisch_vorsicht", "outdoor_co2"
-        elif hi >= 60 and diff <= -3.0:
+        elif hi >= RH_GOOD_UPPER and diff <= -3.0:
             mode, caution = "co2_kritisch_vorsicht", "humidity"
         elif temp_drawback >= 15.0:
             mode, caution = "co2_kritisch_vorsicht", "temperature"
@@ -1357,7 +1390,7 @@ def _co2_mode_for_need(
         elif co2 is not None and co2 >= 1700:
             # Continuous disadvantages only: crossing an unrelated RH threshold
             # must not make a higher CO₂ reading produce a weaker recommendation.
-            if temp_drawback >= 15.0 or (hi >= 60 and diff <= -3.0):
+            if temp_drawback >= 15.0 or (hi >= RH_GOOD_UPPER and diff <= -3.0):
                 mode, caution = (
                     "co2_abwaegung",
                     "temperature" if temp_drawback >= 15.0 else "humidity",
@@ -1373,10 +1406,10 @@ def _co2_mode_for_need(
                 mode, caution = "co2_lueften", soft_caution
         elif hi >= 65 and humidity_drawback_strong:
             mode, caution = "co2_warten", "humidity"
-        elif (hi >= 60 and humidity_drawback) or temp_drawback >= 5.0:
+        elif (hi >= RH_GOOD_UPPER and humidity_drawback) or temp_drawback >= 5.0:
             mode, caution = (
                 "co2_abwaegung",
-                "humidity" if hi >= 60 and humidity_drawback else "temperature",
+                "humidity" if hi >= RH_GOOD_UPPER and humidity_drawback else "temperature",
             )
         elif outdoor_co2_limited:
             mode, caution = "co2_abwaegung", "outdoor_co2"
@@ -1447,6 +1480,7 @@ def _apply_candidate_weather_context(
             "co2_lueften",
             "co2_lueften_mit_nachteil",
             "feuchte_lueften",
+            "feuchte_befeuchten",
             "schimmel_lueften",
             "schimmel_langzeit_lueften",
             "kuehlen",
@@ -1994,7 +2028,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             # Keep green but use a short, explicit rain reason.
             mode = "co2_kritisch"
             caution_kind = "rain"
-        elif mode in {"co2_lueften", "co2_lueften_mit_nachteil", "feuchte_lueften", "schimmel_lueften", "schimmel_langzeit_lueften", "kuehlen", "erwaermen", "routine_lueften"}:
+        elif mode in {"co2_lueften", "co2_lueften_mit_nachteil", "feuchte_lueften", "feuchte_befeuchten", "schimmel_lueften", "schimmel_langzeit_lueften", "kuehlen", "erwaermen", "routine_lueften"}:
             if urgency >= 2:
                 mode = "co2_abwaegung" if decision_need.startswith("co2") else "komfort_abwaegung"
                 caution_kind = "rain"
@@ -2213,10 +2247,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     continue_co2 = co2 is not None and (
         (not data.co2_finish_ready)
         if data.co2_airing_active
-        else co2 >= 1000
+        else co2 >= CO2_GOOD_UPPER_PPM
     )
     continue_humidity = humidity_active and (
-        (hi >= 60 and diff > AH_NEUTRAL)
+        (hi >= RH_GOOD_UPPER and diff > AH_NEUTRAL)
         or (humidity_context and hi >= 58 and diff >= AH_CONTINUE)
     )
     continue_mold = mold_active and mold_risk and diff > AH_NEUTRAL
@@ -2407,7 +2441,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             "continue_co2": co2 is not None and (
                 (not data.co2_finish_ready)
                 if data.co2_airing_active
-                else co2 >= 1000
+                else co2 >= CO2_GOOD_UPPER_PPM
             ),
             "continue_moisture": continue_moisture,
             "continue_cooling": continue_cooling,
@@ -2519,6 +2553,10 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         reason_args = {"surface_humidity": surface_rh}
     elif mode == "feuchte_lueften":
         reason_key, reason_args = "humidity_ventilate", {"humidity": hi, "diff": diff}
+    elif mode == "feuchte_befeuchten":
+        reason_key, reason_args = "humidity_add_moisture", {"humidity": hi, "diff": diff}
+    elif mode == "trocken_warten":
+        reason_key, reason_args = "humidity_dry_wait", {"humidity": hi, "diff": diff}
     elif mode == "feuchte_warten":
         reason_key, reason_args = "humidity_wait", {"humidity": hi, "diff": diff}
     elif mode == "feuchte_neutral":

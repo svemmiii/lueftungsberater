@@ -530,6 +530,17 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self._clear_night_memory()
             return snapshot
 
+        # Never start a *new* unattended night airing instruction hours after
+        # the configured night began. A valid plan from before bedtime may be
+        # continued/cancelled, but an HA restart at 03:00 must not suggest
+        # opening the bedroom window. Keep adverse/blocking notices available.
+        if (
+            previous is None
+            and (now.astimezone(dt_util.UTC) - start.astimezone(dt_util.UTC)) >= timedelta(hours=1)
+            and raw.status in {"now", "later", "conditional", "short_only"}
+        ):
+            raw = NightAdvice()
+
         # A >9 K delta now yields ``short_only`` instead of making the night card
         # disappear. Keep that state eligible for the same final-hour memory as
         # the long-opening states.
@@ -745,6 +756,17 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             previous_need=previous_need,
         )
 
+        # Only a remembered, still-current night plan can use the 3 K
+        # continuation threshold. A fresh plan always needs the original 4 K.
+        night_interval = self._night_interval(dt_util.now())
+        night_thermal_active = bool(
+            night_interval is not None
+            and self._night_memory is not None
+            and self._night_memory_start == night_interval[0]
+            and self._night_memory_end == night_interval[1]
+            and self._night_memory.reason_args.get("thermal_need")
+        )
+
         def _snapshot_for_co2_state(
             *,
             minimum_active: bool = False,
@@ -784,6 +806,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 # Recomputing from the raw smoothed slope here would bypass the
                 # two-consecutive-rise guard and reintroduce one-sample alarms.
                 co2_minutes_to_2000=co2_hysteresis.minutes_to_2000,
+                night_temperature_already_active=night_thermal_active,
                 weather=weather,
                 warnings=warnings,
             )
@@ -1120,6 +1143,17 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                     tracker_signal(self.entry.entry_id, self.subentry.subentry_id),
                     self._handle_tracker_change,
                 )
+            )
+            # Keep open_minutes fresh for very long sessions without needing a
+            # changing sensor or weather update. Never create a new airing or
+            # modify its persisted completion timestamp from this timer.
+            def refresh_open_airing(_now: datetime) -> None:
+                tracker = get_tracker(self.hass, self.entry, self.subentry)
+                if tracker is not None and tracker.is_open:
+                    self._handle_tracker_change()
+
+            self._unsubs.append(
+                async_track_time_interval(self.hass, refresh_open_airing, timedelta(minutes=1))
             )
 
         if self.subentry.data.get(CONF_CO2):

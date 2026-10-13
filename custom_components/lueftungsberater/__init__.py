@@ -109,7 +109,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = INTEGRATION_VERSION
+FRONTEND_VERSION = f"{INTEGRATION_VERSION}-complete20"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
@@ -526,6 +526,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     platform_setup_attempted = False
     try:
+        from .history_support import async_load_history
+        await async_load_history(hass, entry)
         await async_cleanup_legacy_room_history(hass)
         # A removed room no longer has runtime objects on reload; clean its compact
         # per-room stores before creating the remaining trackers.

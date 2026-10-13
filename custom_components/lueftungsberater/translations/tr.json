@@ -37,14 +37,16 @@
           "outdoor_o3": "Dış ozon (isteğe bağlı)",
           "location_tracker": "Konum kaynağı (isteğe bağlı)",
           "weather_source_mode": "Hava durumu kaynağı",
-          "warning_source_mode": "Uyarı kaynağı"
+          "warning_source_mode": "Uyarı kaynağı",
+          "show_general_warnings": "Genel uyarıları da göster"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder.",
           "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Alternatif olarak bir Home Assistant bölgesi (ör. zone.home) veya karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
           "weather_source_mode": "Konuma göre otomatik. Kendi Home Assistant hava durumu örneği.",
-          "warning_source_mode": "Konuma göre otomatik. Yalnızca kendi Home Assistant uyarı örneği. Otomatik + kendi uyarı örneği."
+          "warning_source_mode": "Konuma göre otomatik. Yalnızca kendi Home Assistant uyarı örneği. Otomatik + kendi uyarı örneği.",
+          "show_general_warnings": "Yalnızca bilgi amaçlıdır; pencere kilitlerini veya havalandırmayı etkilemez."
         },
         "sections": {
           "general": {
@@ -92,6 +94,10 @@
               "notify_target": "Bildirim hedefi (isteğe bağlı)",
               "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
             }
+          },
+          "advanced_warnings": {
+            "name": "Ek uyarılar",
+            "description": "Yalnızca bilgi amaçlıdır; pencere kilitlerini veya havalandırmayı etkilemez."
           }
         }
       },
@@ -131,12 +137,14 @@
           "outdoor_voc": "Dış VOC (indeks veya ham değer, isteğe bağlı)",
           "outdoor_no2": "Dış NO₂ / NOx (indeks veya ham değer, isteğe bağlı)",
           "outdoor_o3": "Dış ozon (isteğe bağlı)",
-          "location_tracker": "Konum kaynağı (isteğe bağlı)"
+          "location_tracker": "Konum kaynağı (isteğe bağlı)",
+          "show_general_warnings": "Genel uyarıları da göster"
         },
         "data_description": {
           "display_mode": "Her iki görünüm de aynı genel değerlendirmeyi kullanır. Havalandırma ihtiyacı: 🟢 şu anda işlem gerekmez · 🟡 takip et · 🟠 havalandırmak faydalı · 🔴 şimdi havalandır. Havalandırma göstergesi: 🟢 uygun zaman · 🟡 yalnızca kısmen uygun · 🟠/🔴 kapalı tutmak daha iyi. Kesin koruma talimatları her zaman 🔒 olarak gösterilir.",
           "outdoor_co2": "İsteğe bağlı kişisel dış ortam CO₂ sensörü. Değer makulse, bulunduğun yerdeki havayı doğrudan temsil eder.",
-          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Alternatif olarak bir Home Assistant bölgesi (ör. zone.home) veya karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur."
+          "location_tracker": "Boş bırakılırsa Home Assistant ev konumu kullanılır. Alternatif olarak bir Home Assistant bölgesi (ör. zone.home) veya karavan/tekne için GPS koordinatlı bir device_tracker seçilebilir. Otomatik hava durumu ve uyarı sağlayıcıları etkin konumu takip eder; kısa GPS kesintilerinde son geçerli mobil konum geçici olarak korunur.",
+          "show_general_warnings": "Yalnızca bilgi amaçlıdır; pencere kilitlerini veya havalandırmayı etkilemez."
         },
         "sections": {
           "general": {
@@ -180,6 +188,10 @@
               "notify_target": "Bildirim hedefi (isteğe bağlı)",
               "notify_triggers": "Şu durumlarda bildir (isteğe bağlı)"
             }
+          },
+          "advanced_warnings": {
+            "name": "Ek uyarılar",
+            "description": "Yalnızca bilgi amaçlıdır; pencere kilitlerini veya havalandırmayı etkilemez."
           }
         }
       },

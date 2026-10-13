@@ -135,6 +135,7 @@ from .const import (
     CONF_NIGHT_END_TIME,
     CONF_WARNING_SOURCE,
     CONF_WARNING_SOURCE_MODE,
+    CONF_SHOW_GENERAL_WARNINGS,
     CONF_LOCATION_TRACKER,
     CONF_WEATHER,
     CONF_WEATHER_SOURCE_MODE,
@@ -181,6 +182,7 @@ _LOGGER = logging.getLogger(__name__)
 SECTION_GENERAL = "general"
 SECTION_OUTDOOR = "outdoor"
 SECTION_NOTIFICATIONS = "notifications"
+SECTION_ADVANCED_WARNINGS = "advanced_warnings"
 SECTION_ROOM_CLIMATE = "room_climate"
 SECTION_ROOM_NIGHT = "room_night"
 SECTION_ROOM_SENSORS = "room_sensors"
@@ -262,6 +264,17 @@ def _air_sensor_selector(kind: str, hass: HomeAssistant | None = None) -> Entity
             device_class = attrs.get("device_class")
             unit = attrs.get("unit_of_measurement")
             name = f"{state.entity_id} {attrs.get('friendly_name', '')}".lower()
+            # Auxiliary calibration/baseline/reference channels are not live
+            # pollutant measurements, even if they expose the same unit or
+            # device class as the usable VOC/NO₂ channel.
+            if re.search(
+                r"(?:^|[^a-z0-9])(?:calibrat(?:ion|e|ed)?|kalibrier\w*|"
+                r"baseline|basislinie|reference|referenz|offset|"
+                r"compensation|kompens\w*|correction|korrektur\w*|"
+                r"setpoint|target)(?:$|[^a-z0-9])",
+                name,
+            ):
+                continue
             clearly_named_index = (
                 not unit and
                 re.search(pattern, name) and
@@ -269,7 +282,13 @@ def _air_sensor_selector(kind: str, hass: HomeAssistant | None = None) -> Entity
                 (str(state.state).lower() in {"unavailable", "unknown"}
                      or _is_numeric_sensor_state(state.state))
             )
-            if device_class in device_classes[kind] or unit in units[kind] or clearly_named_index:
+            name_matches = bool(re.search(pattern, name))
+            # Concentration units such as ppb and µg/m³ are shared by many
+            # pollutants. Without a matching device class or identifiable
+            # VOC/NO₂ name, that unit alone must not make a sensor selectable.
+            if (device_class in device_classes[kind]
+                    or (name_matches and unit in units[kind])
+                    or clearly_named_index):
                 matches.append(state.entity_id)
         if matches:
             # Explicit entity allowlists avoid making *all* unclassified HA
@@ -455,6 +474,13 @@ def _global_schema(hass: HomeAssistant, *, compact_auto: bool = False) -> vol.Sc
                 ),
                 SectionConfig(collapsed=True),
             ),
+            # Deliberately last and collapsed: general warnings are not part
+            # of the ventilation advice and should never demand attention.
+            vol.Optional(SECTION_ADVANCED_WARNINGS): section(
+                vol.Schema({
+                    vol.Optional(CONF_SHOW_GENERAL_WARNINGS): BooleanSelector(),
+                }), SectionConfig(collapsed=True),
+            ),
         }
     )
 
@@ -506,6 +532,10 @@ def _normalize_local_input(user_input: dict[str, Any]) -> dict[str, Any]:
         }
         if manual:
             data[CONF_MANUAL_OUTDOOR] = manual
+
+    advanced = user_input.get(SECTION_ADVANCED_WARNINGS)
+    if isinstance(advanced, dict) and CONF_SHOW_GENERAL_WARNINGS in advanced:
+        data[CONF_SHOW_GENERAL_WARNINGS] = bool(advanced[CONF_SHOW_GENERAL_WARNINGS])
 
     notifications = user_input.get(SECTION_NOTIFICATIONS)
     if isinstance(notifications, dict):
@@ -574,6 +604,9 @@ def _local_form_defaults(entry: ConfigEntry) -> dict[str, Any]:
             CONF_DISPLAY_MODE: entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
         },
         SECTION_NOTIFICATIONS: notifications,
+        SECTION_ADVANCED_WARNINGS: {
+            CONF_SHOW_GENERAL_WARNINGS: bool(entry.data.get(CONF_SHOW_GENERAL_WARNINGS, False)),
+        },
     }
     if outdoor:
         defaults[SECTION_OUTDOOR] = outdoor
@@ -1259,6 +1292,9 @@ class LueftungsberaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             data = _normalize_local_input(user_input)
+            # The optional collapsed section may be omitted by HA during an
+            # unrelated reconfigure. Never silently reset an enabled choice.
+            data.setdefault(CONF_SHOW_GENERAL_WARNINGS, bool(entry.data.get(CONF_SHOW_GENERAL_WARNINGS, False)))
             errors = _local_source_errors(data)
             if not errors:
                 title = str(data.pop(CONF_INSTANCE_NAME)).strip() or entry.title

@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.11.3"
+INTEGRATION_VERSION = "0.11.4"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 SUBENTRY_TYPE_STATION = "station"
@@ -37,6 +37,7 @@ CONF_RAIN_SOON = "rain_soon_entity"
 
 CONF_WARNING_SOURCE = "warning_source"
 CONF_WARNING_SOURCE_MODE = "warning_source_mode"
+CONF_SHOW_GENERAL_WARNINGS = "show_general_warnings"
 WARNING_SOURCE_AUTO = "auto"
 WARNING_SOURCE_MANUAL = "manual"
 WARNING_SOURCE_AUTO_PLUS_MANUAL = "auto_plus_manual"
@@ -224,6 +225,9 @@ DATA_HARDWARE_HUBS = "hardware_hubs"
 DATA_HARDWARE_SERVICE_REGISTERED = "hardware_service_registered"
 DATA_HARDWARE_DISPLAY_PUSHERS = "hardware_display_pushers"
 RECORDER_RETENTION_DAYS = 20
+# Maximum selectable range in the History card; Recorder itself may retain
+# fewer days unless its global purge_keep_days is configured accordingly.
+HISTORY_RECORDER_RETENTION_DAYS = 30
 SAFETY_FALLBACK_MAX_AGE = timedelta(hours=1)
 AIR_QUALITY_HISTORY_MIN_SAMPLES = 24
 AIR_QUALITY_SAMPLE_MIN_INTERVAL = timedelta(minutes=30)

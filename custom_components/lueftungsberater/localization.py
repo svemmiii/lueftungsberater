@@ -550,6 +550,7 @@ def _tradeoff_reason(key: str, a: dict[str, Any], lang: str, unit: str) -> str:
     need = str(a.get("need") or "")
     need_text = {
         "humidity": {"de": "Die Raumfeuchte spricht fürs Lüften.", "en": "Indoor humidity would benefit from airing.", "tr": "İç nem havalandırmadan fayda görür."},
+        "humidity_low": {"de": "Die Raumluft ist zu trocken; Außenluft könnte helfen.", "en": "Indoor air is too dry; outdoor air could help.", "tr": "İç hava çok kuru; dış hava yardımcı olabilir."},
         "humidity_urgent": {"de": "Die Raumfeuchte ist deutlich erhöht.", "en": "Indoor humidity is clearly elevated.", "tr": "İç nem belirgin şekilde yüksek."},
         "mold": {"de": "Die Feuchtesituation an der überwachten Oberfläche kann von Luftaustausch profitieren.", "en": "The moisture situation at the monitored surface would benefit from air exchange.", "tr": "İzlenen yüzeydeki nem durumu hava değişiminden fayda görür."},
         "mold_persistent": {"de": "Die kritische Oberflächenfeuchte hält bereits länger an.", "en": "The critical surface humidity has persisted for a longer period.", "tr": "Kritik yüzey nemi daha uzun süredir devam ediyor."},
@@ -623,6 +624,12 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
                 "en": f"CO₂ is at {co2}, increasing the need for fresh air.",
                 "tr": f"CO₂ {co2} seviyesinde ve havalandırma ihtiyacını artırıyor.",
             }[lang]
+    elif need == "humidity_low":
+        inside = {
+            "de": f"Die Raumluft ist mit {humidity} zu trocken.",
+            "en": f"Indoor air is too dry at {humidity}.",
+            "tr": f"İçeride nem {humidity} ile çok düşük.",
+        }[lang]
     elif need == "humidity_observe":
         inside = {
             "de": f"Die Raumfeuchte liegt mit {humidity} deutlich erhöht. Die bereits behandelte Feuchtesituation erfordert aktuell noch keine erneute Lüftung – beobachte die weitere Entwicklung.",
@@ -718,7 +725,7 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
     # Keep the front of the card short: add only the outdoor factor that best
     # explains why the same engine judgement looks calmer/stronger in this view.
     outside = ""
-    if mode in {"aussen_deutlich_feuchter", "feuchte_warten", "schimmel_warten"} or caution == "humidity":
+    if need != "humidity_low" and (mode in {"aussen_deutlich_feuchter", "feuchte_warten", "schimmel_warten"} or caution == "humidity"):
         if ventilation_color == "green" and level > 0 and caution == "humidity":
             outside = {
                 "de": " Die Außenluft ist zwar feuchter, trotzdem ist Lüften wegen der Innenwerte hier wichtiger.",
@@ -731,6 +738,8 @@ def _room_perspective_reason(a: dict[str, Any], lang: str, unit: str) -> str:
                 "en": " It is more humid outside. Avoid airing for long.",
                 "tr": " Dışarısı daha nemli. Uzun süre havalandırma.",
             }[lang]
+    elif need == "humidity_low" and mode == "trocken_warten":
+        outside = {"de": " Draußen würde Lüften kaum Feuchtigkeit bringen.", "en": " Airing would add little moisture right now.", "tr": " Şu anda havalandırma pek nem kazandırmaz."}[lang]
     elif caution == "temperature":
         if ventilation_color == "green" and level > 0:
             outside = {
@@ -877,6 +886,20 @@ def reason_text(
 
     if key == "room_perspective":
         return _room_perspective_reason(a, lang, temperature_unit)
+
+    if key == "humidity_add_moisture":
+        return {
+            "de": f"Drinnen ist es mit {m(a.get('humidity'), '%', 0)} zu trocken. Draußen enthält die Luft mehr Feuchtigkeit. Kurzes Lüften kann helfen.",
+            "en": f"Indoor humidity is low at {m(a.get('humidity'), '%', 0)}. Outdoor air contains more moisture, so brief airing can help.",
+            "tr": f"İçeride nem {m(a.get('humidity'), '%', 0)} ile düşük. Dış hava daha fazla nem içeriyor; kısa havalandırma yardımcı olabilir.",
+        }[lang]
+
+    if key == "humidity_dry_wait":
+        return {
+            "de": "Drinnen ist es zu trocken. Lüften würde die Luft aber gerade nicht ausreichend befeuchten.",
+            "en": "Indoor air is too dry, but airing would not add enough moisture right now.",
+            "tr": "İçeride hava fazla kuru, ancak şu anda havalandırmak yeterince nem kazandırmaz.",
+        }[lang]
 
     if key == "humidity_exhausted":
         return {
