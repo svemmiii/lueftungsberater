@@ -468,7 +468,7 @@ def test_auto_warning_close_instruction_hard_locks_but_severe_weather_stays_soft
         "custom_components.lueftungsberater.providers.auto_warning_data",
         return_value=data,
     ):
-        assessed = _automatic_warning_assessment(SimpleNamespace(), SimpleNamespace())
+        assessed = _automatic_warning_assessment(SimpleNamespace(), SimpleNamespace(data={}))
 
     assert assessed.official_close_instruction is True
     assert assessed.nina_status == "danger"
@@ -501,7 +501,7 @@ def test_auto_warning_cancel_cannot_reactivate_stale_close_instruction_or_weathe
         "custom_components.lueftungsberater.providers.auto_warning_data",
         return_value=data,
     ):
-        assessed = _automatic_warning_assessment(SimpleNamespace(), SimpleNamespace())
+        assessed = _automatic_warning_assessment(SimpleNamespace(), SimpleNamespace(data={}))
 
     assert assessed.official_close_instruction is False
     assert assessed.nina_status == "none"

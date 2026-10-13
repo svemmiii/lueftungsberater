@@ -1990,8 +1990,11 @@ def _evaluate_air_warning(
     headline_low = " ".join(str(headline).lower().split())
     explicit_clear_headline = bool(
         re.match(r"^(?:entwarnung|all[- ]clear)\s*[:–-]\s*\S", headline_low)
-        or re.fullmatch(r"(?:entwarnung|all[- ]clear)", headline_low)
     ) and not any(word in headline_low for word in CLEAR_QUALIFIERS + CLEAR_NEGATIONS)
+    # An isolated headline like "Entwarnung" is not proof that a simultaneous
+    # explicit instruction to KEEP the windows closed has been withdrawn.
+    # The strong/full cancellation and structured CAP Cancel cases still win
+    # over actions copied from the previous warning.
 
     if _is_strong_clear_warning(alltext, message_type) or explicit_clear_headline:
         return "clear"
@@ -2779,7 +2782,14 @@ def _automatic_warning_assessment(
         if clear_records:
             result.warning_notice_kind = "all_clear"
             result.warning_notice_text = clear_records[0].headline or clear_records[0].event
-            result.nina_status = "clear"
+            # A standalone CAP Cancel is a revocation of an older warning,
+            # not an active NINA "clear" event. Retain the cancellation notice
+            # and CAP references below so the persisted safety lock can still
+            # be retired *only* when its original identity matches.
+            result.nina_status = (
+                "none" if all(str(record.msg_type).strip().lower() == "cancel"
+                              for record in clear_records) else "clear"
+            )
             result.warning_ids = set().union(*(
                 _sourced_warning_reference_ids(
                     record.references, message_id=record.warning_id,

@@ -1,3 +1,10 @@
+## v0.11.4 TEST COMPLETE(21) – GitHub CI fixes (13.10.2026)
+
+- Fixed NINA/manual warning evaluation: a plain `Entwarnung` headline no longer overrides a simultaneous explicit `Fenster geschlossen halten` instruction. Explicit CAP `Cancel` and confirmed strong all-clears still override obsolete action text.
+- Automatic CAP-only cancellation assessments now retain their warning identity and all-clear evidence for safe persisted-lock reconciliation, while reporting `nina_status=none` for the cancelled event itself.
+- Fixed the existing platform-forwarding rollback test to isolate real Home Assistant storage, and completed the auto-warning test's missing ConfigEntry `data` stub.
+- Removed seven pre-existing Ruff critical lint findings (unused imports / test assignment), with no change to engine, weather evaluation, or historical charts.
+
 ## v0.11.4 TEST COMPLETE(20) — Extremwerte bei unterbrochenen Diagrammen schützen (13.10.2026)
 
 - **Messspitzen sichtbar:** Die Notfall-Verdichtung stark segmentierter Recorder-Verläufe schützt zuerst globale Tiefst- und Höchstwerte, anschließend lokale Extrema je Zeitfenster und verteilt die übrigen Zeichenpunkte gleichmäßig. Eine kurze CO₂-Spitze fällt dadurch nicht mehr durch ein reines Positionsraster. Die strikte Zeichenpunktgrenze und der Hinweis auf verdichtete Darstellungen bleiben erhalten; tatsächlich aufgezeichnete Unterbrechungen werden weiterhin niemals zu Linien verbunden. Bei extrem vielen Spitzen können nicht ausnahmslos alle Einzelereignisse dargestellt werden.

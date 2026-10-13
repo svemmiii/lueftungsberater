@@ -478,6 +478,10 @@ async def test_setup_failure_during_platform_forwarding_rolls_back_partial_platf
     monkeypatch.setattr(integration, "async_sync_room_device_areas", lambda *_args: None)
     monkeypatch.setattr(integration, "async_refresh_recorder_entity_index", _noop_async)
     monkeypatch.setattr(integration, "async_purge_recorder_history", _noop_async)
+    # This test isolates partial platform forwarding; do not invoke the real
+    # HA Store through a SimpleNamespace that is not a HomeAssistant object.
+    from custom_components.lueftungsberater import history_support
+    monkeypatch.setattr(history_support, "async_load_history", _noop_async)
 
     async def _cleanup(_hass, _entry):
         calls.append("cleanup")

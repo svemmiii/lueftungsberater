@@ -5,9 +5,9 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from test_v0114_complete2_pure import _extract, _safety
+from test_v0114_complete2_pure import _extract
 from test_v0114_complete9_active_source_transition_pure import (
-    AUTO_ID, MANUAL_WARNING_ID, MANUAL_ENTITY, MANUAL_ID, _live, _setup,
+    AUTO_ID, MANUAL_WARNING_ID, MANUAL_ENTITY, _live, _setup,
 )
 from test_v0114_complete4_safety_pure import BASE, MOW
 

@@ -176,3 +176,46 @@ def test_partial_or_future_clear_is_ambiguous_not_authoritative():
     )
     previous = {"source_key": key, "warning_ids": ["smoke-id", "chemical-id"]}
     assert f(SimpleNamespace(), SimpleNamespace(data={}), warning, previous) == ("unknown", key)
+
+
+def test_bare_entwarnung_cannot_override_continued_close_instruction():
+    """A generic headline is weaker than an explicit current protective order."""
+    evaluate = _provider()["_evaluate_air_warning"]
+    assert evaluate(
+        "Entwarnung", "Die Lage hat sich verbessert.",
+        "Fenster und Türen weiterhin geschlossen halten.", "Minor",
+    ) == "danger"
+    # Only authenticated CAP Cancel or a definite full withdrawal may beat
+    # potentially stale close instructions.
+    assert evaluate(
+        "Entwarnung", "Die Warnung wurde aufgehoben.",
+        "Fenster und Türen weiterhin geschlossen halten.", "Cancel",
+    ) == "clear"
+
+
+def test_cap_cancel_preserves_reference_without_reporting_active_clear():
+    """A CAP cancellation must remain reconcilable with an old saved hard lock."""
+    scope = _provider()
+    warning = SimpleNamespace(
+        warning_id="cancel-123", provider_domain="nina_auto", category="weather",
+        headline="Entwarnung: Gefahr ist vorüber", event="",
+        description="Die Warnung wurde aufgehoben.",
+        instruction="Fenster und Türen geschlossen halten.",
+        severity="Extreme", msg_type="Cancel", expires=None, effective=None,
+        references="mow@example.org,smoke-123,2026-10-02T09:00:00Z",
+        evidence_at=None, issued_at=None, sender="",
+    )
+    data = SimpleNamespace(
+        provider_domain="nina_auto", safety_source_key="auto_warning:50.7:7.1",
+        coverage=None, error=None, region_ars=None, active_sources=[],
+        available=True, source_availability={}, warnings=[warning],
+    )
+    scope["auto_warning_data"] = lambda *_args: data
+    assessed = scope["_automatic_warning_assessment"](
+        SimpleNamespace(), SimpleNamespace(data={})
+    )
+    assert assessed.nina_status == "none"
+    assert assessed.official_close_instruction is False
+    assert assessed.weather_danger is False
+    assert assessed.warning_notice_kind == "all_clear"
+    assert assessed.warning_ids

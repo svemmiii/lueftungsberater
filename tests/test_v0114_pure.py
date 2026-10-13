@@ -1,7 +1,6 @@
 """Regression tests for version 0.11.4 that run without Home Assistant."""
 import importlib.util
 import importlib.machinery
-import math
 import random
 import re
 import sys
@@ -59,7 +58,6 @@ def test_critical_co2_and_safety_override_dry_comfort():
 
 
 def test_clear_words_not_future_or_false_clear():
-    source=(COMP/'providers.py').read_text()
     for phrase in ('bis zur abschließenden Untersuchung und ausdrücklichen Entwarnung', 'Noch keine Entwarnung', 'Teilentwarnung'):
         assert not re.search(r'^Entwarnung$', phrase)
     # Scoping through AST is done in separate dedicated NINA tests.

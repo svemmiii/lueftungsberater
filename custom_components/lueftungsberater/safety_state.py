@@ -21,8 +21,6 @@ from homeassistant.util import dt as dt_util
 from .air_sensors import state_is_fresh, state_number
 from .providers import GUST_HARD_LOCK_KMH, WIND_HARD_LOCK_KMH, _wind_to_kmh
 from .const import (
-    CONF_OUTDOOR_WIND,
-    CONF_OUTDOOR_GUST,
     CONF_WARNING_SOURCE,
     CONF_SHOW_GENERAL_WARNINGS,
     CONF_WEATHER,
