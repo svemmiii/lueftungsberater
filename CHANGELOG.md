@@ -1,3 +1,9 @@
+## v0.11.5 TEST COMPLETE(4) – Hassfest Recorder-Deklaration (CI-Fix)
+
+- **Hassfest-Fehler behoben:** `recorder` als optionale `after_dependencies`-Komponente im Home-Assistant-Manifest eingetragen. Damit ist der direkte Recorder-Import in `api.py` korrekt deklariert, ohne Recorder zur Voraussetzung für die normale Lüftungs- und Raumluftauswertung zu machen.
+- **Keine Produktivlogik geändert:** Alle Python-Module, das Frontend, die Sensor-Unique-IDs sowie Engine, Sicherheit, Nachtplanung und Historienfunktionen bleiben bytegleich zu COMPLETE(3).
+- **Abnahme:** Manifest validieren, Regressionen wiederholen und `home-assistant/actions/hassfest` im GitHub-CI erneut ausführen.
+
 ## v0.11.5 TEST COMPLETE(3) – Eindeutige Grenzbalken und isolierter Recorder-Test (Runtime-Testkandidat)
 
 - **Grenzbalken eindeutig zugeordnet:** Bei mehreren Historienkurven besitzt jede rote Grenzmarkierung nun die gleiche kurvenspezifische Farbumrandung wie ihr Messwert; SVG-Titel und zugängliche Beschriftung benennen Messgröße, Richtung, Grenzwert und Einheit.

@@ -1,6 +1,9 @@
 {
   "domain": "lueftungsberater",
   "name": "Lüftungsassistent",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@svemmiii"
   ],
