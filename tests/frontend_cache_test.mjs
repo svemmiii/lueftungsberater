@@ -392,3 +392,117 @@ efficientOverview._renderOverview = () => {};
 await new Promise((resolve) => setTimeout(resolve, 15));
 assert.ok(discoveryScans >= 2);
 assert.equal(Array.from(efficientOverview._localAdvisorIds).sort().join(","), "sensor.advisor,sensor.ordinary");
+
+// Room-air view must never advertise an action duration while displaying
+// 'room_good', even when loading an old HA/remote snapshot with 8_12.
+const roomGoodAttrs = {
+  status: "green", display_mode: "room_air", recommendation_key: "room_good",
+  room_name: "Wohnzimmer", recommendation: "Aktuell kein Lüftungsgrund",
+  reason: "Die Luftfeuchte liegt leicht über 60 %. Noch kein Lüften nötig.",
+  duration_key: "8_12", duration: "8–12 Minuten",
+};
+const roomGoodCard = new Card();
+roomGoodCard.setConfig({ entity: "sensor.room_good" });
+roomGoodCard.hass = localHass("sensor.room_good", roomGoodAttrs, "open_now");
+assert.equal(roomGoodCard._isExpanded(), false);
+assert.match(roomGoodCard.shadowRoot.innerHTML, /Aktuell kein Lüftungsgrund/);
+let accidentalMoreInfo = null;
+roomGoodCard.dispatchEvent = (event) => { accidentalMoreInfo = event; return true; };
+roomGoodCard._handleMainTap();
+assert.equal(roomGoodCard._isExpanded(), true, "room-air tap expands its own explanation");
+assert.equal(accidentalMoreInfo, null, "room-air default tap must not open conflicting automation state");
+assert.match(roomGoodCard.shadowRoot.innerHTML, /Noch kein Lüften nötig/);
+assert.doesNotMatch(roomGoodCard.shadowRoot.innerHTML, /Empfohlene Lüftungsdauer:/);
+roomGoodCard._handleMainTap();
+assert.equal(roomGoodCard._isExpanded(), false, "second tap collapses the room details");
+
+const roomGoodSplit = new Card();
+roomGoodSplit.setConfig({ entity: "sensor.room_good", force_expanded: true,
+  display_settings: { layout: "split", hidden: [] } });
+roomGoodSplit.hass = localHass("sensor.room_good", roomGoodAttrs, "open_now");
+assert.doesNotMatch(roomGoodSplit.shadowRoot.innerHTML, /Empfohlene Lüftungsdauer:/);
+assert.match(roomGoodSplit.shadowRoot.innerHTML, /<div class="header green"\s*>/,
+  "fully expanded room dialog must not advertise a dead More-Info tap");
+
+const roomVentCard = new Card();
+roomVentCard.setConfig({ entity: "sensor.room_vent", force_expanded: true });
+roomVentCard.hass = localHass("sensor.room_vent", {
+  ...roomGoodAttrs, display_mode: "ventilation", recommendation_key: "open_now",
+  recommendation: "Jetzt lüften",
+}, "open_now");
+assert.match(roomVentCard.shadowRoot.innerHTML, /Empfohlene Lüftungsdauer:/);
+let ventilationAction = null;
+roomVentCard.dispatchEvent = (event) => { ventilationAction = event; return true; };
+roomVentCard._handleMainTap();
+assert.equal(ventilationAction?.detail?.config?.tap_action?.action, "more-info",
+  "ventilation default tap remains Home Assistant More Info");
+
+// COMPLETE(40): the visible room-action, not just "room_good", controls the
+// duration in the two layouts and in both local and older remote snapshots.
+// A room card saying "you can close" or "watch" must not encourage another
+// timed airing just because the technical action still has a duration.
+const durationCases = [
+  ["room_good", "8_12", false],
+  ["can_close", "until_targets", false],
+  ["room_watch", "brief_observation", false],
+  ["close_now", "until_targets", false],
+  ["better_close", "8_12", false],
+  ["keep_closed", "8_12", false],
+  ["short_observation", "brief_observation", false],
+  ["wait", "8_12", false],
+  ["window_state_unknown", "8_12", false],
+  ["room_need", "8_12", true],
+  ["room_urgent", "8_12", true],
+  ["keep_open", "until_targets", true],
+  ["room_keep_brief", "brief_observation", true],
+  ["open_now", "8_12", true],
+];
+for (const [key, durationKey, visible] of durationCases) {
+  for (const layout of ["classic", "split"]) {
+    for (const remote of [false, true]) {
+      for (const language of ["de", "en", "tr"]) {
+      const roomId = `sensor.test_${key}_${layout}_${remote}_${language}`;
+      const oldSnapshot = {
+        ...roomGoodAttrs, room_name: "Wohnzimmer", display_mode: "room_air",
+        recommendation_key: key, recommendation: key, duration_key: durationKey,
+        duration: "Noch 8–12 Minuten", // old or remote attributes still contain it
+      };
+      const card = new Card();
+      const options = {
+        force_expanded: true,
+        display_settings: { layout, hidden: [] },
+      };
+      if (remote) {
+        options.remote_snapshot = { state: "open_now", attributes: oldSnapshot };
+      } else {
+        options.entity = roomId;
+      }
+      card.setConfig(options);
+      const hass = localHass(roomId, oldSnapshot, "open_now");
+      hass.language = language;
+      card.hass = hass;
+      assert.equal(card.shadowRoot.innerHTML.includes('class="duration"'), visible,
+        `duration visibility must match room action ${key} (${layout}, remote=${remote}, lang=${language})`);
+      }
+    }
+  }
+}
+// Technical ventilation perspective still shows its action duration even if
+// the room-air perspective for the same data would say "room_good".
+const ventilationWatch = new Card();
+ventilationWatch.setConfig({entity: "sensor.vent_watch", force_expanded:true});
+ventilationWatch.hass = localHass("sensor.vent_watch", {
+  ...roomGoodAttrs, display_mode: "ventilation", recommendation_key: "short_observation",
+  recommendation: "Kurzes Lüften unter Beobachtung", duration_key: "brief_observation",
+  duration: "Etwa 5 Minuten, dabei aufpassen",
+});
+assert.match(ventilationWatch.shadowRoot.innerHTML, /Empfohlene Lüftungsdauer:/);
+
+const explicitlyConfiguredTap = new Card();
+explicitlyConfiguredTap.setConfig({ entity: "sensor.room_good", tap_action: { action: "navigate", navigation_path: "/my-dashboard" } });
+explicitlyConfiguredTap.hass = localHass("sensor.room_good", roomGoodAttrs, "open_now");
+let explicitAction = null;
+explicitlyConfiguredTap.dispatchEvent = (event) => { explicitAction = event; return true; };
+explicitlyConfiguredTap._handleMainTap();
+assert.equal(explicitAction?.detail?.config?.tap_action?.action, "navigate",
+  "explicit tap actions must not be intercepted");

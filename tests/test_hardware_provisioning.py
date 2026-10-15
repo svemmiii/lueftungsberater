@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -567,11 +568,19 @@ async def test_master_participant_retry_does_not_depend_on_service_registered_ev
         data={CONF_HARDWARE_ROLE: HARDWARE_ROLE_MASTER},
     )
     unload_callbacks = []
+    started_tasks = []
+
+    def create_background_task(_hass, coroutine, name):
+        task = asyncio.create_task(coroutine, name=name)
+        started_tasks.append(task)
+        return task
+
     entry = SimpleNamespace(
         entry_id="assistant",
         data={},
         subentries={"master-subentry": master},
         async_on_unload=unload_callbacks.append,
+        async_create_background_task=create_background_task,
     )
     scheduled = {}
 
@@ -596,13 +605,15 @@ async def test_master_participant_retry_does_not_depend_on_service_registered_ev
     assert len(unload_callbacks) == 1
 
     # First periodic attempt fails/deferred and schedules the one-minute retry.
-    await scheduled["callback"](None)
+    scheduled["callback"](None)
+    await asyncio.gather(*started_tasks)
     assert attempts == [2.0]
 
     # No service_registered event occurs. Advancing the clock is sufficient for
     # the bounded timer to retry and recover the topology by itself.
     now[0] += timedelta(minutes=1)
-    await scheduled["callback"](None)
+    scheduled["callback"](None)
+    await asyncio.gather(*started_tasks)
     assert attempts == [2.0, 2.0]
 
 @pytest.mark.asyncio

@@ -18,7 +18,7 @@ for(const minutes of [5,10,15,30]){
 }
 const gap=[...Array.from({length:300},(_,i)=>({t:i*300_000,v:500})),...Array.from({length:300},(_,i)=>({t:(i+330)*300_000,v:500}))];
 const sampled=c._plotSamples(gap,0,gap.at(-1).t,100);
-assert.equal(new Set(sampled.map(p=>p.segment)).size,2,'genuine gap must remain');
+assert.equal(new Set(sampled.map(p=>p.segment)).size,1,'a long interval with no state changes is not proof of an outage');
 // Event strip must be cached across cursor changes and compressed to pixels.
 c._start=0;c._end=40_000_000;
 c._history=Array.from({length:40000},(_,i)=>({t:i*1000,kind:'decision',key:'open_now',attrs:{room_status:i%2?'red':'green'}}));
@@ -53,6 +53,59 @@ const now=Date.now(),start=new Date(now-30*86400_000);
 await h._getHistory(['sensor.ppm'],start,new Date(now));
 await h._getHistory(['sensor.ppm'],new Date(start.getTime()+60_000),new Date(now+60_000));
 assert.equal(requests.length,2);
+assert.ok(requests.every(url=>url.includes('significant_changes_only=0')), 'attribute-only decision transitions must be returned by HA REST');
 const secondStart=Date.parse(decodeURIComponent(requests[1].split('history/period/')[1].split('?')[0]));
 assert.ok(secondStart>now-10*60_000,'incremental fetch must start close to last fetch');
 console.log('PASS: gap fidelity, decision cache/40k events, multi-room, mobile gestures and incremental Recorder');
+
+// A bounded background recovery failure must be visible, not endlessly retried.
+const failedCard=new C();
+failedCard._config={entity:'sensor.r1',hours:24,metrics:['co2_in']};
+let failedCardWrites=0;
+failedCard._hass={language:'de',user:{is_admin:true},states:{'sensor.r1':{attributes:{room_name:'Raum'}}},callWS:async msg=>{
+ if(msg.type.endsWith('/history_metrics'))return [{key:'co2_in',source:null,unit:'ppm',high:1000,low:null}];
+ if(msg.type.endsWith('/history_recommendations'))return {};
+ if(msg.type.endsWith('/history_room_info'))return {room:'r',room_name:'Raum',enabled:['co2_in','decision'],helpers:{},failed:['co2_in','decision'],failure_reason:'helpers_missing'};
+ if(msg.type.endsWith('/history_enable')){failedCardWrites++;return {room:'r'};}
+ throw Error(msg.type);
+}};
+failedCard._getHistory=async ids=>[];
+await failedCard._refresh();
+assert.equal(failedCardWrites,0,'exhausted retries must not spam history_enable');
+assert.match(failedCard._notice,/fehlgeschlagen/,'card must display the exhausted retry status');
+
+// COMPLETE(34): terminal repair errors must be actionable by an admin, never
+// automatically retried, and a read-only damaged Store must block writes.
+assert.match(failedCard.shadowRoot.innerHTML,/data-history-retry/);
+await failedCard._retryHistoryRecording();
+assert.equal(failedCardWrites,1,'explicit admin click may send exactly one retry');
+const ordinaryReader=new C();
+ordinaryReader._config={entity:'sensor.r1',hours:24,metrics:['co2_in']};
+let readerWrites=0;
+ordinaryReader._hass={language:'de',user:{is_admin:false},states:{'sensor.r1':{attributes:{room_name:'R'}}},callWS:async msg=>{
+ if(msg.type.endsWith('/history_metrics'))return [{key:'co2_in',source:null,unit:'ppm'}];
+ if(msg.type.endsWith('/history_recommendations'))return {};
+ if(msg.type.endsWith('/history_room_info'))return {room:'r',enabled:['co2_in'],failed:['co2_in'],failure_reason:'registry_unavailable'};
+ if(msg.type.endsWith('/history_enable')){readerWrites++;throw Error('forbidden');}
+}};
+ordinaryReader._getHistory=async()=>[];
+await ordinaryReader._refresh();
+assert.equal(readerWrites,0);
+assert.match(ordinaryReader._notice,/konnte nicht überprüft werden/);
+assert.doesNotMatch(ordinaryReader.shadowRoot.innerHTML,/data-history-retry/);
+
+const protectedCard=new C();
+protectedCard._config={entity:'sensor.r1',hours:24,metrics:['co2_in']};
+let protectedWrites=0;
+protectedCard._hass={language:'de',user:{is_admin:true},states:{'sensor.r1':{attributes:{room_name:'R'}}},callWS:async msg=>{
+ if(msg.type.endsWith('/history_metrics'))return [{key:'co2_in',source:null,unit:'ppm'}];
+ if(msg.type.endsWith('/history_recommendations'))return {};
+ if(msg.type.endsWith('/history_room_info'))return {room:'r',enabled:['co2_in'],helpers:{},failed:[],history_store_readonly:true};
+ if(msg.type.endsWith('/history_enable')){protectedWrites++;throw Error('must not write');}
+}};
+protectedCard._getHistory=async()=>[];
+await protectedCard._refresh();
+assert.equal(protectedWrites,0);
+assert.match(protectedCard._notice,/schreibgeschützt/);
+assert.doesNotMatch(protectedCard.shadowRoot.innerHTML,/data-history-retry/);
+console.log('PASS: manual admin recovery, unavailable registry and protected history storage');

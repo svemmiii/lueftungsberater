@@ -827,6 +827,10 @@ class LueftungsberaterCard extends HTMLElement {
   }
 
   setConfig(config) {
+    // Distinguish an explicit user action from the old default More-Info tap.
+    // The latter shows the automation/action state (open_now), which can differ
+    // from the green room-air recommendation shown in the card itself.
+    this._explicitTapAction = Object.prototype.hasOwnProperty.call(config || {}, "tap_action");
     this._config = {
       tap_action: { action: "more-info" },
       ...config,
@@ -1035,6 +1039,16 @@ class LueftungsberaterCard extends HTMLElement {
 
   _handleMainTap() {
     if (this._isRemoteSnapshot() || !this._config?.entity) return;
+    const attributes = this._stateObject()?.attributes || {};
+    // The room-air card and the advisor's HA state have distinct purposes:
+    // room_good describes indoor comfort, open_now is the stable automation
+    // action. Default taps should explain what the green card ACTUALLY says,
+    // not open a More-Info dialog headed by the different action state.
+    // Honor every explicitly configured tap_action as before.
+    if (attributes.display_mode === "room_air" && !this._explicitTapAction) {
+      if (!this._config.force_expanded) this._setExpanded(!this._isExpanded());
+      return;
+    }
     const event = new Event("hass-action", { bubbles: true, composed: true });
     event.detail = {
       config: {
@@ -1103,6 +1117,11 @@ class LueftungsberaterCard extends HTMLElement {
     const expanded = this._isExpanded();
     const hardLock = a.safety_lock === true || status === "locked";
     const showToggle = this._config.force_expanded !== true;
+    // Already-expanded overview dialogs have nothing further to expand.
+    // Avoid presenting their green header as a clickable control when the
+    // default HA More-Info state would disagree with the visible room advice.
+    const mainTapEnabled = !remote && !(this._config.force_expanded === true
+      && a.display_mode === "room_air" && !this._explicitTapAction);
     const remoteAccess = !remote && a.remote_access_active === true;
     const remoteClients = Array.isArray(a.remote_access_clients) ? a.remote_access_clients.filter(Boolean) : [];
     const remoteAccessTitle = remoteClients.length
@@ -1353,7 +1372,15 @@ class LueftungsberaterCard extends HTMLElement {
 
     const showNight = Boolean(nightText) && a.night_ventilation_status && a.night_ventilation_status !== "unavailable";
     const nightHtml = showNight ? this._escape(nightText) : "";
-    const showDuration = Boolean(durationText) && a.duration_key !== "not_needed";
+    // Old/remote snapshots can still expose the ventilation-action duration.
+    // In room-air mode only *visible* open/continue-ventilating instructions
+    // warrant an unconditional "recommended duration" label. Watching,
+    // closing and no-action recommendations must not inherit that duration.
+    const roomAirVentilationAction = [
+      "open_now", "room_need", "room_urgent", "keep_open", "room_keep_brief",
+    ].includes(a.recommendation_key);
+    const showDuration = Boolean(durationText) && a.duration_key !== "not_needed"
+      && (a.display_mode !== "room_air" || roomAirVentilationAction);
     const reasonHtml = reason ? this._escape(reason) : "";
     const settings = lbDisplaySettings(this._config);
     const showReason = Boolean(reason) && (expanded || hardLock) && (settings.show_reason !== false || hardLock);
@@ -1452,7 +1479,7 @@ class LueftungsberaterCard extends HTMLElement {
         .error { padding: 16px; color: var(--error-color); }
       </style>
       <ha-card aria-label="${this._escape(title)}">
-        <div class="header ${meta.cls}${remote ? "" : " main-tap"}" ${remote ? "" : 'tabindex="0" role="button"'}>
+        <div class="header ${meta.cls}${mainTapEnabled ? " main-tap" : ""}" ${mainTapEnabled ? 'tabindex="0" role="button"' : ""}>
           <div class="icon-wrap"><ha-icon class="main-icon" icon="${meta.icon}"></ha-icon></div>
           <div class="head-text"><div class="title">${this._escape(title)}</div><div class="recommendation">${this._escape(recommendation)}</div></div>
           ${remoteAccess ? `<span class="remote-access-icon" title="${this._escape(remoteAccessTitle)}" aria-label="${this._escape(remoteAccessTitle)}"><ha-icon icon="mdi:lan-connect"></ha-icon></span>` : ""}
@@ -2984,7 +3011,8 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     this._cursor = null;
     this._loading = false;
     this._lastQuery = '';
-    this._enableRequested = new Set();
+    this._enableRequested = new Map();
+    this._helperMissingSince = new Map();
     this._chartRegion = null;
     this._historyCache = new Map();
     this._historyCacheScope = null;
@@ -2993,6 +3021,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     this._refreshAgain = false;
   }
   setConfig(config) {
+    if(this._config?.entity !== config?.entity)this._roomName=null;
     this._configRevision++;
     this._config = {hours:24, metrics:null, colors:{}, ...config};
     this._lastQuery = '';
@@ -3047,15 +3076,22 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     const aliases={'°c':'c','℃':'c','celsius':'c','°f':'f','℉':'f','fahrenheit':'f',
       'kelvin':'k','%':'percent','percent':'percent','kmh':'km/h',
       'km/h':'km/h','m/s':'m/s','mph':'mph','kn':'kn','kt':'kn','kts':'kn',
-      'ug/m3':'ug/m3','mg/m3':'mg/m3','g/m3':'g/m3'};
+      'ug/m3':'ug/m3','mg/m3':'mg/m3','g/m3':'g/m3',
+      'vocindex':'index','voc_index':'index'};
     return aliases[compact]||compact;
   }
-  _convertHistoryUnit(value, recordedUnit, displayUnit) {
+  _convertHistoryUnit(value, recordedUnit, displayUnit, metricKey='') {
     if(!Number.isFinite(value))return null;
     const from=this._historyUnit(recordedUnit),to=this._historyUnit(displayUnit);
     // The normal REST Recorder response includes per-state attributes. If a
     // numeric row has no unit, its historical measurement scale is unknown.
-    if(!from||!to)return from===to?value:null;
+    // A unitless Recorder row can be an authentic vendor VOC/NO₂ index.
+    // Only accept it when the backend positively identifies THIS metric as
+    // index-based; never guess a physical unit for arbitrary numeric states.
+    if(!from && to==='index' && /^(voc|no2)_(in|out)$/.test(String(metricKey||'')))
+      return value;
+    if(!from||!to||['unknown','unavailable','none','n/a','?'].includes(from)||['unknown','unavailable','none','n/a','?'].includes(to))
+      return null;  // Unknown scales are not comparable, even to each other.
     if(from===to)return value;
     const isTemp=x=>x==='c'||x==='f'||x==='k';
     if(isTemp(from)&&isTemp(to)){
@@ -3073,20 +3109,32 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     // Incompatible/unknown scales are data gaps, never guessed values.
     return null;
   }
-  _parseHistorySamples(rows, start, end, metric=null) {
-    return (rows||[]).map(row => {
+  _parseHistorySamples(rows, start, end, metric=null, keepOutageAtStart=false) {
+    const parsed=(rows||[]).map(row => {
       const number=this._historyNumber(row.state);
       const converted=number!==null && metric
-        ?this._convertHistoryUnit(number,row.attributes?.unit_of_measurement,metric.unit)
+        ?this._convertHistoryUnit(number,row.attributes?.unit_of_measurement,metric.unit,metric.key)
         :number;
       return {t:Date.parse(row.last_updated||row.last_changed),v:converted,
-        // Keep the Recorder's original measurement alongside the converted
-        // plotting value; do not modify Home Assistant's recorded history.
+        // Keep the Recorder's original value alongside its plotting value.
         raw:number!==null?String(row.state).trim():null,
         rawUnit:number!==null?String(row.attributes?.unit_of_measurement??''):null,
         invalidUnit:number!==null && metric!==null && converted===null};
-    }).filter(point=>Number.isFinite(point.t)&&point.t>=start&&point.t<=end)
+    }).filter(point=>Number.isFinite(point.t)&&point.t<=end)
       .sort((a,b)=>a.t-b.t);
+    const visible=parsed.filter(point=>point.t>=start);
+    // Recorder reports the most recent state preceding the time window.
+    // It is a known state at the boundary, not a new sensor observation.
+    // Crucially, a last state of unknown/unavailable or an incompatible unit
+    // cannot be replaced by an earlier good reading across a real outage.
+    const preceding=parsed.filter(point=>point.t<start).at(-1);
+    // Once a room helper has recorded an unavailable state, that state is
+    // authoritative even when it predates the visible window. Ordinary raw
+    // sources retain their historical behavior (no synthetic outage rows).
+    if(preceding && (Number.isFinite(preceding.v) || keepOutageAtStart)
+        && !visible.some(point=>point.t===start))
+      visible.unshift({...preceding,t:start,carriedFrom:preceding.t});
+    return visible;
   }
   _historyAxisLabel(timestamp, otherTimestamp, hours) {
     const date=new Date(timestamp),other=new Date(otherTimestamp);
@@ -3108,7 +3156,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
   }
   async _refresh() {
     if (this._loading) {this._refreshAgain=true;return;}
-    if (!this._hass || !this._source()) return;
+    if (!this._hass || !this._config?.entity || !this._hass.callWS) return;
     const revision=this._configRevision;
     const checkRevision=()=>{if(revision!==this._configRevision){const error=new Error('stale history request');error.stale=true;throw error;}};
     this._loading = true;
@@ -3128,7 +3176,26 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       });
       checkRevision();
       this._roomId = roomInfo.room;
+      this._roomName = roomInfo.room_name || this._source()?.attributes?.room_name || this._roomName;
       const enabled = new Set(roomInfo.enabled||[]);
+      const disabledHelpers = new Set(roomInfo.disabled||[]);
+      const failedHelpers = new Set(roomInfo.failed||[]);
+      this._historyStoreReadonly = roomInfo.history_store_readonly === true;
+      this._failedHistoryMetrics = [...failedHelpers];
+      if (this._historyStoreReadonly) {
+        this._notice = this._language()==='de'
+          ? 'Historien-Einstellungen sind beschädigt oder nicht lesbar (schreibgeschützt). Bitte Speicherdatei prüfen.'
+          : this._language()==='tr'
+            ? 'Geçmiş ayarları bozuk veya okunamıyor; veri dosyası yazmaya karşı korumalı.'
+            : 'History preferences are damaged or unreadable (read-only). Repair the stored file.';
+      } else if (failedHelpers.size) {
+        const lang = this._language();
+        const labels = [...failedHelpers].join(', ');
+        const unavailable = roomInfo.failure_reason === 'registry_unavailable';
+        this._notice = (unavailable
+          ? (lang==='de'?'Historien-Registrierung konnte nicht überprüft werden':lang==='tr'?'Geçmiş sensör kaydı doğrulanamadı':'History entity registration could not be verified')
+          : (lang==='de'?'Historien-Sensoranlage nach mehreren Versuchen fehlgeschlagen':lang==='tr'?'Geçmiş sensörleri birkaç denemeden sonra oluşturulamadı':'History helper registration failed after repeated attempts')) + ` (${labels}).`;
+      }
       const knownHelpers = new Map(Object.entries(roomInfo.helpers||{}));
       const selected = this._selected();
       const start = new Date(Date.now()-Math.max(1,Math.min(24*30,Number(this._config.hours)||24))*3600000);
@@ -3150,7 +3217,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       for (const key of selected) {
         const metric = this._metrics.find(x=>x.key===key);
         if (!metric) continue;
-        if (/^(sensor|number|input_number)\.[\w]+$/.test(metric.source||'') && this._hass.states[metric.source]) {
+        if (/^(sensor|number|input_number)\.[\w]+$/.test(metric.source||'')) {
           toRead.set(key,metric.source);
         }
       }
@@ -3159,34 +3226,75 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       let historical = await this._getHistory([...new Set(toRead.values())],start,end);
       checkRevision();
       const byId = new Map(historical.map(a=>[a[0]?.entity_id,a]));
-      const missing = selected.filter(key=> !toRead.has(key) || !(byId.get(toRead.get(key))||[]).some(row=>this._historyNumber(row.state)!==null));
+      // A numeric Recorder state alone is not a usable history point. The
+      // original unit must be convertible into the selected metric's scale.
+      const sourceIds=new Map(toRead);
+      const missing = selected.filter(key=> {
+        const metric=this._metrics.find(m=>m.key===key);
+        const rows=toRead.has(key)?byId.get(toRead.get(key))||[]:[];
+        // Raw values that the integration deliberately purges each night
+        // cannot substitute for a durable, explicitly selected recording.
+        const rawDays = Number(metric?.raw_retention_days);
+        const rangeExceedsRawRetention = Number.isFinite(rawDays) && rawDays > 0
+          && Number(this._config.hours || 24) > rawDays * 24;
+        return !metric || metric.helper_required === true || rangeExceedsRawRetention || !this._parseHistorySamples(
+          rows,start.getTime(),end.getTime(),metric).some(point=>point.v!==null);
+      });
       const existingHelpers = lookupMirrors();
       for (const [key,id] of knownHelpers) existingHelpers.set(key,id);
-      // A previously activated recording is read-only for non-admins. Do not
-      // retry the admin-only opt-in just because its sensor has no recent state.
+      // Persisted opt-in is not proof that HA ever registered the helper.
+      // The backend reconciles its registry after a grace period, while the
+      // browser only retries missing helpers at most once per 90 seconds.
+      const scopedRequest = key => `${this._config.entity}:${this._roomId}:${key}`;
+      const now=Date.now();
+      // A registry entry can survive a late HA registration failure. Allow
+      // time for the platform to finish, then ask the backend to reconcile a
+      // persisted helper that still has no live state. Existing Recorder
+      // history remains readable during this wait.
+      const needsRepair = key => {
+        if (disabledHelpers.has(key) || failedHelpers.has(key)) {
+          this._helperMissingSince.delete(scopedRequest(key));
+          return false;
+        }
+        if (!existingHelpers.has(key)) return true;
+        const id=existingHelpers.get(key);
+        if (this._hass.states?.[id] || !enabled.has(key)) {
+          this._helperMissingSince.delete(scopedRequest(key));
+          return false;
+        }
+        const first=this._helperMissingSince.get(scopedRequest(key))??now;
+        this._helperMissingSince.set(scopedRequest(key),first);
+        return now-first>=90000;
+      };
       const requests = [...new Set(['decision', ...missing].filter(key=>
-        !enabled.has(key) && !existingHelpers.has(key)
+        needsRepair(key) &&
+        // A persisted opt-in is repaired by an admin; ordinary dashboard
+        // readers retain access to Recorder without privileged write calls.
+        (!enabled.has(key) || this._hass.user?.is_admin===true) &&
+        this._hass.user?.is_admin!==false
       ))];
-      // The add-on needs a single opt-in on first use. Requests require HA
-      // admin rights, and are saved by the integration, not by the browser.
-      const scopedRequest = key => `${this._roomId}:${key}`;
-      if (requests.length && !requests.every(k=>this._enableRequested.has(scopedRequest(k)))) {
-        requests.forEach(k=>this._enableRequested.add(scopedRequest(k)));
+      const retryRequests=(this._historyStoreReadonly ? [] : requests).filter(key=>
+        now-(this._enableRequested.get(scopedRequest(key))||0)>=90000
+      );
+      if (retryRequests.length) {
+        retryRequests.forEach(k=>this._enableRequested.set(scopedRequest(k),now));
         try {
-          const result = await this._hass.callWS({type:'lueftungsberater/history_enable',entity:this._config.entity,metrics:requests});
+          const result = await this._hass.callWS({type:'lueftungsberater/history_enable',entity:this._config.entity,metrics:retryRequests});
           checkRevision();
           this._roomId = result.room;
-          // HA registers freshly added entities asynchronously; refresh once.
+          // Refresh after HA has had a chance to register the entities.
           setTimeout(()=>this._refresh(), 2200);
         } catch (error) {
           if(error.stale)throw error;
-          requests.forEach(k=>this._enableRequested.delete(scopedRequest(k)));
+          retryRequests.forEach(k=>this._enableRequested.delete(scopedRequest(k)));
           this._notice = this._language()==='de'?'Aufzeichnung konnte nicht aktiviert werden (Administratorrechte/Recorder prüfen).':'Recording could not be enabled (check administrator rights and Recorder).';
         }
       }
       const mirrorMap = lookupMirrors();
       for (const [key,id] of knownHelpers) mirrorMap.set(key,id);
-      for (const key of missing) if (mirrorMap.get(key)) toRead.set(key,mirrorMap.get(key));
+      // An existing helper is the durable room-specific timeline, even if an
+      // original source happens to have one older, valid Recorder sample.
+      for (const key of selected) if (mirrorMap.get(key)) toRead.set(key,mirrorMap.get(key));
       if (mirrorMap.get('decision')) toRead.set('__decision',mirrorMap.get('decision'));
       const changedIds = [...new Set(toRead.values())].filter(id=>!byId.has(id));
       if (changedIds.length) {
@@ -3194,8 +3302,48 @@ class LueftungsberaterHistoryCard extends HTMLElement {
         checkRevision();
         for (const series of historical) if(series[0]?.entity_id) byId.set(series[0].entity_id, series);
       }
-      this._series = new Map(selected.map(key=>[key,this._parseHistorySamples(
-        byId.get(toRead.get(key)),start.getTime(),end.getTime(),this._metrics.find(m=>m.key===key))]));
+      // A helper may be unavailable during a reload and consequently have no
+      // current unit. Recover the last *recorded* scale rather than assuming
+      // that a VOC index/NO₂ parts reading was a mass concentration.
+      for (const key of selected) {
+        const metric = this._metrics.find(m=>m.key===key);
+        if (!metric || metric.unit || !/^(voc|no2|o3)_/.test(key)) continue;
+        const rows = byId.get(toRead.get(key)) || [];
+        const last = [...rows].reverse().find(row =>
+          this._historyNumber(row.state)!==null &&
+          ['index','ppb','ppm','ug/m3','mg/m3'].includes(this._historyUnit(row.attributes?.unit_of_measurement)));
+        if (last) {
+          metric.unit = String(last.attributes.unit_of_measurement);
+          // An offline unit recovery is not evidence of current limit bands.
+          metric.low = null;
+          metric.high = null;
+        }
+      }
+      this._series = new Map(selected.map(key=>{
+        const metric=this._metrics.find(m=>m.key===key);
+        const helperId=mirrorMap.get(key);
+        const helper=this._parseHistorySamples(
+          helperId?byId.get(helperId):null,start.getTime(),end.getTime(),metric,true);
+        const sourceId=sourceIds.get(key);
+        const source=this._parseHistorySamples(
+          sourceId?byId.get(sourceId):null,start.getTime(),end.getTime(),metric);
+        if (!helper.length) return [key,source];
+        // A recorded 'unavailable'/invalid unit is still a real helper
+        // state, not an empty series. Never replace it with an old raw
+        // measurement and then carry that measurement through the outage.
+        // The helper is authoritative from its first recorded event onwards.
+        const first=helper[0].t;
+        const last=helper[helper.length-1].t;
+        const prefix=source.filter(point=>point.t<first);
+        // Raw recording can resume after a *valid* helper state, with a
+        // visible source boundary. It must not override a known outage.
+        const suffix=Number.isFinite(helper[helper.length-1].v)
+          ? source.filter(point=>point.t>last) : [];
+        const helperPeriod=helper.map((point,i)=>(i===0 && prefix.length)
+          ? {...point,sourceBoundary:true} : point);
+        if(suffix.length) suffix[0]={...suffix[0],sourceBoundary:true};
+        return [key,[...prefix,...helperPeriod,...suffix].sort((a,b)=>a.t-b.t)];
+      }));
       this._historyInvalidUnits=selected.some(key=>(this._series.get(key)||[]).some(point=>point.invalidUnit));
       this._plotCache.clear();
       const parseStatus = (row, kind) => ({t:Date.parse(row.last_updated||row.last_changed),key:row.state, attrs:kind==='decision'?row.attributes||{}:{},kind});
@@ -3237,7 +3385,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     }
     const fetch=async(queryIds, from)=>{
       if(!queryIds.length)return;
-      const url=`history/period/${encodeURIComponent(new Date(from).toISOString())}?filter_entity_id=${encodeURIComponent(queryIds.join(','))}&end_time=${encodeURIComponent(end.toISOString())}`;
+      const url=`history/period/${encodeURIComponent(new Date(from).toISOString())}?filter_entity_id=${encodeURIComponent(queryIds.join(','))}&end_time=${encodeURIComponent(end.toISOString())}&significant_changes_only=0`;
       const response=await this._hass.callApi('GET',url);
       const groups=new Map((Array.isArray(response)?response:[]).filter(group=>group?.length).map(group=>[group[0].entity_id,group]));
       for(const id of queryIds){
@@ -3283,9 +3431,11 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       const previous=this._atOrBefore(decisions,at);
       if (previous) {
         const mode=this._config?.perspective||this._source()?.attributes?.display_mode||'room_air';
-        const matchingKey=mode==='room_air'
-          ? previous.attrs?.room_recommendation_key||previous.key
-          : previous.attrs?.ventilation_recommendation_key||previous.key;
+        const matchingKey=previous.attrs?.safety_lock
+          ? previous.attrs?.ventilation_recommendation_key||previous.key
+          : mode==='room_air'
+            ? previous.attrs?.room_recommendation_key||previous.key
+            : previous.attrs?.ventilation_recommendation_key||previous.key;
         if (decision.key===matchingKey || decision.key===previous.key) decision=previous;
       }
     }
@@ -3294,7 +3444,8 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     let color = null;
     if (decision.kind==='decision') color=attrs.safety_lock?'locked':perspective==='room_air'?attrs.room_status:attrs.ventilation_status;
     const key = decision.kind==='decision'
-      ? (perspective==='room_air'?attrs.room_recommendation_key:attrs.ventilation_recommendation_key)||decision.key
+      ? (attrs.safety_lock ? attrs.ventilation_recommendation_key||decision.key
+        : (perspective==='room_air'?attrs.room_recommendation_key:attrs.ventilation_recommendation_key)||decision.key)
       : decision.key;
     return {key,color:color||null};
   }
@@ -3306,7 +3457,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     while(lo<hi){const mid=(lo+hi)>>1;if(data[mid].t<=at)lo=mid+1;else hi=mid;}
     return lo?data[lo-1]:null;
   }
-  _plotSamples(data, start, end, budget=1200) {
+  _plotSamples(data, start, end, budget=1200, isStep=false) {
     // Mark gaps on the *original* series. Rendering buckets can skip hours
     // even when the original observations were continuous.
     let segment=0,last=null,interrupted=false;
@@ -3316,13 +3467,42 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       if(!Number.isFinite(point.v)) {
         // Recorder state 'unknown', 'unavailable' or an empty/non-numeric
         // reading is a real disconnection, even for a five-minute interval.
+        // For a state-valued setpoint, the previous value lasted until this
+        // precise outage, and must not terminate early or extend past it.
+        if(isStep && !interrupted && last!==null && point.t>last)
+          valid.push({...valid[valid.length-1],t:point.t,carriedToOutage:true});
         if(last!==null)interrupted=true;
         continue;
       }
-      if(last!==null && (interrupted || point.t-last>90*60000))segment++;
+      if(last!==null && (interrupted || point.sourceBoundary))segment++;
       valid.push({...point,segment});
       last=point.t;
       interrupted=false;
+    }
+    // The last valid Recorder state is still in force at the chart's right
+    // edge if no subsequent unavailable/unknown event intervened. This is
+    // a graphical state-duration anchor, not a fabricated measurement.
+    if(valid.length && !interrupted && last<end){
+      valid.push({...valid[valid.length-1],t:end,carriedToEnd:true});
+    }
+    if(isStep){
+      // A state change is semantically significant even without an extremum.
+      // Preserve every transition and each segment end; discarding a middle
+      // change would turn a genuine step into a misleading long plateau.
+      const transitions=[];
+      for(let i=0;i<valid.length;i++){
+        const point=valid[i];
+        const previous=transitions[transitions.length-1];
+        if(previous && previous.segment===point.segment && previous.v===point.v
+            && !previous.sourceBoundary && !point.sourceBoundary){
+          // Consecutive equal reports only extend the duration of a state.
+          // Keep their latest timestamp as the terminal duration anchor.
+          if(i+1<valid.length && valid[i+1].segment===point.segment
+              && valid[i+1].v===point.v)continue;
+        }
+        transitions.push(point);
+      }
+      return transitions;
     }
     if(valid.length<=budget)return valid;
     const n=Math.max(1,Math.floor(budget/4));
@@ -3466,9 +3646,10 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     const lines=entries.map((m,i)=>{
       const records=this._series.get(m.key)||[];
       const nearest=this._atOrBefore(records,at);
-      const allowedAge=String(m.source||'').startsWith('auto_')||String(m.source||'').includes('model')?3*3600000:30*60000;
+      // Recorder records state changes, not necessarily every repeated report.
+      // A known value remains the state until a real outage/update is recorded.
       let value='—';
-      if(nearest&&Number.isFinite(nearest.v)&&at-nearest.t<allowedAge){
+      if(nearest&&Number.isFinite(nearest.v)){
         // Display the original recorded state first. A converted equivalent is
         // also useful when the unit changed during the selected time period.
         const hasRaw=nearest.raw!==null&&nearest.raw!==undefined&&nearest.rawUnit;
@@ -3481,6 +3662,28 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     }).join('');
     return `<div class="status"><strong>${this._esc(time)}</strong><span class="dot" style="background:${this._statusPaint(decision?.color)}"></span><span class="status-label">${this._esc(label)}</span></div>
       ${decision&&!decision.color?`<div class="hint">${t('noColor')}</div>`:''}<div class="values">${lines}</div>`;
+  }
+  async _retryHistoryRecording() {
+    if (this._historyRetryBusy || this._historyStoreReadonly ||
+        this._hass?.user?.is_admin !== true || !this._failedHistoryMetrics?.length) return;
+    this._historyRetryBusy=true;
+    try {
+      await this._hass.callWS({type:'lueftungsberater/history_enable',
+        entity:this._config.entity,metrics:[...this._failedHistoryMetrics],retry:true});
+      this._failedHistoryMetrics=[];
+      // Manual intervention is explicit; clear local cooldowns only here.
+      this._enableRequested.clear();
+      await this._refresh();
+    } catch (error) {
+      this._notice = this._language()==='de'
+        ? 'Neuer Reparaturversuch fehlgeschlagen. Home-Assistant-Protokoll prüfen.'
+        : this._language()==='tr'
+          ? 'Yeni onarım denemesi başarısız. Home Assistant günlüğünü kontrol edin.'
+          : 'Manual retry failed. Check the Home Assistant logs.';
+      this._render();
+    } finally {
+      this._historyRetryBusy=false;
+    }
   }
   _render() {
     if (!this.shadowRoot||!this._config) return;
@@ -3495,13 +3698,14 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       const data=this._series.get(m.key)||[];
       const cached=this._plotCache.get(m.key);
       const span=plotRight-plotLeft;
+      const isStep=m.key==='target_temp';
       if(cached && cached.data===data && cached.low===m.low && cached.high===m.high
-          && cached.isDual===isDual && cached.span===span){
+          && cached.isDual===isDual && cached.span===span && cached.isStep===isStep){
         return {m,i,axis:cached.axis,visible:cached.visible};
       }
       const axis=this._axis(m,data.map(point=>point.v),isDual);
-      const visible=this._plotSamples(data,this._start,this._end,Math.max(250,2*span));
-      this._plotCache.set(m.key,{data,low:m.low,high:m.high,isDual,span,axis,visible});
+      const visible=this._plotSamples(data,this._start,this._end,Math.max(250,2*span),isStep);
+      this._plotCache.set(m.key,{data,low:m.low,high:m.high,isDual,span,isStep,axis,visible});
       return {m,i,axis,visible};
     });
     const guides=[0,0.38,0.40,0.72,0.95].map(p=>`<line x1="${plotLeft}" y1="${py(p)}" x2="${plotRight}" y2="${py(p)}" stroke="var(--divider-color,#555)" stroke-opacity=".6" stroke-dasharray="3 5"/>`).join('');
@@ -3510,7 +3714,11 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     // Full-width red bands are meaningful for ONE metric only. With several
     // independent scales they could falsely label a limitless wind curve red.
     const fullBands=n===1;
-    const topZone=fullBands&&entries.some(m=>Number.isFinite(m.high))?`<rect x="${plotLeft}" y="${py(0.04)}" width="${plotRight-plotLeft}" height="${py(.38)-py(.04)}" fill="var(--error-color,#d35b5b)" fill-opacity="0.13"/>`:'';
+    // A high-only axis maps its good/high limit to .40, while a dual-limit
+    // axis maps that boundary to .38. The red band must meet the SAME limit
+    // as the curve/axis, not end ~5 SVG pixels early on CO2-like metrics.
+    const upperRedBoundary=isDual?.38:.40;
+    const topZone=fullBands&&entries.some(m=>Number.isFinite(m.high))?`<rect x="${plotLeft}" y="${py(0.04)}" width="${plotRight-plotLeft}" height="${py(upperRedBoundary)-py(.04)}" fill="var(--error-color,#d35b5b)" fill-opacity="0.13"/>`:'';
     const bottomZone=fullBands&&isDual?`<rect x="${plotLeft}" y="${py(.72)}" width="${plotRight-plotLeft}" height="${py(.95)-py(.72)}" fill="var(--error-color,#d35b5b)" fill-opacity="0.10"/><text x="${plotLeft+4}" y="${py(.91)}" font-size="10" fill="var(--error-color,#d35b5b)" opacity=".9">${this._language()==='de'?'Zu niedrig (nur zweiseitige Werte)':'Too low (two-sided values only)'}</text>`:'';
     const lines=metricAxes.map(({m,i,axis,visible})=>{
       // Never connect two real outages, and show isolated Recorder values as
@@ -3527,7 +3735,17 @@ class LueftungsberaterHistoryCard extends HTMLElement {
           const point=group[0];
           return `<circle cx="${x(point.t).toFixed(1)}" cy="${py(axis.y(point.v)).toFixed(1)}" r="4" fill="${color}" data-history-point/>`;
         }
-        const path=group.map((point,index)=>`${index?'L':'M'}${x(point.t).toFixed(1)},${py(axis.y(point.v)).toFixed(1)}`).join(' ');
+        // Target/setpoint values are HA states, not continuous physical
+        // measurements: hold the previous state horizontally and jump at
+        // the recorded change timestamp. Cursor and SVG must agree.
+        const path=m.key==='target_temp'
+          ? group.map((point,index)=>{
+              const px=x(point.t).toFixed(1),y=py(axis.y(point.v)).toFixed(1);
+              if(!index)return `M${px},${y}`;
+              const previous=py(axis.y(group[index-1].v)).toFixed(1);
+              return `L${px},${previous} L${px},${y}`;
+            }).join(' ')
+          : group.map((point,index)=>`${index?'L':'M'}${x(point.t).toFixed(1)},${py(axis.y(point.v)).toFixed(1)}`).join(' ');
         return `<path d="${path}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
       }).join('');
     }).join('');
@@ -3545,7 +3763,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
         if(Number.isFinite(m.high))bands+=band(.04,Number.isFinite(m.low)?.38:.40,.55);
         if(Number.isFinite(m.low))bands+=band(.72,.95,.45);
       }
-      return bands+lbl+axis.ticks.map(({v,p})=>`<text x="${axX}" y="${py(p)+3}" text-anchor="${leftSide?'end':'start'}" font-size="10" fill="${color}">${this._esc(this._fmt(v,Math.abs(v)<10?1:0))}</text>`).join('');
+      return bands+lbl+axis.ticks.map(({v,p})=>`<text x="${axX}" y="${py(p)+3}" text-anchor="${leftSide?'end':'start'}" font-size="12" fill="${color}">${this._esc(this._fmt(v,Math.abs(v)<10?1:0))}</text>`).join('');
     }).join('');
     const cursorX=x(at); const decision=this._historicalDecision(at);
     const strips=this._statusStrips(plotLeft,plotRight);
@@ -3566,7 +3784,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       .reading strong{font-variant-numeric:tabular-nums} .status-label{font-weight:600}
       .key{font-size:12px;color:var(--secondary-text-color)}
       @media(max-width:520px){ha-card{padding:12px} h3{font-size:16px}.reading{width:100%;justify-content:space-between}.reading strong{margin-left:auto} }
-    </style><ha-card><div class="controls"><h3>${t('title')} · ${this._esc(this._source()?.attributes?.room_name||'')}</h3><label class="key">${t('period')} · ${this._language()==='de'?'temporär':this._language()==='tr'?'geçici':'temporary'} <select data-range>${[6,24,24*7,24*30].map(h=>`<option value="${h}" ${Number(this._config.hours)===h?'selected':''}>${h<24?h+'h':h===24?'24h':h===168?'7d':'30d'}</option>`).join('')}</select></label></div>
+    </style><ha-card><div class="controls"><h3>${t('title')} · ${this._esc(this._source()?.attributes?.room_name||this._roomName||this._config?.entity||'')}</h3><label class="key">${t('period')} · ${this._language()==='de'?'temporär':this._language()==='tr'?'geçici':'temporary'} <select data-range>${[6,24,24*7,24*30].map(h=>`<option value="${h}" ${Number(this._config.hours)===h?'selected':''}>${h<24?h+'h':h===24?'24h':h===168?'7d':'30d'}</option>`).join('')}</select></label></div>
     ${n?`<div class="chart-scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${t('title')}" data-chart>
       ${topZone}${bottomZone}${guides}${strips}${lines}${axes}${emptyPlot}<line x1="${cursorX}" x2="${cursorX}" y1="3" y2="${bottom}" stroke="var(--primary-text-color)" stroke-dasharray="3 3" stroke-width="1.4" data-cursor-line/>
       <rect x="${plotLeft}" y="0" width="${plotRight-plotLeft}" height="${height}" fill="transparent" data-hit/>
@@ -3574,7 +3792,11 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       <text x="${plotRight}" y="${height-11}" font-size="11" fill="currentColor" text-anchor="end" opacity=".7">${this._esc(this._historyAxisLabel(this._end??Date.now(),this._start??Date.now(),this._config.hours))}</text>
       </svg></div><label class="history-scrubber">${t('period')} · <input data-cursor-scrubber type="range" min="0" max="1000" value="${Math.round((at-(this._start??at))/Math.max(1,(this._end??at)-(this._start??at))*1000)}" aria-label="${t('decision')}"/></label><div class="legend">${entries.map((m,i)=>`<span><i class="line" style="background:${this._color(m.key,i)}"></i>${this._esc(lbHistoryLabel(this._hass,m.key))} (${this._esc(m.unit)})</span>`).join('')}</div>${condensed?`<p class="hint" data-condensed-gaps>${t('condensedGaps')}</p>`:''}${this._historyInvalidUnits?`<p class="hint" data-unsupported-units>${t('unsupportedUnits')}</p>`:''}${!fullBands&&entries.some(m=>Number.isFinite(m.high)||Number.isFinite(m.low))?`<p class="hint">${t('axisZones')}</p>`:''}`:`<p class="hint">${t('empty')}</p>`}
       <div class="detail" data-cursor-detail>${detailMarkup}</div>
-      <p class="hint">${this._esc(this._notice||t('units'))} · ${t('selectHelp')}${Number(this._config.hours)===720?' · '+t('retention'):''}</p></ha-card>`;
+      <p class="hint">${this._esc(this._notice||t('units'))} · ${t('selectHelp')}${Number(this._config.hours)===720?' · '+t('retention'):''}</p>
+      ${this._failedHistoryMetrics?.length && !this._historyStoreReadonly && this._hass?.user?.is_admin===true
+        ? `<button type="button" data-history-retry ${this._historyRetryBusy?'disabled':''}>${this._language()==='de'?'Aufzeichnung erneut versuchen':this._language()==='tr'?'Kaydı yeniden dene':'Retry history recording'}</button>` : ''}
+      </ha-card>`;
+    this.shadowRoot.querySelector('[data-history-retry]')?.addEventListener('click',()=>this._retryHistoryRecording());
     const hit=this.shadowRoot.querySelector('[data-hit]');
     const updateAt=(clientX,rect)=>{
       const frac=Math.max(0,Math.min(1,(clientX-rect.left)/Math.max(1,rect.width)));
@@ -3627,9 +3849,44 @@ if(!window.customCards.some(c=>c.type==='lueftungsberater-history-card')){
 }
 
 class LueftungsberaterHistoryCardEditor extends HTMLElement {
-  constructor(){super();this.attachShadow({mode:'open'});this._availableMetrics=[];this._availableRoom=null;this._availableSignature=null;this._loadingRoom=null;this._loadingSignature=null;this._metricsRequestId=0;}
-  setConfig(c){this._config={...c};this._render();}
-  set hass(h){this._hass=h;this._render();}
+  constructor(){super();this.attachShadow({mode:'open'});this._availableMetrics=[];this._availableRoom=null;this._availableSignature=null;this._loadingRoom=null;this._loadingSignature=null;this._metricsRequestId=0;this._rooms=null;this._roomsRequested=false;this._roomsRequestFailed=false;this._roomsLastRequest=0;this._roomsTimer=null;this._editorInstance=null;}
+  setConfig(c){const previous=this._config?.entity;this._config={...c};if(previous!==this._config.entity)this._editorInstance=null;this._render();}
+  set hass(h){this._hass=h;this._loadRooms();this._render();}
+  connectedCallback(){
+    // Config subentries do not necessarily emit a state change (e.g. a new
+    // room whose advisor is still unavailable). Refresh while editor is open.
+    if(!this._roomsTimer)this._roomsTimer=setInterval(()=>this._loadRooms(),20000);
+    this._loadRooms();
+  }
+  disconnectedCallback(){
+    if(this._roomsTimer)clearInterval(this._roomsTimer);
+    this._roomsTimer=null;
+  }
+  _loadRooms(){
+    // Retry after transient WS failures; throttle normal HA state updates.
+    // Never make a new backend request on every editor render/keystroke.
+    if(this._roomsRequested||!this._hass?.callWS)return;
+    const now=Date.now();
+    const minInterval=this._roomsRequestFailed?5000:20000;
+    if(this._roomsLastRequest && now-this._roomsLastRequest<minInterval)return;
+    this._roomsRequested=true;
+    this._roomsLastRequest=now;
+    this._hass.callWS({type:'lueftungsberater/history_rooms'})
+      .then(rooms=>{
+        if(!Array.isArray(rooms))throw new Error('Invalid history room list');
+        this._roomsRequestFailed=false;
+        const changed=JSON.stringify(this._rooms)!==JSON.stringify(rooms);
+        this._rooms=rooms;
+        if(changed)this._render();
+      })
+      .catch(()=>{
+        this._roomsRequestFailed=true;
+        // Keep the previous list during reload. Only use live-state fallback
+        // when no authoritative list has ever been fetched.
+        if(!Array.isArray(this._rooms))this._render();
+      })
+      .finally(()=>{this._roomsRequested=false;});
+  }
   _metricsSignature(entity){
     // Backend availability depends on configured sources, the presence of
     // advisor measurements, and air-quality value names; not every reading.
@@ -3667,9 +3924,28 @@ class LueftungsberaterHistoryCardEditor extends HTMLElement {
   }
   _changed(patch){const next={...this._config,...patch};this._config=next;const e=new Event('config-changed',{bubbles:true,composed:true});e.detail={config:next};this.dispatchEvent(e);}
   _render(){if(!this._config||!this._hass)return;
-    const advisors=Object.values(this._hass.states||{}).filter(s=>s.entity_id.startsWith('sensor.')&&s.attributes?.instance_id&&s.attributes?.room_name&&s.attributes?.recommendation_key);
-    const selected=this._config.entity||advisors[0]?.entity_id||'';
-    if(!this._config.entity&&selected){this._changed({entity:selected});return;}
+    const liveAdvisors=Object.values(this._hass.states||{}).filter(s=>s.entity_id?.startsWith('sensor.')&&s.attributes?.instance_id&&s.attributes?.room_name&&s.attributes?.recommendation_key);
+    const advisors=Array.isArray(this._rooms)
+      ?this._rooms.map(room=>({
+        entity_id:room.entity||'',instance_id:room.instance_id||'',
+        instance_name:room.instance_name||'',room_id:room.room_id||'',
+        room_name:room.room_name||'',available:room.available!==false,
+      }))
+      :liveAdvisors.map(s=>({entity_id:s.entity_id,instance_id:s.attributes.instance_id,
+        instance_name:s.attributes.instance_name||s.attributes.instance_id,
+        room_name:s.attributes.room_name,available:!['unknown','unavailable'].includes(s.state)}));
+    // Never let an unavailable room disappear merely because its live advisor
+    // attributes could not be produced. The backend list is authoritative.
+    const instances=[...new Map(advisors.map(a=>[a.instance_id,a.instance_name])).entries()];
+    const configured=this._config.entity||'';
+    const configuredInstance=advisors.find(a=>a.entity_id===configured)?.instance_id;
+    const instance=this._editorInstance||configuredInstance||instances[0]?.[0]||'';
+    const instanceRooms=advisors.filter(a=>a.instance_id===instance);
+    const selected=configured&&instanceRooms.some(a=>a.entity_id===configured)
+      ?configured:(instanceRooms.find(a=>a.entity_id)?.entity_id||'');
+    if(!this._config.entity&&selected && (Array.isArray(this._rooms)||this._roomsRequestFailed||!this._hass?.callWS)){
+      this._changed({entity:selected});this._render();return;
+    }
     const attrs=this._hass.states?.[selected]?.attributes||{};
     const known=[['co2_in','CO₂ innen'],['co2_out','CO₂ außen'],['temp_in','Temperatur innen'],['temp_out','Temperatur außen'],['humidity_in','Luftfeuchte innen'],['humidity_out','Luftfeuchte außen'],['pm25_in','PM2,5 innen'],['pm25_out','PM2,5 außen'],['pm10_in','PM10 innen'],['pm10_out','PM10 außen'],['no2_in','NO₂ innen'],['no2_out','NO₂ außen'],['o3_out','Ozon außen'],['voc_in','TVOC innen'],['voc_out','TVOC außen'],['hcho_in','Formaldehyd innen'],['target_temp','Solltemperatur'],['surface_temp','Oberflächentemperatur'],['surface_humidity','Oberflächenfeuchte'],['absolute_delta','Feuchtedifferenz'],['absolute_in','Absolute Feuchte innen'],['absolute_out','Absolute Feuchte außen'],['wind_out','Wind außen'],['gust_out','Böen außen']];
     const signature=this._metricsSignature(selected);
@@ -3697,12 +3973,20 @@ class LueftungsberaterHistoryCardEditor extends HTMLElement {
     const chosen=Array.isArray(this._config.metrics)?this._config.metrics:[];
     const defaultCurveColor=(key,index)=>LB_HISTORY_PALETTE[(Math.max(0,chosen.indexOf(key)>=0?chosen.indexOf(key):index))%LB_HISTORY_PALETTE.length];
     const strings={
-      de:['Raum','Ansicht','Innenraum','Lüftung','Kurven und Farben','Nur eingerichtete Werte. Grenzwerte kommen live aus der Integration. Fehlende Aufzeichnungen werden bei erstmaliger Nutzung aktiviert.'],
-      en:['Room','View','Indoor air','Ventilation','Curves and colors','Only configured measurements. Live thresholds come from the integration. Missing histories start when first used.'],
-      tr:['Oda','Görünüm','İç hava','Havalandırma','Eğriler ve renkler','Yalnızca yapılandırılmış ölçümler. Sınırlar entegrasyondan alınır. Eksik geçmiş kayıtları ilk kullanımda başlatılır.'],
+      de:['Raum','Ansicht','Innenraum','Lüftung','Kurven und Farben','Nur eingerichtete Werte. Grenzwerte kommen live aus der Integration. Fehlende Aufzeichnungen werden bei erstmaliger Nutzung aktiviert.','Instanz','(aktuell nicht verfügbar)','Noch keine registrierte Raumentität'],
+      en:['Room','View','Indoor air','Ventilation','Curves and colors','Only configured measurements. Live thresholds come from the integration. Missing histories start when first used.','Instance','(currently unavailable)','No registered room entity yet'],
+      tr:['Oda','Görünüm','İç hava','Havalandırma','Eğriler ve renkler','Yalnızca yapılandırılmış ölçümler. Sınırlar entegrasyondan alınır. Eksik geçmiş kayıtları ilk kullanımda başlatılır.','Kurulum','(şu anda kullanılamıyor)','Henüz kayıtlı oda varlığı yok'],
     }[lang]||[];
-    this.shadowRoot.innerHTML=`<style>.editor{display:grid;gap:11px;padding:8px 2px} label{display:flex;align-items:center;gap:9px;font-size:14px;min-height:40px}select{width:100%;background:var(--card-background-color);color:var(--primary-text-color);padding:10px;border:1px solid var(--divider-color);border-radius:8px}input[type=checkbox]{width:18px;height:18px;flex-shrink:0}input[type=color]{width:38px;height:32px;border:0;padding:0;background:none} .metric{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--divider-color)}.info{font-size:12px;color:var(--secondary-text-color)}</style><div class="editor"><label>${strings[0]}<select data-entity>${advisors.map(s=>`<option value="${esc(s.entity_id)}" ${s.entity_id===selected?'selected':''}>${esc(s.attributes.room_name)}</option>`).join('')}</select></label><label>${strings[1]}<select data-perspective><option value="room_air" ${this._config.perspective==='room_air'?'selected':''}>${strings[2]}</option><option value="ventilation" ${this._config.perspective==='ventilation'?'selected':''}>${strings[3]}</option></select></label><label>${lang==='de'?'Standard-Zeitraum':lang==='tr'?'Varsayılan dönem':'Default period'}<select data-default-range>${[6,24,168,720].map(h=>`<option value="${h}" ${Number(this._config.hours||24)===h?'selected':''}>${h===6?'6h':h===24?'24h':h===168?'7d':'30d'}</option>`).join('')}</select></label><strong>${strings[4]}</strong>${active.map(([key,label],index)=>`<div class="metric"><label><input type="checkbox" data-metric="${key}" ${(this._config.metrics||[]).includes(key)?'checked':''}/>${esc(lbHistoryLabel(this._hass,key))}</label><input type="color" aria-label="${esc(lbHistoryLabel(this._hass,key))}" data-color="${key}" value="${/^#[a-f0-9]{6}$/i.test(this._config.colors?.[key]||'')?this._config.colors[key]:defaultCurveColor(key,index)}"/></div>`).join('')}<p class="info">${strings[5]}</p></div>`;
-    this.shadowRoot.querySelector('[data-entity]')?.addEventListener('change',e=>this._changed({entity:e.target.value,metrics:[]}));
+    this.shadowRoot.innerHTML=`<style>.editor{display:grid;gap:11px;padding:8px 2px} label{display:flex;align-items:center;gap:9px;font-size:14px;min-height:40px}select{width:100%;background:var(--card-background-color);color:var(--primary-text-color);padding:10px;border:1px solid var(--divider-color);border-radius:8px}input[type=checkbox]{width:18px;height:18px;flex-shrink:0}input[type=color]{width:38px;height:32px;border:0;padding:0;background:none} .metric{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--divider-color)}.info{font-size:12px;color:var(--secondary-text-color)}</style><div class="editor"><label>${strings[6]}<select data-instance>${instances.map(([id,name])=>`<option value="${esc(id)}" ${id===instance?'selected':''}>${esc(name)}</option>`).join('')}</select></label><label>${strings[0]}<select data-entity>${instanceRooms.map(room=>`<option value="${esc(room.entity_id)}" ${!room.entity_id?'disabled':''} ${room.entity_id&&room.entity_id===selected?'selected':''}>${esc(room.room_name)}${room.available?'':` ${strings[7]}`}${room.entity_id?'':` · ${strings[8]}`}</option>`).join('')}</select></label><label>${strings[1]}<select data-perspective><option value="room_air" ${this._config.perspective==='room_air'?'selected':''}>${strings[2]}</option><option value="ventilation" ${this._config.perspective==='ventilation'?'selected':''}>${strings[3]}</option></select></label><label>${lang==='de'?'Standard-Zeitraum':lang==='tr'?'Varsayılan dönem':'Default period'}<select data-default-range>${[6,24,168,720].map(h=>`<option value="${h}" ${Number(this._config.hours||24)===h?'selected':''}>${h===6?'6h':h===24?'24h':h===168?'7d':'30d'}</option>`).join('')}</select></label><strong>${strings[4]}</strong>${active.map(([key,label],index)=>`<div class="metric"><label><input type="checkbox" data-metric="${key}" ${(this._config.metrics||[]).includes(key)?'checked':''}/>${esc(lbHistoryLabel(this._hass,key))}</label><input type="color" aria-label="${esc(lbHistoryLabel(this._hass,key))}" data-color="${key}" value="${/^#[a-f0-9]{6}$/i.test(this._config.colors?.[key]||'')?this._config.colors[key]:defaultCurveColor(key,index)}"/></div>`).join('')}<p class="info">${strings[5]}</p></div>`;
+    this.shadowRoot.querySelector('[data-instance]')?.addEventListener('change',e=>{
+      this._editorInstance=e.target.value;
+      const first=advisors.find(a=>a.instance_id===this._editorInstance&&a.entity_id);
+      if(first)this._changed({entity:first.entity_id,metrics:[]});
+      this._render();
+    });
+    this.shadowRoot.querySelector('[data-entity]')?.addEventListener('change',e=>{
+      if(e.target.value)this._changed({entity:e.target.value,metrics:[]});
+    });
     this.shadowRoot.querySelector('[data-perspective]')?.addEventListener('change',e=>this._changed({perspective:e.target.value}));
     this.shadowRoot.querySelector('[data-default-range]')?.addEventListener('change',e=>this._changed({hours:Number(e.target.value)}));
     this.shadowRoot.querySelectorAll('[data-metric]').forEach(input=>input.addEventListener('change',()=>{

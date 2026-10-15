@@ -70,6 +70,7 @@ class RoomCo2Tracker:
         self.last_valid_value: float | None = None
         self.last_valid_at: datetime | None = None
         self.unavailable_since: datetime | None = None
+        self._store_readonly = False
         self._unsub_state = None
         self._unsub_expiry = None
         self._store: Store[dict[str, Any]] = Store(
@@ -82,7 +83,10 @@ class RoomCo2Tracker:
     def _parse_dt(value: Any) -> datetime | None:
         if not isinstance(value, str) or not value:
             return None
-        parsed = dt_util.parse_datetime(value)
+        try:
+            parsed = dt_util.parse_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
         if parsed is None:
             return None
         if parsed.tzinfo is None:
@@ -99,7 +103,8 @@ class RoomCo2Tracker:
         }
 
     def _queue_save(self) -> None:
-        self._store.async_delay_save(self._payload, 2)
+        if not getattr(self, "_store_readonly", False):
+            self._store.async_delay_save(self._payload, 2)
 
     def _schedule_expiry(self) -> None:
         if self._unsub_expiry:
@@ -174,7 +179,15 @@ class RoomCo2Tracker:
             return
 
         now = dt_util.utcnow()
-        stored = await self._store.async_load() or {}
+        try:
+            loaded = await self._store.async_load()
+            if loaded is not None and not isinstance(loaded, dict):
+                raise ValueError("invalid CO2 context storage root")
+            stored = loaded or {}
+        except Exception:  # noqa: BLE001 - optional, potentially damaged Store
+            _LOGGER.warning("CO2 context cannot be restored; retaining its original Store read-only", exc_info=True)
+            self._store_readonly = True
+            stored = {}
         stored_value = stored.get("last_valid_value")
         try:
             stored_value = float(stored_value) if stored_value is not None else None
@@ -192,7 +205,11 @@ class RoomCo2Tracker:
             self.last_valid_value = current
             self.last_valid_at = now
             self.unavailable_since = None
-            await self._store.async_save(self._payload())
+            if not getattr(self, "_store_readonly", False):
+                try:
+                    await self._store.async_save(self._payload())
+                except Exception:  # noqa: BLE001 - optional context
+                    _LOGGER.warning("CO2 context save failed", exc_info=True)
         elif (
             stored_value is not None
             and stored_valid_at is not None
@@ -220,7 +237,11 @@ class RoomCo2Tracker:
                 self.last_valid_value = current
                 self.last_valid_at = dt_util.utcnow()
                 self.unavailable_since = None
-            await self._store.async_save(self._payload())
+            if not getattr(self, "_store_readonly", False):
+                try:
+                    await self._store.async_save(self._payload())
+                except Exception:  # noqa: BLE001 - optional context
+                    _LOGGER.warning("CO2 context save failed", exc_info=True)
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None

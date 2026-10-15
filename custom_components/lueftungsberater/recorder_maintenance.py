@@ -189,8 +189,22 @@ async def async_refresh_recorder_entity_index(
         )
     }
     store = _index_store(hass, entry.entry_id)
-    stored = await store.async_load() or {}
+    try:
+        stored = await store.async_load()
+    except Exception:  # noqa: BLE001 - index maintenance must not take down rooms
+        _LOGGER.warning(
+            "Recorder entity index for %s is unreadable; leaving original Store untouched",
+            entry.entry_id, exc_info=True,
+        )
+        return
+    if stored is not None and not isinstance(stored, dict):
+        _LOGGER.warning("Recorder index for %s has an invalid root; preserving it", entry.entry_id)
+        return
+    stored = stored or {}
     previous_raw = stored.get("entity_ids", [])
+    if not isinstance(previous_raw, list) or any(not isinstance(item, str) for item in previous_raw):
+        _LOGGER.warning("Recorder index for %s has invalid entity IDs; preserving it", entry.entry_id)
+        return
     previous = {
         str(entity_id)
         for entity_id in previous_raw
@@ -203,7 +217,10 @@ async def async_refresh_recorder_entity_index(
     # Keep failed purge candidates in the compact index so the next reload or
     # maintenance pass can retry them instead of forgetting them permanently.
     remembered = current if purge_ok else current | removed
-    await store.async_save({"entity_ids": sorted(remembered)})
+    try:
+        await store.async_save({"entity_ids": sorted(remembered)})
+    except Exception:  # noqa: BLE001 - optional recorder index must not block room setup
+        _LOGGER.warning("Unable to update Recorder entity index for %s", entry.entry_id, exc_info=True)
 
 
 async def _async_retry_removed_recorder_index(

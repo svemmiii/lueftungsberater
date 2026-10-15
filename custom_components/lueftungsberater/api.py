@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
 import json
+import logging
 import secrets
 import time
 
@@ -26,6 +27,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 
 from .const import (
+    RECORDER_RETENTION_DAYS,
     DATA_API_REGISTERED,
     DATA_HARDWARE_SERVICE_REGISTERED,
     DATA_REMOTE_ACCESS,
@@ -36,6 +38,9 @@ from .const import (
     REMOTE_PROTOCOL_VERSION,
     SUBENTRY_TYPE_ROOM,
     CONF_HARDWARE_ID,
+    CONF_HARDWARE_DIRECT_CO2,
+    CONF_HARDWARE_DIRECT_TEMP,
+    CONF_HARDWARE_DIRECT_HUMIDITY,
     CONF_HARDWARE_ROOM_ID,
     CONF_HARDWARE_MASTER_SUBENTRY_ID,
     CONF_HARDWARE_MASTER_SECRET,
@@ -69,6 +74,7 @@ from .hardware_hub import (
     station_topology_error,
 )
 from .display_payload import hardware_display_payload
+from .history_support import preferred_air_quality_variant
 from .coordinator import get_room_coordinator
 from .localization import (
     duration_text,
@@ -77,6 +83,8 @@ from .localization import (
     recommendation_text,
 )
 from .remote import _ip_is_tailscale, get_remote_coordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 REMOTE_CLIENT_ID_MAX_LENGTH = 128
 REMOTE_CLIENT_NAME_MAX_LENGTH = 128
@@ -765,6 +773,9 @@ def _record_remote_access(
                 if callable(cancel):
                     cancel()
 
+            # async_call_later must run this HA-state refresh on the event loop,
+            # never in a SyncWorker thread.
+            @callback
             def _expire(_now, *, _key=key, _client_id=client_id, _instance_id=instance_id, _room_id=room_id):
                 current_store = hass.data.get(DOMAIN, {}).get(DATA_REMOTE_ACCESS, {})
                 current_clients = current_store.get(_key, {})
@@ -1096,11 +1107,243 @@ def websocket_remote_overview(
     connection.send_result(msg["id"], _remote_instances(hass))
 
 
+
+
+def _resolve_history_room(hass, entity_id: str):
+    """Resolve a configured local room from its registered advisor, not its live state.
+
+    The recorder may have data even when the advisor is unknown, unavailable,
+    or temporarily absent. Do not trust client-provided room or instance IDs.
+    """
+    registry = er.async_get(hass)
+    registered = registry.async_get(entity_id)
+    if registered is None or registered.platform != DOMAIN or not entity_id.startswith("sensor."):
+        return None
+    uid = str(registered.unique_id or "")
+    if not uid.endswith("_advisor"):
+        return None
+    room_id = uid[:-len("_advisor")]
+    registered_entry_id = getattr(registered, "config_entry_id", None)
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry_kind(entry) != ENTRY_KIND_LOCAL:
+            continue
+        if registered_entry_id and registered_entry_id != entry.entry_id:
+            continue
+        room = entry.subentries.get(room_id)
+        if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
+            continue
+        if registry.async_get_entity_id("sensor", DOMAIN, uid) != entity_id:
+            continue
+        return entry, room
+    return None
+
+
+def _history_room_attributes(hass, entry, room, entity_id: str) -> dict:
+    """Retain live bounds when available, fall back to configured measurements.
+
+    Only configured sensors and recorded helper IDs are used; no fresh
+    measurements or safe/unsafe thresholds are invented during an outage.
+    """
+    from .history_support import history_data, finite_value
+
+    state = hass.states.get(entity_id)
+    attrs = dict(state.attributes or {}) if state else {}
+    room_data = room.data
+    manual = entry.data.get("manual_outdoor")
+    manual = manual if isinstance(manual, dict) else entry.data
+    sources = {
+        "source_co2": room_data.get("co2_entity"),
+        "source_temperature_inside": room_data.get("indoor_temperature"),
+        "source_humidity_inside": room_data.get("indoor_humidity"),
+        "source_surface_temperature": room_data.get("surface_temperature"),
+        "source_target_temperature": room_data.get("climate_entity"),
+        "source_pm25_inside": room_data.get("indoor_pm25"),
+        "source_pm10_inside": room_data.get("indoor_pm10"),
+        "source_voc_inside": room_data.get("indoor_voc"),
+        "source_no2_inside": room_data.get("indoor_no2"),
+        "source_formaldehyde_inside": room_data.get("indoor_formaldehyde"),
+        "source_temperature_outside": manual.get("outdoor_temperature"),
+        "source_humidity_outside": manual.get("outdoor_humidity"),
+        "source_outdoor_co2": manual.get("outdoor_co2"),
+        "source_wind_outside": manual.get("outdoor_wind_speed"),
+        "source_gust_outside": manual.get("outdoor_wind_gust"),
+        "source_pm25_outside": manual.get("outdoor_pm25"),
+        "source_pm10_outside": manual.get("outdoor_pm10"),
+        "source_voc_outside": manual.get("outdoor_voc"),
+        "source_no2_outside": manual.get("outdoor_no2"),
+        "source_o3_outside": manual.get("outdoor_o3"),
+    }
+    # ESP station rooms can have no direct sensor IDs in their room config.
+    # Use the stable station-to-room relationship; the station's own status
+    # must not affect whether the room's older Recorder samples are readable.
+    from .hardware_hub import station_for_room, station_is_direct, direct_station_entities
+    station = station_for_room(entry, room.subentry_id)
+    if station is not None:
+        if station_is_direct(station):
+            direct = direct_station_entities(hass, station)
+            if direct is None:
+                direct = (
+                    station.data.get(CONF_HARDWARE_DIRECT_CO2),
+                    station.data.get(CONF_HARDWARE_DIRECT_TEMP),
+                    station.data.get(CONF_HARDWARE_DIRECT_HUMIDITY),
+                )
+        else:
+            registry = er.async_get(hass)
+            direct = tuple(registry.async_get_entity_id(
+                "sensor", DOMAIN, f"{station.subentry_id}_{suffix}"
+            ) for suffix in ("co2", "temperature", "humidity"))
+        for key, value in zip(
+            ("source_co2", "source_temperature_inside", "source_humidity_inside"),
+            direct,
+            strict=True,
+        ):
+            if value:
+                sources[key] = value
+    # Existing derived sensors have stable IDs too. They can be read from
+    # Recorder without the advisor being alive; this creates no new entity.
+    registry = er.async_get(hass)
+    for key, suffix in (
+        ("source_absolute_humidity_inside", "absolute_humidity"),
+        ("source_absolute_humidity_outside", "absolute_humidity_outside"),
+        ("source_absolute_humidity_difference", "absolute_humidity_difference"),
+    ):
+        if not sources.get(key):
+            sources[key] = registry.async_get_entity_id(
+                "sensor", DOMAIN, f"{room.subentry_id}_{suffix}"
+            )
+    # The current config and outside coordinator are authoritative. A previous
+    # advisor state may still carry sources from before a room edit, an auto-
+    # provider switch or a reload; none of those IDs may leak into Recorder
+    # lookups for the current metric.
+    for key in sources:
+        attrs.pop(key, None)
+    for key in (
+        "source_absolute_humidity_inside", "source_absolute_humidity_outside",
+        "source_absolute_humidity_difference",
+    ):
+        attrs.pop(key, None)
+
+    from .auto_providers import uses_auto_weather
+    from .outside import get_outside_coordinator
+    auto_weather = uses_auto_weather(entry)
+    outside = get_outside_coordinator(hass, entry)
+    weather = getattr(getattr(outside, "data", None), "weather", None)
+
+    # Manual outdoor overrides may also be active in auto mode. They are only
+    # valid while present in the *current* entry settings; removed overrides
+    # must never be resurrected from an advisor's old source_* attributes.
+    for key, value in sources.items():
+        if isinstance(value, str) and value.strip():
+            attrs[key] = value.strip()
+
+    # Prefer actual effective HA sensor entities over stale advisor attributes.
+    # A provider station code is NOT a recorder entity. Missing live weather
+    # sources retain only explicitly configured manual sources.
+    auto_available = set()
+    if auto_weather:
+        auto_available.update(("temp_out", "humidity_out"))
+
+    def _ha_source(value):
+        return (isinstance(value, str) and
+                value.startswith(("sensor.", "number.", "input_number.")))
+
+    if weather is not None:
+        for key, field, metric in (
+            ("source_temperature_outside", "source_temperature", "temp_out"),
+            ("source_humidity_outside", "source_humidity", "humidity_out"),
+            ("source_wind_outside", "source_wind", "wind_out"),
+            ("source_gust_outside", "source_gust", "gust_out"),
+            ("source_outdoor_co2", "outdoor_co2_source", "co2_out"),
+        ):
+            candidate = getattr(weather, field, None)
+            if _ha_source(candidate):
+                attrs[key] = candidate
+            elif candidate:
+                if metric != "co2_out":
+                    attrs.pop(key, None)
+                value_field = {
+                    "temp_out": "temperature", "humidity_out": "humidity",
+                    "wind_out": "wind_speed_kmh", "gust_out": "wind_gust_kmh",
+                }.get(metric)
+                if value_field and getattr(weather, value_field, None) is not None:
+                    auto_available.add(metric)
+            elif auto_weather and metric != "co2_out":
+                # No active source: retain only a presently configured manual
+                # override, never the removed advisor's old source.
+                if not _ha_source(sources.get(key)):
+                    attrs.pop(key, None)
+
+        for key, pollutant_names, metric in (
+            ("source_pm25_outside", ("pm2_5",), "pm25_out"),
+            ("source_pm10_outside", ("pm10",), "pm10_out"),
+            ("source_voc_outside", ("voc", "voc_parts", "voc_index"), "voc_out"),
+            ("source_no2_outside", ("no2", "no2_parts", "no2_index"), "no2_out"),
+            ("source_o3_outside", ("o3", "o3_parts"), "o3_out"),
+        ):
+            configured = sources.get(key)
+            candidates = getattr(weather, "air_quality_sources", None) or {}
+            active = preferred_air_quality_variant(weather, pollutant_names)
+            candidate = candidates.get(active) if active else None
+            if _ha_source(candidate):
+                attrs[key] = candidate
+            elif candidate:
+                attrs.pop(key, None)
+                auto_available.add(metric)
+            elif auto_weather and not _ha_source(configured):
+                attrs.pop(key, None)
+                if active is not None:
+                    auto_available.add(metric)
+            # A configured manual local entity is valid even while its value
+            # is unavailable. Keep it as the possible Recorder source.
+            if active is None and _ha_source(configured):
+                attrs[key] = configured
+
+        if auto_weather:
+            for metric, field in (("wind_out", "wind_speed_kmh"),
+                                  ("gust_out", "wind_gust_kmh")):
+                if getattr(weather, field, None) is not None:
+                    auto_available.add(metric)
+            air = {
+                **(getattr(weather, "air_quality_values", None) or {}),
+                **(getattr(weather, "local_station_values", None) or {}),
+            }
+            for metric, names in (("pm25_out", ("pm2_5",)),
+                                  ("pm10_out", ("pm10",)),
+                                  ("voc_out", ("voc", "voc_parts", "voc_index")),
+                                  ("no2_out", ("no2", "no2_parts", "no2_index")),
+                                  ("o3_out", ("o3", "o3_parts"))):
+                if any(name in air for name in names):
+                    auto_available.add(metric)
+    if auto_available:
+        attrs["_history_auto_available"] = auto_available
+
+    # A remembered advisor scalar is not proof that its old source remains
+    # configured. Previously opted-in history helpers stay selectable so that
+    # their Recorder rows remain accessible after a source is removed.
+    from .history_support import HISTORY_METRICS
+    enabled = set(history_data(hass, entry.entry_id).get(room.subentry_id, []))
+    attrs["_history_enabled"] = enabled
+    inactive = set()
+    for metric, (_, _, _value_path, source_key) in HISTORY_METRICS.items():
+        if source_key and metric in {
+            "co2_in", "co2_out", "temp_out", "humidity_out",
+            "pm25_in", "pm10_in", "no2_in", "voc_in", "hcho_in",
+            "pm25_out", "pm10_out", "no2_out", "o3_out", "voc_out",
+            "wind_out", "gust_out",
+        }:
+            if not attrs.get(source_key) and metric not in auto_available:
+                inactive.add(metric)
+    attrs["_history_inactive_metrics"] = inactive
+    attrs["has_co2"] = bool(attrs.get("source_co2")) or "co2_in" in enabled
+    attrs["has_window_contacts"] = bool(room_data.get("window_entities"))
+    return attrs
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "lueftungsberater/history_enable",
         vol.Required("entity"): str,
         vol.Required("metrics"): [str],
+        vol.Optional("retry", default=False): bool,
     }
 )
 @websocket_api.require_admin
@@ -1108,25 +1351,69 @@ def websocket_remote_overview(
 async def websocket_history_enable(hass, connection, msg) -> None:
     """Create persisted helper sensors for selected missing histories only."""
     from .history_support import HISTORY_METRICS, allowed_metric, async_enable_history
-    state = hass.states.get(msg["entity"])
-    attrs = state.attributes if state else {}
-    entry = hass.config_entries.async_get(attrs.get("instance_id"))
-    if entry is None or entry_kind(entry) != ENTRY_KIND_LOCAL:
+    resolved = _resolve_history_room(hass, msg["entity"])
+    if resolved is None:
         connection.send_error(msg["id"], "invalid_room", "Select a local room advisor")
         return
-    registered = er.async_get(hass).async_get(msg["entity"])
-    identity = str(registered.unique_id or "") if registered and registered.platform == DOMAIN else ""
-    room_id = identity[:-len("_advisor")] if identity.endswith("_advisor") else ""
-    selected_room = entry.subentries.get(room_id)
-    if selected_room is None or selected_room.subentry_type != SUBENTRY_TYPE_ROOM:
-        connection.send_error(msg["id"], "invalid_room", "Room is unavailable")
-        return
+    entry, selected_room = resolved
+    attrs = _history_room_attributes(hass, entry, selected_room, msg["entity"])
     requested = list(dict.fromkeys(msg["metrics"]))
     if any(key != "decision" and (key not in HISTORY_METRICS or not allowed_metric(attrs, key)) for key in requested):
         connection.send_error(msg["id"], "invalid_metrics", "Only configured measurements are allowed")
         return
-    enabled = await async_enable_history(hass, entry, selected_room.subentry_id, requested)
+    if entry.entry_id in hass.data.get(DOMAIN, {}).get("history_load_errors", {}):
+        connection.send_error(msg["id"], "history_store_readonly", "History preferences are damaged or unreadable")
+        return
+    retry = None
+    if msg.get("retry"):
+        retry = hass.data.get(DOMAIN, {}).get("history_retry_adders", {}).get(entry.entry_id)
+        if retry is None:
+            connection.send_error(msg["id"], "history_platform_unavailable", "History sensor platform is not ready")
+            return
+    try:
+        enabled = await async_enable_history(hass, entry, selected_room.subentry_id, requested)
+    except Exception:  # noqa: BLE001 - optional history must not crash websocket handling
+        _LOGGER.exception("Unable to enable history for %s / %s", entry.entry_id, selected_room.subentry_id)
+        connection.send_error(msg["id"], "history_enable_failed", "Could not enable history recording")
+        return
+    if retry is not None:
+        retry()
     connection.send_result(msg["id"], {"enabled": enabled, "room": selected_room.subentry_id})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "lueftungsberater/history_rooms"}
+)
+@callback
+def websocket_history_rooms(hass, connection, msg) -> None:
+    """List configured local rooms, independently of live advisor states.
+
+    The entity registry binds each room to its existing stable advisor ID.
+    Missing/unavailable entities stay listed, but no new entity is created.
+    Physical ESP station subentries are deliberately excluded.
+    """
+    registry = er.async_get(hass)
+    rooms = []
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry_kind(entry) != ENTRY_KIND_LOCAL:
+            continue
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
+                continue
+            entity_id = registry.async_get_entity_id(
+                "sensor", DOMAIN, f"{subentry.subentry_id}_advisor"
+            )
+            state = hass.states.get(entity_id) if entity_id else None
+            rooms.append({
+                "instance_id": entry.entry_id,
+                "instance_name": entry.title,
+                "room_id": subentry.subentry_id,
+                "room_name": subentry.title,
+                "entity": entity_id,
+                "available": state is not None and state.state not in
+                ("unknown", "unavailable"),
+            })
+    connection.send_result(msg["id"], rooms)
 
 
 @websocket_api.websocket_command(
@@ -1140,27 +1427,58 @@ def websocket_history_room_info(hass, connection, msg) -> None:
     its registered advisor unique ID rather than guessing a frontend room ID.
     """
     from .history_support import history_data, history_sensor_unique_id
-    advisor = hass.states.get(msg["entity"])
-    attrs = advisor.attributes if advisor else {}
-    entry = hass.config_entries.async_get(attrs.get("instance_id"))
-    if entry is None or entry_kind(entry) != ENTRY_KIND_LOCAL:
+    resolved = _resolve_history_room(hass, msg["entity"])
+    if resolved is None:
         connection.send_error(msg["id"], "invalid_room", "Select a local room advisor")
         return
+    entry, room = resolved
+    room_id = room.subentry_id
     registry = er.async_get(hass)
-    registered = registry.async_get(msg["entity"])
-    uid = str(registered.unique_id or "") if registered and registered.platform == DOMAIN else ""
-    room_id = uid.removesuffix("_advisor") if uid.endswith("_advisor") else ""
-    room = entry.subentries.get(room_id)
-    if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
-        connection.send_error(msg["id"], "invalid_room", "Room is unavailable")
-        return
     enabled = list(history_data(hass, entry.entry_id).get(room_id, []))
     helpers = {}
+    disabled = []
     for metric in enabled:
         helper_id = registry.async_get_entity_id("sensor", DOMAIN, history_sensor_unique_id(room_id, metric))
-        if helper_id and hass.states.get(helper_id) is not None:
+        if helper_id:
+            # A missing current state does not erase existing Recorder rows.
             helpers[metric] = helper_id
-    connection.send_result(msg["id"], {"room": room_id, "enabled": enabled, "helpers": helpers})
+            registry_entry = registry.async_get(helper_id)
+            if registry_entry is not None and registry_entry.disabled_by is not None:
+                # Reading previous Recorder values remains possible, but an
+                # intentionally disabled entity must never be auto-repaired.
+                disabled.append(metric)
+    domain_data = hass.data.get(DOMAIN, {})
+    repair = domain_data.get("history_repair_failed", {}).get(entry.entry_id, {})
+    # A previously exhausted registration is not a permanent failure: clear
+    # stale status when an entity has subsequently appeared in the state machine.
+    rooms = repair.get("rooms", {})
+    if room_id in rooms:
+        recovered = set(disabled)
+        for metric in rooms[room_id]:
+            helper_id = registry.async_get_entity_id(
+                "sensor", DOMAIN, history_sensor_unique_id(room_id, metric)
+            )
+            if helper_id and hass.states.get(helper_id) is not None:
+                recovered.add(metric)
+        pending = [metric for metric in rooms[room_id] if metric not in recovered]
+        if len(pending) != len(rooms[room_id]):
+            rooms[room_id] = pending
+            if not pending:
+                rooms.pop(room_id, None)
+            if not rooms:
+                domain_data.get("history_repair_failed", {}).pop(entry.entry_id, None)
+                repair = {}
+        elif repair.get("reason") == "registry_unavailable":
+            # The registry is answering again; remaining helpers really are
+            # missing rather than merely unverifiable.
+            repair["reason"] = "helpers_missing"
+    connection.send_result(msg["id"], {
+        "room": room_id, "room_name": room.title, "enabled": enabled,
+        "helpers": helpers, "disabled": disabled,
+        "failed": repair.get("rooms", {}).get(room_id, []),
+        "failure_reason": repair.get("reason") if room_id in repair.get("rooms", {}) else None,
+        "history_store_readonly": entry.entry_id in domain_data.get("history_load_errors", {}),
+    })
 
 
 @websocket_api.websocket_command(
@@ -1183,11 +1501,59 @@ def websocket_history_recommendations(hass, connection, msg) -> None:
 def websocket_history_metrics(hass, connection, msg) -> None:
     """Read current evaluation bands directly from Python source definitions."""
     from .history_support import configured_metrics
-    state = hass.states.get(msg["entity"])
-    if state is None or not state.attributes.get("instance_id"):
-        connection.send_error(msg["id"], "invalid_room", "Room advisor unavailable")
+    resolved = _resolve_history_room(hass, msg["entity"])
+    if resolved is None:
+        connection.send_error(msg["id"], "invalid_room", "Select a local room advisor")
         return
-    connection.send_result(msg["id"], configured_metrics(state.attributes, hass.states))
+    entry, room = resolved
+    attrs = _history_room_attributes(hass, entry, room, msg["entity"])
+    from .history_support import current_unit, history_sensor_unique_id, history_data
+    units = {}
+    coordinator = get_room_coordinator(hass, entry, room)
+    snapshot = getattr(coordinator, "data", None)
+    for metric in ("voc_in", "voc_out", "no2_in", "no2_out", "o3_out"):
+        unit = current_unit(snapshot, metric)
+        if unit:
+            units[metric] = unit
+    # When a room is unavailable, use the registered helper's last known
+    # actual unit rather than inventing a mass scale from the metric name.
+    registry = er.async_get(hass)
+    enabled = history_data(hass, entry.entry_id).get(room.subentry_id, ())
+    for metric in enabled:
+        if metric in units:
+            continue
+        helper_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, history_sensor_unique_id(room.subentry_id, metric)
+        )
+        state = hass.states.get(helper_id) if helper_id else None
+        unit = (state.attributes or {}).get("unit_of_measurement") if state else None
+        if isinstance(unit, str) and unit.strip():
+            units[metric] = unit.strip()
+    attrs["_history_metric_units"] = units
+    metrics = configured_metrics(attrs, hass.states)
+    # Recorder retention removes integration-owned transient raw timelines
+    # daily. Their current numeric state is not a durable history source.
+    # A selected helper must therefore be enabled regardless of raw values.
+    from .recorder_maintenance import _RETAINED_HISTORY_SUFFIXES
+    for metric in metrics:
+        source = metric.get("source")
+        if not source:
+            metric["helper_required"] = True
+            continue
+        entity = registry.async_get(source) if hasattr(registry, "async_get") else None
+        unique_id = str(getattr(entity, "unique_id", "") or "")
+        # The integration purges retained raw absolute-humidity history after
+        # 20 days, even if the global Recorder retains 30. Tell the card this
+        # source's real lifetime so only a longer selected range needs a helper.
+        internal = entity is not None and getattr(entity, "platform", None) == DOMAIN
+        if (internal and unique_id.endswith("_absolute_humidity")
+                and "_history_" not in unique_id):
+            metric["raw_retention_days"] = RECORDER_RETENTION_DAYS
+        metric["helper_required"] = bool(
+            internal and "_history_" not in unique_id
+            and not unique_id.endswith(_RETAINED_HISTORY_SUFFIXES)
+        )
+    connection.send_result(msg["id"], metrics)
 
 
 @callback
@@ -1225,6 +1591,7 @@ def async_register_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_localize)
     websocket_api.async_register_command(hass, websocket_remote_overview)
     websocket_api.async_register_command(hass, websocket_history_enable)
+    websocket_api.async_register_command(hass, websocket_history_rooms)
     websocket_api.async_register_command(hass, websocket_history_room_info)
     websocket_api.async_register_command(hass, websocket_history_metrics)
     websocket_api.async_register_command(hass, websocket_history_recommendations)

@@ -813,10 +813,12 @@ def async_watch_master_participant_service(
     case where the ESP firmware gains the participant action while HA stays up.
     """
     running = False
+    active = True
+    sync_task: asyncio.Task | None = None
 
     async def _sync() -> None:
         nonlocal running
-        if running:
+        if not active or running:
             return
         running = True
         try:
@@ -831,14 +833,25 @@ def async_watch_master_participant_service(
         service = str(event.data.get(ATTR_SERVICE) or "")
         if not service.endswith(f"_{SERVICE_APPLY_PARTICIPANTS}"):
             return
-        hass.async_create_task(
-            _sync(),
-            f"{DOMAIN} synchronize master participant topology",
+        nonlocal sync_task
+        if not active or (sync_task is not None and not sync_task.done()):
+            return
+        # HA cancels entry-owned background tasks when unloading/reloading.
+        sync_task = entry.async_create_background_task(
+            hass, _sync(), f"{DOMAIN} synchronize master participant topology",
         )
 
-    entry.async_on_unload(
-        hass.bus.async_listen(EVENT_SERVICE_REGISTERED, _service_registered)
-    )
+    unsubscribe = hass.bus.async_listen(EVENT_SERVICE_REGISTERED, _service_registered)
+
+    @callback
+    def _unload_listener() -> None:
+        nonlocal active
+        active = False
+        unsubscribe()
+        if sync_task is not None and not sync_task.done():
+            sync_task.cancel()
+
+    entry.async_on_unload(_unload_listener)
 
 
 def _has_master_stations(entry: ConfigEntry) -> bool:
@@ -864,18 +877,22 @@ def async_start_master_participant_retry(
         return
 
     running = False
+    active = True
+    tasks: set[asyncio.Task] = set()
     failures: dict[str, int] = {}
     next_due: dict[str, datetime] = {}
 
     async def _retry(_now=None) -> None:
         nonlocal running
-        if running:
+        if not active or running:
             return
         running = True
         try:
             now = dt_util.utcnow()
             current_master_ids: set[str] = set()
             for master in tuple(station_subentries(entry)):
+                if not active:
+                    return
                 if station_role(master) != HARDWARE_ROLE_MASTER:
                     continue
                 current_master_ids.add(master.subentry_id)
@@ -895,6 +912,8 @@ def async_start_master_participant_retry(
                         exc_info=True,
                     )
 
+                if not active:
+                    return
                 if synced:
                     failures.pop(master.subentry_id, None)
                     next_due.pop(master.subentry_id, None)
@@ -918,8 +937,27 @@ def async_start_master_participant_retry(
         finally:
             running = False
 
-    unsub = async_track_time_interval(hass, _retry, timedelta(minutes=1))
-    entry.async_on_unload(unsub)
+    @callback
+    def _schedule_retry(_now) -> None:
+        if not active or any(not task.done() for task in tasks):
+            return
+        task = entry.async_create_background_task(
+            hass, _retry(), f"{DOMAIN} participant topology periodic retry",
+        )
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
+    unsub = async_track_time_interval(hass, _schedule_retry, timedelta(minutes=1))
+
+    @callback
+    def _unload_retry() -> None:
+        nonlocal active
+        active = False
+        unsub()
+        for task in tuple(tasks):
+            task.cancel()
+
+    entry.async_on_unload(_unload_retry)
 
 
 def async_update_duplicate_hardware_issues(hass: HomeAssistant) -> None:
@@ -1034,17 +1072,21 @@ def async_start_pending_provision_retry(
         return
 
     running = False
+    active = True
+    tasks: set[asyncio.Task] = set()
     failures: dict[str, int] = {}
     next_due: dict[str, datetime] = {}
 
     async def _retry(_now=None) -> None:
         nonlocal running
-        if running or not _has_pending_stations(entry):
+        if not active or running or not _has_pending_stations(entry):
             return
         running = True
         try:
             now = dt_util.utcnow()
             for station in tuple(entry.subentries.values()):
+                if not active:
+                    return
                 if station.subentry_type != SUBENTRY_TYPE_STATION:
                     continue
                 if station.data.get(CONF_HARDWARE_PROVISION_PENDING) is not True:
@@ -1076,6 +1118,8 @@ def async_start_pending_provision_retry(
                     )
                     continue
 
+                if not active:
+                    return
                 failures.pop(station.subentry_id, None)
                 next_due.pop(station.subentry_id, None)
                 await _mark_station_provisioned(hass, entry, station)
@@ -1084,6 +1128,25 @@ def async_start_pending_provision_retry(
 
     # A lightweight one-minute scheduler implements the per-station backoff; it
     # performs no work for stations whose next_due has not arrived.
-    unsub = async_track_time_interval(hass, _retry, timedelta(minutes=1))
-    entry.async_on_unload(unsub)
+    @callback
+    def _schedule_retry(_now) -> None:
+        if not active or any(not task.done() for task in tasks):
+            return
+        task = entry.async_create_background_task(
+            hass, _retry(), f"{DOMAIN} pending station provisioning periodic retry",
+        )
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
+    unsub = async_track_time_interval(hass, _schedule_retry, timedelta(minutes=1))
+
+    @callback
+    def _unload_retry() -> None:
+        nonlocal active
+        active = False
+        unsub()
+        for task in tuple(tasks):
+            task.cancel()
+
+    entry.async_on_unload(_unload_retry)
 

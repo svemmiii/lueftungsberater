@@ -109,7 +109,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = f"{INTEGRATION_VERSION}-complete20"
+FRONTEND_VERSION = f"{INTEGRATION_VERSION}-complete41"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
@@ -531,7 +531,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_cleanup_legacy_room_history(hass)
         # A removed room no longer has runtime objects on reload; clean its compact
         # per-room stores before creating the remaining trackers.
-        await async_cleanup_orphaned_room_stores(hass, entry)
+        try:
+            await async_cleanup_orphaned_room_stores(hass, entry)
+        except Exception:  # noqa: BLE001 - best-effort storage housekeeping
+            _LOGGER.warning("Optional room storage cleanup failed for %s", entry.entry_id, exc_info=True)
         entry.async_on_unload(async_register_recorder_retention(hass, entry))
 
         await async_get_or_create_air_quality_tracker(hass, entry)
@@ -594,8 +597,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # The entity registry is complete only after platform setup. Remember it so
         # removed-room entity IDs can still be purged on the next reload, and apply
         # the compact history policy once immediately instead of waiting until 05:30.
-        await async_refresh_recorder_entity_index(hass, entry)
-        await async_purge_recorder_history(hass, {entry.entry_id})
+        try:
+            await async_refresh_recorder_entity_index(hass, entry)
+            await async_purge_recorder_history(hass, {entry.entry_id})
+        except Exception:  # noqa: BLE001 - Recorder housekeeping must not unload active rooms
+            _LOGGER.warning("Optional Recorder maintenance failed for %s", entry.entry_id, exc_info=True)
         entry.async_on_unload(entry.add_update_listener(_async_reload))
         return True
     except Exception:

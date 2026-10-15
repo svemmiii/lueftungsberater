@@ -1,17 +1,20 @@
 """Sensor platform for Lüftungsassistent."""
 from __future__ import annotations
 
+import time
+import logging
+
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import MATCH_ALL
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers import entity_registry as er
 
 from .airing import get_tracker
-from .air_sensors import state_is_fresh
 from .api import remote_access_info
 from .const import (
     CONF_CLIMATE,
@@ -45,7 +48,10 @@ from .const import (
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
 from .engine import co2_status
-from .history_support import HISTORY_METRICS, current_value, history_data, finite_value, history_sensor_unique_id
+from .history_support import (
+    HISTORY_METRICS, current_value, current_unit, history_data,
+    history_sensor_unique_id, async_enable_history,
+)
 from .hardware_hub import (
     configured_master_hardware_id,
     direct_station_entities,
@@ -68,6 +74,8 @@ from .localization import (
 )
 
 
+_LOGGER = logging.getLogger(__name__)
+
 RECOMMENDATION_STATES = [
     "open_now",
     "keep_open",
@@ -80,6 +88,25 @@ RECOMMENDATION_STATES = [
     "close_now",
     "wait",
 ]
+
+
+def _display_duration_key(display_mode: str, recommendation_key: str, raw_duration_key: str) -> str:
+    """Use duration belonging to the visible perspective, not the action engine.
+
+    The advisor state intentionally remains the stable automation action.
+    In the room-air perspective, a duration belongs only to a visible opening
+    or keep-ventilating instruction.  Observation and closing are not timed
+    ventilation recommendations, even if the separate action engine has one.
+    """
+    if display_mode == DISPLAY_MODE_ROOM_AIR and recommendation_key not in {
+        "open_now",
+        "room_need",
+        "room_urgent",
+        "keep_open",
+        "room_keep_brief",
+    }:
+        return "not_needed"
+    return raw_duration_key
 
 
 async def async_setup_entry(
@@ -134,26 +161,193 @@ async def async_setup_entry(
         enabled = history_data(hass, entry.entry_id).get(subentry.subentry_id, [])
         entities.extend(HistoryRoomSensor(entry, subentry, coordinator, key) for key in enabled)
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
+        # Registered here by the platform's initial setup, not by a history
+        # WebSocket request. Prevent later requests from adding duplicates.
+        hass.data.setdefault(DOMAIN, {}).setdefault("history_added", {}).setdefault(
+            entry.entry_id, {}
+        ).setdefault(subentry.subentry_id, set()).update(enabled)
+        hass.data[DOMAIN].setdefault("history_pending", {}).setdefault(
+            entry.entry_id, {}
+        ).setdefault(subentry.subentry_id, {}).update(
+            {key: time.monotonic() for key in enabled}
+        )
 
     # The websocket opt-in can create sensors while HA is running. A missing
     # frontend/card is irrelevant once the persisted opt-in has been made.
-    def add_history(room_id: str, keys: list[str]) -> None:
+    repair_unsub = None
+    repair_tries = 0
+    repair_active = True
+    repairing = False
+    repair_task = None
+    repair_failures = hass.data.setdefault(DOMAIN, {}).setdefault("history_repair_failed", {})
+    repair_failures.pop(entry.entry_id, None)
+
+    def add_history(room_id: str, keys: list[str]) -> list[str]:
+        nonlocal repair_tries
         room = entry.subentries.get(room_id)
         if room is None or room.subentry_type != SUBENTRY_TYPE_ROOM:
-            return
+            return []
         coordinator = hass.data.get(DOMAIN, {}).get("coordinators", {}).get((entry.entry_id, room_id))
         if coordinator is None:
             # Coordinators are held in the runtime cache, not assumed to live
             # under a stable public hass.data key.
             from .coordinator import get_room_coordinator
             coordinator = get_room_coordinator(hass, entry, room)
-        if coordinator is not None:
-            async_add_entities(
-                [HistoryRoomSensor(entry, room, coordinator, key) for key in keys],
-                config_subentry_id=room_id,
+        if coordinator is None or not keys:
+            return []
+        async_add_entities(
+            [HistoryRoomSensor(entry, room, coordinator, key) for key in keys],
+            config_subentry_id=room_id,
+        )
+        # An accepted submission may fail later in HA's entity platform.
+        # A new admin activation starts a fresh bounded repair window, even
+        # if the integration has been running for days. A background retry
+        # must not restart its own budget indefinitely.
+        if not repairing:
+            repair_tries = 0
+            repair_failures.pop(entry.entry_id, None)
+        schedule_history_repair()
+        return keys
+
+    def missing_history_helpers() -> dict[str, list[str]]:
+        """Compare durable opt-ins with live HA entities; respect disabled rows."""
+        if entry.entry_id in hass.data.get(DOMAIN, {}).get("history_load_errors", {}):
+            return {}
+        registry = er.async_get(hass)
+        missing: dict[str, list[str]] = {}
+        for room_id, keys in history_data(hass, entry.entry_id).items():
+            for key in keys:
+                entity_id = registry.async_get_entity_id(
+                    "sensor", DOMAIN, history_sensor_unique_id(room_id, key)
+                )
+                record = registry.async_get(entity_id) if entity_id else None
+                if record is not None and record.disabled_by is not None:
+                    continue
+                if not entity_id or hass.states.get(entity_id) is None:
+                    missing.setdefault(room_id, []).append(key)
+        return missing
+
+    def repair_needed() -> bool:
+        return bool(missing_history_helpers())
+
+    def report_exhausted_repair() -> None:
+        """Expose a bounded-retry failure instead of losing it in HA logs."""
+        try:
+            missing = missing_history_helpers()
+            reason = "helpers_missing"
+        except Exception:
+            _LOGGER.exception("Could not inspect history registry after retry exhaustion for %s", entry.entry_id)
+            # Registry itself may be down. Don't claim helpers are absent, but
+            # make the unresolved check visible for all opted-in rooms.
+            missing = {room: list(keys) for room, keys in history_data(hass, entry.entry_id).items() if keys}
+            reason = "registry_unavailable"
+        if missing:
+            repair_failures[entry.entry_id] = {"rooms": missing, "reason": reason}
+            _LOGGER.warning(
+                "History helpers for %s remain unverified after %d retries (%s): %s; "
+                "manual retry or config-entry reload is available",
+                entry.entry_id, repair_tries, reason, missing,
             )
-    hass.data.setdefault(DOMAIN, {}).setdefault("history_adders", {})[entry.entry_id] = add_history
-    entry.async_on_unload(lambda: hass.data.get(DOMAIN, {}).get("history_adders", {}).pop(entry.entry_id, None))
+        else:
+            repair_failures.pop(entry.entry_id, None)
+
+    def schedule_history_repair() -> None:
+        """At most three one-shot checks; never poll or require a card."""
+        nonlocal repair_unsub, repair_tries
+        if not repair_active or repair_unsub is not None or repair_tries >= 3:
+            return
+        if not any(history_data(hass, entry.entry_id).values()):
+            return
+        repair_tries += 1
+
+        @callback
+        def check(_now) -> None:
+            nonlocal repair_unsub, repair_task
+            repair_unsub = None
+            if not repair_active or repairing:
+                return
+            # Config-entry-owned work is canceled on unload/reload by HA.
+            # We also cancel explicitly in remove_history_adder for a task
+            # already running when the last timer is removed.
+            repair_task = entry.async_create_background_task(
+                hass, reconcile_history(), f"{DOMAIN} history repair {entry.entry_id}",
+            )
+
+        # The existing registration grace period is 90 seconds. Use an extra
+        # margin so the first check cannot race the pending registration.
+        repair_unsub = async_call_later(hass, 95, check)
+
+    async def reconcile_history() -> None:
+        nonlocal repairing
+        if not repair_active or repairing:
+            return
+        repairing = True
+        need_retry = False
+        try:
+            if repair_needed():
+                for room_id, keys in list(history_data(hass, entry.entry_id).items()):
+                    if not repair_active:
+                        return
+                    if keys:
+                        await async_enable_history(hass, entry, room_id, list(keys))
+                if repair_active:
+                    need_retry = repair_needed()
+        except Exception:
+            # Registry inspection failed: it is unknown whether a helper is
+            # missing. Keep the bounded recovery alive without immediately
+            # invoking the same broken lookup again in finally.
+            _LOGGER.exception("History entity reconciliation failed for %s", entry.entry_id)
+            need_retry = True
+        finally:
+            repairing = False
+            if repair_active:
+                if need_retry:
+                    if repair_tries < 3:
+                        schedule_history_repair()
+                    else:
+                        report_exhausted_repair()
+                else:
+                    repair_failures.pop(entry.entry_id, None)
+
+    def retry_history_repair() -> None:
+        """Explicit admin recovery, never triggered by ordinary dashboard reads."""
+        nonlocal repair_tries, repair_unsub
+        if not repair_active or repairing:
+            return
+        repair_failures.pop(entry.entry_id, None)
+        repair_tries = 0
+        if repair_unsub is not None:
+            repair_unsub()
+            repair_unsub = None
+        schedule_history_repair()
+
+    domain_runtime = hass.data.setdefault(DOMAIN, {})
+    domain_runtime.setdefault("history_adders", {})[entry.entry_id] = add_history
+    domain_runtime.setdefault("history_retry_adders", {})[entry.entry_id] = retry_history_repair
+    schedule_history_repair()
+
+    @callback
+    def remove_history_adder() -> None:
+        """Unregister the adder and cancel any pending one-shot repair."""
+        nonlocal repair_active, repair_unsub, repair_task
+        repair_active = False
+        if repair_task is not None and not repair_task.done():
+            repair_task.cancel()
+        repair_task = None
+        repair_failures.pop(entry.entry_id, None)
+        if repair_unsub is not None:
+            repair_unsub()
+            repair_unsub = None
+        adders = hass.data.get(DOMAIN, {}).get("history_adders", {})
+        retries = hass.data.get(DOMAIN, {}).get("history_retry_adders", {})
+        if retries.get(entry.entry_id) is retry_history_repair:
+            retries.pop(entry.entry_id, None)
+        if adders.get(entry.entry_id) is add_history:
+            adders.pop(entry.entry_id, None)
+            for key in ("history_added", "history_pending", "history_enable_locks"):
+                hass.data.get(DOMAIN, {}).get(key, {}).pop(entry.entry_id, None)
+
+    entry.async_on_unload(remove_history_adder)
 
 
 class HistoryRoomSensor(LueftungsberaterRoomEntity, SensorEntity):
@@ -173,44 +367,41 @@ class HistoryRoomSensor(LueftungsberaterRoomEntity, SensorEntity):
         if metric == "decision":
             self._attr_state_class = None
         else:
-            self._attr_native_unit_of_measurement = HISTORY_METRICS[metric][1]
-
-    def _raw_source_state(self):
-        """Use the source's actual unit if its own Recorder history is missing."""
-        if self.metric in {"decision", "surface_humidity"}:
-            # This is a calculated relative humidity, never the underlying
-            # surface temperature measurement in °C.
-            return None
-        source_key = HISTORY_METRICS[self.metric][3]
-        if not source_key:
-            return None
-        registry = er.async_get(self.hass)
-        advisor_id = registry.async_get_entity_id(
-            "sensor", DOMAIN, f"{self.subentry.subentry_id}_advisor"
-        )
-        advisor = self.hass.states.get(advisor_id) if advisor_id else None
-        source_id = advisor.attributes.get(source_key) if advisor else None
-        if not isinstance(source_id, str) or not source_id.startswith(("sensor.", "number.", "input_number.")):
-            return None
-        return self.hass.states.get(source_id)
+            # These helpers can switch between incomparable physical and
+            # ordinal scales. Recorder retains every raw state; disabling
+            # long-term statistics prevents Index from mixing with µg/m³.
+            if metric.startswith(("voc_", "no2_", "o3_")):
+                self._attr_state_class = None
+            # For variant pollutants, an outage must not turn an index/ppb
+            # helper into a mass-concentration sensor. Learn its true scale
+            # from the first valid coordinator sample, then keep it on gaps.
+            self._history_last_unit = (
+                None if metric.startswith(("voc_", "no2_", "o3_"))
+                else HISTORY_METRICS[metric][1]
+            )
+            self._attr_native_unit_of_measurement = self._history_last_unit
 
     @property
     def native_unit_of_measurement(self):
         if self.metric == "decision":
             return None
-        state = self._raw_source_state()
-        return (state.attributes.get("unit_of_measurement") if state else None) or HISTORY_METRICS[self.metric][1]
+        unit = current_unit(self.snapshot, self.metric)
+        if unit:
+            self._history_last_unit = unit
+        return getattr(self, "_history_last_unit", None) if not unit else unit
 
     @property
     def native_value(self):
         if self.metric != "decision":
-            source = self._raw_source_state()
-            if source is not None:
-                # An explicitly failed source must not be replaced with an
-                # outdated coordinator value. A valid source is copied in the
-                # *original* unit, making the original metadata meaningful.
-                return finite_value(source.state) if state_is_fresh(source) else None
-            return current_value(self.snapshot, self.metric)
+            # Using the same snapshot as the current recommendation prevents an
+            # old source_* attribute from recording the previous sensor after
+            # a room sensor change. An unavailable snapshot records no value.
+            value = current_value(self.snapshot, self.metric)
+            if value is not None and self.metric.startswith(("voc_", "no2_", "o3_")):
+                # A pollutant with an unknown scale is not a recordable value.
+                if not current_unit(self.snapshot, self.metric):
+                    return None
+            return value
         result = self.snapshot.result if self.snapshot else None
         if result is None:
             return None
@@ -372,7 +563,9 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             )
             reason_key = r.room_reason_key if room_view else r.reason_key
             reason_args = dict(r.room_reason_args if room_view else r.reason_args)
-            duration_key = r.duration_key
+            duration_key = _display_duration_key(
+                display_mode, recommendation_key, r.duration_key
+            )
             status = (
                 "locked"
                 if r.safety_lock
@@ -427,6 +620,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "reason_args": reason_args,
             "duration": duration_text(duration_key, language),
             "duration_key": duration_key,
+            "ventilation_duration_key": r.duration_key if r is not None else "incomplete_data",
             "co2_status": current_co2_status,
             "co2_data_status": values.get("co2_data_status", "not_configured"),
             "co2_minutes_to_2000": (

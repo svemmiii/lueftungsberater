@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 import math
 from statistics import median
 from typing import Any
@@ -18,6 +19,8 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .time_utils import clamp_not_future, timestamp_age
+
+_LOGGER = logging.getLogger(__name__)
 
 from .const import (
     AIR_QUALITY_BASELINE_ALPHA,
@@ -86,23 +89,45 @@ class OutdoorAirQualityTracker:
         self.entry = entry
         self._buckets: dict[str, dict[str, dict[str, Any]]] = {}
         self._last_seen: dict[str, datetime] = {}
+        self._store_readonly = False
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.air_quality.{entry.entry_id}"
         )
 
     async def async_initialize(self) -> None:
-        stored = await self._store.async_load() or {}
+        """Load optional learning without jeopardising room setup or old data."""
+        try:
+            stored = await self._store.async_load()
+            if stored is None:
+                return
+            if (not isinstance(stored, dict)
+                    or (stored and "buckets" not in stored)
+                    or not isinstance(stored.get("buckets", {}), dict)):
+                raise ValueError("Air-quality learning store has an invalid structure")
+            self._restore_stored(stored)
+        except Exception:  # noqa: BLE001 - optional learning must not abort HA setup
+            self._store_readonly = True
+            self._buckets.clear()
+            self._last_seen.clear()
+            _LOGGER.warning(
+                "Air-quality learning data for %s cannot be loaded; "
+                "running without learned data and preserving the original store",
+                self.entry.entry_id, exc_info=True,
+            )
+
+    def _restore_stored(self, stored: dict[str, Any]) -> None:
+        """Validate persisted learning, including nested counters, before using it."""
         raw = stored.get("buckets", {})
         load_now = dt_util.utcnow()
         if isinstance(raw, dict):
             for loc, pollutants in raw.items():
                 if not isinstance(loc, str) or not isinstance(pollutants, dict):
-                    continue
+                    raise ValueError("Invalid location entry in air-quality learning store")
                 clean: dict[str, dict[str, Any]] = {}
                 newest: datetime | None = None
                 for kind, stats in pollutants.items():
                     if not isinstance(kind, str):
-                        continue
+                        raise ValueError("Invalid pollutant key in air-quality learning store")
 
                     # v0.6.23 stored half-hour raw points. Fold those points into
                     # the new fixed-size statistics once so an update does not
@@ -138,7 +163,7 @@ class OutdoorAirQualityTracker:
                         )
                         recent = []
                     else:
-                        continue
+                        raise ValueError("Invalid pollutant entry in air-quality learning store")
 
                     raw_recent = stats.get("recent", []) if isinstance(stats, dict) else []
                     if isinstance(raw_recent, list):
@@ -174,7 +199,13 @@ class OutdoorAirQualityTracker:
 
     async def async_shutdown(self) -> None:
         """Flush the small bounded memory before unload/reload."""
-        await self._store.async_save(self._serialize())
+        if self._store_readonly:
+            return
+        try:
+            await self._store.async_save(self._serialize())
+        except Exception:  # noqa: BLE001 - optional flush must not block HA unload
+            _LOGGER.warning("Air-quality learning store save failed for %s; continuing unload",
+                            self.entry.entry_id, exc_info=True)
 
     def _serialize(self) -> dict[str, Any]:
         return {
@@ -194,7 +225,8 @@ class OutdoorAirQualityTracker:
         }
 
     def _schedule_save(self) -> None:
-        self._store.async_delay_save(self._serialize, 30)
+        if not self._store_readonly:
+            self._store.async_delay_save(self._serialize, 30)
 
     def _trim_locations(self) -> None:
         if len(self._buckets) <= AIR_QUALITY_MAX_LOCATIONS:

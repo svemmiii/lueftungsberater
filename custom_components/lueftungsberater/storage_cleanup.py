@@ -1,6 +1,7 @@
 """Lifecycle cleanup for Lüftungsassistent-owned Home Assistant stores."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
@@ -9,8 +10,10 @@ from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN, STORAGE_VERSION, SUBENTRY_TYPE_ROOM
 
+_LOGGER = logging.getLogger(__name__)
+
 _ROOM_STORE_KINDS = ("airing", "co2", "decision", "mold")
-_ENTRY_STORE_KINDS = ("air_quality",)
+_ENTRY_STORE_KINDS = ("air_quality", "history_enabled")
 
 
 def _room_store_prefix(entry_id: str, kind: str) -> str:
@@ -61,7 +64,18 @@ async def async_cleanup_orphaned_room_stores(
     air_quality_key = _entry_store_key(entry.entry_id, "air_quality")
     if air_quality_key in names:
         store = Store(hass, STORAGE_VERSION, air_quality_key)
-        stored = await store.async_load() or {}
+        try:
+            stored = await store.async_load()
+        except Exception:  # noqa: BLE001 - optional cleanup cannot stop room setup
+            _LOGGER.warning(
+                "Cannot read optional air-quality store %s; preserving it unchanged",
+                air_quality_key, exc_info=True,
+            )
+            return removed
+        if stored is not None and not isinstance(stored, dict):
+            _LOGGER.warning("Unexpected air-quality store format %s; preserving it unchanged", air_quality_key)
+            return removed
+        stored = stored or {}
         buckets = stored.get("buckets") if isinstance(stored, dict) else None
         if isinstance(buckets, dict):
             cleaned = dict(buckets)
@@ -76,7 +90,10 @@ async def async_cleanup_orphaned_room_stores(
             if changed:
                 updated = dict(stored)
                 updated["buckets"] = cleaned
-                await store.async_save(updated)
+                try:
+                    await store.async_save(updated)
+                except Exception:  # noqa: BLE001 - optional cleanup cannot block room setup
+                    _LOGGER.warning("Unable to save optional air-quality cleanup %s", air_quality_key, exc_info=True)
 
     return removed
 

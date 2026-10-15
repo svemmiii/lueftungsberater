@@ -37,3 +37,47 @@ assert.ok(axes.y(1400)<.4,'high CO2 enters upper red zone');
 assert.ok(humid.y(38)>.72&&humid.y(70)<.38,'humidity traverses both red zones');
 assert.ok(card._historicalDecision(3600000)?.color==='red');
 console.log('PASS: v0.11.4 history axes, fixed zones, raw cursor values, colors');
+
+// COMPLETE(41): for a single high-only metric, the FULL red field must end
+// at the metric's .40 high boundary (not the .38 used by dual-limit axes).
+// The mismatch was ~0.02 * (271 - 24) = 4.94 SVG pixels.
+function historyChartWith(metrics) {
+  const test=new Card();
+  test.setConfig({entity:'sensor.room',metrics:metrics.map(m=>m.key),hours:24,colors:{}});
+  test._metrics=metrics;
+  test._series=new Map(metrics.map(m=>[m.key,[{t:0,v:(m.high??100)/2},{t:3600000,v:(m.high??100)*1.2}]]));
+  test._start=0;test._end=3600000;test._cursor=3600000;
+  test._history=[];
+  test._hass={language:'de',states:{'sensor.room':{state:'open_now',attributes:{room_name:'Room'}}}};
+  test._render();
+  return test.shadowRoot.innerHTML;
+}
+function upperRedField(html) {
+  const match=html.match(/<rect x="[^"]+" y="([\d.]+)" width="[^"]+" height="([\d.]+)" fill="var\(--error-color,#d35b5b\)" fill-opacity="0\.13"\/>/);
+  return match?{top:Number(match[1]),bottom:Number(match[1])+Number(match[2])}:null;
+}
+const chartTop=24,chartBottom=310-39;
+const yAt=relative=>chartTop+relative*(chartBottom-chartTop);
+const co2Only=historyChartWith([{key:'co2_in',unit:'ppm',low:null,high:1000}]);
+const highOnlyField=upperRedField(co2Only);
+assert.ok(highOnlyField,'CO2-only chart has a red upper-limit field');
+assert.ok(Math.abs(highOnlyField.top-yAt(.04))<1e-8);
+assert.ok(Math.abs(highOnlyField.bottom-yAt(.40))<1e-8,
+ 'high-only red field must touch the exact CO2 threshold position');
+assert.match(co2Only,/font-size="12"[^>]*>[^<]*<\/text>/,
+ 'axis values remain legible in a horizontally scrollable mobile chart');
+const humidityOnly=historyChartWith([{key:'humidity_in',unit:'%',low:40,high:60}]);
+const dualField=upperRedField(humidityOnly);
+assert.ok(dualField);
+assert.ok(Math.abs(dualField.bottom-yAt(.38))<1e-8,
+ 'dual-limit red field must touch its distinct humidity high boundary');
+assert.match(humidityOnly,/fill-opacity="0\.10"/,'dual-limit lower red field remains present');
+const combined=historyChartWith([
+ {key:'co2_in',unit:'ppm',low:null,high:1000},
+ {key:'humidity_in',unit:'%',low:40,high:60},
+]);
+assert.equal(upperRedField(combined),null,'do not shade multiple independent scales');
+assert.match(combined,/data-axis-zone="co2_in"/);
+assert.match(combined,/data-axis-zone="humidity_in"/);
+console.log('PASS: high-only and dual-limit red bounds precisely meet their own high threshold; mobile axis labels');
+

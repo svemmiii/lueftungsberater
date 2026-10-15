@@ -41,7 +41,10 @@ def tracker_signal(entry_id: str, subentry_id: str) -> str:
 def _parse_dt(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
-    parsed = dt_util.parse_datetime(value)
+    try:
+        parsed = dt_util.parse_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
     if parsed is None:
         return None
     if parsed.tzinfo is None:
@@ -77,6 +80,7 @@ class RoomAiringTracker:
         self._unsub_unknown_grace = None
         self._unknown_since: datetime | None = None
         self._active = False
+        self._store_readonly = False
         self._save_tasks: set[asyncio.Task[Any]] = set()
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.airing.{entry.entry_id}.{subentry.subentry_id}"
@@ -90,6 +94,8 @@ class RoomAiringTracker:
         return self.entry.async_create_background_task(self.hass, target, name)
 
     def _queue_save(self) -> None:
+        if getattr(self, "_store_readonly", False):
+            return
         task = self._create_background_task(
             self._async_save(),
             f"Lüftungsassistent airing save {self.subentry.subentry_id}",
@@ -439,7 +445,19 @@ class RoomAiringTracker:
         return max(0.0, (dt_util.utcnow() - anchor).total_seconds() / 3600.0)
 
     async def async_initialize(self) -> None:
-        stored = await self._store.async_load() or {}
+        try:
+            loaded = await self._store.async_load()
+            if loaded is not None and not isinstance(loaded, dict):
+                raise ValueError("invalid airing context storage root")
+            stored = loaded or {}
+            # Invalid alias/identity layouts are not safe to reinterpret and overwrite.
+            for field in ("window_identities", "window_aliases"):
+                if field in stored and stored[field] is not None and not isinstance(stored[field], dict):
+                    raise ValueError(f"invalid airing context field: {field}")
+        except Exception:  # noqa: BLE001 - optional, potentially damaged Store
+            _LOGGER.warning("Airing context cannot be restored; retaining its original Store read-only", exc_info=True)
+            self._store_readonly = True
+            stored = {}
         now = dt_util.utcnow()
         self.last_confirmed_airing = clamp_not_future(
             now, _parse_dt(stored.get("last_confirmed_airing"))
@@ -829,8 +847,11 @@ class RoomAiringTracker:
         )
 
     async def _async_save(self) -> None:
-        await self._store.async_save(
-            {
+        if getattr(self, "_store_readonly", False):
+            return
+        try:
+            await self._store.async_save(
+                {
                 "open_since": self.open_since.isoformat() if self.open_since else None,
                 "unknown_since": self._unknown_since.isoformat() if self._unknown_since else None,
                 "minimum_reached_at": (
@@ -854,8 +875,10 @@ class RoomAiringTracker:
                     configured: list(identity)
                     for configured, identity in self._window_identities.items()
                 },
-            }
-        )
+                }
+            )
+        except Exception:  # noqa: BLE001 - optional context must not block unload
+            _LOGGER.warning("Airing context save failed", exc_info=True)
 
 
 def _tracker_bucket(hass: HomeAssistant, entry_id: str) -> dict[str, RoomAiringTracker]:

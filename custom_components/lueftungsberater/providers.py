@@ -291,6 +291,11 @@ class WeatherAssessment:
     air_quality_measurement_type: str = "unknown"
     air_quality_values: dict[str, float] = field(default_factory=dict)
     air_quality_sources: dict[str, str] = field(default_factory=dict)
+    # Recorder metadata only: keys and units of *actual local* pollutant readings.
+    # Unlike the overall air_quality_pollutant, these retain every concurrently
+    # valid local measurement, including ppb gas values in air_quality_values.
+    local_air_quality_keys: set[str] = field(default_factory=set)
+    air_quality_variant_units: dict[str, str] = field(default_factory=dict)
     hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
     hourly_forecast_updated: datetime | None = None
     forecast_data_status: str = "not_configured"  # not_configured | fresh | stale | unavailable
@@ -1140,6 +1145,10 @@ def _apply_local_air_quality(
         "no2": _manual_override(entry, CONF_OUTDOOR_NO2),
         "o3": _manual_override(entry, CONF_OUTDOOR_O3),
     }
+    result.local_air_quality_keys.update((*local_values, *local_relative_values))
+    result.air_quality_variant_units.update(
+        {key: unit for key, unit in local_units.items() if unit}
+    )
     for normalized_key in (*local_values.keys(), *local_relative_values.keys()):
         base_kind = normalized_key.removesuffix("_parts").removesuffix("_index")
         source_id = local_source_candidates.get(base_kind)
@@ -1478,6 +1487,10 @@ def weather_assessment(
         "no2": _manual_override(entry, CONF_OUTDOOR_NO2),
         "o3": _manual_override(entry, CONF_OUTDOOR_O3),
     }
+    result.local_air_quality_keys.update((*local_values, *local_relative_values))
+    result.air_quality_variant_units.update(
+        {key: unit for key, unit in local_units.items() if unit}
+    )
     for normalized_key in (*local_values.keys(), *local_relative_values.keys()):
         base_kind = normalized_key.removesuffix("_parts").removesuffix("_index")
         source_id = local_source_candidates.get(base_kind)

@@ -120,7 +120,10 @@ def _particulate_effectiveness_context(
 def _parse_dt(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
-    parsed = dt_util.parse_datetime(value)
+    try:
+        parsed = dt_util.parse_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
     if parsed is None:
         return None
     if parsed.tzinfo is None:
@@ -200,6 +203,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._night_memory: NightAdvice | None = None
         self._night_memory_start: datetime | None = None
         self._night_memory_end: datetime | None = None
+        self._memory_store_readonly = False
         self._memory_store: Store[dict[str, Any]] = Store(
             hass,
             STORAGE_VERSION,
@@ -243,7 +247,20 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._notification_tasks.clear()
 
     async def _restore_memory(self) -> None:
-        stored = await self._memory_store.async_load() or {}
+        try:
+            loaded = await self._memory_store.async_load()
+            if loaded is not None and not isinstance(loaded, dict):
+                raise ValueError("invalid decision context storage root")
+            stored = loaded or {}
+            # A malformed nested persisted decision cannot safely be migrated.
+            for field in ("co2_hysteresis", "co2_minimum_airing", "humidity_session",
+                          "temperature_session", "particulate_session", "indoor_air_session", "night"):
+                if field in stored and stored[field] is not None and not isinstance(stored[field], dict):
+                    raise ValueError(f"invalid decision context field: {field}")
+        except Exception:  # noqa: BLE001 - optional, potentially damaged Store
+            _LOGGER.warning("Decision context cannot be restored; retaining its original Store read-only", exc_info=True)
+            self._memory_store_readonly = True
+            stored = {}
         mode = stored.get("mode")
         need = stored.get("decision_need")
         if not isinstance(need, str) or not need:
@@ -429,7 +446,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         }
 
     def _queue_memory_save(self) -> None:
-        self._memory_store.async_delay_save(self._memory_payload, 5)
+        if not getattr(self, "_memory_store_readonly", False):
+            self._memory_store.async_delay_save(self._memory_payload, 5)
 
     def _clear_night_memory(self) -> None:
         if self._night_memory is None and self._night_memory_end is None:
@@ -1101,7 +1119,23 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             return
         self._started = True
         try:
-            await self._restore_memory()
+            try:
+                await self._restore_memory()
+            except Exception:  # noqa: BLE001 - damaged optional context is not a setup error
+                _LOGGER.warning("Decision context restore failed; preserving its Store read-only", exc_info=True)
+                self._memory_store_readonly = True
+                self._previous_mode = None
+                self._previous_decision_need = None
+                self._previous_mode_at = None
+                self._co2_hysteresis = Co2HysteresisState()
+                self._co2_minimum_airing = Co2MinimumAiringState()
+                self._humidity_session = HumiditySessionState()
+                self._temperature_session = EffectivenessSessionState()
+                self._particulate_session = EffectivenessSessionState()
+                self._indoor_air_session = IndoorAirSessionState()
+                self._night_memory = None
+                self._night_memory_start = None
+                self._night_memory_end = None
             outside = await async_get_or_create_outside_coordinator(self.hass, self.entry)
             await self.async_config_entry_first_refresh()
         except Exception:
@@ -1111,6 +1145,11 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             raise
 
         self._refresh_source_listeners()
+
+        @callback
+        def refresh_tracker_on_timer(_now: datetime) -> None:
+            """Run interval-driven coordinator updates on HA's event loop."""
+            self._handle_tracker_change()
 
         hardware_station = station_for_room(self.entry, self.subentry.subentry_id)
         if hardware_station is not None and station_uses_hardware_hub(hardware_station):
@@ -1129,7 +1168,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self._unsubs.append(
                 async_track_time_interval(
                     self.hass,
-                    lambda _now: self._handle_tracker_change(),
+                    refresh_tracker_on_timer,
                     HARDWARE_STATION_STALE_CHECK_INTERVAL,
                 )
             )
@@ -1147,6 +1186,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             # Keep open_minutes fresh for very long sessions without needing a
             # changing sensor or weather update. Never create a new airing or
             # modify its persisted completion timestamp from this timer.
+            @callback
             def refresh_open_airing(_now: datetime) -> None:
                 tracker = get_tracker(self.hass, self.entry, self.subentry)
                 if tracker is not None and tracker.is_open:
@@ -1169,7 +1209,7 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self._unsubs.append(
                 async_track_time_interval(
                     self.hass,
-                    lambda _now: self._handle_tracker_change(),
+                    refresh_tracker_on_timer,
                     MOLD_SAMPLE_INTERVAL,
                 )
             )
@@ -1316,8 +1356,13 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self._previous_mode = self.data.result.mode
             self._previous_decision_need = self.data.result.decision_need
             self._previous_mode_at = dt_util.utcnow()
-        await self._memory_store.async_save(self._memory_payload())
-        await super().async_shutdown()
+        try:
+            if not getattr(self, "_memory_store_readonly", False):
+                await self._memory_store.async_save(self._memory_payload())
+        except Exception:  # noqa: BLE001 - optional context must not block unload
+            _LOGGER.warning("Decision context save failed", exc_info=True)
+        finally:
+            await super().async_shutdown()
 
 
 def _coordinator_key(entry: ConfigEntry, subentry: ConfigSubentry) -> str:

@@ -7,6 +7,7 @@ to infer a surface temperature when no dedicated sensor is configured.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
@@ -30,10 +31,15 @@ from .const import (
 )
 
 
+_LOGGER = logging.getLogger(__name__)
+
 def _parse_dt(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
-    parsed = dt_util.parse_datetime(value)
+    try:
+        parsed = dt_util.parse_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
     if parsed is None:
         return None
     if parsed.tzinfo is None:
@@ -56,6 +62,7 @@ class RoomMoldTracker:
         self.critical_since: datetime | None = None
         self.last_valid_at: datetime | None = None
         self.intervals: list[tuple[datetime, datetime]] = []
+        self._store_readonly = False
         self._store: Store[dict[str, Any]] = Store(
             hass,
             STORAGE_VERSION,
@@ -64,7 +71,17 @@ class RoomMoldTracker:
 
     async def async_initialize(self) -> None:
         """Restore the local rolling exposure context."""
-        stored = await self._store.async_load() or {}
+        try:
+            loaded = await self._store.async_load()
+            if loaded is not None and not isinstance(loaded, dict):
+                raise ValueError("invalid mold context storage root")
+            if isinstance(loaded, dict) and not isinstance(loaded.get("intervals", []), list):
+                raise ValueError("invalid mold exposure intervals")
+            stored = loaded or {}
+        except Exception:  # noqa: BLE001 - optional, potentially damaged Store
+            _LOGGER.warning("Mold context cannot be restored; retaining its original Store read-only", exc_info=True)
+            self._store_readonly = True
+            stored = {}
         now = dt_util.utcnow()
         self.critical_since = clamp_not_future(
             now, _parse_dt(stored.get("critical_since"))
@@ -91,7 +108,12 @@ class RoomMoldTracker:
 
     async def async_shutdown(self) -> None:
         """Flush the compact exposure context before unload/reload."""
-        await self._store.async_save(self._serialize())
+        if getattr(self, "_store_readonly", False):
+            return
+        try:
+            await self._store.async_save(self._serialize())
+        except Exception:  # noqa: BLE001 - optional context
+            _LOGGER.warning("Mold context save failed", exc_info=True)
 
     def _serialize(self) -> dict[str, Any]:
         return {
@@ -110,7 +132,8 @@ class RoomMoldTracker:
     def _schedule_save(self) -> None:
         # Store writes are intentionally delayed/coalesced; sensor updates must
         # never block the decision path.
-        self._store.async_delay_save(self._serialize, 10)
+        if not getattr(self, "_store_readonly", False):
+            self._store.async_delay_save(self._serialize, 10)
 
     def _prune(self, now: datetime) -> None:
         cutoff = now - MOLD_HISTORY_RETENTION
