@@ -784,7 +784,7 @@ def test_complete35_periodic_esphome_tasks_stop_at_unload():
     async def run(name):
         started=asyncio.Event(); release=asyncio.Event(); committed=[]
         station=NS(subentry_id='id',subentry_type='station',title='Master',data={'pending':True})
-        entry=Entry(station);timer=[];tasks=[]
+        entry=Entry(station);timer=[]
         async def deferred(*args, **kwargs):
             started.set()
             await release.wait()

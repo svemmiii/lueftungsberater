@@ -1,3 +1,10 @@
+## v0.11.4 TEST COMPLETE(42) – Ruff-CI-Korrekturen (Runtime-Testkandidat)
+
+- **Ruff F401:** Ungenutzten lokalen Import `finite_value` aus `api.py` entfernt. Die Historien-API-Logik bleibt unverändert.
+- **Ruff F841:** Ungenutzte Variable `tasks` aus einem ESPHome-Regressionstest entfernt. Testablauf bleibt unverändert.
+- **Paketkennung:** Frontend-Cacheversion auf `0.11.4-complete42` aktualisiert; sonst keine Änderungen an Sensoren, Engine, Historienkarte oder Sicherheitslogik.
+- **Status:** CI-Lint-Korrektur; kein neuer Live-Upgrade-Nachweis.
+
 ## v0.11.4 TEST COMPLETE(41) – Exakte rote Grenzwertfläche und besser lesbare Achsen (Runtime-Testkandidat)
 
 - **Grenzwertfläche exakt an Python-Gutgrenze:** Für Kurven mit ausschließlich oberem Grenzwert (z. B. CO₂) reicht die rote SVG-Fläche jetzt bis zur tatsächlichen Achsenposition `.40` statt `.38`. Die bisher fehlenden ungefähr fünf SVG-Pixel sind damit korrigiert. Kurven mit unterer und oberer Grenze behalten ihre eigene obere Grenzposition `.38` und die separate untere rote Fläche; mehrere unabhängige Kurven behalten nur ihre jeweiligen Achsenmarkierungen.

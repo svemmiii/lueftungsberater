@@ -1144,7 +1144,7 @@ def _history_room_attributes(hass, entry, room, entity_id: str) -> dict:
     Only configured sensors and recorded helper IDs are used; no fresh
     measurements or safe/unsafe thresholds are invented during an outage.
     """
-    from .history_support import history_data, finite_value
+    from .history_support import history_data
 
     state = hass.states.get(entity_id)
     attrs = dict(state.attributes or {}) if state else {}

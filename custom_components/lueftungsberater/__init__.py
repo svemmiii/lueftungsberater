@@ -109,7 +109,7 @@ _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
-FRONTEND_VERSION = f"{INTEGRATION_VERSION}-complete41"
+FRONTEND_VERSION = f"{INTEGRATION_VERSION}-complete42"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
