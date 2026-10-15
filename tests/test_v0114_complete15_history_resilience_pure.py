@@ -93,14 +93,34 @@ def test_read_only_room_lookup_uses_registry_without_admin_permission():
         'history_data':lambda h,id:{'r':['surface_humidity','decision']},
         'history_sensor_unique_id':lambda room,metric:f'{room}_history_{metric}_v2' if metric=='surface_humidity' else f'{room}_history_{metric}',
     }
-    # Local import in callback is replaced for an isolated test namespace.
-    # Actual function code is retained, including the entity resolution logic.
+    # Local imports are replaced by isolated collaborators. With Home Assistant
+    # actually installed, its Recorder.get_instance() cannot accept this bare
+    # SimpleNamespace and must not leak into this pure WebSocket regression.
     node.body=[item for item in node.body if not (isinstance(item,ast.ImportFrom) and item.module=='history_support')]
+    # The Recorder import is NESTED inside a try statement. Strip it recursively
+    # so HA's installed real get_instance() never shadows the injected mock.
+    class StripRecorderImport(ast.NodeTransformer):
+        def visit_ImportFrom(self, item):
+            if item.module == 'homeassistant.components.recorder':
+                return None
+            return item
+    StripRecorderImport().visit(node)
+    scope['get_instance'] = lambda _hass: NS(entity_filter=lambda _id: True)
     exec(compile(ast.fix_missing_locations(mod),'api.py','exec'),scope)
     scope['websocket_history_room_info'](hass,conn,{'id':42,'entity':'sensor.advisor'})
     assert result==[{'room':'r','room_name':'Room','enabled':['surface_humidity','decision'],
                      'helpers':{'surface_humidity':'sensor.history_surface_humidity'}, 'disabled':[],
-                     'failed':[], 'failure_reason':None, 'history_store_readonly':False}]
+                     'recorder_excluded':[], 'failed':[], 'failure_reason':None, 'history_store_readonly':False}]
+    # COMPLETE(3): inject the effective Recorder filter directly into the
+    # extracted callback namespace, never importing the real HA Recorder.
+    # Simulate an actual excluded helper and then a normally allowed helper.
+    scope['get_instance'] = lambda _hass: NS(
+        entity_filter=lambda entity_id: entity_id != 'sensor.history_surface_humidity')
+    scope['websocket_history_room_info'](hass,conn,{'id':46,'entity':'sensor.advisor'})
+    assert result[-1]['recorder_excluded'] == ['sensor.history_surface_humidity']
+    scope['get_instance'] = lambda _hass: NS(entity_filter=lambda _id: True)
+    scope['websocket_history_room_info'](hass,conn,{'id':47,'entity':'sensor.advisor'})
+    assert result[-1]['recorder_excluded'] == []
     deliberately_disabled['value'] = True
     scope['websocket_history_room_info'](hass,conn,{'id':43,'entity':'sensor.advisor'})
     assert result[-1]['disabled'] == ['surface_humidity']

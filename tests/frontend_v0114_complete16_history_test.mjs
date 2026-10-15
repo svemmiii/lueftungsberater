@@ -42,9 +42,10 @@ c._hass={language:'de',states:{'sensor.r1':{attributes:{room_name:'Room1'}},'sen
 c._getHistory=async ids=>ids.map(id=>[{entity_id:id,state:'not-a-number',last_updated:new Date().toISOString()}]);
 await c._refresh();c._config.entity='sensor.r2';await c._refresh();c._config.entity='sensor.r1';await c._refresh();
 assert.deepEqual(activations,['sensor.r1','sensor.r2']);
-// Native horizontal pan plus separate touch cursor control.
-assert.match(source,/touch-action:auto;user-select:none;cursor:crosshair/);
-assert.match(source,/data-cursor-scrubber/);
+// v0.11.5: direct touch pointer capture, natural vertical page scroll, no scrubber.
+assert.match(source,/touch-action:pan-y;user-select:none;cursor:crosshair/);
+assert.match(source,/setPointerCapture/);
+assert.doesNotMatch(source,/data-cursor-scrubber/);
 // Full initial fetch followed by a small incremental window, not 30 days again.
 const h=new C();h._config={entity:'sensor.r1',hours:720};
 const requests=[];

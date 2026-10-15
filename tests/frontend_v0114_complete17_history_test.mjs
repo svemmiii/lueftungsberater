@@ -44,10 +44,10 @@ card._decisionEvents=card._history.filter(e=>e.kind==='decision');
 assert.equal(card._historicalDecision(at+9000).color,'red','matching advisor should keep actual recorded color beyond 5s');
 assert.equal(card._historicalDecision(at+9000).key,'open_now');
 card._history.push({t:at+10000,kind:'advisor',key:'close_window',attrs:{}});
-assert.equal(card._historicalDecision(at+11000).color,null,'different recorded recommendation must NOT borrow old color');
+assert.equal(card._historicalDecision(at+11000).color,'red','technical advisor updates cannot overwrite the last recorded room decision');
 assert.match(card._cursorDetail(card._metrics,at+10*60000,()=>''),/—/,'outage must have no numeric cursor value');
-card._config.perspective='ventilation';
-assert.equal(card._historicalDecision(at+9000).color,'orange','perspective retains recorded ventilation palette');
+card._hass.states['sensor.room'].attributes.display_mode='ventilation';
+assert.equal(card._historicalDecision(at+9000).color,'orange','perspective follows the configured room view');
 
 // Editor is driven by the backend allowlist, including derived values that do
 // not have distinct configured sensor entity IDs in the room advisor.
@@ -64,8 +64,8 @@ assert.match(markup,/data-metric="absolute_in"/,'computed absolute humidity must
 assert.match(markup,/data-metric="wind_out"/,'provider wind without source entity must be offered');
 assert.match(markup,/data-default-range/,'persisted default time range is editable');
 assert.match(markup,/value="720" selected/,'saved range is reflected');
-assert.match(markup,/data-color="co2_in" value="#3c90df"/,'default color for first curve matches real palette');
-assert.match(markup,/data-color="absolute_in" value="#2eaa8b"/,'default color for second curve matches real palette');
+assert.match(markup,new RegExp('data-color=\"co2_in\" value=\"'+card._color('co2_in',0)+'\"'),'default color for CO₂ follows stable key palette');
+assert.match(markup,new RegExp('data-color=\"absolute_in\" value=\"'+card._color('absolute_in',1)+'\"'),'absolute humidity color follows stable key palette');
 assert.match(source,/temporär/,'runtime range is clearly marked temporary');
 console.log('PASS: explicit recorder outages, blank states, matching decision colors, derived metrics, palette and persisted editor period');
 
@@ -449,7 +449,7 @@ for(const hours of [24,720]) {
     if(msg.type.endsWith('/history_enable')){requests.push(...msg.metrics);return {room:'r'};}
     throw Error(msg.type);
   }};
-  c._getHistory=async ids=>ids.map(id=>id==='sensor.absolute'?[{entity_id:id,state:'9.1',last_updated:new Date().toISOString(),attributes:{unit_of_measurement:'g/m³'}}]:[]);
+  c._getHistory=async ids=>ids.map(id=>id==='sensor.absolute'?[{entity_id:id,state:'9.1',last_updated:new Date(Date.now()-2000).toISOString(),attributes:{unit_of_measurement:'g/m³'}}]:[]);
   await c._refresh();
   assert.equal(requests.includes('absolute_in'),hours===720,
     `helper for 20-day raw absolute humidity at ${hours}h`);

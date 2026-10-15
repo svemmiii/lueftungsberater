@@ -2996,7 +2996,11 @@ function lbHistoryLabel(hass,key) {
   return LB_HISTORY_LABELS[key]?.[ix]||key;
 }
 
-const LB_HISTORY_PALETTE = ['#3c90df','#2eaa8b','#ad7ae0','#e5a548','#d96b7a','#25a8c9','#aeb44a','#e58864'];
+const LB_HISTORY_PALETTE = ['#b6ac25', '#2f9cbc', '#7ab01c', '#2a61cb', '#46af2c', '#2f20cb', '#23a942', '#7e31c4', '#1ebe88', '#bc28c3', '#2997a3', '#a8d421', '#2569b6', '#5cbc2f', '#1c20b0', '#2acb3b', '#612caf', '#20cb7d', '#9323a9', '#31c4c1', '#abbe1e', '#2883c3', '#60a329', '#213dd4'];
+function lbHistoryDefaultColor(key){
+  const index=Object.keys(LB_HISTORY_LABELS).indexOf(key);
+  return LB_HISTORY_PALETTE[(index>=0?index:0)%LB_HISTORY_PALETTE.length];
+}
 
 // Third card: interactive Recorder history. Its sources and good-band limits
 // are supplied by the integration; no UI-owned pollution threshold table.
@@ -3019,11 +3023,23 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     this._stripCache = null;
     this._configRevision = 0;
     this._refreshAgain = false;
+    this._chartWidth = 600;
+    this._historyFetchFailed = new Set();
+    this._recorderExcluded = [];
+    this._advisorEvents = null;
+    this._emptyHistoryRetryTimer = null;
+    this._emptyHistoryRetryCount = 0;
   }
   setConfig(config) {
     if(this._config?.entity !== config?.entity)this._roomName=null;
     this._configRevision++;
-    this._config = {hours:24, metrics:null, colors:{}, ...config};
+    clearTimeout(this._emptyHistoryRetryTimer);
+    this._emptyHistoryRetryTimer = null;
+    this._emptyHistoryRetryCount = 0;
+    // Older cards may contain a manually chosen perspective. From 0.11.5
+    // the configured room perspective is authoritative for both cards.
+    const {perspective: _legacyPerspective, ...settings} = config || {};
+    this._config = {hours:24, metrics:null, colors:{}, ...settings};
     this._lastQuery = '';
     this._plotCache.clear();
     if (this._historyCacheScope !== `${this._config.entity || ''}:${this._config.hours}`) {
@@ -3046,10 +3062,27 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     }
   }
   connectedCallback() {
+    if (typeof ResizeObserver !== 'undefined') {
+      this._resizeObserver = new ResizeObserver(entries=>{
+        const size=entries[0]?.contentRect?.width;
+        if(Number.isFinite(size) && size>0 && Math.abs(size-this._chartWidth)>3){
+          this._chartWidth=size;
+          this._plotCache.clear();
+          this._stripCache=null;
+          this._render();
+        }
+      });
+      this._resizeObserver.observe(this);
+    }
     this._timer = setInterval(() => this._refresh(), 60000);
     this._refresh();
   }
-  disconnectedCallback() {clearInterval(this._timer);}
+  disconnectedCallback() {
+    clearInterval(this._timer);
+    clearTimeout(this._emptyHistoryRetryTimer);
+    this._emptyHistoryRetryTimer = null;
+    this._resizeObserver?.disconnect();
+  }
   getCardSize() {return 6;}
   static getConfigElement() {return document.createElement('lueftungsberater-history-card-editor');}
   static getStubConfig() {return {type:'custom:lueftungsberater-history-card'};}
@@ -3060,7 +3093,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
   _color(metric, index) {
     const fromUser = this._config?.colors?.[metric];
     if (/^#[\da-f]{6}$/i.test(fromUser || '')) return fromUser;
-    return LB_HISTORY_PALETTE[index%LB_HISTORY_PALETTE.length];
+    return lbHistoryDefaultColor(metric);
   }
   _historyNumber(raw) {
     if (typeof raw !== 'string' && typeof raw !== 'number') return null;
@@ -3158,6 +3191,23 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     if (this._loading) {this._refreshAgain=true;return;}
     if (!this._hass || !this._config?.entity || !this._hass.callWS) return;
     const revision=this._configRevision;
+    // Keep a valid time window even if the FIRST websocket call fails.
+    const hours=Math.max(1,Math.min(720,Number(this._config.hours)||24));
+    const end=new Date(),start=new Date(end.getTime()-hours*3600000);
+    const scope=`${this._config.entity}:${this._config.hours}`;
+    if(this._visibleScope!==scope){
+      this._visibleScope=scope;
+      this._series=new Map();this._history=[];this._decisionEvents=[];this._advisorEvents=null;
+      this._plotCache.clear();this._stripCache=null;
+      this._cursor=null;
+    }
+    // Compare against the PREVIOUS right edge. A live cursor must follow
+    // the moving window; a deliberately selected historical point stays pinned.
+    const wasAtLiveEdge = this._cursor===null || !Number.isFinite(this._end)
+      || Math.abs(this._cursor-this._end)<=1000;
+    this._start=start.getTime();this._end=end.getTime();
+    if(wasAtLiveEdge || !Number.isFinite(this._cursor) || this._cursor<this._start || this._cursor>this._end)
+      this._cursor=this._end;
     const checkRevision=()=>{if(revision!==this._configRevision){const error=new Error('stale history request');error.stale=true;throw error;}};
     this._loading = true;
     this._notice = null;
@@ -3176,6 +3226,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       });
       checkRevision();
       this._roomId = roomInfo.room;
+      this._recorderExcluded = Array.isArray(roomInfo.recorder_excluded) ? roomInfo.recorder_excluded : [];
       this._roomName = roomInfo.room_name || this._source()?.attributes?.room_name || this._roomName;
       const enabled = new Set(roomInfo.enabled||[]);
       const disabledHelpers = new Set(roomInfo.disabled||[]);
@@ -3198,8 +3249,6 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       }
       const knownHelpers = new Map(Object.entries(roomInfo.helpers||{}));
       const selected = this._selected();
-      const start = new Date(Date.now()-Math.max(1,Math.min(24*30,Number(this._config.hours)||24))*3600000);
-      const end = new Date();
       const advisor = this._source();
       const room = advisor?.attributes?.room_name;
       const lookupMirrors = () => {
@@ -3223,7 +3272,30 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       }
       // Keep a historical recommendation even before this card was installed.
       toRead.set('__advisor',this._config.entity);
+      // Decision recording must not depend on a successful raw REST request.
+      if(!enabled.has('decision') && !disabledHelpers.has('decision') &&
+          !this._historyStoreReadonly && this._hass.user?.is_admin===true){
+        const request=`${this._config.entity}:${this._roomId}:decision`;
+        if(Date.now()-(this._enableRequested.get(request)||0)>90000){
+          this._enableRequested.set(request,Date.now());
+          try {
+            await this._hass.callWS({type:'lueftungsberater/history_enable',
+              entity:this._config.entity,metrics:['decision']});
+            checkRevision();
+            enabled.add('decision');
+            // A helper starts at the present, not retroactively. Re-query
+            // once HA has registered its new Recorder source.
+            setTimeout(()=>{if(revision===this._configRevision)this._refresh();},2200);
+          } catch(error){
+            this._enableRequested.delete(request);
+            this._notice=this._language()==='de'
+              ? 'Entscheidungsaufzeichnung konnte nicht gestartet werden.'
+              : 'Decision history could not be enabled.';
+          }
+        }
+      }
       let historical = await this._getHistory([...new Set(toRead.values())],start,end);
+      const initialFetchFailures=new Set(this._historyFetchFailed);
       checkRevision();
       const byId = new Map(historical.map(a=>[a[0]?.entity_id,a]));
       // A numeric Recorder state alone is not a usable history point. The
@@ -3237,6 +3309,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
         const rawDays = Number(metric?.raw_retention_days);
         const rangeExceedsRawRetention = Number.isFinite(rawDays) && rawDays > 0
           && Number(this._config.hours || 24) > rawDays * 24;
+        if(toRead.has(key) && this._historyFetchFailed.has(toRead.get(key)))return false;
         return !metric || metric.helper_required === true || rangeExceedsRawRetention || !this._parseHistorySamples(
           rows,start.getTime(),end.getTime(),metric).some(point=>point.v!==null);
       });
@@ -3299,6 +3372,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       const changedIds = [...new Set(toRead.values())].filter(id=>!byId.has(id));
       if (changedIds.length) {
         historical = historical.concat(await this._getHistory(changedIds,start,end));
+        for(const id of initialFetchFailures)this._historyFetchFailed.add(id);
         checkRevision();
         for (const series of historical) if(series[0]?.entity_id) byId.set(series[0].entity_id, series);
       }
@@ -3344,6 +3418,12 @@ class LueftungsberaterHistoryCard extends HTMLElement {
         if(suffix.length) suffix[0]={...suffix[0],sourceBoundary:true};
         return [key,[...prefix,...helperPeriod,...suffix].sort((a,b)=>a.t-b.t)];
       }));
+      if(this._historyFetchFailed.size){
+        const failureCount=this._historyFetchFailed.size;
+        this._notice=(this._language()==='de'
+          ? `${failureCount} Verlaufsquelle(n) derzeit nicht abrufbar; verfügbare Kurven bleiben sichtbar.`
+          : `${failureCount} history source(s) unavailable; other curves remain visible.`);
+      }
       this._historyInvalidUnits=selected.some(key=>(this._series.get(key)||[]).some(point=>point.invalidUnit));
       this._plotCache.clear();
       const parseStatus = (row, kind) => ({t:Date.parse(row.last_updated||row.last_changed),key:row.state, attrs:kind==='decision'?row.attributes||{}:{},kind});
@@ -3351,14 +3431,40 @@ class LueftungsberaterHistoryCard extends HTMLElement {
           ...(byId.get(toRead.get('__decision'))||[]).map(x=>parseStatus(x,'decision'))]
         .filter(x=>Number.isFinite(x.t)).sort((a,b)=>a.t-b.t);
       this._decisionEvents=this._history.filter(x=>x.kind==='decision');
+      this._advisorEvents=this._history.filter(x=>x.kind==='advisor');
       this._stripCache=null;
+      // A just-enabled helper can register later than the first 2.2-second
+      // requery. Give empty helper timelines a handful of prompt followups,
+      // without spinning forever when Recorder is unavailable or filtered.
+      const awaitingFirstSamples=[...new Set([...selected,'decision'])].some(key=>{
+        const id=mirrorMap.get(key);
+        return id && !disabledHelpers.has(key) &&
+          !this._recorderExcluded.includes(id) && !this._historyFetchFailed.has(id) &&
+          !(byId.get(id)||[]).length;
+      });
+      if(this.isConnected && awaitingFirstSamples && this._emptyHistoryRetryCount<4
+          && !this._emptyHistoryRetryTimer){
+        this._emptyHistoryRetryCount++;
+        this._emptyHistoryRetryTimer=setTimeout(()=>{
+          this._emptyHistoryRetryTimer=null;
+          if(this.isConnected && revision===this._configRevision)this._refresh();
+        },3500);
+      } else if(!awaitingFirstSamples){
+        clearTimeout(this._emptyHistoryRetryTimer);
+        this._emptyHistoryRetryTimer=null;
+      }
       // Follow the moving right edge only when the cursor was actually there.
       // A manually selected historical timestamp must survive refreshes.
       const followedEnd=this._cursor===null || !Number.isFinite(this._end) || Math.abs(this._cursor-this._end)<=1000;
       this._start=start.getTime();this._end=end.getTime();
       if (followedEnd || this._cursor>this._end || this._cursor<this._start) this._cursor=this._end;
     } catch (error) {
-      if(!error.stale)this._notice = this._language()==='de'?'HA-Verlauf momentan nicht abrufbar.':'Home Assistant history unavailable.';
+      if(!error.stale){
+        console.warn('[Lüftungsassistent] History refresh failed',error);
+        this._notice = this._language()==='de'
+          ? 'Historie konnte nicht vollständig geladen werden. Bitte HA-Protokoll und Berechtigungen prüfen.'
+          : 'History loading failed. Check the HA log and permissions.';
+      }
     } finally {
       this._loading=false;
       if(revision===this._configRevision)this._render();
@@ -3409,11 +3515,30 @@ class LueftungsberaterHistoryCard extends HTMLElement {
         this._historyCache.set(id,{from:startMs,to:endMs,rows:retained});
       }
     };
-    await fetch(missing,startMs);
-    const due=cached.filter(id=>endMs-this._historyCache.get(id).to>=55000);
+    this._historyFetchFailed=new Set();
+    const safeFetch=async(ids,from)=>{
+      if(!ids.length)return;
+      try {await fetch(ids,from);} catch(error) {
+        console.warn('[Lüftungsassistent] History REST request failed',error);
+        // A broken source must not prevent other configured curves loading.
+        for(const id of ids){
+          try {await fetch([id],from);} catch(sourceError){
+            this._historyFetchFailed.add(id);
+            console.warn('[Lüftungsassistent] History source unavailable',id,sourceError);
+          }
+        }
+      }
+    };
+    await safeFetch(missing,startMs);
+    // Freshly activated helpers are often empty on their first Recorder read.
+    // Recheck an empty result promptly, without polling nonempty histories.
+    const due=cached.filter(id=>{
+      const entry=this._historyCache.get(id);
+      return endMs-entry.to >= (entry.rows.length ? 55000 : 1500);
+    });
     if(due.length){
       const from=Math.max(startMs,Math.min(...due.map(id=>this._historyCache.get(id).to))-5*60000);
-      await fetch(due,from);
+      await safeFetch(due,from);
     }
     return [...new Set(ids)].map(id=>{
       const rows=this._historyCache.get(id)?.rows||[];
@@ -3421,36 +3546,27 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     });
   }
   _historicalDecision(at) {
-    // The recorder series is time-sorted, so locating the latest event should
-    // not walk every recorded point on each cursor movement.
-    const decisionAt=this._atOrBefore(this._history,at);
-    if (!decisionAt)return null;
-    let decision=decisionAt;
-    if (decision.kind==='advisor') {
-      const decisions=this._decisionEvents || this._history.filter(x=>x.kind==='decision');
-      const previous=this._atOrBefore(decisions,at);
-      if (previous) {
-        const mode=this._config?.perspective||this._source()?.attributes?.display_mode||'room_air';
-        const matchingKey=previous.attrs?.safety_lock
-          ? previous.attrs?.ventilation_recommendation_key||previous.key
-          : mode==='room_air'
-            ? previous.attrs?.room_recommendation_key||previous.key
-            : previous.attrs?.ventilation_recommendation_key||previous.key;
-        if (decision.key===matchingKey || decision.key===previous.key) decision=previous;
-      }
-    }
+    if(!Number.isFinite(at))return null;
+    // A room decision has its own, authoritative Recorder timeline. Later
+    // technical advisor updates never replace its perspective or color.
+    const decisions=this._decisionEvents || this._history.filter(x=>x.kind==='decision');
+    const recorded=this._atOrBefore(decisions,at);
+    const fallback=this._atOrBefore(this._advisorEvents || this._history.filter(x=>x.kind==='advisor'),at);
+    const decision=recorded || fallback;
+    if(!decision || ['unknown','unavailable'].includes(decision.key))return null;
     const attrs=decision.attrs||{};
-    const perspective=this._config?.perspective||this._source()?.attributes?.display_mode||'room_air';
-    let color = null;
-    if (decision.kind==='decision') color=attrs.safety_lock?'locked':perspective==='room_air'?attrs.room_status:attrs.ventilation_status;
-    const key = decision.kind==='decision'
+    const perspective=this._source()?.attributes?.display_mode||'room_air';
+    const color=decision.kind==='decision'
+      ? (attrs.safety_lock?'locked':perspective==='room_air'?attrs.room_status:attrs.ventilation_status)
+      : null;
+    const key=decision.kind==='decision'
       ? (attrs.safety_lock ? attrs.ventilation_recommendation_key||decision.key
         : (perspective==='room_air'?attrs.room_recommendation_key:attrs.ventilation_recommendation_key)||decision.key)
       : decision.key;
     return {key,color:color||null};
   }
   _statusPaint(status) {
-    return ({green:'var(--success-color,#46a777)',yellow:'var(--warning-color,#dfb34b)',orange:'var(--orange-color,#e98e43)',red:'var(--error-color,#d85b5b)',locked:'var(--error-color,#d85b5b)'})[status]||'var(--secondary-text-color,#999)';
+    return ({green:'var(--success-color,#43a047)',yellow:'#f9c74f',orange:'#f57c00',red:'var(--error-color,#db4437)',locked:'#111'})[status]||'var(--secondary-text-color,#999)';
   }
   _atOrBefore(data, at) {
     let lo=0,hi=data.length;
@@ -3573,6 +3689,47 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     reduced.condensedSegments=segment+1;
     return reduced;
   }
+  _curvePaths(group, metric, axis, x, py, normalColor) {
+    const thresholds=[metric.low,metric.high].filter(Number.isFinite).sort((a,b)=>a-b);
+    const alertAt=value=>(Number.isFinite(metric.low)&&value<metric.low) ||
+      (Number.isFinite(metric.high)&&value>metric.high);
+    if(group.length===1){
+      const point=group[0];
+      return `<circle cx="${x(point.t).toFixed(1)}" cy="${py(axis.y(point.v)).toFixed(1)}" r="3.5" fill="${alertAt(point.v)?'var(--error-color,#d35b5b)':normalColor}" data-history-point/>`;
+    }
+    // A setpoint holds until the next report, then jumps; measurements use
+    // linear interpolation. Threshold crossings split at their exact value.
+    const points=[{t:group[0].t,v:group[0].v}];
+    for(let i=1;i<group.length;i++){
+      const prev=group[i-1],next=group[i];
+      if(metric.key==='target_temp')points.push({t:next.t,v:prev.v});
+      points.push({t:next.t,v:next.v});
+    }
+    const segments=[];
+    for(let i=1;i<points.length;i++){
+      const a=points[i-1],b=points[i];
+      const crossing=thresholds.filter(limit=> (a.v<limit&&b.v>limit)||(a.v>limit&&b.v<limit))
+        .map(limit=>({t:a.t+(b.t-a.t)*(limit-a.v)/(b.v-a.v),v:limit}))
+        .sort((left,right)=>a.v<b.v?left.v-right.v:right.v-left.v);
+      const parts=[a,...crossing,b];
+      for(let j=1;j<parts.length;j++){
+        const from=parts[j-1],to=parts[j];
+        if(from.t===to.t&&from.v===to.v)continue;
+        segments.push({from,to,color:alertAt((from.v+to.v)/2)?'var(--error-color,#d35b5b)':normalColor});
+      }
+    }
+    // Collect adjacent runs of the same color to keep DOM sizes bounded.
+    let markup='',path='',paint=null;
+    const flush=()=>{if(path)markup+=`<path d="${path}" fill="none" stroke="${paint}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;};
+    for(const segment of segments){
+      const {from,to,color}=segment;
+      const xy=point=>`${x(point.t).toFixed(1)},${py(axis.y(point.v)).toFixed(1)}`;
+      if(paint!==color){flush();paint=color;path=`M${xy(from)}`;}
+      path+=` L${xy(to)}`;
+    }
+    flush();
+    return markup;
+  }
   _axis(metric, values, lowerZoneVisible=false) {
     // Fixed horizontal 'good' boundaries. Each metric has its own piecewise
     // *raw-value* axis, automatically expanded to contain every sample.
@@ -3601,7 +3758,7 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     };
   }
   _statusStrips(plotLeft,plotRight) {
-    const perspective=this._config?.perspective||this._source()?.attributes?.display_mode||'room_air';
+    const perspective=this._source()?.attributes?.display_mode||'room_air';
     const cached=this._stripCache;
     if(cached&&cached.history===this._history&&cached.start===this._start&&cached.end===this._end&&cached.perspective===perspective&&cached.left===plotLeft&&cached.right===plotRight)return cached.svg;
     const begin=this._start||0,end=this._end||begin+1;
@@ -3641,7 +3798,8 @@ class LueftungsberaterHistoryCard extends HTMLElement {
   }
   _cursorDetail(entries, at, t) {
     const decision=this._historicalDecision(at);
-    const time=new Date(at).toLocaleString(lbLocale(this._hass),{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    const safeTime=Number.isFinite(at)?at:(Number.isFinite(this._end)?this._end:Date.now());
+    const time=new Date(safeTime).toLocaleString(lbLocale(this._hass),{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
     const label=decision?(this._recommendationLabels?.[decision.key]||lbT(this._hass,`recommendation.${decision.key}`)):t('unknown');
     const lines=entries.map((m,i)=>{
       const records=this._series.get(m.key)||[];
@@ -3687,23 +3845,47 @@ class LueftungsberaterHistoryCard extends HTMLElement {
   }
   _render() {
     if (!this.shadowRoot||!this._config) return;
+    // Live Recorder refreshes must not close the opened time selector or a
+    // finger-driven cursor drag. Apply the newest graph after interaction.
+    if(this._pointerDragging || this.shadowRoot.activeElement?.matches?.('[data-range]')){
+      this._deferredRender=true;
+      return;
+    }
+    this._deferredRender=false;
     const t=s=>this._language()==='tr'?({title:'Geçmiş',select:'Ölçümler',period:'Dönem',empty:'Yapılandırılmış ölçüm yok',loading:'Geçmiş yükleniyor …',nohistory:'Henüz geçmiş yok',raw:'Ham değerler',decision:'Karar',unknown:'Kayıtlı karar yok',noColor:'Eski kararın rengi kaydedilmemiş',begin:'Kayıt etkinleştirildikten sonra başlar.',units:'Sınırlar asistanın geçerli değerlendirmesinden alınır',selectHelp:'Eğrileri ve renkleri kart düzenleyicisinden seçin.',retention:'30 gün için Home Assistant Recorder saklama ayarı gereklidir.',axisZones:'Kırmızı işaretler yalnızca ilgili ölçüm ölçeğine aittir.',condensedGaps:'Çok sayıda kesinti: çizim için noktalar azaltıldı; boşluklar birleştirilmez.',unsupportedUnits:'Geçmişteki birimi bilinmeyen veya dönüştürülemeyen ölçümler gösterilmedi.'})[s]||s:this._language()==='de'?({title:'Historie',select:'Messwerte',period:'Zeitraum',empty:'Keine Messwerte eingerichtet',loading:'Lade Verlauf …',nohistory:'Noch kein Verlauf für diese Auswahl',raw:'Messwerte',decision:'Entscheidung',unknown:'Keine aufgezeichnete Entscheidung',noColor:'Farbe für ältere Entscheidung nicht aufgezeichnet',begin:'Die Aufzeichnung beginnt ab Aktivierung.',units:'Grenzen aus der aktuellen Assistentenbewertung',selectHelp:'Farbe und Messgrößen im Karteneditor einstellen.',retention:'30 Tage sind nur verfügbar, wenn Home Assistant Recorder sie aufbewahrt.',axisZones:'Rote Markierungen gelten nur für die jeweils zugehörige Messwertskala.',condensedGaps:'Sehr viele Unterbrechungen: Darstellung verdichtet; Messlücken bleiben getrennt.',unsupportedUnits:'Messwerte mit unbekannter oder nicht umrechenbarer historischer Einheit ausgelassen.'})[s]||s:({title:'History',select:'Measurements',period:'Period',empty:'No configured measurements',loading:'Loading history …',nohistory:'No history yet for this selection',raw:'Recorded values',decision:'Decision',unknown:'No recorded decision',noColor:'Historical color was not recorded',begin:'Recording starts after activation.',units:'Limits from current assistant evaluation',selectHelp:'Choose curves and colors in the card editor.',retention:'30 days require matching Home Assistant Recorder retention settings.',axisZones:'Red markers apply only to their corresponding measurement axes.',condensedGaps:'Many interruptions: plotted points reduced; gaps remain disconnected.',unsupportedUnits:'Readings with unknown or incompatible historical units were omitted.'})[s]||s;
     const selected=this._selected(); const entries=selected.map(key=>this._metrics.find(m=>m.key===key)).filter(Boolean);
-    const n=entries.length; const width=Math.max(860,650+n*74),height=310; const plotLeft=56+Math.ceil(n/2)*60,plotRight=width-(36+Math.floor(n/2)*60),top=24,bottom=height-39;
-    const x=t=>plotLeft+(Math.max(this._start||0,Math.min(this._end||1,t))-(this._start||0))/Math.max(1,(this._end||1)-(this._start||0))*(plotRight-plotLeft);
+    const n=entries.length;
+    // The chart stays inside the actual card column (no forced 860px width).
+    const measured=typeof this.getBoundingClientRect==='function' ? this.getBoundingClientRect().width : 0;
+    const width=Math.max(290,Math.floor((measured>100?measured:this._chartWidth||600)-24));
+    const height=340,plotLeft=44,plotRight=width-16,top=26,bottom=height-48;
+    const initial=Number.isFinite(this._start)?this._start:Date.now()-86400000;
+    const finish=Number.isFinite(this._end)&&this._end>initial?this._end:initial+86400000;
+    const x=t=>plotLeft+(Math.max(initial,Math.min(finish,t))-initial)/(finish-initial)*(plotRight-plotLeft);
     const py=p=>top+p*(bottom-top);
     const at=this._cursor??this._end??Date.now();
     const isDual=entries.some(m=>Number.isFinite(m.low));
+    // Indoor temperature and its setpoint share one *physical* Y-axis.
+    // If the target has no Recorder history, the indoor temperature still
+    // provides the scale; no fictitious 0–1 target axis is created.
+    const tempMetrics=entries.filter(m=>['temp_in','target_temp'].includes(m.key));
+    const tempMetric=tempMetrics.find(m=>m.key==='temp_in')||tempMetrics[0];
+    const tempValues=tempMetrics.flatMap(m=>(this._series.get(m.key)||[]).map(p=>p.v))
+      .filter(Number.isFinite);
+    const sharedTemp=tempMetric ? this._axis(
+      {...tempMetric,low:Number.isFinite(tempMetric.low)?tempMetric.low:null,
+        high:Number.isFinite(tempMetric.high)?tempMetric.high:null},
+      tempValues.length?tempValues:[16,28],isDual) : null;
     const metricAxes=entries.map((m,i)=>{
       const data=this._series.get(m.key)||[];
       const cached=this._plotCache.get(m.key);
       const span=plotRight-plotLeft;
       const isStep=m.key==='target_temp';
-      if(cached && cached.data===data && cached.low===m.low && cached.high===m.high
+      if(!['temp_in','target_temp'].includes(m.key) && cached && cached.data===data && cached.low===m.low && cached.high===m.high
           && cached.isDual===isDual && cached.span===span && cached.isStep===isStep){
         return {m,i,axis:cached.axis,visible:cached.visible};
       }
-      const axis=this._axis(m,data.map(point=>point.v),isDual);
+      const axis=['temp_in','target_temp'].includes(m.key) && sharedTemp ? sharedTemp : this._axis(m,data.map(point=>point.v),isDual);
       const visible=this._plotSamples(data,this._start,this._end,Math.max(250,2*span),isStep);
       this._plotCache.set(m.key,{data,low:m.low,high:m.high,isDual,span,isStep,axis,visible});
       return {m,i,axis,visible};
@@ -3730,79 +3912,97 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       }
       if(current.length)groups.push(current);
       const color=this._color(m.key,i);
-      return groups.map(group=>{
-        if(group.length===1){
-          const point=group[0];
-          return `<circle cx="${x(point.t).toFixed(1)}" cy="${py(axis.y(point.v)).toFixed(1)}" r="4" fill="${color}" data-history-point/>`;
-        }
-        // Target/setpoint values are HA states, not continuous physical
-        // measurements: hold the previous state horizontally and jump at
-        // the recorded change timestamp. Cursor and SVG must agree.
-        const path=m.key==='target_temp'
-          ? group.map((point,index)=>{
-              const px=x(point.t).toFixed(1),y=py(axis.y(point.v)).toFixed(1);
-              if(!index)return `M${px},${y}`;
-              const previous=py(axis.y(group[index-1].v)).toFixed(1);
-              return `L${px},${previous} L${px},${y}`;
-            }).join(' ')
-          : group.map((point,index)=>`${index?'L':'M'}${x(point.t).toFixed(1)},${py(axis.y(point.v)).toFixed(1)}`).join(' ');
-        return `<path d="${path}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
-      }).join('');
+      return groups.map(group=>this._curvePaths(group,m,axis,x,py,color)).join('');
     }).join('');
-    const axes=metricAxes.map(({m,i,axis})=>{
-      const leftSide=i%2===0; const offset=Math.floor(i/2)*58;
-      const axX=leftSide?plotLeft-8-offset:plotRight+8+offset;
+    const axes=metricAxes.map(({m,i})=>{
       const color=this._color(m.key,i);
-      const lbl=`<text x="${axX}" y="15" text-anchor="${leftSide?'end':'start'}" font-size="11" font-weight="600" fill="${color}">${this._esc(lbHistoryLabel(this._hass,m.key).split(' ')[0])}</text>`;
-      // Multi-curve threshold markers belong to the individual axis instead
-      // of shading unrelated curves that happen to share the same plot area.
-      let bands='';
-      if(!fullBands){
-        const bandX=leftSide?axX+3:axX-9;
-        const band=(from,to,opacity)=>`<rect x="${bandX}" y="${py(from)}" width="5" height="${py(to)-py(from)}" fill="var(--error-color,#d35b5b)" fill-opacity="${opacity}" data-axis-zone="${this._esc(m.key)}"/>`;
-        if(Number.isFinite(m.high))bands+=band(.04,Number.isFinite(m.low)?.38:.40,.55);
-        if(Number.isFinite(m.low))bands+=band(.72,.95,.45);
-      }
-      return bands+lbl+axis.ticks.map(({v,p})=>`<text x="${axX}" y="${py(p)+3}" text-anchor="${leftSide?'end':'start'}" font-size="12" fill="${color}">${this._esc(this._fmt(v,Math.abs(v)<10?1:0))}</text>`).join('');
+      // Each red band belongs to exactly one named measurement. Outline it
+      // in that curve's *own* color and repeat the same key, limit and color
+      // below in the numeric scale legend. This remains unambiguous when
+      // several physical units and independently mapped Y axes overlap.
+      if(fullBands)return '';
+      const position=plotRight-6-i*7;
+      const band=(from,to,kind,limit)=>{
+        const direction=kind==='upper'?'>':'<';
+        const description=`${lbHistoryLabel(this._hass,m.key)}: ${direction} ${this._fmt(limit)} ${m.unit||''}`.trim();
+        return `<g data-axis-zone="${this._esc(m.key)}" data-axis-zone-kind="${kind}" aria-label="${this._esc(description)}"><title>${this._esc(description)}</title><rect x="${position}" y="${py(from)}" width="4" height="${py(to)-py(from)}" fill="var(--error-color,#d35b5b)" fill-opacity="0.75" stroke="${this._esc(color)}" stroke-width="1.5"/></g>`;
+      };
+      return (Number.isFinite(m.high)?band(.04,Number.isFinite(m.low)?.38:.40,'upper',m.high):'')+
+        (Number.isFinite(m.low)?band(.72,.95,'lower',m.low):'');
     }).join('');
-    const cursorX=x(at); const decision=this._historicalDecision(at);
+    const tickAxis=sharedTemp || (n===1?metricAxes[0]?.axis:null);
+    const tickMetric=sharedTemp?tempMetric:entries[0];
+    // A mixed-units chart cannot have a truthful single numbered Y-axis.
+    // Provide each displayed metric with its own keyed numerical scale and
+    // its backend-supplied good bounds (including mobile-width layouts).
+    const metricScaleLegend = metricAxes.map(({m,i,axis})=>{
+      const color=this._color(m.key,i);
+      const ticks=axis.ticks || [];
+      const label=ticks.map(({v})=>this._fmt(v,Math.abs(v)<10?1:0)).join(' / ');
+      const bounds=[Number.isFinite(m.low)?`≥ ${this._fmt(m.low)}`:null,
+        Number.isFinite(m.high)?`≤ ${this._fmt(m.high)}`:null].filter(Boolean).join(' · ');
+      // A visible, textual assignment for EVERY red graph marker. The swatch
+      // matches the marker's red fill and metric-colored outline; metric name,
+      // direction, exact backend limit and unit are repeated for touch users.
+      const redLimits=[Number.isFinite(m.low)?`< ${this._fmt(m.low)}`:null,
+        Number.isFinite(m.high)?`> ${this._fmt(m.high)}`:null].filter(Boolean).join(' · ');
+      const redLabel=this._language()==='de'?'Roter Grenzbalken':this._language()==='tr'?'Kırmızı sınır işareti':'Red limit marker';
+      return `<div class="metric-scale" data-metric-scale="${this._esc(m.key)}" style="border-left:3px solid ${this._esc(color)}">
+        <strong>${this._esc(lbHistoryLabel(this._hass,m.key))}</strong>
+        <span>${this._esc(label)} ${this._esc(m.unit||'')}</span>
+        ${bounds?`<small>${this._esc(bounds)} ${this._esc(m.unit||'')}</small>`:''}
+        ${redLimits?`<small class="zone-label" data-axis-zone-label="${this._esc(m.key)}"><i class="zone-swatch" style="border-color:${this._esc(color)}"></i>${this._esc(redLabel)} · ${this._esc(redLimits)} ${this._esc(m.unit||'')}</small>`:''}</div>`;
+    }).join('');
+    const sharedTicks=tickAxis ? tickAxis.ticks.map(({v,p})=>
+      `<text x="${plotLeft-6}" y="${py(p)+4}" text-anchor="end" font-size="12" fill="${this._color(tickMetric.key,0)}">${this._esc(this._fmt(v,Math.abs(v)<10?1:0))}</text>`).join('') : '';
+    const cursorX=x(Number.isFinite(at)?at:finish); const decision=this._historicalDecision(at);
     const strips=this._statusStrips(plotLeft,plotRight);
     const emptyPlot=n&&!hasSamples?`<text x="${(plotLeft+plotRight)/2}" y="${py(.56)}" text-anchor="middle" font-size="13" fill="currentColor" opacity=".8">${this._esc(t(this._loading?'loading':'nohistory'))}</text>`:'';
     const detailMarkup=this._cursorDetail(entries,at,t);
     this.shadowRoot.innerHTML=`<style>
       ha-card{display:block;padding:16px;color:var(--primary-text-color);}
       h3{margin:0 0 8px;font-size:18px} .hint{color:var(--secondary-text-color);font-size:12px;line-height:1.5}
-      .controls{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+      .controls{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
       select{background:var(--card-background-color);color:inherit;border:1px solid var(--divider-color);padding:7px;border-radius:8px;font-size:14px}
-      .chart-scroll{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch} svg{width:100%;min-width:${Math.max(660,width)}px;height:auto;touch-action:auto;user-select:none;cursor:crosshair;display:block}
-      .history-scrubber{display:flex;align-items:center;gap:10px;font-size:12px;margin:8px 0}.history-scrubber input{flex:1;min-width:0;touch-action:auto}
-      .legend{display:flex;flex-wrap:wrap;gap:8px 13px;font-size:12px;color:var(--primary-text-color);margin:8px 0}
+      .chart-scroll{overflow:hidden;max-width:100%} svg{width:100%;max-width:100%;height:auto;touch-action:pan-y;user-select:none;cursor:crosshair;display:block}
+      .legend{display:flex;flex-wrap:wrap;gap:8px 12px;font-size:13px;color:var(--primary-text-color);margin:8px 0}
       .legend span{display:inline-flex;align-items:center;gap:5px}.line{height:3px;width:15px;display:inline-block;border-radius:3px;flex-shrink:0}
       .detail{background:var(--secondary-background-color,var(--ha-card-background));border-radius:9px;padding:10px;margin-top:8px}
       .status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}.dot{width:9px;height:9px;border-radius:9px;display:inline-block}
-      .values{display:flex;gap:6px 16px;flex-wrap:wrap;margin-top:7px}.reading{display:flex;align-items:center;gap:6px;font-size:13px}
+      .values{display:flex;gap:6px 16px;flex-wrap:wrap;margin-top:7px}.reading{display:flex;align-items:center;gap:6px;font-size:14px}
       .reading strong{font-variant-numeric:tabular-nums} .status-label{font-weight:600}
       .key{font-size:12px;color:var(--secondary-text-color)}
+      .metric-scales{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:6px 10px;margin:8px 0}
+      .metric-scale{display:flex;flex-direction:column;gap:2px;min-width:0;padding:5px 8px;background:var(--secondary-background-color,transparent);border-radius:4px;font-size:12px}
+      .metric-scale span{font-variant-numeric:tabular-nums}.metric-scale small{font-size:11px;color:var(--secondary-text-color)}
+      .zone-label{display:flex;align-items:center;gap:5px;flex-wrap:wrap;overflow-wrap:anywhere}
+      .zone-swatch{display:inline-block;flex-shrink:0;width:9px;height:15px;background:var(--error-color,#d35b5b);border:2px solid;border-radius:2px}
       @media(max-width:520px){ha-card{padding:12px} h3{font-size:16px}.reading{width:100%;justify-content:space-between}.reading strong{margin-left:auto} }
     </style><ha-card><div class="controls"><h3>${t('title')} · ${this._esc(this._source()?.attributes?.room_name||this._roomName||this._config?.entity||'')}</h3><label class="key">${t('period')} · ${this._language()==='de'?'temporär':this._language()==='tr'?'geçici':'temporary'} <select data-range>${[6,24,24*7,24*30].map(h=>`<option value="${h}" ${Number(this._config.hours)===h?'selected':''}>${h<24?h+'h':h===24?'24h':h===168?'7d':'30d'}</option>`).join('')}</select></label></div>
     ${n?`<div class="chart-scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${t('title')}" data-chart>
-      ${topZone}${bottomZone}${guides}${strips}${lines}${axes}${emptyPlot}<line x1="${cursorX}" x2="${cursorX}" y1="3" y2="${bottom}" stroke="var(--primary-text-color)" stroke-dasharray="3 3" stroke-width="1.4" data-cursor-line/>
+      ${topZone}${bottomZone}${guides}${strips}${lines}${axes}${sharedTicks}${emptyPlot}<line x1="${cursorX}" x2="${cursorX}" y1="3" y2="${bottom}" stroke="var(--primary-text-color)" stroke-dasharray="3 3" stroke-width="1.4" data-cursor-line/>
       <rect x="${plotLeft}" y="0" width="${plotRight-plotLeft}" height="${height}" fill="transparent" data-hit/>
       <text x="${plotLeft}" y="${height-11}" font-size="11" fill="currentColor" opacity=".7">${this._esc(this._historyAxisLabel(this._start??Date.now(),this._end??Date.now(),this._config.hours))}</text>
       <text x="${plotRight}" y="${height-11}" font-size="11" fill="currentColor" text-anchor="end" opacity=".7">${this._esc(this._historyAxisLabel(this._end??Date.now(),this._start??Date.now(),this._config.hours))}</text>
-      </svg></div><label class="history-scrubber">${t('period')} · <input data-cursor-scrubber type="range" min="0" max="1000" value="${Math.round((at-(this._start??at))/Math.max(1,(this._end??at)-(this._start??at))*1000)}" aria-label="${t('decision')}"/></label><div class="legend">${entries.map((m,i)=>`<span><i class="line" style="background:${this._color(m.key,i)}"></i>${this._esc(lbHistoryLabel(this._hass,m.key))} (${this._esc(m.unit)})</span>`).join('')}</div>${condensed?`<p class="hint" data-condensed-gaps>${t('condensedGaps')}</p>`:''}${this._historyInvalidUnits?`<p class="hint" data-unsupported-units>${t('unsupportedUnits')}</p>`:''}${!fullBands&&entries.some(m=>Number.isFinite(m.high)||Number.isFinite(m.low))?`<p class="hint">${t('axisZones')}</p>`:''}`:`<p class="hint">${t('empty')}</p>`}
+      </svg></div><div class="metric-scales" data-metric-scales>${metricScaleLegend}</div><div class="legend">${entries.map((m,i)=>`<span><i class="line" style="background:${this._color(m.key,i)}"></i>${this._esc(lbHistoryLabel(this._hass,m.key))} (${this._esc(m.unit)})</span>`).join('')}</div>${condensed?`<p class="hint" data-condensed-gaps>${t('condensedGaps')}</p>`:''}${this._historyInvalidUnits?`<p class="hint" data-unsupported-units>${t('unsupportedUnits')}</p>`:''}${!fullBands&&entries.some(m=>Number.isFinite(m.high)||Number.isFinite(m.low))?`<p class="hint">${t('axisZones')}</p>`:''}`:`<p class="hint">${t('empty')}</p>`}
       <div class="detail" data-cursor-detail>${detailMarkup}</div>
-      <p class="hint">${this._esc(this._notice||t('units'))} · ${t('selectHelp')}${Number(this._config.hours)===720?' · '+t('retention'):''}</p>
+      <p class="hint">${this._esc(this._notice||t('units'))}${Number(this._config.hours)===720?' · '+t('retention'):''}</p>
+      ${this._recorderExcluded?.length ? `<p class="hint" data-recorder-excluded>${this._esc(this._language()==='de'
+        ? 'Recorder-Filter schließt folgende Historien-Hilfssensoren aus: '
+        : this._language()==='tr'?'Recorder filtresi şu geçmiş sensörlerini hariç tutuyor: '
+        : 'Recorder filters exclude these history helpers: ')}${this._esc(this._recorderExcluded.join(', '))}. ${this._esc(this._language()==='de'
+        ? 'Bitte Recorder include/exclude in configuration.yaml prüfen. Ohne Freigabe entstehen keine neuen Verlaufspunkte.'
+        : this._language()==='tr'?'Recorder include/exclude yapılandırmasını kontrol edin.':'Check Recorder include/exclude configuration; no new history is recorded until allowed.')}</p>`:''}
       ${this._failedHistoryMetrics?.length && !this._historyStoreReadonly && this._hass?.user?.is_admin===true
         ? `<button type="button" data-history-retry ${this._historyRetryBusy?'disabled':''}>${this._language()==='de'?'Aufzeichnung erneut versuchen':this._language()==='tr'?'Kaydı yeniden dene':'Retry history recording'}</button>` : ''}
       </ha-card>`;
     this.shadowRoot.querySelector('[data-history-retry]')?.addEventListener('click',()=>this._retryHistoryRecording());
     const hit=this.shadowRoot.querySelector('[data-hit]');
     const updateAt=(clientX,rect)=>{
+      if(!Number.isFinite(this._start)||!Number.isFinite(this._end) ||
+          !Number.isFinite(clientX)||!Number.isFinite(rect?.width))return;
       const frac=Math.max(0,Math.min(1,(clientX-rect.left)/Math.max(1,rect.width)));
       this._cursor=this._start+frac*(this._end-this._start);
-      const scrubber=this.shadowRoot.querySelector('[data-cursor-scrubber]');
-      if(scrubber)scrubber.value=String(Math.round(frac*1000));
       // Move cursor and refresh only the small readout, not thousands of SVG
       // paths or the cached status strip on every pointer movement.
       const cursor=this.shadowRoot.querySelector('[data-cursor-line]');
@@ -3814,29 +4014,28 @@ class LueftungsberaterHistoryCard extends HTMLElement {
       if(detail)detail.innerHTML=this._cursorDetail(entries,this._cursor,t);
     };
     hit?.addEventListener('pointerdown',e=>{
-      if(e.pointerType==='touch')return; // native horizontal pan on touchscreens
-      const rect=hit.getBoundingClientRect();
-      const onMove=event=>updateAt(event.clientX,rect);
-      const onEnd=()=>{
-        window.removeEventListener('pointermove',onMove);
-        window.removeEventListener('pointerup',onEnd);
-        window.removeEventListener('pointercancel',onEnd);
-      };
-      window.addEventListener('pointermove',onMove);
-      window.addEventListener('pointerup',onEnd,{once:true});
-      window.addEventListener('pointercancel',onEnd,{once:true});
-      updateAt(e.clientX,rect);
+      if(!Number.isFinite(this._start)||!Number.isFinite(this._end))return;
+      this._pointerDragging=true;
+      try{hit.setPointerCapture?.(e.pointerId);}catch(_error){/* detached DOM */}
+      updateAt(e.clientX,hit.getBoundingClientRect());
     });
     hit?.addEventListener('pointermove',e=>{
-      if(e.pointerType==='mouse'&&e.buttons===0)updateAt(e.clientX,hit.getBoundingClientRect());
+      if(!Number.isFinite(this._start)||!Number.isFinite(this._end))return;
+      if(this._pointerDragging || (e.pointerType==='mouse'&&e.buttons===0))
+        updateAt(e.clientX,hit.getBoundingClientRect());
     });
-    this.shadowRoot.querySelector('[data-cursor-scrubber]')?.addEventListener('input',e=>{
-      const frac=Number(e.target.value)/1000;
-      const rect={left:0,width:1};
-      updateAt(frac,rect);
-    });
+    const release=e=>{
+      this._pointerDragging=false;
+      try{if(hit.hasPointerCapture?.(e.pointerId))hit.releasePointerCapture(e.pointerId);}catch(_error){}
+      if(this._deferredRender)this._render();
+    };
+    hit?.addEventListener('pointerup',release);
+    hit?.addEventListener('pointercancel',release);
     this.shadowRoot.querySelector('[data-range]')?.addEventListener('change',e=>{
       this._config={...this._config,hours:Number(e.target.value)};this._cursor=null;this._refresh();
+    });
+    this.shadowRoot.querySelector('[data-range]')?.addEventListener('blur',()=>{
+      if(this._deferredRender){this._deferredRender=false;this._render();}
     });
   }
 }
@@ -3850,9 +4049,33 @@ if(!window.customCards.some(c=>c.type==='lueftungsberater-history-card')){
 
 class LueftungsberaterHistoryCardEditor extends HTMLElement {
   constructor(){super();this.attachShadow({mode:'open'});this._availableMetrics=[];this._availableRoom=null;this._availableSignature=null;this._loadingRoom=null;this._loadingSignature=null;this._metricsRequestId=0;this._rooms=null;this._roomsRequested=false;this._roomsRequestFailed=false;this._roomsLastRequest=0;this._roomsTimer=null;this._editorInstance=null;}
-  setConfig(c){const previous=this._config?.entity;this._config={...c};if(previous!==this._config.entity)this._editorInstance=null;this._render();}
-  set hass(h){this._hass=h;this._loadRooms();this._render();}
+  setConfig(c){
+    const previous=this._config?.entity;
+    const oldSignature=JSON.stringify(this._config||{});
+    const {perspective:_legacyPerspective,...next}=c||{};
+    this._config=next;
+    if(previous!==next.entity)this._editorInstance=null;
+    if(oldSignature!==JSON.stringify(next))this._render();
+  }
+  set hass(h){
+    this._hass=h;this._loadRooms();
+    // Only configured-source/availability changes need a new editor render.
+    // Repeated sensor measurement updates do not destroy an open color picker.
+    const signature=this._metricsSignature(this._config?.entity||'');
+    const changed=signature!==this._editorStateSignature;
+    this._editorStateSignature=signature;
+    if(changed || !this.shadowRoot?.querySelector?.('[data-entity]'))this._render();
+  }
   connectedCallback(){
+    if(!this._focusListener){
+      this._focusListener=()=>{
+        if(this._pendingEditorRender){
+          this._pendingEditorRender=false;
+          setTimeout(()=>this._render(),0);
+        }
+      };
+      this.shadowRoot.addEventListener?.('focusout',this._focusListener);
+    }
     // Config subentries do not necessarily emit a state change (e.g. a new
     // room whose advisor is still unavailable). Refresh while editor is open.
     if(!this._roomsTimer)this._roomsTimer=setInterval(()=>this._loadRooms(),20000);
@@ -3861,6 +4084,10 @@ class LueftungsberaterHistoryCardEditor extends HTMLElement {
   disconnectedCallback(){
     if(this._roomsTimer)clearInterval(this._roomsTimer);
     this._roomsTimer=null;
+    if(this._focusListener){
+      this.shadowRoot.removeEventListener?.('focusout',this._focusListener);
+      this._focusListener=null;
+    }
   }
   _loadRooms(){
     // Retry after transient WS failures; throttle normal HA state updates.
@@ -3923,7 +4150,14 @@ class LueftungsberaterHistoryCardEditor extends HTMLElement {
       });
   }
   _changed(patch){const next={...this._config,...patch};this._config=next;const e=new Event('config-changed',{bubbles:true,composed:true});e.detail={config:next};this.dispatchEvent(e);}
-  _render(){if(!this._config||!this._hass)return;
+  _render(force=false){if(!this._config||!this._hass)return;
+    const focusedControl=this.shadowRoot?.activeElement;
+    if(!force && focusedControl &&
+        (focusedControl.matches?.('input[type=color]') || focusedControl.matches?.('select'))){
+      this._pendingEditorRender=true;
+      return;
+    }
+    this._pendingEditorRender=false;
     const liveAdvisors=Object.values(this._hass.states||{}).filter(s=>s.entity_id?.startsWith('sensor.')&&s.attributes?.instance_id&&s.attributes?.room_name&&s.attributes?.recommendation_key);
     const advisors=Array.isArray(this._rooms)
       ?this._rooms.map(room=>({
@@ -3971,30 +4205,29 @@ class LueftungsberaterHistoryCardEditor extends HTMLElement {
     const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const lang=lbLanguage(this._hass);
     const chosen=Array.isArray(this._config.metrics)?this._config.metrics:[];
-    const defaultCurveColor=(key,index)=>LB_HISTORY_PALETTE[(Math.max(0,chosen.indexOf(key)>=0?chosen.indexOf(key):index))%LB_HISTORY_PALETTE.length];
+    const defaultCurveColor=key=>lbHistoryDefaultColor(key);
     const strings={
       de:['Raum','Ansicht','Innenraum','Lüftung','Kurven und Farben','Nur eingerichtete Werte. Grenzwerte kommen live aus der Integration. Fehlende Aufzeichnungen werden bei erstmaliger Nutzung aktiviert.','Instanz','(aktuell nicht verfügbar)','Noch keine registrierte Raumentität'],
       en:['Room','View','Indoor air','Ventilation','Curves and colors','Only configured measurements. Live thresholds come from the integration. Missing histories start when first used.','Instance','(currently unavailable)','No registered room entity yet'],
       tr:['Oda','Görünüm','İç hava','Havalandırma','Eğriler ve renkler','Yalnızca yapılandırılmış ölçümler. Sınırlar entegrasyondan alınır. Eksik geçmiş kayıtları ilk kullanımda başlatılır.','Kurulum','(şu anda kullanılamıyor)','Henüz kayıtlı oda varlığı yok'],
     }[lang]||[];
-    this.shadowRoot.innerHTML=`<style>.editor{display:grid;gap:11px;padding:8px 2px} label{display:flex;align-items:center;gap:9px;font-size:14px;min-height:40px}select{width:100%;background:var(--card-background-color);color:var(--primary-text-color);padding:10px;border:1px solid var(--divider-color);border-radius:8px}input[type=checkbox]{width:18px;height:18px;flex-shrink:0}input[type=color]{width:38px;height:32px;border:0;padding:0;background:none} .metric{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--divider-color)}.info{font-size:12px;color:var(--secondary-text-color)}</style><div class="editor"><label>${strings[6]}<select data-instance>${instances.map(([id,name])=>`<option value="${esc(id)}" ${id===instance?'selected':''}>${esc(name)}</option>`).join('')}</select></label><label>${strings[0]}<select data-entity>${instanceRooms.map(room=>`<option value="${esc(room.entity_id)}" ${!room.entity_id?'disabled':''} ${room.entity_id&&room.entity_id===selected?'selected':''}>${esc(room.room_name)}${room.available?'':` ${strings[7]}`}${room.entity_id?'':` · ${strings[8]}`}</option>`).join('')}</select></label><label>${strings[1]}<select data-perspective><option value="room_air" ${this._config.perspective==='room_air'?'selected':''}>${strings[2]}</option><option value="ventilation" ${this._config.perspective==='ventilation'?'selected':''}>${strings[3]}</option></select></label><label>${lang==='de'?'Standard-Zeitraum':lang==='tr'?'Varsayılan dönem':'Default period'}<select data-default-range>${[6,24,168,720].map(h=>`<option value="${h}" ${Number(this._config.hours||24)===h?'selected':''}>${h===6?'6h':h===24?'24h':h===168?'7d':'30d'}</option>`).join('')}</select></label><strong>${strings[4]}</strong>${active.map(([key,label],index)=>`<div class="metric"><label><input type="checkbox" data-metric="${key}" ${(this._config.metrics||[]).includes(key)?'checked':''}/>${esc(lbHistoryLabel(this._hass,key))}</label><input type="color" aria-label="${esc(lbHistoryLabel(this._hass,key))}" data-color="${key}" value="${/^#[a-f0-9]{6}$/i.test(this._config.colors?.[key]||'')?this._config.colors[key]:defaultCurveColor(key,index)}"/></div>`).join('')}<p class="info">${strings[5]}</p></div>`;
+    this.shadowRoot.innerHTML=`<style>.editor{display:grid;gap:11px;padding:8px 2px} label{display:flex;align-items:center;gap:9px;font-size:14px;min-height:40px}select{width:100%;background:var(--card-background-color);color:var(--primary-text-color);padding:10px;border:1px solid var(--divider-color);border-radius:8px}input[type=checkbox]{width:18px;height:18px;flex-shrink:0}input[type=color]{width:38px;height:32px;border:0;padding:0;background:none} .metric{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--divider-color)}.info{font-size:12px;color:var(--secondary-text-color)}</style><div class="editor"><label>${strings[6]}<select data-instance>${instances.map(([id,name])=>`<option value="${esc(id)}" ${id===instance?'selected':''}>${esc(name)}</option>`).join('')}</select></label><label>${strings[0]}<select data-entity>${instanceRooms.map(room=>`<option value="${esc(room.entity_id)}" ${!room.entity_id?'disabled':''} ${room.entity_id&&room.entity_id===selected?'selected':''}>${esc(room.room_name)}${room.available?'':` ${strings[7]}`}${room.entity_id?'':` · ${strings[8]}`}</option>`).join('')}</select></label><label>${lang==='de'?'Standard-Zeitraum':lang==='tr'?'Varsayılan dönem':'Default period'}<select data-default-range>${[6,24,168,720].map(h=>`<option value="${h}" ${Number(this._config.hours||24)===h?'selected':''}>${h===6?'6h':h===24?'24h':h===168?'7d':'30d'}</option>`).join('')}</select></label><strong>${strings[4]}</strong>${active.map(([key,label],index)=>`<div class="metric"><label><input type="checkbox" data-metric="${key}" ${(this._config.metrics||[]).includes(key)?'checked':''}/>${esc(lbHistoryLabel(this._hass,key))}</label><input type="color" aria-label="${esc(lbHistoryLabel(this._hass,key))}" data-color="${key}" value="${/^#[a-f0-9]{6}$/i.test(this._config.colors?.[key]||'')?this._config.colors[key]:defaultCurveColor(key,index)}"/></div>`).join('')}<p class="info">${strings[5]}</p></div>`;
     this.shadowRoot.querySelector('[data-instance]')?.addEventListener('change',e=>{
       this._editorInstance=e.target.value;
       const first=advisors.find(a=>a.instance_id===this._editorInstance&&a.entity_id);
       if(first)this._changed({entity:first.entity_id,metrics:[]});
-      this._render();
+      this._render(true);
     });
     this.shadowRoot.querySelector('[data-entity]')?.addEventListener('change',e=>{
       if(e.target.value)this._changed({entity:e.target.value,metrics:[]});
     });
-    this.shadowRoot.querySelector('[data-perspective]')?.addEventListener('change',e=>this._changed({perspective:e.target.value}));
     this.shadowRoot.querySelector('[data-default-range]')?.addEventListener('change',e=>this._changed({hours:Number(e.target.value)}));
     this.shadowRoot.querySelectorAll('[data-metric]').forEach(input=>input.addEventListener('change',()=>{
       const chosen=[...this.shadowRoot.querySelectorAll('[data-metric]:checked')].map(n=>n.dataset.metric);
       this._changed({metrics:chosen});
       // New selections can change the palette order. Refresh the swatches
       // immediately so the editor and actual graph never show mismatched defaults.
-      this._render();
+      this._render(true);
     }));
     this.shadowRoot.querySelectorAll('[data-color]').forEach(input=>input.addEventListener('change',()=>this._changed({colors:{...(this._config.colors||{}),[input.dataset.color]:input.value}})));
   }

@@ -1447,6 +1447,21 @@ def websocket_history_room_info(hass, connection, msg) -> None:
                 # Reading previous Recorder values remains possible, but an
                 # intentionally disabled entity must never be auto-repaired.
                 disabled.append(metric)
+    # Report confirmed Recorder filtering, not merely an empty/new history.
+    # Home Assistant's effective entity_filter includes explicit IDs, domains
+    # and globs and is more reliable than interpreting the user's YAML here.
+    recorder_excluded: list[str] = []
+    try:
+        from homeassistant.components.recorder import get_instance
+
+        recorder_instance = get_instance(hass)
+        entity_filter = getattr(recorder_instance, "entity_filter", None)
+        if entity_filter is not None:
+            recorder_excluded = [entity_id for entity_id in helpers.values()
+                                 if not entity_filter(entity_id)]
+    except (KeyError, RuntimeError, AttributeError, ImportError):
+        # Recorder may not be installed/loaded. Do not infer exclusions.
+        pass
     domain_data = hass.data.get(DOMAIN, {})
     repair = domain_data.get("history_repair_failed", {}).get(entry.entry_id, {})
     # A previously exhausted registration is not a permanent failure: clear
@@ -1475,6 +1490,7 @@ def websocket_history_room_info(hass, connection, msg) -> None:
     connection.send_result(msg["id"], {
         "room": room_id, "room_name": room.title, "enabled": enabled,
         "helpers": helpers, "disabled": disabled,
+        "recorder_excluded": recorder_excluded,
         "failed": repair.get("rooms", {}).get(room_id, []),
         "failure_reason": repair.get("reason") if room_id in repair.get("rooms", {}) else None,
         "history_store_readonly": entry.entry_id in domain_data.get("history_load_errors", {}),
