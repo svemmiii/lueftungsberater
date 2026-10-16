@@ -639,3 +639,15 @@ def _isolate_home_assistant_registry(monkeypatch):
         async_get=lambda entity_id: None,
     )
     monkeypatch.setattr(entity_registry, "async_get", lambda _hass: registry)
+
+
+def test_v0116_outdoor_temperature_humidity_and_co2_do_not_inherit_indoor_good_limits():
+    """No room-comfort limits on outdoor relative weather/model values."""
+    good = defs()['good_limits']
+    for key in ('temp_out', 'humidity_out', 'co2_out'):
+        assert good(key, target=23, has_windows=True) == {'low': None, 'high': None}
+        assert good(key, target=23, has_windows=False) == {'low': None, 'high': None}
+    # The INDOOR limits are unchanged; no ventilation engine edit.
+    assert good('temp_in', target=23, has_windows=True) == {'low': 22, 'high': 24}
+    assert good('humidity_in') == {'low': 40, 'high': 60}
+    assert good('co2_in') == {'low': None, 'high': 1000}

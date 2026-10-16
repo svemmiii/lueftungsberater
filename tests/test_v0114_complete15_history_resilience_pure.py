@@ -877,3 +877,50 @@ def test_complete35_metrics_require_helper_for_purged_internal_raw_entities():
     assert values=={'wind_out':True,'absolute_in':False,'co2_in':False,'absolute_out':True}
     assert {m['key']:m.get('raw_retention_days') for m in answers[-1]}['absolute_in']==20
     assert {m['key']:m.get('raw_retention_days') for m in answers[-1]}['co2_in'] is None
+
+
+def test_v0116_cams_model_co2_is_selectable_without_a_raw_recorder_entity():
+    """An active CAMS outdoor CO2 value must reach the history-helper opt-in."""
+    tree=ast.parse((ROOT/'api.py').read_text())
+    node=next(n for n in tree.body if isinstance(n,ast.FunctionDef)
+              and n.name=='_history_room_attributes')
+    node.decorator_list=[]
+    node.body=[n for n in node.body if not isinstance(n,ast.ImportFrom)]
+    co2={'value':452.,'source':'cams_air_quality_model'}
+    weather=lambda: NS(source_temperature=None,source_humidity=None,
+                       source_wind=None,source_gust=None,
+                       outdoor_co2_source=co2['source'],outdoor_co2_ppm=co2['value'],
+                       wind_speed_kmh=None,wind_gust_kmh=None)
+    saved={}
+    namespace={
+        'DOMAIN':'lueftungsberater',
+        'history_data':lambda h,eid:saved,
+        'er':NS(async_get=lambda _:NS(async_get_entity_id=lambda *args:None)),
+        'station_for_room':lambda entry,room:None,
+        'station_is_direct':lambda station:False,
+        'direct_station_entities':lambda hass,station:None,
+        'uses_auto_weather':lambda entry:True,
+        'HISTORY_METRICS':support()['HISTORY_METRICS'],
+        'finite_value':support()['finite_value'],
+        'preferred_air_quality_variant':support()['preferred_air_quality_variant'],
+        'get_outside_coordinator':lambda hass,entry:NS(data=NS(weather=weather())),
+    }
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+                 'api.py','exec'),namespace)
+    hass=NS(states=NS(get=lambda _:None))
+    entry=NS(entry_id='e',data={},subentries={})
+    room=NS(subentry_id='r',data={})
+    attrs=namespace['_history_room_attributes'](hass,entry,room,'sensor.advisor')
+    assert 'co2_out' in attrs['_history_auto_available']
+    assert 'co2_out' not in attrs['_history_inactive_metrics']
+    assert attrs.get('source_outdoor_co2') is None  # model tag is no HA entity
+    assert support()['allowed_metric'](attrs,'co2_out')
+    # Switching the active model off disallows new recording of a stale value.
+    co2['value']=None
+    co2['source']=None
+    attrs=namespace['_history_room_attributes'](hass,entry,room,'sensor.advisor')
+    assert not support()['allowed_metric'](attrs,'co2_out')
+    # Previously opted-in helpers remain selectable for the recorded past.
+    saved['r']=['co2_out']
+    attrs=namespace['_history_room_attributes'](hass,entry,room,'sensor.advisor')
+    assert support()['allowed_metric'](attrs,'co2_out')

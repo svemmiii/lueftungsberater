@@ -1144,7 +1144,7 @@ def _history_room_attributes(hass, entry, room, entity_id: str) -> dict:
     Only configured sensors and recorded helper IDs are used; no fresh
     measurements or safe/unsafe thresholds are invented during an outage.
     """
-    from .history_support import history_data
+    from .history_support import history_data, finite_value
 
     state = hass.states.get(entity_id)
     attrs = dict(state.attributes or {}) if state else {}
@@ -1259,13 +1259,16 @@ def _history_room_attributes(hass, entry, room, entity_id: str) -> dict:
             if _ha_source(candidate):
                 attrs[key] = candidate
             elif candidate:
-                if metric != "co2_out":
-                    attrs.pop(key, None)
+                # A named provider/model such as cams_air_quality_model is a
+                # provenance tag, NOT a Recorder entity_id. Use the existing
+                # persistent per-room helper for its current numeric value.
+                attrs.pop(key, None)
                 value_field = {
                     "temp_out": "temperature", "humidity_out": "humidity",
                     "wind_out": "wind_speed_kmh", "gust_out": "wind_gust_kmh",
+                    "co2_out": "outdoor_co2_ppm",
                 }.get(metric)
-                if value_field and getattr(weather, value_field, None) is not None:
+                if value_field and finite_value(getattr(weather, value_field, None)) is not None:
                     auto_available.add(metric)
             elif auto_weather and metric != "co2_out":
                 # No active source: retain only a presently configured manual

@@ -33,13 +33,13 @@ assert.match(html,/data-axis-zone="humidity_in"/);
 assert.match(html,/data-axis-zone="co2_in" data-axis-zone-kind="upper"/);
 assert.match(html,/data-axis-zone="humidity_in" data-axis-zone-kind="upper"/);
 assert.match(html,/data-axis-zone="humidity_in" data-axis-zone-kind="lower"/);
-assert.match(html,/data-axis-zone-label="co2_in"/);
-assert.match(html,/data-axis-zone-label="humidity_in"/);
-assert.match(html,/Roter Grenzbalken[^<]*&gt; 1\.000 ppm/);
-assert.match(html,/Roter Grenzbalken[^<]*&lt; 40 · &gt; 60 %/);
+assert.match(html,/data-inline-axis="co2:ppm"/);
+assert.match(html,/data-inline-axis="humidity:%"/);
+assert.match(html,/CO₂ innen: &gt; 1\.000 ppm/);
+assert.match(html,/Luftfeuchte innen: &lt; 40 %/);
 assert.match(html,/data-axis-zone="co2_in"[^>]*>[\s\S]*?stroke="#123abc"/);
 assert.match(html,/data-axis-zone="humidity_in"[^>]*>[\s\S]*?stroke="#00ee00"/);
-assert.match(html,/Rote Markierungen gelten nur/);
+assert.doesNotMatch(html,/data-metric-scales|class="legend"/,'there is only one value list, no duplicate legend and cards');
 assert.match(html,/Jetzt lüften/);
 const axes=card._axis(card._metrics[0],[600,1400],true);
 const humid=card._axis(card._metrics[1],[38,70],true);
@@ -64,10 +64,11 @@ function historyChartWith(metrics) {
   return test.shadowRoot.innerHTML;
 }
 function upperRedField(html) {
-  const match=html.match(/<rect x="[^"]+" y="([\d.]+)" width="[^"]+" height="([\d.]+)" fill="var\(--error-color,#d35b5b\)" fill-opacity="0\.13"\/>/);
+  const match=html.match(/<rect x="[^"]+" y="([\d.]+)" width="[^"]+" height="([\d.]+)" fill="#df1717" fill-opacity="0\.12"\/>/);
   return match?{top:Number(match[1]),bottom:Number(match[1])+Number(match[2])}:null;
 }
-const chartTop=26,chartBottom=340-48;
+// COMPLETE(3): the separate room-status lane pushes the measurement plot down.
+const chartTop=86,chartBottom=398-48;
 const yAt=relative=>chartTop+relative*(chartBottom-chartTop);
 const co2Only=historyChartWith([{key:'co2_in',unit:'ppm',low:null,high:1000}]);
 const highOnlyField=upperRedField(co2Only);
@@ -93,13 +94,12 @@ assert.match(combined,/data-axis-zone="humidity_in"/);
 // Per-metric red bands must match their on-screen labeled scale entries.
 for (const key of ['co2_in','humidity_in']) {
   assert.match(combined,new RegExp(`data-axis-zone="${key}"`));
-  assert.match(combined,new RegExp(`data-axis-zone-label="${key}"`));
+  assert.match(combined,new RegExp(`data-inline-axis="${key.split('_')[0]}:`));
 }
 const borderCo2=combined.match(/data-axis-zone="co2_in"[^>]*>[\s\S]*?<rect[^>]*stroke="([^"]+)"/);
-const labelCo2=combined.match(/data-axis-zone-label="co2_in"[^>]*>[\s\S]*?<i[^>]*border-color:([^"]+)"/);
-assert.ok(borderCo2 && labelCo2);
-assert.equal(borderCo2[1],labelCo2[1],'red CO2 band and its textual scale share the metric color');
-assert.match(combined,/Red limit marker|Roter Grenzbalken/);
+assert.ok(borderCo2);
+assert.equal(borderCo2[1],(new Card())._color('co2_in',0),'CO2 zone retains its curve color');
+assert.match(combined,/CO₂ innen: &gt; 1\.000 ppm/);
 console.log('PASS: high-only and dual-limit red bounds precisely meet their own high threshold; mobile axis labels');
 
 
@@ -112,8 +112,15 @@ distinct._hass={language:'de',states:{'sensor.room':{attributes:{room_name:'Room
 distinct._metrics=manyKeys.map(key=>({key,unit:key.includes('temp')?'°C':'ppm',low:null,high:null}));
 distinct._series=new Map(manyKeys.map((key,i)=>[key,[{t:100,v:i===2||i===6?23:700+i},{t:1000,v:i===2||i===6?23:800+i}]]));
 distinct._start=0;distinct._end=2000;distinct._cursor=1000;
-assert.equal(new Set(manyKeys.map((key,i)=>distinct._color(key,i))).size,manyKeys.length,
-  'more than 8 independently configured measurements must retain distinct colors');
+// v0.11.6 COMPLETE(4): paired indoor/outdoor traces intentionally share
+// their base color; solid/dashed strokes distinguish them. Different
+// physical families still use distinct default colors.
+assert.equal(distinct._color('co2_in',0),distinct._color('co2_out',1));
+assert.equal(distinct._color('temp_in',2),distinct._color('temp_out',3));
+assert.equal(distinct._color('temp_in',2),distinct._color('target_temp',6));
+assert.equal(distinct._color('humidity_in',4),distinct._color('humidity_out',5));
+assert.equal(new Set(['co2_in','temp_in','humidity_in','absolute_in','wind_out'].map((key,i)=>distinct._color(key,i))).size,5,
+  'independent physical families retain distinct colors');
 const co2Color=distinct._color('co2_in',0);
 distinct._config.metrics=[...manyKeys].reverse();
 assert.equal(distinct._color('co2_in',8),co2Color,'reordering cannot change a metric color');
@@ -121,7 +128,7 @@ for(const cardWidth of [360,600,900,1400]){
   distinct._chartWidth=cardWidth;
   distinct._plotCache.clear();distinct._stripCache=null;distinct._render();
   const expected=cardWidth-24;
-  assert.match(distinct.shadowRoot.innerHTML,new RegExp(`viewBox="0 0 ${expected} 340"`),
+  assert.match(distinct.shadowRoot.innerHTML,new RegExp(`viewBox="0 0 ${expected} 398"`),
     `all nine curves stay within a ${cardWidth}px dashboard column`);
   assert.doesNotMatch(distinct.shadowRoot.innerHTML,/history-scrubber|overflow-x:auto/);
 }
@@ -138,11 +145,11 @@ const good='#3189d0';
 const coordinates=t=>t, position=v=>v;
 const colored=distinct._curvePaths([{t:0,v:58},{t:100,v:62},{t:200,v:59}],humidity,
  {y:position},coordinates,position,good);
-assert.ok(colored.includes(`stroke="${good}"`) && colored.includes('stroke="var(--error-color'),
+assert.ok(colored.includes(`stroke="${good}"`) && colored.includes('stroke="#df1717'),
   'same curve must contain normal and red sections');
 assert.match(colored,/50\.0,60\.0/,'first crossing at 60% must be split exactly');
 assert.match(colored,/166\.7,60\.0/,'return below 60% must be split exactly');
-assert.equal((colored.match(/stroke="var\(--error-color/g)||[]).length,1,
+assert.equal((colored.match(/stroke="#df1717/g)||[]).length,1,
  'only the out-of-band span is red (and not the entire curve)');
 // Technical state update is NOT an updated room decision.
 const status=new Card();
@@ -208,11 +215,14 @@ console.log('PASS v0.11.5: editor controls persist through HA state reports');
 // scales, empty history refetch, and the confirmed Recorder exclusion notice.
 {
   const follow=new Card();
-  follow._config={entity:'sensor.room',metrics:[],hours:24};
+  follow._config={entity:'sensor.room',metrics:['co2_in'],hours:24};
+  const sampleTime=new Date(Date.now()-3*3600000).toISOString();
   follow._hass={language:'de',user:{is_admin:false},states:{'sensor.room':{attributes:{display_mode:'room_air'}}},
-    callWS:async msg=>msg.type.endsWith('history_metrics')?[]:
+    callWS:async msg=>msg.type.endsWith('history_metrics')?
+      [{key:'co2_in',source:'sensor.co2',unit:'ppm',low:null,high:1000}]:
       msg.type.endsWith('history_room_info')?{room:'r',enabled:[],helpers:{}}:{},
-    callApi:async()=>[]};
+    callApi:async()=>[[{entity_id:'sensor.co2',state:'730',last_updated:sampleTime,
+      attributes:{unit_of_measurement:'ppm'}}]]};
   follow._end=Date.now()-61000;
   follow._start=follow._end-86400000;
   follow._cursor=follow._end;
@@ -245,9 +255,9 @@ console.log('PASS v0.11.5: editor controls persist through HA state reports');
     {key:'co2_in',unit:'ppm',low:null,high:1000},
     {key:'humidity_in',unit:'%',low:35,high:60},
   ]);
-  assert.match(scales,/data-metric-scale="co2_in"/);
-  assert.match(scales,/data-metric-scale="humidity_in"/);
-  assert.match(scales,/≤ 1000|&lt;= 1000|≤ 1.000/);
+  assert.match(scales,/data-inline-axis="co2:ppm"/);
+  assert.match(scales,/data-inline-axis="humidity:%"/);
+  assert.match(scales,/CO₂ innen: &gt; 1\.000 ppm/);
   assert.match(scales,/ppm/);
   assert.match(scales,/%/);
 }

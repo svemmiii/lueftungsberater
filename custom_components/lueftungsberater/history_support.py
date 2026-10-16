@@ -161,6 +161,11 @@ def current_value(snapshot: Any, metric: str) -> float | None:
 def good_limits(metric: str, *, target: float | None = None, has_windows: bool = True) -> dict[str, float | None]:
     """Reuse the evaluation modules' limits; frontend never owns a second table."""
     kind = metric.rsplit("_", 1)[0]
+    # Indoor comfort/ventilation limits do not describe outdoor air. Outdoor
+    # temperature/RH are inputs to a relative indoor/outdoor comparison, and
+    # the indoor CO2 action threshold is not an outdoor CO2 exposure limit.
+    if metric in {"temp_out", "humidity_out", "co2_out"}:
+        return {"low": None, "high": None}
     if kind == "co2":
         return {"low": None, "high": CO2_GOOD_UPPER_PPM}
     if kind == "humidity":
