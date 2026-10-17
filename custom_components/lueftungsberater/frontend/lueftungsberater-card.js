@@ -70,6 +70,7 @@ const LB_I18N = {
     "co2.unavailable": "CO₂-Sensor nicht verfügbar · Bewertung vorübergehend ohne CO₂",
     "co2.open": "CO₂-Sensor öffnen",
     "forecast.stale": "Wetterprognose veraltet · Nacht-/Kurzzeitprognose wird nicht verwendet",
+    "forecast.cached": "Letzte gültige Wetterprognose wird verwendet · Aktualisierung ausstehend",
     "forecast.unavailable": "Wetterprognose nicht verfügbar",
     "warning.open": "Warn-/Quelldaten öffnen",
     "why": "Warum diese Empfehlung?",
@@ -225,6 +226,7 @@ const LB_I18N = {
     "co2.unavailable": "CO₂ sensor unavailable · assessment temporarily continues without CO₂",
     "co2.open": "Open CO₂ sensor",
     "forecast.stale": "Weather forecast is stale · night/short-term forecast is not being used",
+    "forecast.cached": "Using the last valid weather forecast · refresh pending",
     "forecast.unavailable": "Weather forecast unavailable",
     "warning.open": "Open warning / source data",
     "why": "Why this recommendation?",
@@ -380,6 +382,7 @@ const LB_I18N = {
     "co2.unavailable": "CO₂ sensörü kullanılamıyor · değerlendirme geçici olarak CO₂ olmadan devam ediyor",
     "co2.open": "CO₂ sensörünü aç",
     "forecast.stale": "Hava tahmini eski · gece/kısa vadeli tahmin kullanılmıyor",
+    "forecast.cached": "Son geçerli hava tahmini kullanılıyor · güncelleme bekleniyor",
     "forecast.unavailable": "Hava tahmini kullanılamıyor",
     "warning.open": "Uyarı / kaynak verisini aç",
     "why": "Bu önerinin nedeni ne?",
@@ -1381,7 +1384,9 @@ class LueftungsberaterCard extends HTMLElement {
       rows.push({
         icon: forecastStatus === "stale" ? "mdi:weather-clock" : "mdi:weather-cloudy-alert",
         cls: "data-warning",
-        html: lbT(this._hass, forecastStatus === "stale" ? "forecast.stale" : "forecast.unavailable"),
+        html: lbT(this._hass, forecastStatus === "stale"
+          ? (a.forecast_using_cached_data === true ? "forecast.cached" : "forecast.stale")
+          : "forecast.unavailable"),
       });
     }
 

@@ -715,6 +715,22 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 else None
             ),
             "forecast_data_status": weather.forecast_data_status,
+            "forecast_using_cached_data": bool(
+                weather.forecast_data_status == "stale" and weather.hourly_forecast
+            ),
+            "forecast_updated_at": (
+                weather.hourly_forecast_updated.isoformat()
+                if weather.hourly_forecast_updated is not None else None
+            ),
+            "forecast_last_attempt_at": (
+                weather.forecast_last_attempt.isoformat()
+                if weather.forecast_last_attempt is not None else None
+            ),
+            "forecast_error": weather.forecast_error,
+            "forecast_next_retry_at": (
+                weather.forecast_next_retry.isoformat()
+                if weather.forecast_next_retry is not None else None
+            ),
             "night_ventilation_status": values.get("night_ventilation_status", "unavailable"),
             "night_ventilation_key": night_key,
             "night_ventilation_args": night_args,

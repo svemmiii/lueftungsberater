@@ -22,6 +22,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .airing import get_tracker, tracker_signal
+from .auto_providers import uses_auto_weather
 from .co2 import co2_tracker_signal
 from .co2_hysteresis import (
     Co2HysteresisState,
@@ -495,6 +496,16 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         now = dt_util.now()
         interval = self._night_interval(now)
         if interval is None:
+            self._clear_night_memory()
+            return snapshot
+
+        # Final-hour presentation memory must not outlive the automatic
+        # forecast's bounded evidence lifetime. A retained plan is not a new
+        # forecast and cannot replace genuinely unavailable data.
+        if (
+            uses_auto_weather(self.entry)
+            and snapshot.weather.forecast_data_status == "unavailable"
+        ):
             self._clear_night_memory()
             return snapshot
 

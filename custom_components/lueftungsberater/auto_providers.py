@@ -73,6 +73,15 @@ _UBA_STATION_CANDIDATE_LIMIT = 12
 _NWS_ALERTS = "https://api.weather.gov/alerts/active"
 _METEOALARM_FEED = "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-{slug}"
 _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=20)
+# At most three early retries per outage, shared by every room in one entry.
+# Later failures follow the existing fifteen-minute weather refresh cadence.
+_FORECAST_RETRY_DELAYS = (
+    timedelta(minutes=1), timedelta(minutes=2), timedelta(minutes=5),
+)
+_FORECAST_CONDITIONS = frozenset({
+    "sunny", "partlycloudy", "cloudy", "fog", "rainy", "pouring",
+    "snowy-rainy", "snowy", "lightning-rainy", "hail",
+})
 
 # Only providers explicitly listed here are treated as supported automatic
 # warning providers.  This is intentionally a controlled registry rather than
@@ -198,6 +207,7 @@ class AutoWeatherData:
     air_quality_sources: dict[str, str] = field(default_factory=dict)
     outdoor_co2_ppm: float | None = None
     outdoor_co2_source: str | None = None
+    forecast_error: str | None = None
 
 
 @dataclass(slots=True)
@@ -246,6 +256,14 @@ class AutoProviderState:
     weather: AutoWeatherData | None = None
     weather_attempted_at: datetime | None = None
     weather_available: bool = False
+    # Forecast evidence has its own lifetime. Current station observations must
+    # neither erase it on a partial failure nor renew its successful-fetch time.
+    hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
+    forecast_updated_at: datetime | None = None
+    forecast_attempted_at: datetime | None = None
+    forecast_error: str | None = None
+    forecast_failures: int = 0
+    forecast_retry_at: datetime | None = None
     warning: AutoWarningData | None = None
     warning_attempted_at: datetime | None = None
     nina_cache: dict[str, tuple[datetime, dict[str, Any] | None, Any]] = field(default_factory=dict)
@@ -330,6 +348,133 @@ def auto_weather_available(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return _state(hass, entry).weather_available
 
 
+def _complete_forecast(points: list[dict[str, Any]]) -> bool:
+    """Require the real fields used by night/weather advice, never assume calm/dry."""
+    return bool(points) and all(
+        isinstance(item, dict)
+        and isinstance(item.get("datetime"), datetime)
+        and item["datetime"].tzinfo is not None
+        and _as_float(item.get("temperature")) is not None
+        and (humidity := _as_float(item.get("humidity"))) is not None
+        and 0 <= humidity <= 100
+        and (wind := _as_float(item.get("wind_speed"))) is not None and wind >= 0
+        and (gust := _as_float(item.get("wind_gust_speed"))) is not None and gust >= 0
+        and item.get("condition") in _FORECAST_CONDITIONS
+        for item in points
+    )
+
+
+def _usable_forecast(
+    points: list[dict[str, Any]], updated: datetime | None, now: datetime,
+) -> bool:
+    """Require recent evidence and actual, nearby future points; never fill gaps."""
+    if not _fresh(updated, AUTO_PROVIDER_STALE_MAX_AGE, now) or not _complete_forecast(points):
+        return False
+    return any(
+        isinstance(item, dict)
+        and isinstance(item.get("datetime"), datetime)
+        and item["datetime"].tzinfo is not None
+        and now < item["datetime"] <= now + timedelta(hours=2)
+        and _as_float(item.get("temperature")) is not None
+        for item in points
+    )
+
+
+def auto_forecast_data(
+    hass: HomeAssistant, entry: ConfigEntry,
+) -> tuple[list[dict[str, Any]], datetime | None, str]:
+    """Expose bounded forecast evidence independently of current weather."""
+    state = _state(hass, entry)
+    now = dt_util.utcnow()
+    if not _usable_forecast(state.hourly_forecast, state.forecast_updated_at, now):
+        return [], state.forecast_updated_at, "unavailable"
+    fresh = not state.forecast_error and _fresh(
+        state.forecast_updated_at, AUTO_WEATHER_REFRESH_INTERVAL, now
+    )
+    return [dict(item) for item in state.hourly_forecast], state.forecast_updated_at, "fresh" if fresh else "stale"
+
+
+def auto_forecast_diagnostics(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
+    """Small diagnostic bundle on the existing advisor, never extra entities."""
+    state = _state(hass, entry)
+    return {
+        "last_attempt": state.forecast_attempted_at,
+        "error": state.forecast_error,
+        "next_retry": state.forecast_retry_at,
+    }
+
+
+def auto_forecast_next_update(hass: HomeAssistant, entry: ConfigEntry) -> datetime | None:
+    """One-shot retry or evidence-expiry deadline for the shared coordinator."""
+    if not uses_auto_weather(entry):
+        return None
+    state = _state(hass, entry)
+    now = dt_util.utcnow()
+    deadlines = []
+    if state.forecast_retry_at is not None:
+        deadlines.append(max(now, state.forecast_retry_at))
+    if state.forecast_updated_at is not None:
+        expires = state.forecast_updated_at + AUTO_PROVIDER_STALE_MAX_AGE
+        if expires > now:
+            deadlines.append(expires)
+    future = [
+        item["datetime"] for item in state.hourly_forecast
+        if isinstance(item.get("datetime"), datetime)
+        and item["datetime"].tzinfo is not None and item["datetime"] > now
+    ]
+    if future:
+        deadlines.append(max(future))
+    return min(deadlines) if deadlines else None
+
+
+def _forecast_error_text(error: Any) -> str:
+    if isinstance(error, aiohttp.ClientResponseError):
+        return f"{type(error).__name__}: HTTP {error.status}"
+    if isinstance(error, BaseException):
+        return f"{type(error).__name__}: {error}".rstrip(": ")[:240]
+    return "empty_or_invalid_forecast"
+
+
+def _record_forecast_result(
+    state: AutoProviderState, points: list[dict[str, Any]],
+    updated: datetime, error: str | None, title: str,
+) -> None:
+    """Keep actual old points on failure without ever extending their lifetime."""
+    now = dt_util.utcnow()
+    state.forecast_attempted_at = now
+    if _usable_forecast(points, updated, now):
+        if state.forecast_failures:
+            _LOGGER.info("Hourly forecast available again for %s", title)
+        state.hourly_forecast = [dict(item) for item in points]
+        state.forecast_updated_at = updated
+        state.forecast_error = None
+        state.forecast_failures = 0
+        state.forecast_retry_at = None
+        return
+    state.forecast_error = error or (
+        "incomplete_forecast" if points and not _complete_forecast(points)
+        else "empty_or_invalid_forecast"
+    )
+    state.forecast_failures += 1
+    state.forecast_retry_at = (
+        now + _FORECAST_RETRY_DELAYS[state.forecast_failures - 1]
+        if state.forecast_failures <= len(_FORECAST_RETRY_DELAYS) else None
+    )
+    if not _usable_forecast(state.hourly_forecast, state.forecast_updated_at, now):
+        state.hourly_forecast = []
+    log = _LOGGER.warning if state.forecast_failures == 1 else _LOGGER.debug
+    log("Hourly forecast refresh failed for %s: %s", title, state.forecast_error)
+
+
+def _clear_forecast(state: AutoProviderState) -> None:
+    state.hourly_forecast = []
+    state.forecast_updated_at = None
+    state.forecast_attempted_at = None
+    state.forecast_error = None
+    state.forecast_failures = 0
+    state.forecast_retry_at = None
+
+
 def auto_weather_safety_key(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
     state = _state(hass, entry)
     if state.weather is not None and state.weather.safety_source_key:
@@ -411,6 +556,8 @@ async def _get_bytes(
 
 
 def _as_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -484,8 +631,12 @@ def _normalize_open_meteo_hourly(payload: dict[str, Any]) -> list[dict[str, Any]
         if temp is None:
             continue
         try:
-            stamp = datetime.fromisoformat(str(raw_time))
-        except ValueError:
+            stamp = (
+                datetime.fromtimestamp(raw_time, timezone.utc)
+                if isinstance(raw_time, (int, float)) and not isinstance(raw_time, bool)
+                else datetime.fromisoformat(str(raw_time))
+            )
+        except (ValueError, OverflowError, OSError):
             continue
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=tz)
@@ -1293,6 +1444,7 @@ async def _fetch_dwd_station_weather(
             )),
             "forecast_hours": 36,
             "timezone": "auto",
+            "timeformat": "unixtime",
             "wind_speed_unit": "kmh",
             **({"elevation": location.elevation} if location.elevation is not None else {}),
         },
@@ -1415,8 +1567,6 @@ async def _fetch_dwd_station_weather(
         precipitation = _as_float(current.get("precipitation"))
         if precipitation is not None:
             measurement_sources["precipitation"] = model_source
-    precipitation = precipitation or 0.0
-
     # Primary station metadata follows the nearest physical station that
     # actually contributed a value.  This is diagnostic only; every field keeps
     # its own source metadata above.
@@ -1435,6 +1585,7 @@ async def _fetch_dwd_station_weather(
     return AutoWeatherData(
         provider_domain="dwd_station+dwd_icon" if primary is not None else "dwd_icon",
         fetched_at=dt_util.utcnow(),
+        available=bool(measurement_sources),
         safety_source_key=_safety_location_key("weather", location),
         timezone=str(forecast_payload.get("timezone") or "Europe/Berlin") if isinstance(forecast_payload, dict) else "Europe/Berlin",
         country="DE",
@@ -1453,6 +1604,9 @@ async def _fetch_dwd_station_weather(
         air_quality_sources=air_quality_sources,
         outdoor_co2_ppm=outdoor_co2,
         outdoor_co2_source="cams_air_quality_model" if outdoor_co2 is not None else None,
+        forecast_error=(
+            _forecast_error_text(results[0]) if not forecast else None
+        ),
     )
 
 
@@ -1484,6 +1638,7 @@ async def _fetch_auto_weather(
         )),
         "forecast_hours": 36,
         "timezone": "auto",
+        "timeformat": "unixtime",
         "wind_speed_unit": "kmh",
     }
     if location.elevation is not None:
@@ -1518,15 +1673,16 @@ async def _fetch_auto_weather(
     current = payload.get("current")
     if not isinstance(current, dict):
         current = {}
-    precipitation = sum(
-        value or 0.0
-        for value in (
+    rain_values = [
+        value for value in (
             _as_float(current.get("rain")),
             _as_float(current.get("showers")),
         )
-    )
-    if precipitation <= 0:
-        precipitation = _as_float(current.get("precipitation")) or 0.0
+        if value is not None
+    ]
+    precipitation = _as_float(current.get("precipitation"))
+    if precipitation is None and len(rain_values) == 2:
+        precipitation = sum(rain_values)
     try:
         air_quality_values, air_quality_sources, outdoor_co2 = await _fetch_coordinate_air_quality(
             session, replace(location, country=resolved_country)
@@ -1550,6 +1706,7 @@ async def _fetch_auto_weather(
     return AutoWeatherData(
         provider_domain=provider,
         fetched_at=dt_util.utcnow(),
+        available=bool(measurement_sources),
         safety_source_key=_safety_location_key("weather", location),
         timezone=timezone_name,
         country=resolved_country,
@@ -1566,6 +1723,37 @@ async def _fetch_auto_weather(
         outdoor_co2_ppm=outdoor_co2,
         outdoor_co2_source="cams_air_quality_model" if outdoor_co2 is not None else None,
     )
+
+
+async def _retry_hourly_forecast(
+    session: aiohttp.ClientSession, location: EffectiveLocation,
+    country: str | None, state: AutoProviderState, title: str,
+) -> None:
+    """Retry only the failed forecast, without refreshing station measurements."""
+    # Clear before yielding: simultaneous timer/source callbacks cannot launch
+    # the same retry twice. The outside coordinator also serializes refreshes.
+    state.forecast_retry_at = None
+    try:
+        payload = await _get_json(
+            session, _OPEN_METEO_DWD if country == "DE" else _OPEN_METEO_FORECAST,
+            params={
+                "latitude": location.latitude,
+                "longitude": location.longitude,
+                "hourly": ",".join((
+                    "temperature_2m", "relative_humidity_2m",
+                    "precipitation_probability", "precipitation", "weather_code",
+                    "wind_speed_10m", "wind_gusts_10m",
+                )),
+                "forecast_hours": 36, "timezone": "auto", "timeformat": "unixtime",
+                "wind_speed_unit": "kmh",
+                **({"elevation": location.elevation} if location.elevation is not None else {}),
+            },
+        )
+        points = _normalize_open_meteo_hourly(payload) if isinstance(payload, dict) else []
+    except Exception as exc:  # noqa: BLE001 - optional forecast must not break live advice
+        _record_forecast_result(state, [], dt_util.utcnow(), _forecast_error_text(exc), title)
+    else:
+        _record_forecast_result(state, points, dt_util.utcnow(), None, title)
 
 
 def _point_in_ring(lat: float, lon: float, ring: list[Any], *, geojson: bool) -> bool:
@@ -2443,6 +2631,7 @@ async def async_refresh_auto_providers(
         # The existing bounded safety store handles the previous confirmed lock.
         state.weather = None
         state.weather_available = False
+        _clear_forecast(state)
         previous = state.warning
         state.warning = AutoWarningData(
             provider_domain=previous.provider_domain if previous else "auto_warning",
@@ -2464,6 +2653,7 @@ async def async_refresh_auto_providers(
         # Never reuse successful data from a different physical location.
         state.weather = None
         state.weather_available = False
+        _clear_forecast(state)
         state.warning = None
         state.weather_attempted_at = None
         state.warning_attempted_at = None
@@ -2490,15 +2680,26 @@ async def async_refresh_auto_providers(
         country_hint = str(location.country or "").upper() or None
         try:
             state.weather = await _fetch_auto_weather(session, location, country_hint, state)
-            state.weather_available = True
+            state.weather_available = state.weather.available
         except Exception as exc:  # noqa: BLE001 - network must never break ventilation logic
             _LOGGER.debug("Automatic weather refresh failed for %s: %s", entry.title, exc)
             state.weather_available = False
+            _record_forecast_result(state, [], dt_util.utcnow(), _forecast_error_text(exc), entry.title)
             # Preserve only same-location successful data within a bounded age.
             if state.weather is not None and not _fresh(
                 state.weather.fetched_at, AUTO_PROVIDER_STALE_MAX_AGE, now
             ):
                 state.weather = None
+        else:
+            _record_forecast_result(
+                state, state.weather.hourly_forecast, state.weather.fetched_at,
+                state.weather.forecast_error, entry.title,
+            )
+    elif (
+        want_weather and state.forecast_retry_at is not None
+        and now >= state.forecast_retry_at
+    ):
+        await _retry_hourly_forecast(session, location, country, state, entry.title)
 
     if want_warning and (
         force

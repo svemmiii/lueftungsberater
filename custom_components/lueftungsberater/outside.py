@@ -3,18 +3,23 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime
 import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_point_in_utc_time, async_track_state_change_event, async_track_time_interval,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .air_quality import get_air_quality_tracker
-from .auto_providers import async_refresh_auto_providers, uses_auto_warning
+from .auto_providers import (
+    async_refresh_auto_providers, auto_forecast_next_update, uses_auto_warning,
+)
 from .const import (
     CONF_MANUAL_OUTDOOR,
     CONF_LOCATION_TRACKER,
@@ -132,6 +137,8 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         self._source_entities: set[str] = set()
         self._registry_refresh_pending = False
         self._started = False
+        self._forecast_retry_unsub: Callable[[], None] | None = None
+        self._forecast_retry_at: datetime | None = None
         self._accepted_location: EffectiveLocation | None = None
         self._last_valid_mobile_location: EffectiveLocation | None = None
 
@@ -172,6 +179,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
             self.entry,
             self._accepted_location or candidate_location,
         )
+        self._schedule_forecast_retry()
         # Manual weather overrides keep Home Assistant's native forecast cache.
         # In automatic mode this helper returns immediately.
         await async_refresh_hourly_forecast(self.hass, self.entry)
@@ -202,6 +210,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
             # still claims it started successfully. Any listener installed before
             # the failure is local to this temporary object and can be removed now.
             self._started = False
+            self._cancel_forecast_retry()
             if self._source_unsub is not None:
                 self._source_unsub()
                 self._source_unsub = None
@@ -316,6 +325,37 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         )
 
     @callback
+    def _cancel_forecast_retry(self) -> None:
+        if self._forecast_retry_unsub is not None:
+            self._forecast_retry_unsub()
+            self._forecast_retry_unsub = None
+        self._forecast_retry_at = None
+
+    @callback
+    def _schedule_forecast_retry(self) -> None:
+        if not self._started:
+            return
+        due = auto_forecast_next_update(self.hass, self.entry)
+        if due == self._forecast_retry_at:
+            return
+        self._cancel_forecast_retry()
+        if due is not None:
+            self._forecast_retry_at = due
+            self._forecast_retry_unsub = async_track_point_in_utc_time(
+                self.hass, self._handle_forecast_retry, due,
+            )
+
+    @callback
+    def _handle_forecast_retry(self, _now) -> None:
+        self._forecast_retry_unsub = None
+        self._forecast_retry_at = None
+        if self._started:
+            self._create_background_task(
+                self.async_request_refresh(),
+                f"Lüftungsassistent forecast retry {self.entry.entry_id}",
+            )
+
+    @callback
     def _handle_forecast_tick(self, _now) -> None:
         """Refresh the shared short-term/night forecast cache."""
         if not self._started:
@@ -375,6 +415,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         # Prevent already-queued callbacks from scheduling fresh work while the
         # coordinator tears down its listeners.
         self._started = False
+        self._cancel_forecast_retry()
         if self._source_unsub is not None:
             self._source_unsub()
             self._source_unsub = None

@@ -29,6 +29,8 @@ from .warning_language import foreign_all_clear, has_foreign_close_order
 
 from .auto_providers import (
     AutoWarningRecord,
+    auto_forecast_data,
+    auto_forecast_diagnostics,
     auto_warning_data,
     auto_weather_available,
     auto_weather_data,
@@ -299,6 +301,9 @@ class WeatherAssessment:
     hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
     hourly_forecast_updated: datetime | None = None
     forecast_data_status: str = "not_configured"  # not_configured | fresh | stale | unavailable
+    forecast_last_attempt: datetime | None = None
+    forecast_error: str | None = None
+    forecast_next_retry: datetime | None = None
     short_term_change: str | None = None
     short_term_kind: str | None = None
     short_term_minutes: float | None = None
@@ -870,13 +875,29 @@ def _short_term_forecast_outlook(
     points.sort(key=lambda item: item[0])
 
     for stamp_key, stamp, raw in points:
+        future_wind = _float(raw.get("wind_speed"))
+        future_gust = _float(raw.get("wind_gust_speed"))
+        forecast_rain = (
+            (_float(raw.get("precipitation")) or 0.0) > 0
+            or (_float(raw.get("precipitation_probability")) or 0.0) >= 50
+        )
         level, kind = _window_weather_profile(
             raw.get("condition"),
-            _float(raw.get("wind_speed")),
-            _float(raw.get("wind_gust_speed")),
+            future_wind, future_gust, rain_now=forecast_rain,
         )
         if level == current_level:
             continue
+        if level < current_level:
+            # Missing forecast fields are unknown, never proof that the live
+            # hazard will disappear. Worsening from actual supplied evidence
+            # can still be reported even when another variable is absent.
+            if current_kind == "wind" and (
+                (current_wind_kmh is not None and future_wind is None)
+                or (current_gust_kmh is not None and future_gust is None)
+            ):
+                continue
+            if current_kind != "wind" and not raw.get("condition"):
+                continue
         minutes = max(0.0, (stamp_key - now_key).total_seconds() / 60.0)
         if level > current_level:
             return "worsening", kind or "weather", minutes, str(raw.get("condition") or "") or None
@@ -1275,9 +1296,6 @@ def _automatic_weather_assessment(
         result.wind_gust_kmh = data.wind_gust_kmh
         result.source_wind = data.safety_source_key if data.wind_speed_kmh is not None else None
         result.source_gust = data.safety_source_key if data.wind_gust_kmh is not None else None
-        result.hourly_forecast = list(data.hourly_forecast)
-        result.hourly_forecast_updated = data.fetched_at
-        result.forecast_data_status = "fresh" if data.hourly_forecast else "unavailable"
         result.air_quality_values = dict(data.air_quality_values)
         result.air_quality_sources = dict(data.air_quality_sources)
         worst_class = "unknown"
@@ -1299,6 +1317,15 @@ def _automatic_weather_assessment(
         result.rain_now = bool((data.precipitation or 0.0) > 0 or condition in RAIN_CONDITIONS)
         if condition == "pouring":
             result.weather_reason_key = "weather_heavy_rain_current"
+
+    (
+        result.hourly_forecast, result.hourly_forecast_updated,
+        result.forecast_data_status,
+    ) = auto_forecast_data(hass, entry)
+    forecast_diagnostics = auto_forecast_diagnostics(hass, entry)
+    result.forecast_last_attempt = forecast_diagnostics["last_attempt"]
+    result.forecast_error = forecast_diagnostics["error"]
+    result.forecast_next_retry = forecast_diagnostics["next_retry"]
 
     _apply_local_weather_overrides(hass, entry, result)
     _apply_local_air_quality(hass, entry, result)
