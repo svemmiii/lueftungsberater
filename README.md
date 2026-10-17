@@ -1,5 +1,9 @@
 <p align="center">
 
+### v0.11.7: Raumfarbe und Schließempfehlung
+
+Die Innenraumluftkarte zeigt normale endgültige Schließ- und Fertigempfehlungen grün. Gelb bleibt für Beobachtung bzw. kurzes Abwägen reserviert. Die Zuordnung wird nach den Sitzungs- und Wetterprüfungen vorgenommen; echte Gefahrensperren behalten ihre Gefahrenfarbe. Die eigenständige Lüftungsperspektive bleibt erhalten.
+
 ### Neue Kartenansicht ab v0.11.3 (Test)
 
 Der **Raumkarteneditor** bietet unter „Messwerte auf der Karte“ das klassische Layout (für bestehende Karten unverändert) und die neue **Innen | Außen**-Ansicht mit dünnem Trennstrich. Die Anzeige wird nur für diese Lovelace-Karte gespeichert: Felder ein-/ausblenden, Messwert-Reihenfolge und die Innen-/Außenposition ziehen, eigene Symbole/Beschriftungen sowie kompakte/ausführliche Darstellung wählen. Nur Werte, die der Raum bereitstellt oder deren Sensor konfiguriert ist, werden angeboten. Zusätzliche Messgrößen sind zunächst aus. Der Reset erfordert eine Bestätigung und ändert niemals die Lüftungsberechnung oder Sensorzuordnung.

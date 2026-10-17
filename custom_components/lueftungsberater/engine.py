@@ -2649,9 +2649,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
 
     # A completed humidity session may deliberately stay disarmed while the
     # room hovers above the ideal range.  That quiet-state suppresses a new
-    # *action*, not the factual room-air indication.  Keep the ventilation
-    # recommendation calm, but let the room-air card remain visibly yellow for
-    # sustained 65–74 % rF instead of pretending the room is fully green.
+    # *action*, not the factual room-air indication. Keep sustained 65–74 % rF
+    # visible as a yellow observation. If the final action explicitly asks to
+    # close instead, the action/colour invariant below takes precedence.
     if data.humidity_disarmed and 65.0 <= hi < 75.0 and room_urgency < 2:
         room_need = "humidity_observe"
         room_urgency = 2
@@ -2717,9 +2717,9 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     }
 
     # Once the room card shows a concrete native closing/finished action, its
-    # explanation must describe that action as well. The room colour remains an
-    # indoor-pressure indicator, but the text no longer says "keep airing" or
-    # explains only the indoor grade while the action says to close.
+    # explanation must describe that action as well. The final colour invariant
+    # below also aligns the room colour with this action, after session and
+    # weather overlays have selected the actual recommendation.
     if (
         data.window_open
         and room_recommendation_key in {"close_now", "better_close", "can_close"}
@@ -2866,26 +2866,34 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
                 **_short_term_weather_args(data),
             }
 
-    # Hard UI invariant: in the room-air perspective green always means that
-    # the user has no current action. A future code path may change priorities,
-    # but it must never be able to produce green + open_now/keep_open again.
+    # Hard UI invariant: green in the room-air perspective never asks the user
+    # to start or continue airing. Future priority changes must not be able to
+    # produce green + open_now/keep_open again.
     if room_color == "green":
         if room_recommendation_key in {"keep_open", "open_now", "room_need", "room_urgent"}:
             room_color = "orange"
         elif room_recommendation_key == "room_keep_brief":
             room_color = "yellow"
 
-    # ``room_reason_args`` is created before the final action invariant above.
-    # Keep the rendered explanation on the same final colour/action snapshot;
-    # otherwise a repaired orange ``keep_open`` could still render the old
-    # green wording ("Aktuell ... kein Lüften nötig").
-    if room_reason_key == "room_perspective":
-        room_reason_args["room_color"] = room_color
-
     if data.window_data_status == "unavailable" and hard_mode is None:
         room_recommendation_key = "window_state_unknown"
         room_reason_key = "window_state_unknown"
         room_reason_args = {"room_color": room_color}
+
+    # A normal closing/finished action means no further airing is requested in
+    # the room-air perspective. Yellow is reserved for observation/trade-offs;
+    # it must never accompany a definitive closing action. Apply this only to
+    # the final action, after all session/weather and unknown-contact overlays.
+    # Real safety locks retain their native danger colour in both sensor views.
+    if hard_mode is None and room_recommendation_key in {
+        "close_now", "better_close", "can_close"
+    }:
+        room_color = "green"
+
+    # Keep explanations on the final colour/action snapshot. Otherwise an
+    # opening invariant repair could still render the old green wording.
+    if room_reason_key == "room_perspective":
+        room_reason_args["room_color"] = room_color
 
     return VentilationResult(
         color=color,

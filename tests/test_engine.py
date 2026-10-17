@@ -2835,7 +2835,7 @@ def test_room_view_open_window_never_continues_against_native_close_action():
     )
     assert result.mode == "feuchte_warten"
     assert result.recommendation_key == "better_close"
-    assert result.room_status_color == "yellow"
+    assert result.room_status_color == "green"
     assert result.room_recommendation_key == "better_close"
     assert result.room_reason_key == result.reason_key
 

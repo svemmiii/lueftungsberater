@@ -1,3 +1,10 @@
+## v0.11.7 — eindeutige Raumfarbe bei Schließempfehlungen
+
+- **Innenraumluftkarte:** Normale endgültige Empfehlungen „Besser wieder schließen“, „Jetzt schließen“ und „Kann geschlossen werden“ erscheinen grün. Insbesondere kann eine bereits behandelte Feuchtesituation nicht mehr Gelb mit einer eindeutigen Schließaufforderung kombinieren. Die Zuordnung erfolgt nach den CO₂-, Feuchte- und Wetterüberlagerungen sowie der Prüfung unbekannter Fensterkontakte.
+- **Beobachtung und Weiterlüften:** Gelb bleibt für Beobachtung bzw. kurzes Abwägen erhalten, Orange/Rot für weiter bestehenden Lüftungsbedarf. Fehlende CO₂-Messungen werden weiterhin ausdrücklich als unbekannt erklärt und nicht als erfolgreich beendete Messung ausgegeben.
+- **Sicherheit und Perspektiven:** Echte NINA-/Wetter-Gefahrensperren behalten ihre native Gefahrenfarbe. Die Lüftungsperspektive, Messwerte, Bedarfsermittlung, Sitzungsspeicher, Nachtplanung, Historienaufzeichnung und Entitäts-IDs werden durch diesen Fix nicht umgestellt. Die Versionskennung aktualisiert auch die Frontend-Ressourcen-URL.
+- **Regressionen:** Gemeldeter Datensatz; feuchtere, kalte bzw. warme Außenluft; mehrere Außenluftqualitäten; Wetter; Feuchte-Abschluss; laufende, zielnahe und beendete CO₂-Sitzungen; fehlende CO₂-/Fensterdaten sowie NINA-/Wetter-Sperren mit verschiedenen Fenster- und Messwertzuständen.
+
 ## v0.11.6 TEST COMPLETE(8) — Ausfallkontext nach Erholung und historische Einheiten (Runtime-Testkandidat)
 
 - **Neuster gültiger Ausfallanker:** Der Recorder-Cache verknüpft die orange Halteanzeige jetzt mit dem tatsächlich am linken Fensterrand aktiven Ausfall. Ein neuer gültiger Sensorwert mit anschließendem erneutem Ausfall ersetzt einen früheren veralteten Halteanker sofort und nicht erst nach einem Cache-Rollover. Im Gegenbeispiel `650 ppm → unavailable → 800 ppm → unavailable` erscheint bei der zweiten Unterbrechung ausschließlich der zuletzt gemessene **800-ppm-Wert** als orange veraltete Höhe.

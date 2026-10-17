@@ -25,8 +25,8 @@ def load_engine(root, name):
 NEW, Input = load_engine(COMP, 'lb_114_engine')
 
 
-def test_previous_normal_humidity_decisions_remain_identical():
-    """Golden digest over 2,200 deterministic 0.11.3 cases (humidity >=41%)."""
+def test_previous_normal_humidity_ventilation_decisions_remain_identical():
+    """Preserve 2,200 native decisions; v0.11.7 changes room closing colours."""
     import hashlib
     import json
     rng=random.Random(114)
@@ -34,9 +34,11 @@ def test_previous_normal_humidity_decisions_remain_identical():
     for _ in range(2200):
         values=dict(indoor_temp=rng.uniform(16,31), indoor_humidity=rng.uniform(41,85), outdoor_temp=rng.uniform(-5,35), outdoor_humidity=rng.uniform(10,99), target_temp=rng.uniform(18,24), co2=rng.choice([None,500,900,1100,1500,2100]), window_open=rng.choice([False,True]), has_window_contacts=rng.choice([False,True]), hours_since_airing=rng.choice([2,25]))
         r=NEW.evaluate_room(Input(**values))
-        outputs.append((r.color,r.mode,r.recommendation_key,r.room_status_color))
+        # Room closing colours deliberately changed in v0.11.7. Keep the native
+        # decision digest frozen; room presentation has explicit regressions.
+        outputs.append((r.color,r.mode,r.recommendation_key))
     digest=hashlib.sha256(json.dumps(outputs,ensure_ascii=False).encode()).hexdigest()
-    assert digest == 'd37148a017fbed397bb824a5de8a08757a8abb385cdde047385b2b276cac493f'
+    assert digest == 'ae77c46c2e5c4d5647a6da41d5b9a2b72592682051e7e5697fd70b734e06701b'
 
 
 def test_dry_air_with_real_outdoor_moisture_advantage():
