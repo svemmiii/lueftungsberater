@@ -181,10 +181,8 @@ def test_sensor_platform_initial_registration_and_retry_share_one_identity():
         return 'coordinator'
     d = defs()
     scope = _extract('sensor.py', {'async_setup_entry'}, {
-        'DOMAIN': 'lueftungsberater', 'SUBENTRY_TYPE_STATION':'station',
+        'DOMAIN': 'lueftungsberater', 
         'SUBENTRY_TYPE_ROOM':'room', 'CONF_CO2':'co2', 'CONF_WINDOWS':'windows',
-        'station_uses_hardware_hub': lambda sub: False,
-        'station_for_room':lambda *args:None,
         'async_get_or_create_room_coordinator':coordinator,
         'history_data':d['history_data'], 'callback':lambda fn:fn, 'time':time,
         'async_call_later':lambda hass, seconds, callback:(lambda:None),
@@ -415,9 +413,9 @@ def test_background_repair_after_delayed_registration_failure_without_card(monke
     d['time']=SimpleNamespace(monotonic=lambda:now['n'])
     d['history_sensor_unique_id']=lambda room,key:f'{room}_history_{key}'
     scope = _extract('sensor.py',{'async_setup_entry'}, {
-        'DOMAIN':'lueftungsberater','SUBENTRY_TYPE_STATION':'station','SUBENTRY_TYPE_ROOM':'room',
-        'CONF_CO2':'co2','CONF_WINDOWS':'windows','station_uses_hardware_hub':lambda sub:False,
-        'station_for_room':lambda *args:None,'async_get_or_create_room_coordinator':coordinator,
+        'DOMAIN':'lueftungsberater','SUBENTRY_TYPE_ROOM':'room',
+        'CONF_CO2':'co2','CONF_WINDOWS':'windows',
+        'async_get_or_create_room_coordinator':coordinator,
         'history_data':d['history_data'],'callback':lambda f:f,'time':d['time'],
         'RoomAbsoluteHumiditySensor':entity,'RoomOutdoorAbsoluteHumiditySensor':entity,
         'RoomAbsoluteHumidityDifferenceSensor':entity,'RoomAdvisorSensor':entity,
@@ -533,8 +531,8 @@ def test_history_background_registry_failures_retry_and_report_exhaustion(monkey
     def sensor(*args): return SimpleNamespace(metric=args[-1])
     scope=_extract('sensor.py',{'async_setup_entry'}, {
         'DOMAIN':'lueftungsberater','SUBENTRY_TYPE_ROOM':'room',
-        'SUBENTRY_TYPE_STATION':'station','CONF_CO2':'co2','CONF_WINDOWS':'windows',
-        'station_uses_hardware_hub':lambda _:False, 'station_for_room':lambda *args:None,
+        'CONF_CO2':'co2','CONF_WINDOWS':'windows',
+         
         'async_get_or_create_room_coordinator':lambda *args:asyncio.sleep(0,result=object()),
         'history_data':d['history_data'],'callback':lambda f:f,'time':d['time'],
         'RoomAbsoluteHumiditySensor':lambda *args:SimpleNamespace(metric=None),
@@ -597,8 +595,8 @@ def test_history_repair_task_is_cancelled_on_unload_during_reconcile():
         return lambda:None
     scope=_extract('sensor.py',{'async_setup_entry'}, {
         'DOMAIN':'lueftungsberater','SUBENTRY_TYPE_ROOM':'room',
-        'SUBENTRY_TYPE_STATION':'station','CONF_CO2':'co2','CONF_WINDOWS':'windows',
-        'station_uses_hardware_hub':lambda _:False,'station_for_room':lambda *args:None,
+        'CONF_CO2':'co2','CONF_WINDOWS':'windows',
+        
         'async_get_or_create_room_coordinator':lambda *args:asyncio.sleep(0,result=object()),
         'history_data':lambda h,eid:h.data['lueftungsberater']['history_enabled'][eid],
         'callback':lambda f:f, 'time':time,

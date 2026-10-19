@@ -1,4 +1,4 @@
-"""Targeted fixed-bug regressions; no Home Assistant dependency."""
+"""Targeted selector and night-localization regressions."""
 from __future__ import annotations
 import ast
 import math
@@ -6,6 +6,8 @@ import re
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 SRC = Path(__file__).resolve().parents[1] / 'custom_components' / 'lueftungsberater'
 spec = spec_from_file_location('test_fix_localization', SRC/'localization.py')
@@ -16,16 +18,18 @@ def test_dst_night_end_fallback():
     args = dict(start_time='2026-10-25T00:00:00+02:00',
                 end_time='2026-10-25T05:00:00+01:00',
                 requested_night_end='06:00', local_timezone='Europe/Berlin')
-    assert not module._night_covers_requested_end(args)
-    assert '05:00' not in module.night_advice_text('night_now', args, 'de')
+    with patch.object(module.dt_util, 'get_default_time_zone', return_value=ZoneInfo('Europe/Berlin')):
+        assert not module._night_covers_requested_end(args)
+        assert '05:00' not in module.night_advice_text('night_now', args, 'de')
 
 
 def test_dst_night_end_spring():
     args = dict(start_time='2026-03-28T23:00:00+01:00',
                 end_time='2026-03-29T06:00:00+02:00',
                 requested_night_end='06:00', local_timezone='Europe/Berlin')
-    assert module._night_covers_requested_end(args)
-    assert '06:00' in module.night_advice_text('night_now', args, 'de')
+    with patch.object(module.dt_util, 'get_default_time_zone', return_value=ZoneInfo('Europe/Berlin')):
+        assert module._night_covers_requested_end(args)
+        assert '06:00' in module.night_advice_text('night_now', args, 'de')
 
 
 def test_night_confirmed_co2_hint_only_when_allowed():

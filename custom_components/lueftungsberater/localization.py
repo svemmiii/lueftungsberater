@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from typing import Any
-from datetime import datetime, timedelta, time, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import datetime, timedelta, time, timezone, tzinfo
+
+from homeassistant.util import dt as dt_util
 
 SUPPORTED_LANGUAGES = ("de", "en", "tr")
 NNBSP = "\u202f"
@@ -1401,6 +1402,50 @@ def _clock(value: Any, lang: str) -> str:
 
 
 
+def night_args_with_requested_end(
+    a: dict[str, Any], *, zone: tzinfo | None = None
+) -> dict[str, Any]:
+    """Attach the source night's exact end instant without resolving a zone.
+
+    Local sensor properties use HA's already-loaded zone. A remote legacy
+    payload must receive its asynchronously resolved source zone instead.
+    """
+    prepared = dict(a)
+    prepared["requested_night_end_time"] = None
+    try:
+        start = datetime.fromisoformat(str(a["start_time"]))
+        parts = str(a["requested_night_end"]).split(":")
+        h, m = int(parts[0]), int(parts[1])
+        zone = zone if zone is not None else dt_util.get_default_time_zone()
+        if zone is None or start.tzinfo is None:
+            return prepared
+        requested_day = start.astimezone(zone).date()
+        requested = datetime.combine(requested_day, time(h, m), tzinfo=zone)
+        if requested.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
+            requested = datetime.combine(requested_day + timedelta(days=1), time(h, m), tzinfo=zone)
+        prepared["requested_night_end_time"] = requested.isoformat()
+    except (KeyError, IndexError, ValueError, TypeError, OverflowError):
+        pass
+    return prepared
+
+
+async def async_prepare_night_args(a: dict[str, Any]) -> dict[str, Any]:
+    """Preserve source semantics; asynchronously support older remote peers."""
+    if not a.get("requested_night_end") or "requested_night_end_time" in a:
+        return a
+    zone = dt_util.get_default_time_zone()
+    name = a.get("local_timezone")
+    if name is not None and name != getattr(zone, "key", None):
+        try:
+            zone = await dt_util.async_get_time_zone(name) if isinstance(name, str) else None
+        except (OSError, TypeError, ValueError):
+            zone = None
+    if zone is None:
+        # An unknown source zone cannot justify an overnight recommendation.
+        return {**a, "requested_night_end_time": None}
+    return night_args_with_requested_end(a, zone=zone)
+
+
 def _night_covers_requested_end(a: dict[str, Any]) -> bool:
     """Only say 'overnight' if the forecast window reaches the user's end.
 
@@ -1413,21 +1458,17 @@ def _night_covers_requested_end(a: dict[str, Any]) -> bool:
     try:
         start = datetime.fromisoformat(str(a["start_time"]))
         finish = datetime.fromisoformat(str(a["end_time"]))
-        parts = raw_end.split(":")
-        h, m = int(parts[0]), int(parts[1])
-        # start/end_time often carry only an ISO UTC offset. At a DST change
-        # that fixed offset is not the zone for the configured morning end.
-        tz_name = a.get("local_timezone")
-        zone = ZoneInfo(tz_name) if tz_name else start.tzinfo
-        if zone is None or start.tzinfo is None or finish.tzinfo is None:
+        if start.tzinfo is None or finish.tzinfo is None:
             return False
-        local_start = start.astimezone(zone)
-        requested_day = local_start.date()
-        requested = datetime.combine(requested_day, time(h, m), tzinfo=zone)
-        if requested.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
-            requested = datetime.combine(requested_day + timedelta(days=1), time(h, m), tzinfo=zone)
+        # New exports carry the absolute end from the source HA, including its
+        # DST offset. Synchronous local callers without this metadata use only
+        # HA's default zone; no client zone name is resolved on the event loop.
+        prepared = a if "requested_night_end_time" in a else night_args_with_requested_end(a)
+        requested = datetime.fromisoformat(str(prepared["requested_night_end_time"]))
+        if requested.tzinfo is None or requested.astimezone(timezone.utc) <= start.astimezone(timezone.utc):
+            return False
         return finish.astimezone(timezone.utc) >= requested.astimezone(timezone.utc) - timedelta(minutes=10)
-    except (KeyError, ValueError, TypeError, OverflowError, ZoneInfoNotFoundError):
+    except (KeyError, ValueError, TypeError, OverflowError):
         return False
 
 

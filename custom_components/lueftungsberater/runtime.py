@@ -58,15 +58,6 @@ from .const import (
     WARNING_SOURCE_NONE,
 )
 from .engine import co2_outdoor_context, co2_status, evaluate_room, surface_relative_humidity
-from .hardware_hub import (
-    direct_station_entities,
-    direct_station_value,
-    station_for_room,
-    station_is_direct,
-    station_is_fresh,
-    station_runtime,
-    station_topology_valid,
-)
 from .models import RoomInput, VentilationResult
 from .mold import get_mold_tracker
 from .night import evaluate_night_ventilation
@@ -186,33 +177,6 @@ def _temperature_state_celsius(
     )
 
 
-def _direct_station_temperature_celsius(
-    hass: HomeAssistant,
-    station: ConfigSubentry,
-) -> float | None:
-    """Return a fresh direct-station temperature normalized to Celsius."""
-    entities = direct_station_entities(hass, station)
-    if entities is None:
-        return None
-
-    # Keep temperature on exactly the same freshness path as direct CO2/RH.
-    # direct_station_value() rejects a numeric-but-stale HA State once its
-    # last_reported timestamp exceeds the station TTL.
-    value = direct_station_value(hass, station, "temperature")
-    if value is None:
-        return None
-
-    state = hass.states.get(entities[1])
-    if state is None:
-        return None
-    return _plausible_temperature(
-        _to_celsius(
-            value,
-            state.attributes.get("unit_of_measurement"),
-        )
-    )
-
-
 def weather_temperature_celsius(
     hass: HomeAssistant,
     weather: WeatherAssessment,
@@ -263,14 +227,6 @@ def room_co2_value(
     subentry: ConfigSubentry,
 ) -> float | None:
     """Return stabilized room CO2 value without changing the decision engine."""
-    station = station_for_room(entry, subentry.subentry_id)
-    if station is not None:
-        if station_is_direct(station):
-            return _plausible_co2(direct_station_value(hass, station, "co2"))
-        state = station_runtime(hass, entry.entry_id, station.subentry_id)
-        if not station_topology_valid(entry, station) or not station_is_fresh(state):
-            return None
-        return _plausible_co2(state.co2)
     tracker = get_co2_tracker(hass, entry, subentry)
     if tracker is not None:
         return _plausible_co2(tracker.current_value)
@@ -283,18 +239,6 @@ def room_co2_data_status(
     subentry: ConfigSubentry,
 ) -> str:
     """Return current/grace/unavailable/not_configured for UI diagnostics."""
-    station = station_for_room(entry, subentry.subentry_id)
-    if station is not None:
-        if station_is_direct(station):
-            return (
-                "current"
-                if _plausible_co2(direct_station_value(hass, station, "co2")) is not None
-                else "unavailable"
-            )
-        state = station_runtime(hass, entry.entry_id, station.subentry_id)
-        if not station_topology_valid(entry, station) or not station_is_fresh(state):
-            return "unavailable"
-        return "current" if _plausible_co2(state.co2) is not None else "unavailable"
     tracker = get_co2_tracker(hass, entry, subentry)
     if tracker is not None:
         return tracker.data_status
@@ -556,24 +500,6 @@ def _room_values(
     windows = subentry.data.get(CONF_WINDOWS, []) or []
     has_windows = bool(windows)
     co2_ppm, window_open = room_co2_window_values(hass, entry, subentry)
-    hardware_station = station_for_room(entry, subentry.subentry_id)
-    direct_station = hardware_station is not None and station_is_direct(hardware_station)
-    direct_entities = (
-        direct_station_entities(hass, hardware_station)
-        if direct_station
-        else None
-    )
-    hardware_state = (
-        station_runtime(hass, entry.entry_id, hardware_station.subentry_id)
-        if hardware_station is not None and not direct_station
-        else None
-    )
-    hardware_fresh = (
-        hardware_station is not None
-        and not direct_station
-        and station_topology_valid(entry, hardware_station)
-        and station_is_fresh(hardware_state)
-    )
     manual_outdoor_co2 = _plausible_co2(
         state_number(
             hass, _manual_outdoor_entity(entry, CONF_OUTDOOR_CO2),
@@ -584,33 +510,13 @@ def _room_values(
     values = {
         # All temperatures exposed by this snapshot are Celsius. The frontend
         # converts them to the user's display unit when necessary.
-        "temperature_inside": (
-            _direct_station_temperature_celsius(hass, hardware_station)
-            if direct_station and direct_entities is not None
-            else (
-                _plausible_temperature(hardware_state.temperature)
-                if hardware_fresh
-                else (
-                    None
-                    if hardware_station is not None
-                    else _temperature_state_celsius(hass, subentry.data.get(CONF_INDOOR_TEMP))
-                )
-            )
+        "temperature_inside": _temperature_state_celsius(
+            hass, subentry.data.get(CONF_INDOOR_TEMP)
         ),
         "temperature_outside": weather_temperature_celsius(hass, weather),
         "target_temperature": target_temperature(hass, subentry),
-        "humidity_inside": (
-            _plausible_humidity(direct_station_value(hass, hardware_station, "humidity"))
-            if direct_station
-            else (
-                _plausible_humidity(hardware_state.humidity)
-                if hardware_fresh
-                else (
-                    None
-                    if hardware_station is not None
-                    else _plausible_humidity(_number(hass, subentry.data.get(CONF_INDOOR_HUMIDITY)))
-                )
-            )
+        "humidity_inside": _plausible_humidity(
+            _number(hass, subentry.data.get(CONF_INDOOR_HUMIDITY))
         ),
         "humidity_outside": _plausible_humidity(weather.humidity),
         "air_quality_index": weather.air_quality_index,
@@ -629,7 +535,7 @@ def _room_values(
             hass, subentry.data.get(CONF_SURFACE_TEMP)
         ),
         "co2_data_status": room_co2_data_status(hass, entry, subentry),
-        "has_co2": bool(hardware_station is not None or subentry.data.get(CONF_CO2)),
+        "has_co2": bool(subentry.data.get(CONF_CO2)),
         "has_window_contacts": has_windows,
         "window_open": window_open if has_windows else None,
         "window_data_status": room_window_data_status(hass, entry, subentry),
@@ -721,12 +627,6 @@ def room_source_entities(
         val = subentry.data.get(key)
         if isinstance(val, str) and val:
             entities.add(val)
-    station = station_for_room(entry, subentry.subentry_id)
-    if station is not None and station_is_direct(station):
-        direct_entities = direct_station_entities(hass, station)
-        if direct_entities is not None:
-            entities.update(direct_entities)
-
     # Window contacts are deliberately *not* registered here. The
     # RoomAiringTracker owns those state-change events and dispatches only after
     # it has updated ``open_since`` / ``last_confirmed_airing``. Listening to

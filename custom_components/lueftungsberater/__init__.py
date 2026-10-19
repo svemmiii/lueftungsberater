@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from pathlib import Path
 
 from homeassistant.components.http import StaticPathConfig
@@ -11,7 +10,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.collection import ItemNotFound
-from homeassistant.helpers.typing import ConfigType
 
 from .airing import async_get_or_create_tracker, async_stop_entry_trackers
 from .auto_providers import clear_auto_provider_cache
@@ -20,25 +18,10 @@ from .areas import async_sync_room_device_areas
 from .api import (
     async_clear_remote_access,
     async_register_api,
-    async_register_hardware_service,
 )
 from .co2 import async_get_or_create_co2_tracker, async_stop_entry_co2_trackers
 from .compat import pin_subentry_capabilities
 from .mold import async_get_or_create_mold_tracker, async_stop_entry_mold_trackers
-from .hardware_hub import async_setup_hardware_hub, async_unload_hardware_hub
-from .hardware_display import (
-    async_setup_direct_display_dispatcher,
-    async_stop_direct_display_dispatcher,
-)
-from .hardware_provisioning import (
-    async_provision_pending_stations,
-    async_start_pending_provision_retry,
-    async_start_master_participant_retry,
-    async_sync_master_participant_lists,
-    async_update_duplicate_hardware_issues,
-    async_watch_master_participant_service,
-    station_physical_hardware_id,
-)
 from .history import async_cleanup_legacy_room_history
 from .recorder_maintenance import (
     async_purge_recorder_history,
@@ -84,18 +67,6 @@ from .const import (
     INTEGRATION_VERSION,
     PLATFORMS,
     SUBENTRY_TYPE_ROOM,
-    SUBENTRY_TYPE_STATION,
-    CONF_HARDWARE_CONNECTION_TYPE,
-    CONF_HARDWARE_ID,
-    CONF_HARDWARE_ROLE,
-    CONF_HARDWARE_MASTER_ID,
-    CONF_HARDWARE_MASTER_SUBENTRY_ID,
-    CONF_HARDWARE_MASTER_SECRET,
-    CONF_HARDWARE_DEVICE_ID,
-    HARDWARE_CONNECTION_DIRECT,
-    HARDWARE_ROLE_STANDALONE,
-    HARDWARE_ROLE_NODE,
-    HARDWARE_ROLE_MASTER,
     entry_kind,
 )
 from .remote import (
@@ -111,12 +82,6 @@ FRONTEND_URL = "/lueftungsberater/frontend"
 FRONTEND_FILE = "lueftungsberater-card.js"
 FRONTEND_VERSION = f"{INTEGRATION_VERSION}-weather-resilience1"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-
-
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register integration-wide actions before any config entry is loaded."""
-    async_register_hardware_service(hass)
-    return True
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
@@ -338,94 +303,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
         updates["minor_version"] = 9
 
-    if entry.version == 1 and entry.minor_version < 10:
-        # v0.10.1 separates a station's physical role from its transport.  In
-        # v0.10.0 every non-direct station was described as "master" merely
-        # because its reports travelled through the implicit hub.  Preserve
-        # behaviour by migrating direct stations to standalone and those legacy
-        # hub-backed room stations to node; no existing installation is
-        # silently promoted to a real ESP-NOW master.
-        for subentry in entry.subentries.values():
-            if subentry.subentry_type != SUBENTRY_TYPE_STATION:
-                continue
-            data = dict(subentry.data)
-            if CONF_HARDWARE_ROLE in data:
-                continue
-            connection = str(data.get(CONF_HARDWARE_CONNECTION_TYPE) or "").strip().lower()
-            data[CONF_HARDWARE_ROLE] = (
-                HARDWARE_ROLE_STANDALONE
-                if connection == HARDWARE_CONNECTION_DIRECT
-                else HARDWARE_ROLE_NODE
-            )
-            hass.config_entries.async_update_subentry(entry, subentry, data=data)
-        updates["minor_version"] = 10
-
-    if entry.version == 1 and entry.minor_version < 11:
-        # v0.10.1 uses the stable master-subentry relation as the single source
-        # of truth for ESP-NOW nodes.  Once that relation exists, the cached
-        # hardware master id is redundant and would require N node writes when
-        # one master is physically replaced.  Legacy nodes without the stable
-        # relation keep their hardware-id fallback until they are reconfigured.
-        for subentry in entry.subentries.values():
-            if subentry.subentry_type != SUBENTRY_TYPE_STATION:
-                continue
-            data = dict(subentry.data)
-            if not str(data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "").strip():
-                continue
-            if CONF_HARDWARE_MASTER_ID not in data:
-                continue
-            data.pop(CONF_HARDWARE_MASTER_ID, None)
-            hass.config_entries.async_update_subentry(entry, subentry, data=data)
-        updates["minor_version"] = 11
-
-    if entry.version == 1 and entry.minor_version < 12:
-        # v0.10.2 authenticates Native-API node reports with an independent
-        # per-master 256-bit credential.
-        for subentry in entry.subentries.values():
-            if subentry.subentry_type != SUBENTRY_TYPE_STATION:
-                continue
-            data = dict(subentry.data)
-            role = str(data.get(CONF_HARDWARE_ROLE) or "").strip().lower()
-            changed = False
-            if role == HARDWARE_ROLE_MASTER:
-                if not str(data.get(CONF_HARDWARE_MASTER_SECRET) or "").strip():
-                    data[CONF_HARDWARE_MASTER_SECRET] = secrets.token_urlsafe(32)
-                    changed = True
-            elif CONF_HARDWARE_MASTER_SECRET in data:
-                data.pop(CONF_HARDWARE_MASTER_SECRET, None)
-                changed = True
-            if changed:
-                hass.config_entries.async_update_subentry(entry, subentry, data=data)
-        updates["minor_version"] = 12
-
-    if entry.version == 1 and entry.minor_version < 13:
-        # v0.11.0 makes the ESP's real network MAC the only physical identity.
-        # Older direct stations may contain an ESPHome identifier or even an HA
-        # device id. Migrate only when the linked ESPHome device exposes an
-        # authoritative CONNECTION_NETWORK_MAC. Existing roles are never changed
-        # and this migration deliberately does not request device provisioning.
-        for subentry in entry.subentries.values():
-            if subentry.subentry_type != SUBENTRY_TYPE_STATION:
-                continue
-            device_id = str(subentry.data.get(CONF_HARDWARE_DEVICE_ID) or "").strip()
-            if not device_id:
-                continue
-            direct = (
-                str(subentry.data.get(CONF_HARDWARE_CONNECTION_TYPE) or "").strip().lower()
-                == HARDWARE_CONNECTION_DIRECT
-            )
-            migrated_id = station_physical_hardware_id(
-                hass, device_id, direct=direct
-            )
-            if not migrated_id:
-                continue
-            if str(subentry.data.get(CONF_HARDWARE_ID) or "") == migrated_id:
-                continue
-            data = dict(subentry.data)
-            data[CONF_HARDWARE_ID] = migrated_id
-            hass.config_entries.async_update_subentry(entry, subentry, data=data)
-        updates["minor_version"] = 13
-
     if entry.version == 1 and entry.minor_version < 14:
         # v0.11.0 adds location-driven automatic weather/warning providers.
         # Existing weather selections remain authoritative so upgrades never
@@ -450,6 +327,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
             updates["data"] = cleaned_data
         updates["minor_version"] = 14
+
+    if entry.version == 1 and entry.minor_version < 15:
+        # Align the stored schema version without rewriting normal room data.
+        updates["minor_version"] = 15
 
     # Pin before async_update_entry: the update event serializes the ConfigEntry
     # for the frontend, so its supported_subentry_types must already be correct.
@@ -476,9 +357,9 @@ async def _async_cleanup_runtime_after_failed_setup(
     # async_unload_entry: Home Assistant does not call the integration's normal
     # unload hook when setup itself raises.
     await async_stop_entry_coordinators(hass, entry)
-    async_stop_direct_display_dispatcher(hass, entry)
+
     await async_stop_outside_coordinator(hass, entry)
-    await async_unload_hardware_hub(hass, entry)
+
     await async_stop_air_quality_tracker(hass, entry)
     await async_stop_entry_trackers(hass, entry)
     await async_stop_entry_co2_trackers(hass, entry)
@@ -539,36 +420,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         await async_get_or_create_air_quality_tracker(hass, entry)
         await async_get_or_create_outside_coordinator(hass, entry)
-        await async_setup_hardware_hub(hass, entry)
-        # One-shot provisioning is requested only by an explicit station
-        # create/reconfigure flow. Successful pushes clear the marker before the
-        # entry update listener is installed, avoiding reload loops.
-        await async_provision_pending_stations(hass, entry)
-        # Master participant topology is a separate HA-owned desired state. Node
-        # create/delete/move changes the digest automatically on this reload. The
-        # currently deployed unified firmware may not expose the replacement
-        # action yet, so absence of that action defers only topology sync and does
-        # not make ordinary station provisioning fail.
-        # Register the service listener before the first sync so there is no
-        # tiny race if ESPHome exposes the action while setup is still running.
-        async_watch_master_participant_service(hass, entry)
-        await async_sync_master_participant_lists(hass, entry)
-        # Service-registration events are only an optimization. A cached ESPHome
-        # user action may already be registered while the physical master is
-        # offline, so a bounded periodic retry also heals missed/offline topology
-        # pushes and later master resets by comparing the device-reported hash.
-        async_start_master_participant_retry(hass, entry)
-        # Migration 1.13 cannot safely choose a winner for historic cross-entry
-        # duplicate MAC ownership. Surface such legacy conflicts as a Repair.
-        async_update_duplicate_hardware_issues(hass)
-        # If the selected ESP was offline during this reload, keep retrying only
-        # while the explicit user-requested provisioning transaction is pending.
-        async_start_pending_provision_retry(hass, entry)
-        # Direct standalone/master displays are a separate, best-effort ESPHome
-        # return channel. Start it before room coordinators perform their first
-        # refresh so HA restart can replay the current display state once.
-        async_setup_direct_display_dispatcher(hass, entry)
-
         room_coordinators = []
         for subentry in entry.subentries.values():
             if subentry.subentry_type == SUBENTRY_TYPE_ROOM:
@@ -635,9 +486,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         await async_stop_entry_coordinators(hass, entry)
-        async_stop_direct_display_dispatcher(hass, entry)
+
         await async_stop_outside_coordinator(hass, entry)
-        await async_unload_hardware_hub(hass, entry)
+
         await async_stop_air_quality_tracker(hass, entry)
         await async_stop_entry_trackers(hass, entry)
         await async_stop_entry_co2_trackers(hass, entry)
@@ -654,12 +505,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # point where that transient state must be discarded.
     clear_assistant_notification_state(hass, entry.entry_id)
     async_clear_remote_access(hass, entry.entry_id)
-    async_stop_direct_display_dispatcher(hass, entry)
+
     await async_remove_persistent_safety_state(hass, entry.entry_id)
-    # The entry is already gone from Home Assistant's config-entry registry at
-    # this point. Recompute legacy duplicate-MAC Repairs immediately so removing
-    # one complete Lüftungsassistent instance also clears a resolved warning.
-    async_update_duplicate_hardware_issues(hass)
     if entry_kind(entry) == ENTRY_KIND_REMOTE:
         async_clear_remote_device_sync_cache(hass, entry)
         async_clear_nina_details_cache(hass, entry)

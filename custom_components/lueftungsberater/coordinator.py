@@ -12,7 +12,6 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import (
     async_call_later,
-    async_track_entity_registry_updated_event,
     async_track_state_change_event,
     async_track_time_change,
     async_track_time_interval,
@@ -34,19 +33,8 @@ from .reason_sessions import (
     EffectivenessSessionState,
 )
 from .engine import humidity_airing_can_improve, temperature_need_applicable
-from .hardware_display import async_queue_direct_display_result
-from .hardware_hub import (
-    direct_station_entities,
-    station_for_room,
-    station_is_direct,
-    station_uses_hardware_hub,
-    station_signal,
-)
 from .const import (
     CONF_CO2,
-    CONF_HARDWARE_DIRECT_CO2,
-    CONF_HARDWARE_DIRECT_HUMIDITY,
-    CONF_HARDWARE_DIRECT_TEMP,
     CONF_NIGHT_START_HOUR,
     CONF_NIGHT_START_TIME,
     CONF_NIGHT_END_TIME,
@@ -57,7 +45,6 @@ from .const import (
     DEFAULT_NIGHT_START_HOUR,
     DEFAULT_NIGHT_END_TIME,
     DOMAIN,
-    HARDWARE_STATION_STALE_CHECK_INTERVAL,
     MOLD_SAMPLE_INTERVAL,
     STORAGE_VERSION,
 )
@@ -180,7 +167,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self.subentry = subentry
         self._unsubs: list[Callable[[], None]] = []
         self._source_state_unsub: Callable[[], None] | None = None
-        self._source_registry_unsub: Callable[[], None] | None = None
         self._notification_tasks: set[asyncio.Task[Any]] = set()
         # Initial room refreshes run before every room coordinator exists. Keep
         # assistant-wide warning notifications suspended until async_setup_entry
@@ -1120,9 +1106,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             await async_handle_room_notification(
                 self.hass, self.entry, self.subentry, snapshot
             )
-        async_queue_direct_display_result(
-            self.hass, self.entry, self.subentry.subentry_id, snapshot
-        )
         return snapshot
 
     async def async_start(self) -> None:
@@ -1161,28 +1144,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         def refresh_tracker_on_timer(_now: datetime) -> None:
             """Run interval-driven coordinator updates on HA's event loop."""
             self._handle_tracker_change()
-
-        hardware_station = station_for_room(self.entry, self.subentry.subentry_id)
-        if hardware_station is not None and station_uses_hardware_hub(hardware_station):
-            self._unsubs.append(
-                async_dispatcher_connect(
-                    self.hass,
-                    station_signal(self.entry.entry_id, hardware_station.subentry_id),
-                    self._handle_tracker_change,
-                )
-            )
-        elif hardware_station is not None and station_is_direct(hardware_station):
-            # Direct ESPHome values have no master dispatcher/TTL watchdog.
-            # Re-evaluate periodically so a sensor that stops reporting but
-            # leaves its last numeric HA state behind becomes unavailable after
-            # the shared freshness horizon.
-            self._unsubs.append(
-                async_track_time_interval(
-                    self.hass,
-                    refresh_tracker_on_timer,
-                    HARDWARE_STATION_STALE_CHECK_INTERVAL,
-                )
-            )
 
         self._unsubs.append(outside.async_add_listener(self._handle_tracker_change))
 
@@ -1254,9 +1215,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._remember_snapshot(snapshot)
         self.async_set_updated_data(snapshot)
         self._queue_notification(snapshot)
-        async_queue_direct_display_result(
-            self.hass, self.entry, self.subentry.subentry_id, snapshot
-        )
 
     @callback
     def _handle_night_start(self, _now: datetime) -> None:
@@ -1279,29 +1237,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
     def _handle_source_change(self, _event: Event) -> None:
         self._publish_snapshot(self._build_snapshot())
 
-    @callback
-    def _handle_source_registry_change(self, _event: Event) -> None:
-        """Persist direct ESPHome renames and rebind listeners immediately."""
-        station = station_for_room(self.entry, self.subentry.subentry_id)
-        if station is not None and station_is_direct(station):
-            current = direct_station_entities(self.hass, station)
-            if current is not None:
-                cached = (
-                    str(station.data.get(CONF_HARDWARE_DIRECT_CO2) or "").strip(),
-                    str(station.data.get(CONF_HARDWARE_DIRECT_TEMP) or "").strip(),
-                    str(station.data.get(CONF_HARDWARE_DIRECT_HUMIDITY) or "").strip(),
-                )
-                if current != cached:
-                    data = dict(station.data)
-                    data[CONF_HARDWARE_DIRECT_CO2] = current[0]
-                    data[CONF_HARDWARE_DIRECT_TEMP] = current[1]
-                    data[CONF_HARDWARE_DIRECT_HUMIDITY] = current[2]
-                    self.hass.config_entries.async_update_subentry(
-                        self.entry, station, data=data
-                    )
-
-        self._refresh_source_listeners()
-        self._publish_snapshot(self._build_snapshot())
 
     @callback
     def _refresh_source_listeners(self) -> None:
@@ -1309,9 +1244,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if self._source_state_unsub is not None:
             self._source_state_unsub()
             self._source_state_unsub = None
-        if self._source_registry_unsub is not None:
-            self._source_registry_unsub()
-            self._source_registry_unsub = None
 
         entities = room_source_entities(self.hass, self.entry, self.subentry)
         if not entities:
@@ -1320,11 +1252,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self.hass, entities, self._handle_source_change
         )
 
-        station = station_for_room(self.entry, self.subentry.subentry_id)
-        if station is not None and station_is_direct(station):
-            self._source_registry_unsub = async_track_entity_registry_updated_event(
-                self.hass, entities, self._handle_source_registry_change
-            )
 
     @callback
     def _handle_tracker_change(self) -> None:
@@ -1337,9 +1264,6 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if self._source_state_unsub is not None:
             self._source_state_unsub()
             self._source_state_unsub = None
-        if self._source_registry_unsub is not None:
-            self._source_registry_unsub()
-            self._source_registry_unsub = None
         if self._co2_hysteresis_unsub is not None:
             self._co2_hysteresis_unsub()
             self._co2_hysteresis_unsub = None

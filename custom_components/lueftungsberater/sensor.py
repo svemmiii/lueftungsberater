@@ -9,8 +9,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import MATCH_ALL
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers import entity_registry as er
 
@@ -41,9 +39,6 @@ from .const import (
     DEFAULT_DISPLAY_MODE,
     DISPLAY_MODE_ROOM_AIR,
     SUBENTRY_TYPE_ROOM,
-    SUBENTRY_TYPE_STATION,
-    CONF_HARDWARE_ID,
-    CONF_HARDWARE_LOCATION_MODE,
 )
 from .coordinator import async_get_or_create_room_coordinator
 from .entity import LueftungsberaterRoomEntity
@@ -52,23 +47,10 @@ from .history_support import (
     HISTORY_METRICS, current_value, current_unit, history_data,
     history_sensor_unique_id, async_enable_history,
 )
-from .hardware_hub import (
-    configured_master_hardware_id,
-    direct_station_entities,
-    master_device_id_for_station,
-    station_for_room,
-    station_is_direct,
-    station_is_fresh,
-    station_role,
-    station_uses_hardware_hub,
-    station_runtime,
-    station_signal,
-    station_topology_error,
-    station_topology_valid,
-)
 from .localization import (
     duration_text,
     night_advice_text,
+    night_args_with_requested_end,
     reason_text,
     recommendation_text,
 )
@@ -114,21 +96,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up room and physical-station sensors."""
-    for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_STATION or not station_uses_hardware_hub(subentry):
-            continue
-        station_entities: list[SensorEntity] = [
-            HardwareStationCo2Sensor(entry, subentry),
-            HardwareStationTemperatureSensor(entry, subentry),
-            HardwareStationHumiditySensor(entry, subentry),
-            HardwareStationRssiSensor(entry, subentry),
-            HardwareStationHopsSensor(entry, subentry),
-            HardwareStationLatencySensor(entry, subentry),
-            HardwareStationRetriesSensor(entry, subentry),
-        ]
-        async_add_entities(station_entities, config_subentry_id=subentry.subentry_id)
-
+    """Set up room sensors and explicitly enabled history helpers."""
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_ROOM:
             continue
@@ -146,7 +114,7 @@ async def async_setup_entry(
             RoomAdvisorSensor(entry, subentry, coordinator),
         ]
 
-        if subentry.data.get(CONF_CO2) or station_for_room(entry, subentry.subentry_id) is not None:
+        if subentry.data.get(CONF_CO2):
             entities.append(RoomCo2StatusSensor(entry, subentry, coordinator))
 
         if subentry.data.get(CONF_WINDOWS):
@@ -487,26 +455,9 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
         airing_tracker = get_tracker(self.hass, self.entry, self.subentry)
 
         registry = er.async_get(self.hass)
-        station = station_for_room(self.entry, self.subentry.subentry_id)
         source_temperature_inside = self.subentry.data.get(CONF_INDOOR_TEMP)
         source_humidity_inside = self.subentry.data.get(CONF_INDOOR_HUMIDITY)
         source_co2 = self.subentry.data.get(CONF_CO2)
-        if station is not None:
-            if station_is_direct(station):
-                direct_entities = direct_station_entities(self.hass, station)
-                if direct_entities is not None:
-                    source_co2, source_temperature_inside, source_humidity_inside = direct_entities
-            else:
-                source_co2 = registry.async_get_entity_id(
-                    "sensor", DOMAIN, f"{station.subentry_id}_co2"
-                )
-                source_temperature_inside = registry.async_get_entity_id(
-                    "sensor", DOMAIN, f"{station.subentry_id}_temperature"
-                )
-                source_humidity_inside = registry.async_get_entity_id(
-                    "sensor", DOMAIN, f"{station.subentry_id}_humidity"
-                )
-
         unique_ids = {
             "airing": f"{self.subentry.subentry_id}_airing_status",
             "last_airing": f"{self.subentry.subentry_id}_last_airing",
@@ -596,6 +547,7 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             night_args["co2_minutes_to_2000"] = confirmed_co2_minutes
         # Compare the end of the user's night as a local wall clock on DST days.
         night_args["local_timezone"] = self.hass.config.time_zone
+        night_args = night_args_with_requested_end(night_args)
         remote_active, remote_clients = remote_access_info(
             self.hass, self.entry.entry_id, self.subentry.subentry_id
         )
@@ -772,18 +724,6 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
 
             # Source entities for clickable dashboard values.
             # These are UI metadata only and are not used by engine.py.
-            "hardware_station_id": (
-                station.data.get(CONF_HARDWARE_ID) if station is not None else None
-            ),
-            "hardware_station_role": (station_role(station) if station is not None else None),
-            "hardware_master_id": (
-                configured_master_hardware_id(self.entry, station)
-                if station is not None
-                else None
-            ),
-            "hardware_location_mode": (
-                station.data.get(CONF_HARDWARE_LOCATION_MODE) if station is not None else None
-            ),
             "source_temperature_inside": source_temperature_inside,
             "source_temperature_outside": weather.source_temperature,
             "source_target_temperature": self.subentry.data.get(CONF_CLIMATE),
@@ -1102,128 +1042,3 @@ class RoomHoursSinceAiringSensor(LueftungsberaterRoomEntity, SensorEntity):
         # hour would create a new Recorder state roughly every 36 seconds without
         # adding useful historical precision.
         return round(tracker.hours_since_last_airing, 1)
-
-
-class HardwareStationSensorBase(SensorEntity):
-    """Base entity for one physical SCD41/display station."""
-
-    _attr_has_entity_name = True
-
-    def __init__(self, entry, subentry, suffix: str, name: str) -> None:
-        self.entry = entry
-        self.subentry = subentry
-        self._attr_unique_id = f"{subentry.subentry_id}_{suffix}"
-        self._attr_name = name
-
-    @property
-    def runtime(self):
-        return station_runtime(self.hass, self.entry.entry_id, self.subentry.subentry_id)
-
-    @property
-    def available(self) -> bool:
-        return station_topology_valid(self.entry, self.subentry) and station_is_fresh(
-            self.runtime
-        )
-
-    @property
-    def fresh_runtime(self):
-        state = self.runtime
-        return (
-            state
-            if station_topology_valid(self.entry, self.subentry)
-            and station_is_fresh(state)
-            else None
-        )
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"station:{self.subentry.data.get(CONF_HARDWARE_ID)}")},
-            name=f"{self.entry.title} · {self.subentry.title}",
-            manufacturer="Lüftungsassistent",
-            model="ESP32 Lüftungsstation (SCD41 + Display)",
-            sw_version=(self.runtime.firmware if self.runtime is not None else None),
-            via_device_id=master_device_id_for_station(self.hass, self.entry, self.subentry),
-        )
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                station_signal(self.entry.entry_id, self.subentry.subentry_id),
-                self.async_write_ha_state,
-            )
-        )
-
-    @property
-    def extra_state_attributes(self):
-        state = self.runtime
-        return {
-            "hardware_id": self.subentry.data.get(CONF_HARDWARE_ID),
-            "master_id": configured_master_hardware_id(self.entry, self.subentry),
-            "role": station_role(self.subentry),
-            "configuration_error": station_topology_error(self.entry, self.subentry),
-            "last_seen": state.last_seen.isoformat() if state and state.last_seen else None,
-            "firmware": state.firmware if state else None,
-        }
-
-
-class HardwareStationCo2Sensor(HardwareStationSensorBase):
-    _attr_device_class = SensorDeviceClass.CO2
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "ppm"
-    def __init__(self, entry, subentry): super().__init__(entry, subentry, "co2", "CO₂")
-    @property
-    def native_value(self): return self.fresh_runtime.co2 if self.fresh_runtime else None
-
-
-class HardwareStationTemperatureSensor(HardwareStationSensorBase):
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "°C"
-    def __init__(self, entry, subentry): super().__init__(entry, subentry, "temperature", "Temperatur")
-    @property
-    def native_value(self): return self.fresh_runtime.temperature if self.fresh_runtime else None
-
-
-class HardwareStationHumiditySensor(HardwareStationSensorBase):
-    _attr_device_class = SensorDeviceClass.HUMIDITY
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "%"
-    def __init__(self, entry, subentry): super().__init__(entry, subentry, "humidity", "Luftfeuchtigkeit")
-    @property
-    def native_value(self): return self.fresh_runtime.humidity if self.fresh_runtime else None
-
-
-class HardwareStationRssiSensor(HardwareStationSensorBase):
-    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "dBm"
-    _attr_entity_registry_enabled_default = False
-    def __init__(self, entry, subentry): super().__init__(entry, subentry, "rssi", "Funk RSSI")
-    @property
-    def native_value(self): return self.fresh_runtime.rssi if self.fresh_runtime else None
-
-
-class HardwareStationHopsSensor(HardwareStationSensorBase):
-    _attr_entity_registry_enabled_default = False
-    def __init__(self, entry, subentry): super().__init__(entry, subentry, "hops", "Funk-Hops")
-    @property
-    def native_value(self): return self.fresh_runtime.hops if self.fresh_runtime else None
-
-
-class HardwareStationLatencySensor(HardwareStationSensorBase):
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "ms"
-    _attr_entity_registry_enabled_default = False
-    def __init__(self, entry, subentry): super().__init__(entry, subentry, "latency", "Antwortzeit")
-    @property
-    def native_value(self): return self.fresh_runtime.latency_ms if self.fresh_runtime else None
-
-
-class HardwareStationRetriesSensor(HardwareStationSensorBase):
-    _attr_entity_registry_enabled_default = False
-    def __init__(self, entry, subentry): super().__init__(entry, subentry, "retries", "Retries")
-    @property
-    def native_value(self): return self.fresh_runtime.retries if self.fresh_runtime else None

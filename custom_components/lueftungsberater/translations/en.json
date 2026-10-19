@@ -251,7 +251,7 @@
       "step": {
         "user": {
           "title": "Add room",
-          "description": "Create the room and select existing sensors, or leave temperature/humidity empty and assign a ventilation station afterwards.",
+          "description": "Create a room and select existing temperature and humidity sensors. CO₂, window/door contacts and other sensors are optional.",
           "data": {
             "room_name": "Custom room name (optional)",
             "indoor_temperature": "Indoor temperature",
@@ -282,7 +282,7 @@
           "sections": {
             "room_climate": {
               "name": "🌡️ Room climate",
-              "description": "Required readings and your personal target temperature.",
+              "description": "Select existing Home Assistant sensors for room temperature and humidity.",
               "data": {
                 "indoor_temperature": "Indoor temperature",
                 "indoor_humidity": "Indoor humidity",
@@ -363,7 +363,7 @@
             "indoor_no2": "Indoor NO₂ / NOx (index or raw value, optional)",
             "indoor_formaldehyde": "Indoor formaldehyde (optional)"
           },
-          "description": "Choose temperature and humidity sensors, or use an assigned hardware station. Other sensors are optional. You can change the room and its name later.",
+          "description": "Choose temperature and humidity sensors. Other sensors are optional. You can change the room name and assignments later.",
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
             "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
@@ -442,136 +442,6 @@
         "room_name_empty": "Please enter a custom room name or select an existing Home Assistant area.",
         "room_name_duplicate": "This room name is already used in this instance.",
         "area_not_found": "The selected Home Assistant area no longer exists. Please select another area or clear the selection."
-      }
-    },
-    "station": {
-      "entry_type": "Ventilation station",
-      "initiate_flow": {
-        "user": "Add ventilation station",
-        "reconfigure": "Configure ventilation station"
-      },
-      "step": {
-        "user": {
-          "title": "Add ventilation station",
-          "description": "Choose the role of this ESP. Every ventilation station can run the same firmware; Home Assistant stores its role, room and master assignment.",
-          "data": {
-            "hardware_role": "Role"
-          }
-        },
-        "direct": {
-          "title": "Set up standalone station",
-          "description": "Select the locally reachable ESPHome device. By default the station creates its own room with the ventilation assistant defaults; you can also use an existing room.",
-          "data": {
-            "hardware_device_id": "ESPHome device",
-            "hardware_room_mode": "Room",
-            "room_name": "New room name",
-            "area_id": "Home Assistant area (optional)",
-            "hardware_room_id": "Existing room"
-          }
-        },
-        "master": {
-          "title": "Set up ESP-NOW master",
-          "description": "The master remains a full room station itself. Select its ESPHome device, room and whether it will run locally or remotely via WireGuard.",
-          "data": {
-            "hardware_device_id": "ESPHome device",
-            "hardware_location_mode": "Location / connection",
-            "hardware_room_mode": "Room",
-            "room_name": "New room name",
-            "area_id": "Home Assistant area (optional)",
-            "hardware_room_id": "Existing room"
-          }
-        },
-        "wireguard": {
-          "title": "Import WireGuard connection",
-          "description": "Import the WireGuard client configuration for this remote master. The uploaded file is only read; the parsed values required for later ESP provisioning are retained.",
-          "data": {
-            "hardware_wireguard_file": "WireGuard configuration file"
-          }
-        },
-        "node": {
-          "title": "Set up ESP-NOW room station",
-          "description": "Assign the station to a master selected in Home Assistant. The station can automatically create its own room as well.",
-          "data": {
-            "hardware_discovery_id": "Discovered station",
-            "hardware_id": "Hardware ID",
-            "hardware_master_subentry_id": "Master",
-            "hardware_room_mode": "Room",
-            "room_name": "New room name",
-            "area_id": "Home Assistant area (optional)",
-            "hardware_room_id": "Existing room"
-          }
-        },
-        "reconfigure_direct": {
-          "title": "Configure direct ventilation station",
-          "data": {
-            "hardware_device_id": "ESPHome device",
-            "hardware_location_mode": "Location / connection",
-            "hardware_room_mode": "Room",
-            "hardware_room_id": "Existing room"
-          }
-        },
-        "reconfigure_node": {
-          "title": "Set up ESP-NOW room station",
-          "data": {
-            "hardware_discovery_id": "Discovered station",
-            "hardware_id": "Hardware ID",
-            "hardware_master_subentry_id": "Master",
-            "hardware_room_mode": "Room",
-            "hardware_room_id": "Existing room"
-          }
-        },
-        "reconfigure": {
-          "title": "Configure ventilation station"
-        },
-        "direct_sensors": {
-          "title": "Select sensor sources",
-          "description": "This ESPHome device exposes multiple matching sensors. Select the CO₂, temperature and humidity source that belongs to this ventilation station once.",
-          "data": {
-            "hardware_direct_co2_entity": "CO₂ sensor",
-            "hardware_direct_temperature_entity": "Temperature sensor",
-            "hardware_direct_humidity_entity": "Humidity sensor"
-          }
-        },
-        "reconfigure_direct_sensors": {
-          "title": "Select sensor sources",
-          "description": "The new ESPHome mapping is ambiguous. Select the three sensor sources explicitly once.",
-          "data": {
-            "hardware_direct_co2_entity": "CO₂ sensor",
-            "hardware_direct_temperature_entity": "Temperature sensor",
-            "hardware_direct_humidity_entity": "Humidity sensor"
-          }
-        },
-        "reconfigure_wireguard": {
-          "title": "Update WireGuard connection",
-          "description": "A new WireGuard file is required when switching local → remote. For remote → remote you can keep the stored profile or replace it with a new import.",
-          "data": {
-            "hardware_wireguard_file": "New WireGuard configuration file (optional if already remote)"
-          }
-        }
-      },
-      "error": {
-        "hardware_no_rooms": "Create at least one room first.",
-        "hardware_room_invalid": "The selected room no longer exists.",
-        "hardware_id_required": "Select a discovered station or enter a hardware ID.",
-        "hardware_id_duplicate": "This hardware ID is already paired.",
-        "hardware_room_duplicate": "A ventilation station is already assigned to this room.",
-        "hardware_connection_invalid": "Choose a valid connection type.",
-        "hardware_direct_device_invalid": "The selected ESPHome device is no longer available or does not provide all required sensor types (CO₂, temperature, and humidity).",
-        "hardware_role_invalid": "Choose a valid station role.",
-        "hardware_room_mode_invalid": "Choose whether to create a new room or use an existing room.",
-        "hardware_room_name_empty": "Enter a name for the room that should be created automatically.",
-        "hardware_master_invalid": "The selected master no longer exists or is not configured as a master.",
-        "hardware_location_invalid": "Choose a valid location mode.",
-        "hardware_wireguard_invalid": "The WireGuard file could not be read. Exactly one [Interface] and one [Peer] section with Address, PrivateKey, PublicKey, Endpoint and AllowedIPs are required.",
-        "hardware_setup_lost": "The station setup in progress is no longer available. Start setup again.",
-        "hardware_direct_sensor_selection_required": "Select this ESPHome device’s CO₂, temperature and humidity sensors explicitly once.",
-        "hardware_direct_sensor_selection_invalid": "The selected sensors do not all belong to the chosen ESPHome device or do not have the expected sensor types.",
-        "hardware_wireguard_required": "A WireGuard configuration file must be imported when switching from local to remote."
-      },
-      "abort": {
-        "hardware_no_rooms": "Create at least one room first.",
-        "hardware_no_direct_devices": "No suitable ESPHome device was found. Add the station to Home Assistant through ESPHome first. A normal station needs CO₂, temperature and humidity; if multiple matching sensors exist, you can select them manually in the next step.",
-        "hardware_no_masters": "Create a ventilation station with the ESP-NOW master role first."
       }
     }
   },
@@ -673,76 +543,6 @@
         "manual": "Own Home Assistant warning instance only",
         "auto_plus_manual": "Automatic + own warning instance"
       }
-    }
-  },
-  "services": {
-    "hardware_report": {
-      "name": "Process ventilation-station measurement",
-      "description": "Internal Native API runtime path for an explicitly trusted ESPHome master. Stores one ESP-NOW node sample and returns the current Home Assistant display decision.",
-      "fields": {
-        "hardware_id": {
-          "name": "Node hardware ID",
-          "description": "Physical MAC/hardware ID of the ESP-NOW room station."
-        },
-        "master_id": {
-          "name": "Master hardware ID",
-          "description": "Physical MAC/hardware ID of the reporting master. Home Assistant validates it against the configured node-to-master relation."
-        },
-        "master_secret": {
-          "name": "Master credential",
-          "description": "Device-specific master secret generated by Home Assistant. The Native API report is accepted only when this credential belongs to the configured master station."
-        },
-        "co2": {
-          "name": "CO₂",
-          "description": "Measured node CO₂ value in ppm."
-        },
-        "temperature": {
-          "name": "Temperature",
-          "description": "Measured indoor node temperature in °C."
-        },
-        "humidity": {
-          "name": "Humidity",
-          "description": "Measured node relative humidity in percent."
-        },
-        "rssi": {
-          "name": "RSSI",
-          "description": "Optional radio signal level for diagnostics."
-        },
-        "hops": {
-          "name": "Hops",
-          "description": "Optional number of radio/routing hops."
-        },
-        "latency_ms": {
-          "name": "Latency",
-          "description": "Optional transport latency in milliseconds."
-        },
-        "retries": {
-          "name": "Retries",
-          "description": "Optional retry count for this request."
-        },
-        "firmware": {
-          "name": "Node firmware",
-          "description": "Optional firmware version reported by the node."
-        },
-        "online": {
-          "name": "Online",
-          "description": "Optional online state of the node."
-        },
-        "round_id": {
-          "name": "Round ID",
-          "description": "Unsigned 32-bit identifier of the current master polling round."
-        },
-        "request_id": {
-          "name": "Request ID",
-          "description": "Unsigned 32-bit identifier of the concrete request within the round."
-        }
-      }
-    }
-  },
-  "issues": {
-    "duplicate_station_mac": {
-      "title": "Physical ventilation station is assigned more than once",
-      "description": "Network MAC **{mac}** is assigned to multiple local Lüftungsassistent stations: {stations}. This can become visible after upgrading an older installation. Home Assistant deliberately does not choose an owner automatically because that could reconfigure a real device. Remove or reconfigure the duplicate station assignment so each physical MAC is used only once."
     }
   }
 }

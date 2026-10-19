@@ -205,8 +205,6 @@ def test_room_notifications_stay_suppressed_until_startup_barrier_releases() -> 
     coordinator._queue_notification(SimpleNamespace())
 
 
-
-
 async def test_first_coordinator_refresh_obeys_notification_startup_barrier(monkeypatch):
     """The real first-refresh path must not bypass the multi-room barrier."""
     from custom_components.lueftungsberater import coordinator as coordinator_module
@@ -226,7 +224,6 @@ async def test_first_coordinator_refresh_obeys_notification_startup_barrier(monk
         calls.append("sent")
 
     monkeypatch.setattr(coordinator_module, "async_handle_room_notification", _notify)
-    monkeypatch.setattr(coordinator_module, "async_queue_direct_display_result", lambda *_args: None)
 
     assert await coordinator._async_update_data() is snapshot
     assert calls == []
@@ -396,10 +393,8 @@ async def test_failed_entry_setup_cleanup_drains_every_published_runtime_bucket(
         return _stub
 
     monkeypatch.setattr(integration, "async_stop_entry_coordinators", async_stub("rooms"))
-    monkeypatch.setattr(integration, "async_stop_direct_display_dispatcher", lambda *_args: order.append("direct_display"))
     monkeypatch.setattr(integration, "clear_auto_provider_cache", lambda *_args: order.append("auto_providers"))
     monkeypatch.setattr(integration, "async_stop_outside_coordinator", async_stub("outside"))
-    monkeypatch.setattr(integration, "async_unload_hardware_hub", async_stub("hardware"))
     monkeypatch.setattr(integration, "async_stop_air_quality_tracker", async_stub("air_quality"))
     monkeypatch.setattr(integration, "async_stop_entry_trackers", async_stub("airing"))
     monkeypatch.setattr(integration, "async_stop_entry_co2_trackers", async_stub("co2"))
@@ -420,9 +415,7 @@ async def test_failed_entry_setup_cleanup_drains_every_published_runtime_bucket(
 
     assert order == [
         "rooms",
-        "direct_display",
         "outside",
-        "hardware",
         "air_quality",
         "airing",
         "co2",
@@ -470,11 +463,6 @@ async def test_setup_failure_during_platform_forwarding_rolls_back_partial_platf
     monkeypatch.setattr(integration, "async_register_recorder_retention", lambda *_args: lambda: None)
     monkeypatch.setattr(integration, "async_get_or_create_air_quality_tracker", _noop_async)
     monkeypatch.setattr(integration, "async_get_or_create_outside_coordinator", _noop_async)
-    monkeypatch.setattr(integration, "async_setup_hardware_hub", _noop_async)
-    monkeypatch.setattr(integration, "async_provision_pending_stations", _noop_async)
-    monkeypatch.setattr(integration, "async_sync_master_participant_lists", _noop_async)
-    for name in ("async_watch_master_participant_service", "async_start_master_participant_retry", "async_update_duplicate_hardware_issues", "async_start_pending_provision_retry", "async_setup_direct_display_dispatcher"):
-        monkeypatch.setattr(integration, name, lambda *_args: None)
     monkeypatch.setattr(integration, "async_sync_room_device_areas", lambda *_args: None)
     monkeypatch.setattr(integration, "async_refresh_recorder_entity_index", _noop_async)
     monkeypatch.setattr(integration, "async_purge_recorder_history", _noop_async)

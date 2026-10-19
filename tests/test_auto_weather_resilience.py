@@ -92,7 +92,7 @@ def weather(now=NOW, temperature=13.5, *, forecast=True):
     return ap.AutoWeatherData(
         "dwd_station+dwd_icon", now, country="DE", temperature=temperature,
         humidity=77, wind_speed_kmh=12, wind_gust_kmh=23,
-        hourly_forecast=ap._normalize_open_meteo_hourly(payload(now)) if forecast else [],
+        hourly_forecast=ap._normalize_open_meteo_hourly(payload(now), zone=timezone.utc) if forecast else [],
     )
 
 
@@ -113,7 +113,7 @@ async def test_unusable_replacement_preserves_previous_evidence(hass, freezer, b
     good = weather()
     ap._record_forecast_result(state, good.hourly_forecast, NOW, None, config.title)
     freezer.tick(timedelta(minutes=16))
-    points = ap._normalize_open_meteo_hourly(bad)
+    points = ap._normalize_open_meteo_hourly(bad, zone=timezone.utc)
     ap._record_forecast_result(state, points, ap.dt_util.utcnow(), None, config.title)
     result, updated, status = ap.auto_forecast_data(hass, config)
     assert result == good.hourly_forecast
@@ -341,7 +341,7 @@ def test_unix_forecast_keeps_dst_hours_distinct_and_missing_values_missing():
     stamps = [datetime(2026, 10, 25, hour, tzinfo=timezone.utc).timestamp() for hour in (0, 1, 2)]
     rows = ap._normalize_open_meteo_hourly({
         "timezone": "Europe/Berlin", "hourly": {"time": stamps, "temperature_2m": [13, 12, 11]},
-    })
+    }, zone=timezone.utc)
     assert [item["datetime"].timestamp() for item in rows] == stamps
     assert [item["temperature"] for item in rows] == [13, 12, 11]
     assert all(set(item) == {"datetime", "temperature"} for item in rows)

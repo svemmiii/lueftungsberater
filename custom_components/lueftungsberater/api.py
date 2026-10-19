@@ -4,32 +4,24 @@ from __future__ import annotations
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
-import json
 import logging
-import secrets
 import time
 
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistantView
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import (
     HomeAssistant,
-    ServiceCall,
-    ServiceResponse,
-    SupportsResponse,
     callback,
 )
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 
 from .const import (
     RECORDER_RETENTION_DAYS,
     DATA_API_REGISTERED,
-    DATA_HARDWARE_SERVICE_REGISTERED,
     DATA_REMOTE_ACCESS,
     CONF_REMOTE_ROOM_SHARE,
     DOMAIN,
@@ -37,46 +29,12 @@ from .const import (
     ENTRY_KIND_REMOTE,
     REMOTE_PROTOCOL_VERSION,
     SUBENTRY_TYPE_ROOM,
-    CONF_HARDWARE_ID,
-    CONF_HARDWARE_DIRECT_CO2,
-    CONF_HARDWARE_DIRECT_TEMP,
-    CONF_HARDWARE_DIRECT_HUMIDITY,
-    CONF_HARDWARE_ROOM_ID,
-    CONF_HARDWARE_MASTER_SUBENTRY_ID,
-    CONF_HARDWARE_MASTER_SECRET,
-    CONF_HARDWARE_CONNECTION_TYPE,
-    CONF_HARDWARE_LOCATION_MODE,
-    CONF_HARDWARE_WG_ADDRESS,
-    CONF_HARDWARE_WG_PRIVATE_KEY,
-    CONF_HARDWARE_WG_PEER_PUBLIC_KEY,
-    CONF_HARDWARE_WG_PRESHARED_KEY,
-    CONF_HARDWARE_WG_ENDPOINT,
-    CONF_HARDWARE_WG_ENDPOINT_HOST,
-    CONF_HARDWARE_WG_ENDPOINT_PORT,
-    CONF_HARDWARE_WG_ALLOWED_IPS,
-    CONF_HARDWARE_WG_KEEPALIVE,
-    HARDWARE_ROLE_MASTER,
-    HARDWARE_ROLE_NODE,
-    HARDWARE_LOCATION_LOCAL,
-    HARDWARE_LOCATION_REMOTE,
     entry_kind,
 )
-from .hardware_hub import (
-    configured_master_for_station,
-    configured_master_hardware_id,
-    hardware_id_matches,
-    master_participants,
-    remember_discovery,
-    report_station,
-    station_by_any_hardware_id,
-    station_by_hardware_id,
-    station_role,
-    station_topology_error,
-)
-from .display_payload import hardware_display_payload
 from .history_support import preferred_air_quality_variant
 from .coordinator import get_room_coordinator
 from .localization import (
+    async_prepare_night_args,
     duration_text,
     night_advice_text,
     reason_text,
@@ -89,37 +47,6 @@ _LOGGER = logging.getLogger(__name__)
 REMOTE_CLIENT_ID_MAX_LENGTH = 128
 REMOTE_CLIENT_NAME_MAX_LENGTH = 128
 REMOTE_CLIENTS_PER_ROOM_MAX = 32
-
-SERVICE_HARDWARE_REPORT = "hardware_report"
-
-_CORRELATION_ID = vol.All(vol.Coerce(int), vol.Range(min=0, max=0xFFFFFFFF))
-HARDWARE_REPORT_ACTION_SCHEMA = vol.Schema(
-    {
-        vol.Required("hardware_id"): str,
-        # New native-API masters must identify themselves explicitly. HA still
-        # resolves and validates the configured master relationship; this value
-        # is never allowed to choose a master on its own.
-        vol.Required("master_id"): str,
-        vol.Required("master_secret"): vol.All(str, vol.Length(min=32, max=128)),
-        vol.Optional("co2"): vol.Coerce(float),
-        vol.Optional("temperature"): vol.Coerce(float),
-        vol.Optional("humidity"): vol.Coerce(float),
-        vol.Optional("rssi"): vol.Coerce(int),
-        vol.Optional("hops"): vol.Coerce(int),
-        vol.Optional("latency_ms"): vol.Coerce(int),
-        vol.Optional("retries"): vol.Coerce(int),
-        vol.Optional("firmware"): str,
-        vol.Optional("online"): cv.boolean,
-        vol.Required("round_id"): _CORRELATION_ID,
-        vol.Required("request_id"): _CORRELATION_ID,
-    },
-    extra=vol.PREVENT_EXTRA,
-)
-
-
-class _HardwareReportRejected(Exception):
-    """A known station report was rejected by HA-owned topology checks."""
-
 
 def _normalize_remote_client_value(value: Any, fallback: str, max_length: int) -> str:
     text = str(value or fallback).strip()[:max_length]
@@ -279,419 +206,6 @@ class LueftungsberaterSnapshotView(HomeAssistantView):
                 "instances": instances,
             }
         )
-
-
-
-def _station_config_payload(entry: ConfigEntry, station) -> dict[str, Any]:
-    """Build the HA-owned desired configuration for one physical station."""
-    room_id = str(station.data.get(CONF_HARDWARE_ROOM_ID) or "")
-    room = entry.subentries.get(room_id)
-    role = station_role(station)
-    payload: dict[str, Any] = {
-        "protocol": 1,
-        "hardware_id": str(station.data.get(CONF_HARDWARE_ID) or ""),
-        "station_subentry_id": station.subentry_id,
-        "role": role,
-        "transport": str(station.data.get(CONF_HARDWARE_CONNECTION_TYPE) or ""),
-        "room_id": room_id,
-        "room_name": str(room.title) if room is not None else None,
-    }
-    topology_error = station_topology_error(entry, station)
-    if topology_error is not None:
-        payload["configuration_error"] = topology_error
-
-    if role == HARDWARE_ROLE_NODE:
-        master = configured_master_for_station(entry, station)
-        payload["master"] = (
-            {
-                "subentry_id": master.subentry_id,
-                "hardware_id": str(master.data.get(CONF_HARDWARE_ID) or ""),
-                "name": str(master.title),
-            }
-            if master is not None
-            else None
-        )
-    if role == HARDWARE_ROLE_MASTER:
-        payload["location_mode"] = str(
-            station.data.get(CONF_HARDWARE_LOCATION_MODE) or "local"
-        )
-        # Provision only through the existing authenticated/admin-only config
-        # endpoint. Never expose this in runtime entities or display responses.
-        payload["master_secret"] = str(
-            station.data.get(CONF_HARDWARE_MASTER_SECRET) or ""
-        )
-        payload["participants"] = master_participants(entry, station)
-
-        if station.data.get(CONF_HARDWARE_LOCATION_MODE) == HARDWARE_LOCATION_REMOTE:
-            wireguard = {
-                "address": station.data.get(CONF_HARDWARE_WG_ADDRESS),
-                "private_key": station.data.get(CONF_HARDWARE_WG_PRIVATE_KEY),
-                "peer_public_key": station.data.get(CONF_HARDWARE_WG_PEER_PUBLIC_KEY),
-                "endpoint": station.data.get(CONF_HARDWARE_WG_ENDPOINT),
-                "endpoint_host": station.data.get(CONF_HARDWARE_WG_ENDPOINT_HOST),
-                "endpoint_port": station.data.get(CONF_HARDWARE_WG_ENDPOINT_PORT),
-                "allowed_ips": station.data.get(CONF_HARDWARE_WG_ALLOWED_IPS),
-                "persistent_keepalive": station.data.get(CONF_HARDWARE_WG_KEEPALIVE),
-            }
-            if station.data.get(CONF_HARDWARE_WG_PRESHARED_KEY):
-                wireguard["preshared_key"] = station.data.get(
-                    CONF_HARDWARE_WG_PRESHARED_KEY
-                )
-            payload["wireguard"] = wireguard
-    return payload
-
-
-class LueftungsberaterHardwareConfigView(HomeAssistantView):
-    """Return Home Assistant's desired role/network topology to one station."""
-
-    url = "/api/lueftungsberater/hardware/config"
-    name = "api:lueftungsberater:hardware_config"
-    requires_auth = True
-
-    async def post(self, request):
-        hass: HomeAssistant = request.app[KEY_HASS]
-        user = request.get(KEY_HASS_USER)
-        if user is None or not bool(getattr(user, "is_admin", False)):
-            return self.json_message(
-                "Administrator access required",
-                status_code=HTTPStatus.FORBIDDEN,
-            )
-        try:
-            payload = await request.json()
-        except (ValueError, json.JSONDecodeError):
-            return self.json_message("Invalid JSON", status_code=HTTPStatus.BAD_REQUEST)
-        if not isinstance(payload, dict):
-            return self.json_message("Invalid payload", status_code=HTTPStatus.BAD_REQUEST)
-
-        entry_id = str(payload.get("entry_id") or "").strip()
-        hardware_id = str(payload.get("hardware_id") or "").strip()
-        if not entry_id or not hardware_id:
-            return self.json_message(
-                "entry_id and hardware_id required", status_code=HTTPStatus.BAD_REQUEST
-            )
-        entry = hass.config_entries.async_get_entry(entry_id)
-        if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
-            return self.json_message(
-                "Unknown local Lüftungsassistent entry", status_code=HTTPStatus.NOT_FOUND
-            )
-        station = station_by_any_hardware_id(entry, hardware_id)
-        if station is None:
-            return self.json_message("Unknown station", status_code=HTTPStatus.NOT_FOUND)
-        return self.json(_station_config_payload(entry, station))
-
-
-class LueftungsberaterHardwareDiscoverView(HomeAssistantView):
-    """Receive one authenticated JOIN/discovery report from an ESP master."""
-
-    url = "/api/lueftungsberater/hardware/discover"
-    name = "api:lueftungsberater:hardware_discover"
-    requires_auth = True
-
-    async def post(self, request):
-        hass: HomeAssistant = request.app[KEY_HASS]
-        try:
-            payload = await request.json()
-        except (ValueError, json.JSONDecodeError):
-            return self.json_message("Invalid JSON", status_code=HTTPStatus.BAD_REQUEST)
-        if not isinstance(payload, dict):
-            return self.json_message("Invalid payload", status_code=HTTPStatus.BAD_REQUEST)
-
-        entry_id = str(payload.get("entry_id") or "").strip()
-        hardware_id = str(payload.get("hardware_id") or "").strip()
-        master_id = str(payload.get("master_id") or "default").strip() or "default"
-        if not entry_id or not hardware_id:
-            return self.json_message("entry_id and hardware_id required", status_code=HTTPStatus.BAD_REQUEST)
-        entry = hass.config_entries.async_get_entry(entry_id)
-        if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
-            return self.json_message("Unknown local Lüftungsassistent entry", status_code=HTTPStatus.NOT_FOUND)
-
-        remember_discovery(
-            hass,
-            entry,
-            hardware_id=hardware_id,
-            master_id=master_id,
-            name=str(payload.get("name") or hardware_id),
-            capabilities=(payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {}),
-        )
-        return self.json({"accepted": True, "hardware_id": hardware_id})
-
-
-def _hardware_report_master_error(
-    entry: ConfigEntry, station, reported_master_id: Any
-) -> str | None:
-    """Validate that an ESP-NOW node report arrived through its HA-selected master."""
-    if station_role(station) != HARDWARE_ROLE_NODE:
-        return None
-
-    explicit_master_relation = bool(
-        str(station.data.get(CONF_HARDWARE_MASTER_SUBENTRY_ID) or "").strip()
-    )
-    configured_master = configured_master_for_station(entry, station)
-    if explicit_master_relation and configured_master is None:
-        return "master_missing"
-
-    configured_master_id = configured_master_hardware_id(entry, station)
-    if configured_master_id is None:
-        return None
-    incoming = str(reported_master_id or "default").strip() or "default"
-    if not hardware_id_matches(incoming, configured_master_id):
-        return "master_mismatch"
-    return None
-
-
-def _hardware_report_native_auth_error(
-    entry: ConfigEntry,
-    station,
-    reported_master_id: Any,
-    reported_master_secret: Any,
-) -> str | None:
-    """Authenticate one Native-API node report against its configured master."""
-    if station_role(station) != HARDWARE_ROLE_NODE:
-        return "node_required"
-
-    master_error = _hardware_report_master_error(
-        entry, station, reported_master_id
-    )
-    if master_error is not None:
-        return master_error
-
-    master = configured_master_for_station(entry, station)
-    if master is None:
-        return "master_missing"
-
-    expected = str(master.data.get(CONF_HARDWARE_MASTER_SECRET) or "").strip()
-    incoming = str(reported_master_secret or "").strip()
-    if not expected:
-        return "master_secret_missing"
-    if not incoming or not secrets.compare_digest(incoming, expected):
-        return "master_auth_failed"
-    return None
-
-
-# Private compatibility alias for existing tests/importers; the implementation
-# lives in display_payload.py and is shared with direct ESPHome display pushes.
-_hardware_display_payload = hardware_display_payload
-
-
-def _master_location_mode(entry: ConfigEntry, station) -> str | None:
-    """Return the HA-configured location of this node's selected master.
-
-    The network path is never inferred from an IP address, latency or VPN
-    appearance. Home Assistant's master subentry remains the source of truth.
-    """
-    master = configured_master_for_station(entry, station)
-    if master is None:
-        return None
-    value = str(master.data.get(CONF_HARDWARE_LOCATION_MODE) or HARDWARE_LOCATION_LOCAL)
-    return value if value in {HARDWARE_LOCATION_LOCAL, HARDWARE_LOCATION_REMOTE} else HARDWARE_LOCATION_LOCAL
-
-
-def _apply_hardware_report(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    station,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Validate/store one known node report and return the current display result.
-
-    Both the authenticated HTTP endpoint and the ESPHome Native-API action use
-    this function, so there is only one topology/storage/display decision path.
-    """
-    topology_error = station_topology_error(entry, station)
-    if topology_error == "room_missing":
-        raise _HardwareReportRejected("Configured room is missing")
-
-    master_error = _hardware_report_master_error(
-        entry, station, payload.get("master_id")
-    )
-    if master_error == "master_missing":
-        raise _HardwareReportRejected("Configured master is missing")
-    if master_error == "master_mismatch":
-        raise _HardwareReportRejected(
-            "Report master does not match configured master"
-        )
-
-    report_station(hass, entry, station, payload)
-
-    room_id = str(station.data.get(CONF_HARDWARE_ROOM_ID) or "")
-    display = _hardware_display_payload(hass, entry, room_id)
-
-    # Correlation values are transport metadata only. HTTP keeps its permissive
-    # v0.10.0/v0.10.1 compatibility contract; the Native-API action schema
-    # restricts them to unsigned 32-bit integer values.
-    round_id = payload.get("round_id")
-    request_id = payload.get("request_id")
-    if not isinstance(round_id, (str, int)):
-        round_id = None
-    if not isinstance(request_id, (str, int)):
-        request_id = None
-
-    hardware_id = str(station.data.get(CONF_HARDWARE_ID) or payload.get("hardware_id") or "")
-    return {
-        "paired": True,
-        "hardware_id": hardware_id,
-        "master_id": configured_master_hardware_id(entry, station) or "default",
-        "master_location_mode": _master_location_mode(entry, station),
-        "room_id": room_id,
-        **display,
-        "round_id": round_id,
-        "request_id": request_id,
-    }
-
-
-def _hardware_report_action_target(
-    hass: HomeAssistant, hardware_id: str
-) -> tuple[ConfigEntry, Any]:
-    """Resolve one master-backed station without trusting a supplied entry id."""
-    matches: list[tuple[ConfigEntry, Any]] = []
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry_kind(entry) != ENTRY_KIND_LOCAL:
-            continue
-        if entry.state is not ConfigEntryState.LOADED:
-            continue
-        station = station_by_hardware_id(entry, hardware_id)
-        if station is not None:
-            matches.append((entry, station))
-
-    if not matches:
-        raise ServiceValidationError(
-            f"Unknown Lüftungsstation hardware id: {hardware_id}"
-        )
-    if len(matches) > 1:
-        raise ServiceValidationError(
-            "Hardware id is assigned to more than one Lüftungsassistent entry: "
-            f"{hardware_id}"
-        )
-    return matches[0]
-
-
-async def _async_hardware_report_action(call: ServiceCall) -> ServiceResponse:
-    """Receive one authenticated node sample over the ESPHome Native API."""
-    payload = dict(call.data)
-    hardware_id = str(payload["hardware_id"]).strip()
-    master_id = str(payload["master_id"]).strip()
-    master_secret = str(payload.pop("master_secret", "") or "").strip()
-    if not hardware_id:
-        raise ServiceValidationError("hardware_id required")
-    if not master_id:
-        raise ServiceValidationError("master_id required")
-    if not master_secret:
-        raise ServiceValidationError("master_secret required")
-    payload["hardware_id"] = hardware_id
-    payload["master_id"] = master_id
-
-    entry, station = _hardware_report_action_target(call.hass, hardware_id)
-    auth_error = _hardware_report_native_auth_error(
-        entry, station, master_id, master_secret
-    )
-    if auth_error == "node_required":
-        raise ServiceValidationError(
-            "Native hardware_report accepts ESP-NOW node reports only"
-        )
-    if auth_error == "master_missing":
-        raise ServiceValidationError("Configured master is missing")
-    if auth_error == "master_mismatch":
-        raise ServiceValidationError(
-            "Report master does not match configured master"
-        )
-    if auth_error == "master_secret_missing":
-        raise ServiceValidationError(
-            "Configured master has no Native-API credential"
-        )
-    if auth_error == "master_auth_failed":
-        raise ServiceValidationError("Master credential is invalid")
-
-    try:
-        return _apply_hardware_report(call.hass, entry, station, payload)
-    except _HardwareReportRejected as err:
-        raise ServiceValidationError(str(err)) from err
-
-
-class LueftungsberaterHardwareReportView(HomeAssistantView):
-    """Receive raw station values and return HA's already-computed display result."""
-
-    url = "/api/lueftungsberater/hardware/report"
-    name = "api:lueftungsberater:hardware_report"
-    requires_auth = True
-
-    async def post(self, request):
-        hass: HomeAssistant = request.app[KEY_HASS]
-        try:
-            payload = await request.json()
-        except (ValueError, json.JSONDecodeError):
-            return self.json_message("Invalid JSON", status_code=HTTPStatus.BAD_REQUEST)
-        if not isinstance(payload, dict):
-            return self.json_message("Invalid payload", status_code=HTTPStatus.BAD_REQUEST)
-
-        entry_id = str(payload.get("entry_id") or "").strip()
-        hardware_id = str(payload.get("hardware_id") or "").strip()
-        master_id = str(payload.get("master_id") or "").strip()
-        master_secret = str(payload.pop("master_secret", "") or "").strip()
-        if not entry_id or not hardware_id:
-            return self.json_message(
-                "entry_id and hardware_id required",
-                status_code=HTTPStatus.BAD_REQUEST,
-            )
-        entry = hass.config_entries.async_get_entry(entry_id)
-        if entry is None or entry.domain != DOMAIN or entry_kind(entry) != ENTRY_KIND_LOCAL:
-            return self.json_message("Unknown local Lüftungsassistent entry", status_code=HTTPStatus.NOT_FOUND)
-        station = station_by_hardware_id(entry, hardware_id)
-        if station is None:
-            # Unknown stations stay discoverable but can never inject room values
-            # until the user explicitly assigns them to a room.
-            remember_discovery(
-                hass, entry, hardware_id=hardware_id,
-                master_id=master_id or "default",
-                name=str(payload.get("name") or hardware_id),
-                capabilities=(
-                    payload.get("capabilities")
-                    if isinstance(payload.get("capabilities"), dict)
-                    else {}
-                ),
-            )
-            return self.json(
-                {"paired": False, "hardware_id": hardware_id},
-                status_code=HTTPStatus.CONFLICT,
-            )
-
-        # The legacy HTTP transport has the same application-level master
-        # authentication contract as the Native-API action. Normal HA request
-        # authentication alone proves the caller may use HA; it does not prove
-        # that the reporting ESP is the configured physical master. Never leave
-        # a weaker compatibility path around the per-master credential.
-        if not master_id or not master_secret:
-            return self.json_message(
-                "master_id and master_secret required",
-                status_code=HTTPStatus.BAD_REQUEST,
-            )
-        auth_error = _hardware_report_native_auth_error(
-            entry, station, master_id, master_secret
-        )
-        auth_messages = {
-            "node_required": "Hardware report accepts ESP-NOW node reports only",
-            "master_missing": "Configured master is missing",
-            "master_mismatch": "Report master does not match configured master",
-            "master_secret_missing": "Configured master has no report credential",
-            "master_auth_failed": "Master credential is invalid",
-        }
-        if auth_error is not None:
-            status = (
-                HTTPStatus.FORBIDDEN
-                if auth_error in {"master_secret_missing", "master_auth_failed"}
-                else HTTPStatus.CONFLICT
-            )
-            return self.json_message(
-                auth_messages.get(auth_error, "Hardware report rejected"),
-                status_code=status,
-            )
-
-        payload["master_id"] = master_id
-        try:
-            response = _apply_hardware_report(hass, entry, station, payload)
-        except _HardwareReportRejected as err:
-            return self.json_message(str(err), status_code=HTTPStatus.CONFLICT)
-        return self.json(response)
-
 
 
 def _remote_instances_for_protocol(
@@ -1063,8 +577,8 @@ def _remote_instances(hass: HomeAssistant) -> list[dict[str, Any]]:
         vol.Optional("night_ventilation_args", default={}): dict,
     }
 )
-@callback
-def websocket_localize(
+@websocket_api.async_response
+async def websocket_localize(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
@@ -1082,6 +596,8 @@ def websocket_localize(
         if isinstance(msg.get("night_ventilation_args"), dict)
         else {}
     )
+    if night_key:
+        night_args = await async_prepare_night_args(night_args)
     connection.send_result(
         msg["id"],
         {
@@ -1110,8 +626,6 @@ def websocket_remote_overview(
 ) -> None:
     """Return only cached remote snapshots to the local frontend."""
     connection.send_result(msg["id"], _remote_instances(hass))
-
-
 
 
 def _resolve_history_room(hass, entity_id: str):
@@ -1178,32 +692,6 @@ def _history_room_attributes(hass, entry, room, entity_id: str) -> dict:
         "source_no2_outside": manual.get("outdoor_no2"),
         "source_o3_outside": manual.get("outdoor_o3"),
     }
-    # ESP station rooms can have no direct sensor IDs in their room config.
-    # Use the stable station-to-room relationship; the station's own status
-    # must not affect whether the room's older Recorder samples are readable.
-    from .hardware_hub import station_for_room, station_is_direct, direct_station_entities
-    station = station_for_room(entry, room.subentry_id)
-    if station is not None:
-        if station_is_direct(station):
-            direct = direct_station_entities(hass, station)
-            if direct is None:
-                direct = (
-                    station.data.get(CONF_HARDWARE_DIRECT_CO2),
-                    station.data.get(CONF_HARDWARE_DIRECT_TEMP),
-                    station.data.get(CONF_HARDWARE_DIRECT_HUMIDITY),
-                )
-        else:
-            registry = er.async_get(hass)
-            direct = tuple(registry.async_get_entity_id(
-                "sensor", DOMAIN, f"{station.subentry_id}_{suffix}"
-            ) for suffix in ("co2", "temperature", "humidity"))
-        for key, value in zip(
-            ("source_co2", "source_temperature_inside", "source_humidity_inside"),
-            direct,
-            strict=True,
-        ):
-            if value:
-                sources[key] = value
     # Existing derived sensors have stable IDs too. They can be read from
     # Recorder without the advisor being alive; this creates no new entity.
     registry = er.async_get(hass)
@@ -1581,37 +1069,13 @@ def websocket_history_metrics(hass, connection, msg) -> None:
 
 
 @callback
-def async_register_hardware_service(hass: HomeAssistant) -> None:
-    """Register the ESPHome runtime action once at integration setup."""
-    domain_data = hass.data.setdefault(DOMAIN, {})
-    if domain_data.get(DATA_HARDWARE_SERVICE_REGISTERED):
-        return
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_HARDWARE_REPORT,
-        _async_hardware_report_action,
-        schema=HARDWARE_REPORT_ACTION_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
-    domain_data[DATA_HARDWARE_SERVICE_REGISTERED] = True
-
-
-@callback
 def async_register_api(hass: HomeAssistant) -> None:
     """Register HTTP/websocket endpoints once for this Home Assistant instance."""
-    # Keep this call as a defensive fallback for test/custom-loader paths that
-    # may invoke setup_entry directly. Normal HA loading registers the service
-    # earlier from async_setup().
-    async_register_hardware_service(hass)
-
     domain_data = hass.data.setdefault(DOMAIN, {})
     if domain_data.get(DATA_API_REGISTERED):
         return
     domain_data[DATA_API_REGISTERED] = True
     hass.http.register_view(LueftungsberaterSnapshotView())
-    hass.http.register_view(LueftungsberaterHardwareDiscoverView())
-    hass.http.register_view(LueftungsberaterHardwareConfigView())
-    hass.http.register_view(LueftungsberaterHardwareReportView())
     websocket_api.async_register_command(hass, websocket_localize)
     websocket_api.async_register_command(hass, websocket_remote_overview)
     websocket_api.async_register_command(hass, websocket_history_enable)

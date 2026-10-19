@@ -147,9 +147,6 @@ def test_history_source_resolution_prefers_config_over_stale_advisor_and_keeps_c
         'DOMAIN': 'lueftungsberater',
         'history_data': lambda h, eid: {'r': ['decision']},
         'er': NS(async_get=lambda _: NS(async_get_entity_id=lambda *args: None)),
-        'station_for_room': lambda entry, room: None,
-        'station_is_direct': lambda station: False,
-        'direct_station_entities': lambda hass, station: None,
         'uses_auto_weather': lambda entry: False,
         'get_outside_coordinator': lambda hass, entry: None,
         'HISTORY_METRICS': support()['HISTORY_METRICS'],
@@ -195,9 +192,6 @@ def test_auto_weather_history_keeps_recording_option_without_advisor_or_fake_sou
         'DOMAIN': 'lueftungsberater',
         'history_data': lambda h, eid: {},
         'er': NS(async_get=lambda _: NS(async_get_entity_id=lambda *args: None)),
-        'station_for_room': lambda entry, room: None,
-        'station_is_direct': lambda station: False,
-        'direct_station_entities': lambda hass, station: None,
         'uses_auto_weather': lambda entry: True,
         'HISTORY_METRICS': support()['HISTORY_METRICS'],
         'finite_value': support()['finite_value'],
@@ -237,9 +231,6 @@ def test_removed_outdoor_sources_and_stale_live_co2_do_not_reappear():
         'finite_value': support()['finite_value'],
         'preferred_air_quality_variant': support()['preferred_air_quality_variant'],
         'er': NS(async_get=lambda _: NS(async_get_entity_id=lambda *args: None)),
-        'station_for_room': lambda entry, room: None,
-        'station_is_direct': lambda station: False,
-        'direct_station_entities': lambda hass, station: None,
         'uses_auto_weather': lambda entry: True,
         'get_outside_coordinator': lambda hass, entry: NS(data=NS(weather=NS(
             source_temperature='dwd:former', source_humidity='auto_weather:coord',
@@ -411,9 +402,6 @@ def test_auto_history_source_is_the_local_variant_not_regional_provider():
         'finite_value':support()['finite_value'],
         'preferred_air_quality_variant': support()['preferred_air_quality_variant'],
         'er':NS(async_get=lambda _:NS(async_get_entity_id=lambda *args:None)),
-        'station_for_room':lambda entry,room:None,
-        'station_is_direct':lambda station:False,
-        'direct_station_entities':lambda hass,station:None,
         'uses_auto_weather':lambda entry:True,
         'get_outside_coordinator':lambda hass,entry:NS(data=NS(weather=weather)),
     }
@@ -534,9 +522,6 @@ def test_provider_real_local_gas_payload_reaches_history_with_source_and_unit():
         'HISTORY_METRICS':h['HISTORY_METRICS'],'finite_value':h['finite_value'],
         'preferred_air_quality_variant':h['preferred_air_quality_variant'],
         'er':NS(async_get=lambda _:NS(async_get_entity_id=lambda *args:None)),
-        'station_for_room':lambda *args:None,
-        'station_is_direct':lambda *args:False,
-        'direct_station_entities':lambda *args:None,
         'uses_auto_weather':lambda entry:True,
         'get_outside_coordinator':lambda *args:NS(data=NS(weather=assessment)),
     }
@@ -653,51 +638,6 @@ async def test_complete34_optional_air_quality_cleanup_read_failure_preserves_st
     assert not any(kind == 'saved' for kind, _ in events)
 
 
-@pytest.mark.asyncio
-async def test_complete34_esphome_topology_task_cancelled_on_unload():
-    """A running topology push may not outlive its old config entry."""
-    tree = ast.parse((ROOT / 'hardware_provisioning.py').read_text())
-    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
-                and n.name == 'async_watch_master_participant_service')
-    node.decorator_list = []
-    import asyncio
-    started = asyncio.Event()
-    callbacks = []
-    cancelled = []
-    tasks = []
-    async def sync(h, e):
-        started.set()
-        await asyncio.Event().wait()
-    class Entry:
-        def async_on_unload(self, fn): callbacks.append(fn)
-        def async_create_background_task(self, hass, coro, name):
-            task = asyncio.create_task(coro)
-            tasks.append(task)
-            return task
-    class Bus:
-        def async_listen(self, name, handler):
-            self.handler = handler
-            return lambda: cancelled.append('unsub')
-    bus = Bus()
-    scope = {'async_sync_master_participant_lists': sync, 'callback': lambda f: f,
-             'ATTR_DOMAIN': 'domain', 'ATTR_SERVICE': 'service',
-             'EVENT_SERVICE_REGISTERED': 'service_registered',
-             'SERVICE_APPLY_PARTICIPANTS': 'apply_participants', 'DOMAIN': 'lueftungsberater',
-             'asyncio': asyncio}
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])),
-                 'hardware_provisioning.py', 'exec'), scope)
-    entry = Entry()
-    scope['async_watch_master_participant_service'](NS(bus=bus), entry)
-    bus.handler(NS(data={'domain': 'esphome', 'service': 'room_apply_participants'}))
-    await started.wait()
-    assert len(tasks) == 1 and not tasks[0].done()
-    callbacks[0]()
-    await asyncio.sleep(0)
-    assert cancelled == ['unsub'] and tasks[0].cancelled()
-    bus.handler(NS(data={'domain': 'esphome', 'service': 'room_apply_participants'}))
-    assert len(tasks) == 1
-
-
 @pytest.fixture(autouse=True)
 def _isolate_home_assistant_registry(monkeypatch):
     """Pure SimpleNamespace fixtures must never reach a real HA registry."""
@@ -792,56 +732,6 @@ def test_complete35_legacy_cleanup_errors_are_optional():
     asyncio.run(run())
 
 
-def test_complete35_periodic_esphome_tasks_stop_at_unload():
-    """Both retry timers must cancel in-flight work before a fast reload."""
-    from datetime import datetime, timezone, timedelta
-    class Entry:
-        def __init__(self, station):
-            self.subentries={'id':station}
-            self.unloads=[]
-        def async_on_unload(self, callback):self.unloads.append(callback)
-        def async_create_background_task(self,hass,coro,title):return asyncio.create_task(coro)
-    async def run(name):
-        started=asyncio.Event(); release=asyncio.Event(); committed=[]
-        station=NS(subentry_id='id',subentry_type='station',title='Master',data={'pending':True})
-        entry=Entry(station);timer=[]
-        async def deferred(*args, **kwargs):
-            started.set()
-            await release.wait()
-            committed.append('finished')
-            return True
-        scope={'ENTRY_KIND_LOCAL':'local','entry_kind':lambda entry:'local',
-               '_has_master_stations':lambda entry:True,
-               '_has_pending_stations':lambda entry:True,
-               'station_subentries':lambda entry:[station],
-               'station_role':lambda station:'master','HARDWARE_ROLE_MASTER':'master',
-               'SUBENTRY_TYPE_STATION':'station',
-               'CONF_HARDWARE_PROVISION_PENDING':'pending',
-               'async_sync_master_participants':deferred,
-               'async_provision_station':deferred,
-               '_mark_station_provisioned':lambda *args:committed.append('marked'),
-               'RETRY_BACKOFF_MINUTES':(1,2,5,10),'timedelta':timedelta,
-               'async_track_time_interval':lambda hass,cb,period:timer.append(cb) or (lambda:timer.clear()),
-               'dt_util':NS(utcnow=lambda:datetime.now(timezone.utc)),
-               'DOMAIN':'lueftungsberater','asyncio':asyncio,
-               'callback':lambda fn:fn,'_LOGGER':NS(warning=lambda *a,**k:None,debug=lambda *a,**k:None)}
-        d=_extract('hardware_provisioning.py',{name},scope)
-        d[name](NS(),entry)
-        assert len(timer)==1
-        timer[0](None)
-        await asyncio.wait_for(started.wait(),1)
-        for unload in entry.unloads:unload()
-        assert not timer
-        release.set()
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        assert not committed
-    async def main():
-        await run('async_start_master_participant_retry')
-        await run('async_start_pending_provision_retry')
-    asyncio.run(main())
-
-
 def test_complete35_metrics_require_helper_for_purged_internal_raw_entities():
     """Use actual websocket metadata selection rather than test-only booleans."""
     tree=ast.parse((ROOT/'api.py').read_text())
@@ -896,9 +786,6 @@ def test_v0116_cams_model_co2_is_selectable_without_a_raw_recorder_entity():
         'DOMAIN':'lueftungsberater',
         'history_data':lambda h,eid:saved,
         'er':NS(async_get=lambda _:NS(async_get_entity_id=lambda *args:None)),
-        'station_for_room':lambda entry,room:None,
-        'station_is_direct':lambda station:False,
-        'direct_station_entities':lambda hass,station:None,
         'uses_auto_weather':lambda entry:True,
         'HISTORY_METRICS':support()['HISTORY_METRICS'],
         'finite_value':support()['finite_value'],

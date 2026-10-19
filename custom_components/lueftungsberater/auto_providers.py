@@ -11,7 +11,7 @@ import asyncio
 from dataclasses import dataclass, field, replace
 from io import BytesIO
 import csv
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 import logging
 import math
 import re
@@ -19,7 +19,6 @@ import zipfile
 from typing import Any
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 
@@ -605,16 +604,19 @@ def _open_meteo_condition(code: Any) -> str | None:
     return None
 
 
-def _forecast_timezone(name: Any) -> ZoneInfo:
+async def _async_forecast_timezone(name: Any) -> tzinfo:
+    """Resolve provider zones without reading tzdata on the event loop."""
     if isinstance(name, str) and name:
-        try:
-            return ZoneInfo(name)
-        except ZoneInfoNotFoundError:
-            pass
-    return ZoneInfo("UTC")
+        zone = await dt_util.async_get_time_zone(name)
+        if zone is not None:
+            return zone
+    return timezone.utc
 
 
-def _normalize_open_meteo_hourly(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _normalize_open_meteo_hourly(
+    payload: dict[str, Any], *, zone: tzinfo,
+) -> list[dict[str, Any]]:
+    """Parse timestamps with an already resolved zone; perform no timezone I/O."""
     hourly = payload.get("hourly")
     if not isinstance(hourly, dict):
         return []
@@ -622,7 +624,6 @@ def _normalize_open_meteo_hourly(payload: dict[str, Any]) -> list[dict[str, Any]
     temperatures = hourly.get("temperature_2m")
     if not isinstance(times, list) or not isinstance(temperatures, list):
         return []
-    tz = _forecast_timezone(payload.get("timezone"))
     normalized: list[dict[str, Any]] = []
     for index, raw_time in enumerate(times[:36]):
         if index >= len(temperatures):
@@ -639,7 +640,7 @@ def _normalize_open_meteo_hourly(payload: dict[str, Any]) -> list[dict[str, Any]
         except (ValueError, OverflowError, OSError):
             continue
         if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=tz)
+            stamp = stamp.replace(tzinfo=zone)
         item: dict[str, Any] = {"datetime": stamp, "temperature": temp}
         for source_key, target_key in (
             ("relative_humidity_2m", "humidity"),
@@ -1269,7 +1270,10 @@ async def _uba_station_candidates(
 ) -> list[tuple[UbaStation, float]]:
     now = dt_util.utcnow()
     if state.uba_station_index is None or not _fresh(state.uba_station_index_at, timedelta(hours=6), now):
-        berlin_now = dt_util.utcnow().astimezone(ZoneInfo("Europe/Berlin"))
+        berlin_zone = await dt_util.async_get_time_zone("Europe/Berlin")
+        if berlin_zone is None:
+            raise ValueError("Europe/Berlin time zone is unavailable")
+        berlin_now = dt_util.utcnow().astimezone(berlin_zone)
         active_date = berlin_now.date().isoformat()
         payload = await _get_json(
             session,
@@ -1332,7 +1336,10 @@ async def _fetch_uba_air_quality(
         _uba_station_candidates(session, location, state),
         _uba_component_index(session, state),
     )
-    berlin_now = dt_util.utcnow().astimezone(ZoneInfo("Europe/Berlin"))
+    berlin_zone = await dt_util.async_get_time_zone("Europe/Berlin")
+    if berlin_zone is None:
+        raise ValueError("Europe/Berlin time zone is unavailable")
+    berlin_now = dt_util.utcnow().astimezone(berlin_zone)
     date_from = (berlin_now - timedelta(days=1)).date().isoformat()
     date_to = berlin_now.date().isoformat()
     tasks = [
@@ -1476,7 +1483,8 @@ async def _fetch_dwd_station_weather(
     air_quality_sources.update(uba_air_quality_sources)
     station_results = results[3:]
 
-    forecast = _normalize_open_meteo_hourly(forecast_payload)
+    forecast_zone = await _async_forecast_timezone(forecast_payload.get("timezone"))
+    forecast = _normalize_open_meteo_hourly(forecast_payload, zone=forecast_zone)
     current = forecast_payload.get("current") if isinstance(forecast_payload, dict) else None
     if not isinstance(current, dict):
         current = {}
@@ -1716,7 +1724,9 @@ async def _fetch_auto_weather(
         precipitation=precipitation,
         wind_speed_kmh=_as_float(current.get("wind_speed_10m")),
         wind_gust_kmh=_as_float(current.get("wind_gusts_10m")),
-        hourly_forecast=_normalize_open_meteo_hourly(payload),
+        hourly_forecast=_normalize_open_meteo_hourly(
+            payload, zone=await _async_forecast_timezone(payload.get("timezone")),
+        ),
         measurement_sources=measurement_sources,
         air_quality_values=air_quality_values,
         air_quality_sources=air_quality_sources,
@@ -1749,7 +1759,10 @@ async def _retry_hourly_forecast(
                 **({"elevation": location.elevation} if location.elevation is not None else {}),
             },
         )
-        points = _normalize_open_meteo_hourly(payload) if isinstance(payload, dict) else []
+        points = []
+        if isinstance(payload, dict):
+            forecast_zone = await _async_forecast_timezone(payload.get("timezone"))
+            points = _normalize_open_meteo_hourly(payload, zone=forecast_zone)
     except Exception as exc:  # noqa: BLE001 - optional forecast must not break live advice
         _record_forecast_result(state, [], dt_util.utcnow(), _forecast_error_text(exc), title)
     else:

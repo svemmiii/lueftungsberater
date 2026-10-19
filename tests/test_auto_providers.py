@@ -81,8 +81,6 @@ def test_new_source_modes_allow_auto_and_auto_plus_manual():
     assert warning_mode(combined) == WARNING_SOURCE_AUTO_PLUS_MANUAL
 
 
-
-
 def test_dwd_station_index_uses_all_current_measurement_stations_even_without_forecast():
     catalog = """clu;CofX;id;ICAO;name;latitude;longitude;elevation;Hmod_H;type
 1;8;10505;----;Aachen-Orsbach;50.48;6.02;231;;LAND
@@ -407,7 +405,6 @@ def test_cap_parser_prefers_english_instruction_when_multiple_languages_exist():
     assert record.instruction == "Keep windows and doors closed."
 
 
-
 @pytest.mark.asyncio
 async def test_unsupported_country_is_explicit_no_coverage_not_an_outage():
     result = await _fetch_auto_warning(
@@ -531,7 +528,7 @@ async def test_v014_migration_preserves_existing_weather_and_adds_auto_warning(
     entry.add_to_hass(hass)
 
     assert await async_migrate_entry(hass, entry) is True
-    assert entry.minor_version == 14
+    assert entry.minor_version == 15
     assert entry.data[CONF_WEATHER_SOURCE_MODE] == WEATHER_SOURCE_MANUAL
     assert entry.data[CONF_WEATHER] == "weather.home"
     assert entry.data[CONF_WARNING_SOURCE_MODE] == WARNING_SOURCE_AUTO_PLUS_MANUAL
