@@ -4,10 +4,6 @@
   "after_dependencies": [
     "recorder"
   ],
-  "categories": [
-    "helpers",
-    "climate.fans_ventilation"
-  ],
   "codeowners": [
     "@svemmiii"
   ],
