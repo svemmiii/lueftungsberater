@@ -12,7 +12,7 @@ Eine automatische Warnquelle ist nur dort verfügbar, wo der jeweilige Provider 
 
 ## Die Wetterdaten wirken alt oder fehlen
 
-Prüfe, ob die ausgewählte Wetterquelle verfügbar ist und ob ein eigener Außensensor gerade `unknown` oder `unavailable` meldet. Bei automatisch bestimmten Quellen kann auch der Standort fehlen. Mobile Tracker brauchen regelmäßige aktuelle Positionsmeldungen; nach längeren Ausfällen pausieren standortgebundene Abrufe, statt einfach den Home-Standort zu verwenden.
+Prüfe, ob die ausgewählte Wetterquelle verfügbar ist und ob ein eigener Außensensor gerade `unknown` oder `unavailable` meldet. Bei automatisch bestimmten Quellen kann auch der Standort fehlen. Mobile Tracker brauchen regelmäßige aktuelle Positionsmeldungen; nach längeren Ausfällen pausieren standortgebundene Abrufe, statt einfach den Home-Standort zu verwenden. Eine unveränderte feste Zone (`zone.*`) benötigt dagegen keine regelmäßige GPS-Aktualisierung. Wenn trotzdem wiederholt alle Außenwerte ausfallen, prüfe in den Diagnoseattributen die Anbieterfehler und ob die ausgewählte Zone verfügbar ist.
 
 ## Eine harte Fenstersperre bleibt nach einer Warnung sichtbar
 

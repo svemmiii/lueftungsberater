@@ -28,7 +28,6 @@ from .const import (
     AIR_QUALITY_MAX_LOCATIONS,
     AIR_QUALITY_RECENT_SAMPLES,
     AIR_QUALITY_SAMPLE_MIN_INTERVAL,
-    CONF_WEATHER,
     DATA_AIR_QUALITY_TRACKERS,
     DOMAIN,
     STORAGE_VERSION,
@@ -65,17 +64,25 @@ def _finite(value: Any) -> float | None:
 
 
 def location_key(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
-    """Return a coarse location bucket; never transfer learned context blindly."""
-    lat = lon = None
-    weather_id = entry.data.get(CONF_WEATHER)
-    if isinstance(weather_id, str):
-        state = hass.states.get(weather_id)
-        if state is not None:
-            lat = _finite(state.attributes.get("latitude"))
-            lon = _finite(state.attributes.get("longitude"))
-    if lat is None or lon is None:
-        lat = _finite(getattr(hass.config, "latitude", None))
-        lon = _finite(getattr(hass.config, "longitude", None))
+    """Use the same accepted position as the automatic outside providers.
+
+    Coordinates retain the existing on-disk bucket format so learning from
+    stationary Home installations remains available without a store migration.
+    Never associate old learning with a missing selected zone/tracker.
+    """
+    from .const import DATA_OUTSIDE_COORDINATORS
+    from .location import effective_location
+
+    coordinators = hass.data.get(DOMAIN, {}).get(DATA_OUTSIDE_COORDINATORS, {})
+    coordinator = coordinators.get(entry.entry_id) if isinstance(coordinators, dict) else None
+    location = (getattr(coordinator, "_accepted_location", None)
+                if coordinator is not None else None)
+    if location is None:
+        location = effective_location(hass, entry)
+    if not location.available or not location.position_valid:
+        return None
+    lat = _finite(location.latitude)
+    lon = _finite(location.longitude)
     if lat is None or lon is None or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
         return None
     return f"{lat:.2f},{lon:.2f}"

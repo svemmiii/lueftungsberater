@@ -42,7 +42,7 @@ Bei einem Sensor an einer besonders kalten Wand- oder Fensteroberfläche kann de
 
 ## Standort und automatische Quellen
 
-Standardmäßig wird der Standort von Home Assistant verwendet. Stattdessen kannst du eine feste `zone.*`-Entity oder einen mobilen `device_tracker.*` auswählen. Das ist insbesondere für mobile Installationen sinnvoll.
+Standardmäßig wird der Standort von Home Assistant verwendet. Stattdessen kannst du eine feste `zone.*`-Entity oder einen mobilen `device_tracker.*` auswählen. Das ist insbesondere für mobile Installationen sinnvoll. Feste Zonen bleiben auch nach längerer Zeit ohne Zustandsmeldung gültig; eine Standort-Neuinitialisierung erfolgt nur bei relevanter Änderung der Zone.
 
 **Bei mobilen Trackern:** Eine Positionsmeldung soll höchstens fünf Minuten alt sein. Eine bereits gültige Position kann bei einem kurzen Ausfall insgesamt bis zu 30 Minuten seit der letzten gültigen Meldung gehalten werden. Danach pausieren die automatischen standortgebundenen Quellen, statt unbemerkt auf den Heimstandort zu springen. Sofern `gps_accuracy` gemeldet wird, werden ungenaue Werte über 250 m nicht als neue verlässliche Position akzeptiert.
 

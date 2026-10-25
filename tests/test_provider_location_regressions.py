@@ -266,3 +266,81 @@ def test_zone_can_be_used_as_effective_location_without_gps_freshness():
     assert loc.available and loc.position_valid
     assert loc.source == "zone.home"
     assert loc.latitude == 50.75 and loc.longitude == 7.05
+
+@pytest.mark.parametrize("elapsed", [timedelta(minutes=5), timedelta(hours=1), timedelta(days=7)])
+def test_static_zone_never_refreshes_merely_because_time_passed(elapsed):
+    from custom_components.lueftungsberater.location import materially_changed
+    previous = EffectiveLocation(50.75, 7.05, 70, None, "zone.home", NOW)
+    current = replace(previous, updated_at=NOW + elapsed)
+    assert not materially_changed(previous, current, now=NOW + elapsed)
+    assert materially_changed(previous, replace(current, latitude=50.76), now=NOW + elapsed)
+    assert materially_changed(previous, replace(current, available=False), now=NOW + elapsed)
+
+
+def test_static_zone_elevation_update_is_relevant_for_geographic_warnings():
+    from custom_components.lueftungsberater.location import materially_changed
+    previous = EffectiveLocation(50.75, 7.05, 60, None, "zone.home", NOW)
+    assert materially_changed(previous, replace(previous, elevation=170), now=NOW)
+    assert not materially_changed(previous, replace(previous, updated_at=NOW + timedelta(hours=3)),
+                                  now=NOW + timedelta(hours=3))
+
+
+def test_tracker_remains_mobile_and_is_not_mistaken_for_stationary_zone():
+    from custom_components.lueftungsberater.location import materially_changed
+    old = EffectiveLocation(50.75, 7.05, 60, None, "device_tracker.mobile", NOW)
+    assert materially_changed(old, replace(old, updated_at=NOW + timedelta(minutes=5)),
+                              now=NOW + timedelta(minutes=5))
+
+
+def test_air_quality_scope_follows_effective_zone_not_weather_entity():
+    from custom_components.lueftungsberater.air_quality import location_key
+    state = SimpleNamespace(attributes={"latitude": 11.11, "longitude": 22.22})
+    zone = SimpleNamespace(state="0", attributes={"latitude": 50.75, "longitude": 7.05,
+                                                   "altitude": 70})
+    hass = SimpleNamespace(
+        data={}, states=SimpleNamespace(get=lambda entity_id: zone if entity_id == "zone.work" else state),
+        config=SimpleNamespace(latitude=50.1, longitude=6.1, country="DE"))
+    entry = SimpleNamespace(entry_id="zone-learning", data={CONF_LOCATION_TRACKER: "zone.work"})
+    assert location_key(hass, entry) == "50.75,7.05"
+    # Unavailable selected zones are not converted into the Home bucket.
+    zone.state = "unavailable"
+    assert location_key(hass, entry) is None
+
+
+def test_air_quality_scope_uses_accepted_fix_until_mobile_move_is_accepted():
+    from custom_components.lueftungsberater.air_quality import location_key
+    from custom_components.lueftungsberater.const import DATA_OUTSIDE_COORDINATORS, DOMAIN
+    accepted = EffectiveLocation(50.75, 7.05, 60, None, "device_tracker.mobile", NOW)
+    hass = SimpleNamespace(data={DOMAIN: {DATA_OUTSIDE_COORDINATORS: {
+        "learning": SimpleNamespace(_accepted_location=accepted)
+    }}})
+    entry = SimpleNamespace(entry_id="learning", data={CONF_LOCATION_TRACKER: "device_tracker.mobile"})
+    assert location_key(hass, entry) == "50.75,7.05"
+    hass.data[DOMAIN][DATA_OUTSIDE_COORDINATORS]["learning"]._accepted_location = replace(
+        accepted, latitude=51.55, longitude=8.25)
+    assert location_key(hass, entry) == "51.55,8.25"
+
+@pytest.mark.asyncio
+async def test_unchanged_zone_coordinator_keeps_outside_cache_and_does_not_bootstrap(hass):
+    """A minute tick must not empty forecast/warnings for a stationary zone."""
+    from custom_components.lueftungsberater.providers import WeatherAssessment, WarningAssessment
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from custom_components.lueftungsberater.const import DOMAIN
+    accepted = EffectiveLocation(50.75, 7.05, 70, None, "zone.home", NOW)
+    config = MockConfigEntry(domain=DOMAIN, title="Zuhause",
+                             data={CONF_LOCATION_TRACKER: "zone.home"})
+    config.add_to_hass(hass)
+    coordinator = LueftungsberaterOutsideCoordinator(hass, config)
+    coordinator._accepted_location = accepted
+    coordinator._candidate_location = lambda: replace(accepted, updated_at=NOW + timedelta(hours=6))
+    coordinator._automatic = SimpleNamespace(start=AsyncMock())
+    coordinator._initial_refresh_completed = True
+    with (patch.object(coordinator, "_schedule_forecast_retry"),
+          patch.object(coordinator, "_schedule_warning_transition"),
+          patch("custom_components.lueftungsberater.outside.weather_assessment", return_value=WeatherAssessment()),
+          patch("custom_components.lueftungsberater.outside.warning_assessment", return_value=WarningAssessment()),
+          patch("custom_components.lueftungsberater.outside.async_apply_persistent_safety_state", AsyncMock())):
+        await coordinator._async_update_data()
+    assert coordinator._accepted_location is accepted
+    assert coordinator._location_task is None
+    coordinator._automatic.start.assert_not_awaited()

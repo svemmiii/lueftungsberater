@@ -2,6 +2,22 @@
 
 Hier stehen die **zusammengefassten Änderungen pro Version**, nicht einzelne interne Testläufe oder unfertige Zwischenstände. Für ältere tatsächlich veröffentlichte Fassungen ist die [GitHub-Releaseübersicht](https://github.com/svemmiii/lueftungsberater/releases) die maßgebliche Quelle.
 
+## v0.11.10
+
+### Standort und Verfügbarkeit
+
+- Feste Home-Assistant-Zonen wie `zone.home` werden bei unveränderten Koordinaten nicht mehr nach fünf Minuten fälschlich als neuer Standort gewertet. Geänderte Koordinaten oder relevante Höhenänderungen lösen weiterhin einen Standortwechsel aus.
+- Normale Aktualisierungen behalten bereits verfügbare Wetter-, Prognose- und Warnungsdaten bis zur jeweils vorgesehenen Gültigkeitsgrenze. Ein unnötiger Neustart der automatischen Datenquellen entfällt.
+- Bei tatsächlichen Standortwechseln oder nicht mehr gültigen mobilen Positionen werden ortsgebundene Daten weiterhin von neuen Warngebieten getrennt. Ein Ausfall wird nicht als Entwarnung behandelt.
+
+### Luftqualität und Anbieterformate
+
+- Die langfristige lokale Luftqualitäts-Basislinie orientiert sich am tatsächlich akzeptierten Außenstandort statt an einer eventuell abweichenden Wetter-Entity. Die bestehende Speicherung und bereits gelernte Werte bleiben erhalten; neue Standorte verwenden getrennte Ortsbereiche.
+- Der Parser für UBA-Schadstoff-Metadaten akzeptiert zusätzlich indizierte JSON-Objekte und Einträge ohne wiederholte Komponenten-ID. Unbekannte Metadaten werden weiterhin nicht als Messwerte interpretiert.
+- Regressionstests für unbewegte Zonen, echte Standortänderungen, mobile Positionen, Luftqualitäts-Ortsbindung und UBA-Metadaten ergänzt.
+
+**Hinweis:** Die Änderungen wurden mit gezielten isolierten Tests und Syntaxprüfungen überprüft. Ein vollständiger Home-Assistant-Integrationstest mit echten Anbieterantworten bleibt für die Alpha-Version erforderlich.
+
 ## v0.11.9
 
 ### Automatische Datenquellen und weniger unnötige Abrufe

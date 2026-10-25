@@ -93,7 +93,7 @@ Ohne Tailscale-Remote bleiben deine Raum- und Home-Assistant-Sensordaten lokal. 
 | [Historie](docs/HISTORIE.md) | Historienkarte, Beispielkonfiguration, Recorder und Aufbewahrung |
 | [Tailscale-Remote](docs/REMOTE.md) | Einrichtung, Berechtigungen, Datenschutz und Fehlerfälle |
 | [Häufige Fragen](docs/FEHLERBEHEBUNG.md) | Typische Probleme und Hinweise zur Fehlermeldung |
-| [Änderungen](CHANGELOG.md) | Zusammenfassung von v0.11.9 und Link zu veröffentlichten GitHub-Releases |
+| [Änderungen](CHANGELOG.md) | Zusammenfassung von v0.11.10 und Link zu veröffentlichten GitHub-Releases |
 
 ## Probleme melden und mithelfen
 

@@ -1273,29 +1273,58 @@ def _parse_uba_stations(payload: Any) -> list[UbaStation]:
 
 
 def _parse_uba_components(payload: Any) -> dict[int, str]:
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, (dict, list)):
+    """Accept list and ID-indexed UBA component metadata without guessing IDs.
+
+    The API may expose an array of component rows or map component IDs to rows.
+    Some versions omit the ID inside an indexed row. Both the indexed object
+    and its top-level equivalent are supported; unrelated response metadata is
+    never interpreted as a pollutant.
+    """
+    if not isinstance(payload, dict):
         return {}
-    items = data.values() if isinstance(data, dict) else data
+    data = payload.get("data", payload)
+    if isinstance(data, dict):
+        items = data.items()
+    elif isinstance(data, list):
+        items = enumerate(data)
+    else:
+        return {}
     result: dict[int, str] = {}
-    for raw in items:
+    for key, raw in items:
         component_id: int | None = None
         labels: list[Any] = []
         if isinstance(raw, (list, tuple)) and raw:
             try:
                 component_id = int(raw[0])
-            except (TypeError, ValueError):
-                component_id = None
-            labels.extend(raw[1:])
+            except (TypeError, ValueError, OverflowError):
+                pass
+            labels.extend(raw[1:] if component_id is not None else raw)
         elif isinstance(raw, dict):
+            def field(name: str) -> Any:
+                return raw.get(name)
+
             try:
-                component_id = int(raw.get("id") or raw.get("component_id") or raw.get("componentId"))
-            except (TypeError, ValueError):
-                component_id = None
-            labels.extend((raw.get("code"), raw.get("symbol"), raw.get("name")))
-        if component_id is None:
+                component_id = int(field("id") or field("component_id") or field("componentId"))
+            except (TypeError, ValueError, OverflowError):
+                pass
+            # Numeric-keyed JSON arrays are sometimes returned as objects.
+            if "0" in raw and component_id is None:
+                try:
+                    component_id = int(raw["0"])
+                except (TypeError, ValueError, OverflowError):
+                    pass
+            labels.extend((field("code"), field("symbol"), field("name"),
+                           field("description"), field("short_name")))
+            labels.extend(raw[str(index)] for index in range(0, len(raw) + 1)
+                          if str(index) in raw)
+        else:
             continue
-        kind = next((_uba_pollutant_kind(label) for label in labels if _uba_pollutant_kind(label)), None)
+        if component_id is None and isinstance(key, str) and key.isdecimal():
+            component_id = int(key)
+        if component_id is None or component_id < 0:
+            continue
+        kind = next((_uba_pollutant_kind(label) for label in labels
+                     if _uba_pollutant_kind(label)), None)
         if kind:
             result[component_id] = kind
     return result

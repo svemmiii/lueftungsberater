@@ -836,3 +836,17 @@ def test_actual_nina_adapter_keeps_a_recognized_command_under_wrong_language_met
     proof = result.warning_observations[0]
     assert proof["official_close_instruction"]
     assert proof["notice"]["close_evidence"][0]["provenance"]["language_mismatch"]
+
+@pytest.mark.parametrize("payload", [
+    {"data": {"1": {"code": "PM10"}, "5": {"name": "Stickstoffdioxid"}}},
+    {"1": {"code": "PM10"}, "5": {"name": "Stickstoffdioxid"}},
+    {"data": {"1": {"0": "PM10"}, "5": {"0": "NO2"}}},
+    {"data": {"1": ["PM10", "Feinstaub"], "5": ["NO2", "Stickstoffdioxid"]}},
+])
+def test_uba_indexed_metadata_keeps_component_ids_and_pollutants(payload):
+    assert _parse_uba_components(payload) == {1: "pm10", 5: "no2"}
+
+
+def test_uba_metadata_rejects_unrelated_or_nonindexed_objects():
+    assert _parse_uba_components({"request": {"name": "PM10"}}) == {}
+    assert _parse_uba_components({"data": {"bad": {"name": "NO2"}}}) == {}

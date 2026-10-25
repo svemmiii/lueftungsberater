@@ -1,4 +1,4 @@
-# Automatische Wetter-, Luftqualitäts- und Warnquellen – v0.11.9
+# Automatische Wetter-, Luftqualitäts- und Warnquellen – v0.11.10
 
 ## CAP-Zahlenfelder und Warnsprachen
 
@@ -7,7 +7,7 @@ Unterstützte CAP-Anbieterprofile erkennen strukturierte Böenangaben wie NWS `m
 DE/EN/TR-Textmodule sind separat registriert und verwenden isolierte Parserzustände. Bisherige begrenzte FR/ES/IT/NL-Konstruktionen bleiben erhalten. `set_warning_language_enabled()` steuert Warntextmodule unabhängig von UI-Sprachen und strukturierten CAP-Feldern. Die Textgrammatik bleibt begrenzt; unbekannte Freitexte und unklare Entwarnungen liefern keine bestätigte Freigabe. Eine zuverlässig erkannte Schließanweisung bleibt bei abweichender Sprachkennzeichnung wirksam und trägt den Abweichungsvermerk in ihrer Provenienz.
 
 
-Stand der Implementierung: 25.10.2026. Integrationsversion 0.11.9. Hinweise zur Verteilung der HTTP-Abrufe und zu amtlichen Warnungen stehen in der README.
+Stand der Implementierung: 25.10.2026. Integrationsversion 0.11.10. Hinweise zur Verteilung der HTTP-Abrufe und zu amtlichen Warnungen stehen in der README.
 
 | Land / Gebiet | Wetter | Amtliche Warnquellen | Bevölkerungsschutz |
 | --- | --- | --- | --- |
@@ -25,7 +25,7 @@ Weitere MeteoAlarm-Länder: AD, BA, BG, HR, CY, CZ, DK, EE, FI, FR, GR, HU, IS, 
 
 Die Länderwahl folgt den Koordinaten, nicht der Zeitzone. Die mitgelieferten Natural-Earth-Länderpolygone sind kartographische Grenzen; Grenzlinien, Küsten und kleine Gebiete sind keine amtliche Katasterauflösung. Ein nicht eindeutig zuordenbarer Punkt wird als unbekannt behandelt.
 
-Neben dem Home-Assistant-Heimpunkt kann eine `zone.*`-Entity als statischer wirksamer Standort gewählt werden. Für Zonen werden deren feste Latitude-/Longitude-Koordinaten verwendet; GPS-Frische- und Genauigkeitsregeln gelten ausschließlich für `device_tracker.*`.
+Neben dem Home-Assistant-Heimpunkt kann eine `zone.*`-Entity als statischer wirksamer Standort gewählt werden. Für Zonen werden deren feste Latitude-/Longitude-Koordinaten verwendet; GPS-Frische- und Genauigkeitsregeln gelten ausschließlich für `device_tracker.*`. Unveränderte statische Zonen werden nicht allein wegen des Ablaufs von fünf Minuten neu initialisiert. Echte Standortänderungen und Standortausfälle trennen die bislang gültigen ortsabhängigen Providerdaten von den neuen Abrufen; bestätigte Sicherheitssperren bleiben quellengebunden. Die langfristige Luftqualitäts-Basislinie orientiert sich am akzeptierten Außenstandort und wird bei gewöhnlichen Aktualisierungen nicht zurückgesetzt.
 
 Bei einem mobilen Tracker gelten Positionsmeldungen höchstens fünf Minuten als frisch. Vorhandene `gps_timestamp` oder `location_updated_at` werden bevorzugt; ansonsten dient Home Assistants `last_reported`, ersatzweise `last_updated`, als Meldungszeit. Ein weiter verfügbarer, aber nicht mehr meldender Tracker gilt somit nicht unbegrenzt als aktuell. Die letzte Position darf bis insgesamt 30 Minuten seit der letzten Positionsmeldung gehalten werden. Danach sind die automatischen Quellen nicht verfügbar. Es erfolgt kein stiller Wechsel auf den Heimstandort.
 

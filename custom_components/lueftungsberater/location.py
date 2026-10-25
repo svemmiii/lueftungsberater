@@ -159,8 +159,13 @@ def materially_changed(
         return True
     if previous.available != current.available:
         return True
-    if current.source == "home":
-        return distance_km(previous, current) >= 0.05
+    # Home and explicit HA zones are fixed locations, not mobile GPS fixes.
+    # Re-reading their unchanged coordinates must never cause a timed restart.
+    if current.source == "home" or current.source.startswith("zone."):
+        return (distance_km(previous, current) >= 0.05
+                or (previous.elevation is None) != (current.elevation is None)
+                or (previous.elevation is not None and current.elevation is not None
+                    and abs(previous.elevation - current.elevation) >= 1.0))
     if distance_km(previous, current) >= LOCATION_MOVE_THRESHOLD_KM:
         return True
     moment = now or dt_util.utcnow()

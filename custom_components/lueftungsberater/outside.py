@@ -152,7 +152,9 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         """Return the throttled source candidate without jumping home on GPS loss."""
         current = effective_location(self.hass, self.entry)
         tracker = str(self.entry.data.get(CONF_LOCATION_TRACKER) or "").strip()
-        if not tracker:
+        if not tracker or tracker.startswith("zone."):
+            # An unavailable static zone is not a mobile GPS outage. Never
+            # replace it with a cached fix or silently fall back to Home.
             self._last_valid_mobile_location = None
             return current
         if current.source == tracker and current.available and current.position_valid:
@@ -183,8 +185,9 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
             self._automatic = AutomaticPolling(self.hass, self.entry, self.async_request_refresh)
             await self._automatic.start(self._accepted_location or candidate_location)
         elif changed and self._automatic is not None:
-            # Clear old-location evidence immediately; the new verified startup
-            # runs in the background without blocking local sensor updates.
+            # Only real moves or loss of location reach this path. Old-area
+            # warnings must never be treated as current-area evidence while a
+            # new location is being bootstrapped in the background.
             from .auto_providers import _state, _clear_forecast
             state = _state(self.hass, self.entry)
             state.weather = None
