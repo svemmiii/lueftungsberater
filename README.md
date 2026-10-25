@@ -1,452 +1,104 @@
-### v0.11.9: verteilte Abrufe und korrigierte amtliche Warnungen
-
-**CAP-Nachbesserung (weiterhin v0.11.9):** Anbieterprofil-gestützte Zahlenfelder werden unabhängig von Warntext und Sprachkennung ausgewertet. Das NWS-Feld `maxWindGust` benötigt eine ausdrücklich gelieferte, unterstützte Einheit sowie gültige CAP-Zeit- und Gebietsdaten. Nicht unterstützte Freitexte bleiben als Unsicherheit sichtbar, unterdrücken diesen Zahlenbefund aber nicht. Eine bereits eindeutig erkannte amtliche Schließanweisung wird durch eine falsche Sprachkennung nicht verworfen; unsichere Entwarnungen bleiben gesperrt.
-
-Deutsch, Englisch und Türkisch besitzen getrennte Textparserzustände und eigene registrierte Extraktoren. Gemeinsame Syntax- und Kontextfunktionen werden weiterverwendet; es wird kein vollständiges Verständnis beliebiger Warnformulierungen behauptet. Die Textunterstützung kann unabhängig von Oberfläche und CAP-Anbieterprofil aktiviert werden. Neue Sprachklassen implementieren `extract(record, elevation=...) -> TextFindings` und deklarieren ihre Begriffe; ein UI-Sprachpaket allein schaltet keine ungeprüfte Warntextunterstützung frei. Alle Sprachfassungen behalten ihren eigenen Ort, Zeitraum und Herkunftsnachweis.
-
-
-**Nachprüfung COMPLETE (1)(20261025-055930), weiterhin v0.11.9:** Schneegriesel, Schneetreiben, gefrierende Nässe sowie weitere Wetterzustände und Wetterveränderungen werden mit ihren vollständigen meteorologischen Wortgruppen ausgewertet. Echte zusätzliche Ortsangaben und ähnlich beginnende Ortsnamen bleiben gesondert zu prüfen. Verneinte Einschätzungs-, Ausschluss- und Ausbleibensprognosen behalten ihren Windbezug; Zeitadverbien, Quellenzusätze und Gewissheitsangaben haben getrennte Rollen. Die Verneinung einer Schadensfolge wird weiterhin nicht auf angekündigte Böen übertragen. Zeitnormalisierung, örtliche Uhrzeitumrechnung und 30-Minuten-Vorlauf behandeln nicht darstellbare Datumswerte ohne Ausnahme oder erfundenen Sperrbeginn. Ungültige Warnzeiten bleiben als unklar sichtbar; automatische und manuell eingebundene Warnquellen dürfen damit eine zuvor bestätigte Sperre nicht stillschweigend freigeben. Der bestehende Rückfallschutz behält seine bisherige Befristung und wird durch solche Daten nicht erneuert. Alle 632 neuen Audit-Eingaben und ihre bisherigen Sollwerte sind dauerhaft enthalten. HTTP-Planer, Stationsauswahl und Frontend bleiben unverändert; vollständige Home-Assistant-Läufe und reale Langzeitmessungen sind weiterhin offen.
-
-**Nachprüfung COMPLETE (1)(20261024-193804):** Überschriftenkontext wird der jeweiligen Windbehauptung zugeordnet. Örtliche oder zeitliche Angaben zu Hagel, Regen, Schnee und anderen eigenständigen Warnereignissen schränken eine unabhängige Böenprognose nicht ein. Numerische Windüberschriften behalten ihren eigenen Wert und Bezug; eine ausdrücklich allgemeine Beschreibung wird nicht durch einen örtlichen anderen Wert verdrängt. Fehlender Kontext einer unqualifizierten Windmenge kann weiterhin aus einer passenden Windüberschrift übernommen werden; mehrdeutige Zuordnungen bleiben unbestätigt. Reine Orts-/Zeitergänzungen und allgemeine Windüberschriften bleiben wirksam. Schneematsch und Brise sind meteorologische Begleitumstände und liefern selbst keinen Böenwert. Längere Quellenangaben, gebeugte Behördennamen und ausdrücklich verneinte Wahrscheinlichkeitsprognosen verwenden dieselbe Subjekt-/Prädikatzuordnung wie die übrigen Windangaben. Alle 592 neuen Audit-Eingaben mit unveränderten Sollwerten und zusätzliche Gegenpaare bleiben in der regulären Testsuite. Die gemeinsame CAP-Gebietsprüfung, numerischen Höhengrenzen und die bestehende Bereichsprüfung ausdrücklicher Schließanweisungen bleiben erhalten.
-
-**Nachprüfung COMPLETE (1)(20261024-190928):** Zusammengesetzte Wetterzustände und adverbial beschriebene Wetterbedingungen werden als vollständige Wortgruppen ausgewertet. Räumliche Abschnitte und echte Ortsnamen bleiben davon getrennt. Berichtende Nominalgruppen mit „zufolge“ oder nachgestelltem „nach“ sowie Quellenakteure wie „durch unsere Vorhersage“ behalten ihren Prognosebezug; Verben werden nicht als Quellenadjektive entfernt. Dieselbe Zuordnung gilt für angeschlossene Relativsätze. Vollständige Warngebietsbezüge mit amtlichen Statuszusätzen, Geltungsbereich und vor-/nachgestellter flächendeckender Gültigkeit bestätigen nur die bereits vorausgesetzte Gebietszuordnung; örtliche Ausnahmen und Einschränkungen bleiben erhalten. „Meereshöhe“ verwendet dieselben numerischen Vergleiche wie die bisherigen Höhenangaben. Relative Bodenhöhen werden dadurch nicht zu Meereshöhen. Alle 361 neuen Audit-Eingaben und ihre unveränderten Erwartungen sowie zusätzliche Gegenpaare sind dauerhaft in den Tests enthalten.
-
-**Nachprüfung COMPLETE (1)(20261024-183201):** Wetterbegleitumstände verwenden gemeinsame meteorologische Hauptwörter mit ihren Flexionen und Zusammensetzungen; echte Teilgebietsangaben bleiben davon getrennt. Quellenangaben wie „nach den neuesten Berechnungen“ behalten ihren vollständigen Nominalbezug. Auch bei vorangestelltem trennbarem Prädikat gehören „bleiben“ und „aus“ zur selben Böenprognose. Numerische Abschnitte ohne bestätigten Böenbezug werden als eigene Mengenangaben behandelt und nicht als gemeinsamer Orts- oder Zeitfilter zur nächsten ausdrücklichen Böenaussage verschoben. Ein passender strukturierter Böenparameter kann den fehlenden Ereignistyp einer solchen Menge bestätigen; dabei übernimmt er deren eigenen räumlichen und zeitlichen Bezug. Die spätere ausdrücklich allgemeine Böenprognose bleibt unabhängig. Alle 606 neuen Audit-Eingaben mit unveränderten Sollwerten und zusätzliche Gegenpaare sind dauerhaft enthalten. HTTP-Steuerung, Stationsauswahl und Frontend bleiben unverändert.
-
-**Nachprüfung COMPLETE (1)(20261024-160614):** Vollständige Wetter- und Umweltzustände, koordinierte Bedingungen und die dazugehörige Prognose werden gemeinsam ausgewertet. Derselbe Rollenparser verbindet Zusätze nach einem Komma und prüft anschließend die Verneinung; echte zusätzliche Ortsangaben bleiben erhalten. „Überall in diesem Warngebiet“ bestätigt die Gültigkeit innerhalb des bereits zugeordneten Warngebiets, ohne örtliche Ausnahmen zu entfernen. „Höhenlage“ verwendet dieselbe dimensionale Auswertung wie „Höhe“, bevor nach Zeitangaben gesucht wird. Passive Quellenakteure, verneintes Ausfallen und unterstützte italienische Prognose-/Ausschlusskonstruktionen behalten ihren jeweiligen Subjektbezug. „Stundenkilometer“ ist eine ausdrücklich bekannte Geschwindigkeitseinheit; unbekannte Einheiten und Mittelwind werden nicht zu Böen. Alle 393 unabhängigen Audit-Eingaben und ihre unveränderten Erwartungen sowie zusätzliche kombinierte Gegenproben sind dauerhaft enthalten. Die vollständige Home-Assistant-Integration und reale HTTP-/DNS-Langzeittests bleiben gesondert zu prüfen; beschleunigte Simulationen belegen keine feste Minutenspitze im Echtbetrieb.
-
-**Nachprüfung COMPLETE (1)(10):** Wetterzustände mit beschreibenden Adjektiven werden anhand ihres meteorologischen Hauptworts ausgewertet. Regionale Ausnahmen bleiben als Einschränkung der jeweiligen Böenaussage erhalten, auch nach einem Zusatz wie „im gesamten Warngebiet“. Für qualitative Tallagen, Berglagen und benannte Teilgebiete wird keine Zugehörigkeit aus der Standorthöhe erfunden. Eindeutige numerische Höhenausnahmen können dagegen bestätigen, dass ein Fenster außerhalb der Ausnahme liegt. Höhenzahl, Einheit und bekannte Meereshöhenzusätze werden gemeinsam erfasst; deren Originalbezug bleibt sichtbar in den Auswertungsdaten. Bezugsangaben werden dabei nicht geodätisch ineinander umgerechnet. Quellenzuschreibungen mit Bindestrich und Gradangaben wie „völlig ausgeschlossen“ behalten ihren Bezug zur jeweiligen Prognose. Die neuen Gegenproben enthalten zwei ausdrücklich berichtigte Audit-Erwartungen: „ab 1.200 m“ schließt genau 1.200 m ein.
-
-**Nachprüfung COMPLETE (1)(9):** Höhenzahlen werden als vollständige Mengenangaben mit ihrer sprachlichen Zahlenschreibweise gelesen. Deutsches „oberhalb 1.200 m“ meint 1200 Meter; englisches „above 1.200 m“ behält dagegen den Dezimalwert 1,2 Meter. Eindeutige Zifferngruppen mit Leerzeichen oder Apostrophen sowie kombinierte Gruppen-/Dezimalnotation werden getrennt ausgewertet. Ungültige oder nicht eindeutig zuordenbare Höhenzahlen bestätigen keinen Standort. Die Umrechnung von Fuß in Meter erhält gleichwertige Höhenbereiche ohne zusätzliche Rundungsabweichung. Wetterbedingungen mit flektierten Beschreibungen, vollständige Warngebiete und Verneinungen mit Quellen- oder Erkenntniseinschüben verwenden ihre jeweilige grammatische Rolle. Die Karte nennt gleichzeitig vorhandene Geschwindigkeits-, Zeit- und Auftretenskonflikte jeweils ausdrücklich.
-
-**Nachprüfung COMPLETE (1)(8):** Böenangaben werden zunächst mit Quelle, Geschwindigkeitsbereich, Polarität, Ortsbezug und eigener Zeitangabe erfasst; erst anschließend werden fehlender Kontext und Widersprüche geprüft. Gegensätzliche Aussagen innerhalb desselben Feldes bleiben als Konflikt sichtbar. Eine numerische Überschrift mit späterem Beginn überschreibt keine eigenständige frühere Prognose in der Beschreibung. Bei abweichenden, eindeutig zugeordneten positiven Zeitangaben bleiben beide Prognosen erhalten; der frühere passende Beginn kann die 30-minütige Vorwarnung auslösen. Die Karte kennzeichnet die Zeitabweichung und zeigt die Originalaussagen. Unaufgelöste oder verneinte Prognosen werden dadurch nicht zu bestätigten Böen. Vollständige Wetter-, Gebiets- und Höhenformulierungen sowie eingeschobene Quellenangaben werden ihren jeweiligen Aussagen zugeordnet; benannte Teilregionen und unbekannte Standorthöhen bleiben gesondert zu prüfen.
-
-**Nachprüfung COMPLETE (1)(7):** Zusammengehörige Böen-Wortgruppen wie „Rachas de viento“ oder „Gusts of wind“ behalten ihren eigenen Geschwindigkeitswert; ein separat genannter Mittelwind bleibt getrennt. Wetterbedingungen einschließlich Eisregen, Graupel und Glatteis können die zugehörige Prognose ergänzen, ohne als unbekannter Ort zu gelten. Verneinungen wie „unter keinen Umständen“ sowie Ausschlussprädikate beziehen sich auf das jeweilige Ereignis. Ortskorridore wie „von Bonn bis Köln“ benötigen weiterhin eine bestätigte Standortzuordnung. „Überall im Warngebiet“ gilt nur innerhalb des bereits zugeordneten amtlichen Gebiets; eingeschränkte oder verneinte Flächenabdeckung bestätigt keinen Standort. Vollständige Höhenformulierungen wie „ab einer Höhe von 1200 Metern“ behalten ihre exakten Grenzen und werden unabhängig von Uhrzeiten ausgewertet.
-
-**Weitere semantische Gegenproben:** Verneinte Existenz- und Vorkommensprognosen, zusammengesetzte Wetterbedingungen wie Starkregen, Höhenvergleiche mit „von“ und Aussagen über alle Teile des zugeordneten Warngebiets werden getrennt ausgewertet. Höhenangaben werden vor der Zeitsuche ihrer Messgröße zugeordnet. Unbestätigte Teilgebiete und unbekannte Standorthöhen bleiben unbestätigt.
-
-**Geschwindigkeitsbereiche und Verneinung:** Für Widersprüche werden offene und geschlossene Geschwindigkeitsintervalle verglichen. „Keine Böen über 90 km/h“ widerspricht allgemeinen 110-km/h-Böen, schließt aber genau 90 km/h nicht aus. Die ursprüngliche Vergleichsformulierung bleibt erhalten; ein unbeschränkter Bereich wird nicht als erfundener Höchstwert ausgegeben. Verstärkungen wie „definitiv nicht“ und „mit Sicherheit ausgeschlossen“ bleiben beim zugehörigen Ereignis. „Nicht definitiv erwartet“ verneint dagegen die Sicherheit der Prognose und gilt nicht als sicherer Ausschluss der Böen.
-
-**Wetterbedingungen und Windspitzen:** Flektierte Wetterbegriffe wie „bei kräftigen Niederschlägen“ werden von Ortsangaben getrennt. Ähnlich beginnende Ortsnamen behalten ihre räumliche Einschränkung. „Windspitze“ und „Windspitzen“ sind ausdrücklich unterstützte Spitzenwerte; Mittelwind und andere zusammengesetzte Wörter werden dadurch nicht zu Böen. Eindeutige Uhrzeiten mit Punkt, etwa „ab 18.00 Uhr UTC“, verwenden denselben 30-Minuten-Vorlauf wie die Schreibweise mit Doppelpunkt.
-
-**Böenbegriffe, Einheiten und Uhrzeiten:** „Windstöße“ und „Spitzenböen“, niederländisches `km/u` sowie ausgeschriebene Kilometer-pro-Stunde-Einheiten werden ausgewertet. Explizite Uhrzeiten wie „ab 18:00 UTC“ funktionieren auch ohne „Uhr“, sofern der Bezugstag eindeutig ist. Fehlende Zeitzonen und mehrdeutige Tagesangaben bleiben unklar. Weitere spanische und türkische Negationen sowie ausdrücklich fehlende Eintrittswahrscheinlichkeit werden erkannt; „unwahrscheinlich“ bedeutet weiterhin nicht „ausgeschlossen“.
-
-**Widersprüchliche Warnfelder:** Überschrift, Ereignis, Beschreibung und Parameter bleiben als getrennte amtliche Aussagen erhalten. Eine negierte Überschrift löscht keine positive Böenangabe aus der Beschreibung. Widersprüche zum Auftreten werden auf der Karte gekennzeichnet; die betroffenen Angaben begründen ohne eindeutige Klärung keine Windsperre. Klar getrennte Orte und Zeiträume bleiben eigenständig, einschließlich der unbestrittenen Teile eines Böenzeitraums.
-
-**Dringliche Warnungsabrufe:** Bei freier Transportkapazität warten dringliche Warnungen nicht auf den allgemeinen HTTP-Taktabstand. Gleichzeitige Transporte bleiben auf drei begrenzt; gewöhnliche Stationsabrufe belegen höchstens zwei Plätze. Belegte Kapazität, Serverwartezeiten und Übertragungsdauer können weiterhin verzögern. Die normale Lastglättung und Aktualitätsfristen gelten weiter; Warnungsabrufe können zusätzliche kurze Spitzen verursachen.
-
-**Weitere Prognose- und Ortsformulierungen:** „Mit Böen … ist nicht zu rechnen“, verneintes Eintreten und fehlende Wahrscheinlichkeit werden der jeweiligen Böenprognose zugeordnet. Beziehungen wie „zwischen Köln und Bonn“, „rund um Köln“ und „nördlich von Köln“ bleiben ohne bestätigte Standortzuordnung räumlich unklar. Eigenständige Böenwörter und unterstützte Zusammensetzungen werden als vollständige Wörter erkannt; „August“ und „Gustavsburg“ begründen keine Windmeldung. Positive Böenprognosen und Verneinungen von Schäden werden getrennt ausgewertet.
-
-**Böenprognosen, Zeitbezüge und parallele Abrufe:** Eindeutige Formulierungen mit nachgestelltem „in Böen“ sowie weitere negative Ereignisprädikate werden berücksichtigt. Unaufgelöste Angaben wie „ab Montag“, „gegen Abend“ oder „in zwei Stunden“ werden als zeitlich unklar angezeigt und erzeugen für sich keinen angenommenen sofortigen Sperrbeginn. Ein gemeinsamer HTTP-Abruf bleibt für seine übrigen Teilnehmer erhalten, wenn ein Aufrufer abbricht. Bis zu drei Transporte können parallel laufen; höchstens zwei gewöhnliche Transporte lassen Kapazität für Warnungen frei. Die Lastglättung und Datenfristen gelten weiterhin.
-
-**Örtliche und verneinte Böenprognosen:** Zusätze wie „im Harz“, „in der Eifel“, „an der Nordseeküste“ oder „auf See“ werden auch ohne das Wort „nur“ als räumliche Einschränkung behandelt. Ohne bestätigte Zuordnung zum Standort begründet der örtliche Wert keine pauschale Windsperre; der amtliche Hinweis bleibt sichtbar. Auch „Kein Auftreten von Böen … zu erwarten“ wird als verneinte Böenprognose berücksichtigt. Allgemeine Böen und Aussagen über Schäden werden davon getrennt ausgewertet.
-
-**Erneute Korrektur innerhalb v0.11.9:** Widersprüchliche allgemeine Böenangaben in Beschreibung und Parametern bleiben beide erhalten und werden auf der Karte gekennzeichnet. Hohe Werte für andere Orte oder spätere Zeiträume werden ihren jeweiligen Aussagen zugeordnet. Qualitative Angaben wie „in höheren Lagen“, „in den Bergen“ oder „in tieferen Lagen“ benötigen eine verifizierbare Standortzuordnung. Eindeutige numerische Höhen und Zeitgrenzen können ausgewertet werden; unklare Orts- oder Zeitbezüge bleiben sichtbar und erzeugen für sich keine pauschale Windsperre. Eine lokale Uhrzeit ohne gesicherte Zeitzone wird nicht aus dem UTC-Zeitstempel geraten.
-
-Die Auswertung amtlicher Windangaben ist korrigiert: „unter 90 km/h“, „less than 90 km/h“ und entsprechende unterstützte Vergleichsformulierungen bleiben strikt unter der Grenze, auch nach Einheitenumrechnung. Verneinte Böengeschwindigkeiten werden nicht als angekündigte Böen ausgegeben. Einschränkungen vor und nach der Geschwindigkeit sowie in Überschriften und Parametern werden berücksichtigt. Ein Maximum ausschließlich für Gipfel oder exponierte Lagen begründet keine pauschale Windsperre. Numerische Höhenbereiche benötigen eine passende bekannte Standorthöhe. Unklare Angaben bleiben als amtliche Warnung sichtbar.
-
-Dabei wird die Verneinung dem beschriebenen Ereignis zugeordnet: „Schäden sind nicht auszuschließen“, „ohne nennenswerte Niederschläge“ und „lightning is not expected“ heben angekündigte 110-km/h-Böen nicht auf. „Böen sind ausgeschlossen“ verneint dagegen die Böenprognose; „Böen sind nicht auszuschließen“ lässt sie möglich. Auch „keine Fenster offen lassen“ verneint das Offenlassen, nicht die Böen. Stehen allgemeine Böen von 110 km/h und ein Zusatzmaximum von 140 km/h nur auf Gipfeln im selben Satz, bleibt der allgemeine Wert erhalten. Eine Einschränkung wie „110 km/h, nur auf Gipfeln“ gehört dagegen weiterhin zu genau diesem Wert. Unbestätigte Küsten-, Berg- oder andere örtliche Zusatzangaben werden nicht als allgemeines Maximum ausgegeben.
-
-Bei gleicher Aktualitätsfrist werden Warnungsabrufe jetzt vor Stationsabrufen ausgeführt. Frühere Fristen behalten Vorrang; laufende Transporte werden nicht abgebrochen. Die Verteilung der HTTP-Anfragen, die bedarfsweise Stationssuche und die bisherigen Altersgrenzen bleiben erhalten.
-
-### Verteilte Abrufe und nachvollziehbare amtliche Warnungen seit v0.11.9
-
-Die automatischen Quellen teilen sich eine HTTP-Warteschlange. Wetterstationen, Vorhersage, Luftmodell, UBA und Warnungen haben getrennte Abrufaufgaben. Die tatsächlichen HTTP-Aufrufe bestimmen die Abstände automatisch. Beim Start werden die Quellen mit höchstens drei gleichzeitigen Anfragen vollständig geprüft; später werden einzelne Anfragen verteilt. Knappe Aktualitätsfristen und Wiederholungen haben Vorrang vor der Glättung. Eine vollkommen gerade Verkehrskurve wird nicht garantiert.
-
-DWD und UBA fragen weitere Stationen erst an, solange benötigte gültige Messgrößen fehlen. Die bisherigen acht bzw. zwölf Kandidaten bleiben als Reserve erhalten. Ungültige oder alte Antworten führen zu Ersatzstationen und begrenzten Wiederholungen. Jeder Wert behält seinen eigenen Mess- und Abrufzeitpunkt. Die bestehende Historie und konfigurierte Raumquellen werden nicht gelöscht oder migriert.
-
-Lüftungsrelevante amtliche Meldungen erscheinen in der eingeklappten und ausgeklappten Raumkarte, unabhängig vom Schalter für allgemeine Hinweise. Die Karte nennt Quelle, Ereignis, aus der Meldung gelesene Böengeschwindigkeit, angekündigten Beginn, Gültigkeitsende und Originalanweisung. Empfehlungen des Assistenten sind getrennt beschriftet. Entwarnungen erscheinen nur ausgeklappt.
-
-Eine neue Windsperre setzt eine passende amtliche Meldung mit eindeutig gelesenen Böen von mindestens **90 km/h** voraus. Einheit und gegebenenfalls Höhenbereich müssen zuordenbar sein. Böen von 65–85 km/h bleiben eine starke Empfehlung zum Geschlossenhalten ohne absolute Sperre. Eine Warnfarbe oder das Wort „Sturm“ allein reicht nicht. Lokale Windmessungen oder Modellwerte erzeugen keine neue Wind-Hardsperre. Gültige ausdrückliche Fenster-/Lüftungsanweisungen bleiben maßgeblich; die eigenständige Hagelsicherheit bleibt bestehen.
-
-Die Windsperre beginnt **30 Minuten vor dem amtlich angekündigten Ereignisbeginn**, frühestens mit der Gültigkeit der Meldung. Beispiel: Beginn 15:00 → Sperre 14:30. CAP-`effective` und `onset` bleiben getrennt. Der Wechsel erfolgt mit einem lokalen Timer und benötigt keinen zusätzlichen Internetabruf. Bei fehlendem Beginn wird keine Uhrzeit erfunden; widersprüchliche Zeiten oder unklare Einheiten lösen keine automatische Windsperre aus. Die Regel gilt für die bereits unterstützten Warnanbieter, einschließlich NINA/DWD, MeteoAlarm und NWS. Eine vollständige Interpretation jeder fremdsprachigen Freitextformulierung wird nicht behauptet.
-
-**Installation:** Für ein manuelles Update den Ordner `custom_components/lueftungsberater` vollständig ersetzen und Home Assistant neu starten. Konfiguration, Datenbank und `.storage` beibehalten. Die neue Frontend-Kennung lädt die aktualisierte Karte. Für ein Repository-Release lautet der Tag `v0.11.9`. Das Paket enthält den vollständigen Projektstand einschließlich der regulären Tests und des CHANGELOG.
-
 <p align="center">
-
-### v0.11.8: asynchrone Zeitzonen und bereinigte Integration
-
-Automatische Wetter- und UBA-Abfragen lösen Zeitzonen mit Home Assistants asynchroner API auf. Lokale Nachttexte verwenden die bereits konfigurierte Home-Assistant-Zeitzone. Entfernte Räume übertragen ihr gewünschtes Nachtende als absoluten Zeitpunkt; ältere Ferninstallationen werden mit asynchron aufgelöster Quellzeitzone unterstützt. Damit werden beim Laden ungecachter Zeitzonen keine Zeitzonendateien auf der Ereignisschleife gelesen. Die Wetter-Ausfallüberbrückung aus v0.11.7 bleibt enthalten.
-
-Die Integration verwendet normale Home-Assistant-Raumquellen, eigene Außensensoren und automatische Wetter-/Luftqualitätsdienste. Vorhandene normale Räume, ihre IDs und ihre konfigurierten Quellen bleiben erhalten. Der optionale Raum-Gefahrensensor wird nur mit der ursprünglichen Warn-/Wetterquellen-Bedingung angelegt. Raum- und Nachtplanung sowie Sensorgrenzwerte bleiben unverändert.
-
-#### Vorhandene Installation auf v0.11.8 aktualisieren
-
-Das Paket enthält den vollständigen Projektstand einschließlich `.github`, `custom_components` und `tests`. Beim Übernehmen auf GitHub muss der Dateibestand dem Paket entsprechen: Entfernte Dateien sind auch im Repository zu löschen; darüberkopieren allein übernimmt keine Löschungen.
-
-Die frühere experimentelle Geräteanbindung besitzt keinen automatischen Upgrade-Pfad mehr. Wer sie verwendet hat, entfernt ihre Untereinträge vor dem Update noch in der bisherigen Version und wählt benötigte unabhängige Messwerte als normale Raumquellen aus. Normale Räume und externe Sensorintegrationen bleiben bestehen.
-
-Nach erfolgreichen GitHub-Prüfungen den neuen Release-Tag **`v0.11.8` auf dem aktualisierten Commit** erstellen. Für eine manuelle HA-Installation wird nur der Ordner `custom_components/lueftungsberater` vollständig ersetzt. Vorhandene HA-Konfiguration, Datenbank und `.storage` bleiben bestehen. Danach Home Assistant neu starten. Bei einer HACS-Installation den neuen Release installieren und HA ebenfalls neu starten.
-
-### v0.11.7: Raumfarbe und Schließempfehlung
-
-Die Innenraumluftkarte zeigt normale endgültige Schließ- und Fertigempfehlungen grün. Gelb bleibt für Beobachtung bzw. kurzes Abwägen reserviert. Die Zuordnung wird nach den Sitzungs- und Wetterprüfungen vorgenommen; echte Gefahrensperren behalten ihre Gefahrenfarbe. Die eigenständige Lüftungsperspektive bleibt erhalten.
-
-### Neue Kartenansicht ab v0.11.3 (Test)
-
-Der **Raumkarteneditor** bietet unter „Messwerte auf der Karte“ das klassische Layout (für bestehende Karten unverändert) und die neue **Innen | Außen**-Ansicht mit dünnem Trennstrich. Die Anzeige wird nur für diese Lovelace-Karte gespeichert: Felder ein-/ausblenden, Messwert-Reihenfolge und die Innen-/Außenposition ziehen, eigene Symbole/Beschriftungen sowie kompakte/ausführliche Darstellung wählen. Nur Werte, die der Raum bereitstellt oder deren Sensor konfiguriert ist, werden angeboten. Zusätzliche Messgrößen sind zunächst aus. Der Reset erfordert eine Bestätigung und ändert niemals die Lüftungsberechnung oder Sensorzuordnung.
-
-Die **Übersichtskarte** besitzt dieselben Anzeigeoptionen für ihre geöffneten Raumdetails, verwendet dabei aber eine gemeinsame Anordnung für alle Räume. Räume und Instanzen sind in ihrem Editor per Drag & Drop sortierbar. Bei kurzzeitig ausgefallenen entfernten Instanzen bleiben zuletzt bekannte Messwerte als **nicht aktuell** erkennbar; die alte Empfehlung wird nicht mehr als aktuell angezeigt. Die Nachtkarte informiert vor dem Schlafengehen und vermeidet Aufforderungen, nachts extra zum Fenster aufzustehen.
-
-  <img src="custom_components/lueftungsberater/brand/icon@2x.png" width="180" alt="Lüftungsassistent">
+  <img src="custom_components/lueftungsberater/brand/icon.png" alt="Lüftungsassistent" width="96">
 </p>
-
-### Historienkarte – Recorder und SIMOCODE-Mehrfachskalen (v0.11.6 TEST)
-
-Die neue Karte `custom:lueftungsberater-history-card` verwendet Home-Assistant-Recorder-Aufzeichnungen der eingerichteten Sensoren; fehlende Werte können nach expliziter Aktivierung als eigene, dauerhaft aufgezeichnete Hilfssensoren ergänzt werden. Die Aktivierung muss ein Administrator vornehmen, die anschließende Historienansicht ist auch für normale Benutzer möglich. Die Karte erlaubt 6 Stunden, 24 Stunden, 7 Tage und 30 Tage. Für **volle 30 Tage** muss der HA Recorder entsprechend konfiguriert sein (unter anderem `recorder: purge_keep_days: 30` und passende Include-/Exclude-Regeln), da unsere integrationsseitige 30-Tage-Bereinigung eine frühere globale Löschung nicht verhindern kann. Ältere Daten, die nie aufgezeichnet wurden, lassen sich nicht wiederherstellen. Der Editor bietet einen speicherbaren Standard-Zeitraum; das Umschalten des Zeitraums direkt in der Karte ist eine temporäre Ansicht. Explizite Sensorausfälle und leere Recorder-Zustände sind keine Nullmessungen: Der letzte bekannte Wert erscheint während einer aufgezeichneten Unterbrechung als **orange umhülltes, waagerechtes Halteplateau**, bis eine neue gültige Messung vorliegt. Die historische Messwertliste zeigt währenddessen weiterhin keinen gültigen Wert, und der weiße Grenzwertmarker verschwindet. Ohne vom Recorder aufgezeichneten Ausfall kann eine ausbleibende Meldung allein nicht zuverlässig als Sensorstörung interpretiert werden. Für frisch beginnende Aufzeichnungen wächst die gemeinsame X-Achse mit der ältesten tatsächlich vorhandenen Messung aller ausgewählten Größen und reicht stets bis „Jetzt“; später hinzugefügte Größen springen nicht an den linken Rand zurück. Erst nach Erreichen der gewählten 6 h/24 h/7 d/30 d werden die ältesten Werte links ausgeblendet. Historische Entscheidungsfarben bleiben bei unverändertem Empfehlungsschlüssel erhalten.
-
-
-**Neu in v0.11.6 (Testkandidat):** Die Historienkarte zeigt die numerischen SIMOCODE-artigen Skalen für CO₂ (ppm), Temperatur einschließlich Solltemperatur (°C) und Feuchte (%) je nach Grenzart links (einseitige oder keine Gutgrenze) beziehungsweise rechts (oberer und unterer Grenzwert) direkt im Diagramm. Bei kritischen Kurvenabschnitten wird nun ein kräftiges Rot verwendet. Beim Umschalten zwischen Zeiträumen werden vorhandene Recorder-Daten im selben Raum wiederverwendet; unabhängige HA-Vorbereitungsabfragen laufen parallel und verspätete Antworten früherer Zeitfenster werden verworfen. Pro Messgröße steht unter dem Diagramm nur **eine** Wertzeile mit Kurvenfarbe, Name, Wert und Einheit. Die Wertzeilen zeigen den Zustand am Zeitcursor; nach fünf Minuten ohne weitere Cursorbedienung kehrt die Anzeige automatisch auf „Jetzt“ zurück. CAMS-Außen-CO₂ kann beim ersten Öffnen der Karte über einen dauerhaften Historien-Hilfssensor aufgezeichnet werden, obwohl die Modellquelle selbst keine Recorder-Entität ist. Außentemperatur, Außen-RH und Außen-CO₂ erhalten keine künstlichen Innenraum-Gutgrenzen; die regulären Lüftungsentscheidungen werden dadurch nicht verändert.
 
 # Lüftungsassistent
 
-**Alpha-Version für Home Assistant.**
-
-Lüftungsassistent bewertet Innen- und Außenbedingungen und gibt für jeden Raum eine verständliche Lüftungsempfehlung aus. Je nach vorhandener Hardware können Temperatur, Luftfeuchtigkeit, CO₂, PM2,5/PM10, VOC-/NO₂-Werte (Index oder Rohwert), Formaldehyd, Fenster-/Türkontakte, Thermostate, lokale Außenstationen, Wetterdaten und Warnmeldungen berücksichtigt werden.
+**Wissen, wann Lüften sinnvoll ist – und wann das Fenster besser geschlossen bleibt.**
 
-> **Status:** frühe Alpha. Die Integration läuft bereits im Alltag, wird aber noch aktiv getestet und weiterentwickelt.
-
-> **Standort und automatische Quellen ab v0.11.2:** Standardmäßig verwendet der Lüftungsassistent den aktuellen Home-Assistant-Homepunkt und wählt Wetter-, Luftqualitäts- und amtliche Warnquellen selbst. Alternativ kann eine `zone.*`-Entity (z. B. `zone.home`) oder für Wohnmobil/Boot ein `device_tracker` als wirksamer Standort dienen. In Deutschland werden die nächstgelegenen verfügbaren DWD-POI-Stationen geprüft und jede aktuelle Wetter-Messgröße nimmt die geografisch nächste Station, die diesen Wert tatsächlich liefert; fehlende Felder werden erst danach koordinatengenau durch DWD ICON ergänzt. Luftschadstoffe bevorzugen reale UBA/Länder-Messstationen pro Schadstoff und verwenden CAMS nur als Modellfallback. Warnungen werden standortbezogen auf die passende NINA-Kreisregion vorgefiltert und anschließend weiterhin anhand der tatsächlichen Warnfläche geprüft. Kurze Tracker-Ausfälle halten die letzte gültige mobile Position begrenzt fest. Eigene Home-Assistant-`weather.*`- und Warnintegrationen können in den Einstellungen jederzeit anstelle der Automatik bzw. zusätzlich zur automatischen Warnquelle gewählt werden.
-
-## Funktionen
-
-- Eigene Lüftungsempfehlung pro Raum
-- Vierstufige, konfigurierbare Ampeldarstellung mit kurzer Begründung
-  - **Lüftungsbedarf (Standard):** dieselbe vollständige Gesamtbewertung als ruhige Handlungsampel für den Raum. **Grün** = aktuell nichts zu tun (leichte Abweichungen dürfen bewusst noch Grün bleiben), **Gelb** = beobachten, **Orange** = Lüften ist sinnvoll, **Rot** = jetzt lüften.
-  - **Lüftungsampel (optional):** dieselbe Gesamtbewertung aus Sicht der aktuellen Lüftungs-/Außenbedingungen. Grün = Lüften sinnvoll, Gelb = Abwägung/Übergang, Orange = eher geschlossen lassen, Rot = Lüften deutlich nachteilig.
-  - Beide Ansichten nutzen dieselbe Entscheidungsengine; es werden keine Sensoren je nach Darstellung ein- oder ausgeschaltet. Nur Farbe, kurze Empfehlung und Begründung werden aus der gewählten Perspektive formuliert.
-  - Echte Schutzlagen liegen außerhalb der normalen Ampel und werden eindeutig mit **🔒 Fenster geschlossen halten** dargestellt.
-- Absolute Feuchtigkeit innen/außen
-- Optionaler CO₂-Sensor pro Raum
-- Optionale Innenluftsensoren pro Raum: PM2,5, PM10, VOC, NO₂/NOx und Formaldehyd (Index oder Rohwert automatisch erkannt)
-- Optionale lokale Außenstation: Temperatur, Feuchte, Wind/Böen, Regen, PM2,5, PM10, VOC-/NO₂-Werte (Index oder Rohwert), Ozon und CO₂; frische/plausible lokale Werte werden je Messgröße bevorzugt und fehlende Werte fallen automatisch auf vorhandene Wetter-/Luftqualitätsdienste zurück
-- Automatischer Lüftungsverlauf mit Fenster-/Türkontakt
-- 5-Minuten-Failsafe für laufende Lüftungen: Ab fünf sicher beobachteten Offen-Minuten gilt die aktuelle Sitzung für Routineentscheidungen als ausreichend; der historische Zeitpunkt „letzte bestätigte Lüftung“ wird trotzdem erst beim tatsächlichen Schließen gesetzt
-- Wetter standardmäßig automatisch aus dem wirksamen Standort; in Deutschland liefert die nächstgelegene aktuell verfügbare DWD-POI-Messstation die Ist-Werte unabhängig von ihrer Forecast-Verfügbarkeit, während die Vorhersage separat standortbezogen über DWD ICON bezogen wird; international dient ein koordinatenbasierter Open-Meteo-Fallback
-- Amtliche Warnungen standardmäßig automatisch: Deutschland über NINA, USA über NWS und unterstützte europäische Länder über MeteoAlarm/CAP; nicht unterstützte Länder werden ausdrücklich als ohne automatische amtliche Warnabdeckung behandelt
-- Eigene Home-Assistant-`weather.*`-Entity und eigene Warnintegration bleiben als bewusster Override bzw. bei Warnungen optional zusätzlich zur Automatik auswählbar
-- Kurzzeit-Failsafe bei CO₂-Sensorausfällen
-- Detaillierte Raumkarte
-- Kompakte Mehrraumübersicht
-- Karten erscheinen im Home-Assistant-Kartenpicker
-- Natürliche Oberfläche und Empfehlungen auf Deutsch, Englisch und Türkisch
-- Dashboard-Karten folgen der Sprache des aktuell angemeldeten Home-Assistant-Benutzers
-- Unterstützung für Celsius- und Fahrenheit-Setups
-- Ruhigere Empfehlungen durch Hysterese an normalen CO₂-/Feuchte-/Temperaturgrenzen
-- Sessionbewusste Feuchtelogik: Ein bereits ausgeschöpfter Lüftungsversuch wird nicht nach einem starren Timer erneut verlangt; absolute Feuchte, Trocknungsfortschritt, echte Wieder-Verschlechterung und schnelle Dusch-/Koch-Peaks werden getrennt bewertet
-- Grundbezogenes Session-Gedächtnis: Feuchte-Ruhephasen blockieren weder kritisches CO₂ noch Partikel-/Innenluftgründe, Schimmelrisiko oder Sicherheitslagen
-- Erkennung wiederholt schneller CO₂-Rebounds nach erfolgreichem Lüften als Hinweis auf anhaltend hohe Belegung/Last; kritische Live-Werte bleiben trotzdem jederzeit sofort handlungsfähig
-- Optionaler Feuchte-/Schimmelschutz über einen realen kalten/kritischen Oberflächentemperatursensor mit zeitlichem Kontext
-- Plausibilitätsgeprüfte Außenluftqualität über passende Ozon-, PM2.5-, PM10-, NO₂- und SO₂-Sensoren des Wetter-Providers, ergänzt um lokalen Verlauf und Trend
-- Optionaler eigener Außen-CO₂-Sensor für die lokale Lüftungsbewertung
-- Optionale, forecastbasierte Nachtlüftungsstrategie mit einstellbarer Anzeigezeit
-- Assistentenweite Warn-/Entwarnungsbenachrichtigungen plus bewusst pro Raum aktivierbare Lüftungsstatus-Meldungen über eine normale Home-Assistant-`notify`-Entity
-- Recorder-minimierte Entity-Historie: Nur Hauptempfehlung, Innen-Absolutfeuchte, letzte bestätigte Lüftung und harte Gefahrenanzeige behalten bis zu 20 Tage Verlauf. Redundante Hilfs-/Status-Entities sind bei neuen Installationen standardmäßig deaktiviert und werden, falls sie aktiviert sind, aus dem Recorder-Verlauf wieder entfernt (die globale Recorder-Konfiguration kann zusätzlich weniger behalten)
+Lüftungsassistent ist eine Integration für **Home Assistant**. Sie verbindet die Messwerte deiner Räume mit Wetter, Außenluftqualität und amtlichen Warnungen und macht daraus verständliche Empfehlungen. Statt starrer Zeitpläne berücksichtigt sie, was gerade drinnen und draußen passiert.
 
+> [!IMPORTANT]
+> **Alpha-Version:** Das Projekt wird weiterentwickelt und ist noch nicht in jeder Geräte- und Warnquellenkombination getestet. Die Empfehlungen ersetzen weder amtliche Warnungen noch die eigene Einschätzung vor Ort.
 
-## Bekannte Home-Assistant-Einschränkung bei „Raum hinzufügen“
+**Voraussetzungen:** Home Assistant **2026.6.0 oder neuer** · HACS für die empfohlene Installation · je Raum ein Temperatur- und ein Luftfeuchtesensor
 
-Remote-/Tailscale-Verbindungen unterstützen keine lokalen Räume und werden vom Backend strikt abgewiesen. Der globale Home-Assistant-Dialog zum Hinzufügen eines Subentries listet derzeit jedoch alle ConfigEntries derselben Integration als mögliche Eltern auf, ohne die unterstützten Subentry-Typen jedes einzelnen Entries zu filtern. Deshalb kann ein Remote-Hub dort sichtbar bleiben; ein tatsächlicher Raum kann ihm nicht hinzugefügt werden.
+## Auf einen Blick
 
-## Voraussetzungen
+| | Das bringt dir Lüftungsassistent |
+| --- | --- |
+| 🌡️ **Raumklima** | Empfehlungen anhand von Temperatur, relativer und absoluter Feuchte; optional CO₂, Luftschadstoffe und weitere Sensoren |
+| 🌤️ **Außenbedingungen** | Wetter, Regen, Wind und Außenluftqualität – auf Wunsch automatisch passend zum Standort |
+| 🛡️ **Sicherheit** | Amtliche Warnungen, nachvollziehbare Sperrgründe und vorsichtiger Umgang mit unklaren Daten |
+| 🌙 **Nachtlüftung** | Ein zusätzlicher Ausblick, wann längeres Lüften in der Nacht sinnvoll sein könnte |
+| 🪟 **Fensterkontakte** | Erkennt laufende Lüftungen und merkt sich bestätigte Lüftungsvorgänge |
+| 📊 **Dashboard & Verlauf** | Kompakte Raumkarten, Mehrraumübersicht und eine optionale Historienkarte |
+| 🏠 **Mehrere Installationen** | Mehrere lokale Instanzen und optionaler Zugriff auf ein zweites Home Assistant über Tailscale |
 
-- Home Assistant **2026.6.0 oder neuer**
-- HACS für die empfohlene Installation
-- Mindestens pro Raum:
-  - Innentemperatur
-  - relative Luftfeuchtigkeit innen
-- Kein eigener Wetterdienst ist für den Standardbetrieb erforderlich; Auto-Wetter wird aus dem Home-/Mobilstandort bezogen. Optional kann eine eigene `weather.*`-Entity ausgewählt werden.
+Du brauchst dafür keine komplette Sensorlandschaft: **Temperatur und Luftfeuchtigkeit innen genügen für den Einstieg.** CO₂, Fensterkontakte, zusätzliche Luftsensoren und eigene Außensensoren sind optional.
 
-Optional:
-- CO₂-Sensor
-- Fenster-/Türkontakte
-- Climate-/Thermostat-Entity
-- Temperatur-Sensor an einer kalten/kritischen Oberfläche für zusätzlichen Schimmelschutz
-- Keine separate Warnintegration ist für den Standardbetrieb erforderlich. Optional kann eine eigene Warnintegration zusätzlich oder anstelle der automatischen Quelle gewählt werden.
-- `notify`-Entity für Benachrichtigungen
-- eigener CO₂-Außensensor
+## In wenigen Schritten starten
 
-## Installation über HACS – Custom Repository
+1. Öffne **HACS** in Home Assistant.
+2. Füge unter **⋮ → Custom repositories** das Repository `https://github.com/svemmiii/lueftungsberater` als Typ **Integration** hinzu.
+3. Installiere **Lüftungsassistent** und starte Home Assistant neu.
+4. Öffne **Einstellungen → Geräte & Dienste → Integration hinzufügen** und wähle **Lüftungsassistent**.
+5. Lass Wetter und Warnungen zunächst auf **Automatisch**, wenn du keine eigenen Quellen verwenden möchtest.
+6. Lege deinen ersten Raum an und wähle Temperatur- und Feuchtesensor aus.
+7. Füge im Dashboard die Karte **Lüftungsassistent – Raum** oder **Lüftungsassistent – Übersicht** hinzu.
 
-1. HACS öffnen.
-2. Oben rechts auf **⋮ → Custom repositories**.
-3. Repository eintragen:
+Alles Weitere – von eigenen Warnquellen über Fensterkontakte bis zu Benachrichtigungen – lässt sich später ergänzen. Wenn bereits eine Installation vorhanden ist, **aktualisiere sie, statt sie zu löschen**. Vor einem Update empfiehlt sich ein Home-Assistant-Backup.
 
-   `https://github.com/svemmiii/lueftungsberater`
+[**Einrichtung und Optionen im Detail →**](docs/EINRICHTUNG.md)
 
-4. Typ **Integration** auswählen.
-5. Repository hinzufügen und **Lüftungsassistent** installieren.
-6. Home Assistant neu starten.
-7. **Einstellungen → Geräte & Dienste → Integration hinzufügen → Lüftungsassistent**.
+## Was zeigt die Empfehlung an?
 
-## Einrichtung
+Der Assistent wägt mehrere Gründe gemeinsam ab: Ist die Luft im Raum zu feucht? Hilft die Außenluft beim Abkühlen? Ist der CO₂-Wert hoch? Würden Regen, Wind oder schlechte Außenluft das Lüften gerade unvorteilhaft machen?
 
-### 1. Gemeinsame Außendaten
+Du kannst zwischen zwei Ampelperspektiven wählen:
 
-Beim ersten Einrichten wählst du:
+| Ansicht | Wofür die Farbe steht |
+| --- | --- |
+| **Lüftungsbedarf** (Standard) | Wie dringend der Raum frische Luft braucht |
+| **Lüftungsampel** | Wie günstig die aktuellen Bedingungen zum Lüften sind |
 
-- **Wetterquelle:** standardmäßig Automatisch, optional eigene `weather.*`-Entity
-- **Warnquelle:** standardmäßig Automatisch, optional eigene Warnintegration oder Automatisch + eigene Warnintegration
-- die gewünschte **Ampeldarstellung**
-- optional eigene Außensensoren, darunter auch **CO₂ außen**
-- optional ein **Benachrichtigungsziel** und die Ereignisse, über die du informiert werden möchtest
+Beide Darstellungen verwenden dieselbe Entscheidungslogik. Die Raumkarte erklärt zusätzlich, **warum** sie etwas empfiehlt. Eine echte Sicherheitssperre wird getrennt mit einem **🔒** angezeigt und hat Vorrang vor normalen Lüftungsempfehlungen.
 
-Standardmäßig lösen weiterhin nur **ernste Außenluftgefahren** (z. B. Brandrauch/Gefahrstoffe) und **schwere Wettergefahren** eine Benachrichtigung aus, wenn tatsächlich ein konfiguriertes Fenster oder eine Tür offen ist. Zusätzlich kannst du vorsorgliche Luft-/Wetterhinweise sowie zwei reine Lüftungsstatus-Hinweise aktivieren: **„Lüften ist wieder sinnvoll“** und **„Lüften kann beendet werden“**. Eine rote Empfehlung allein ist ausdrücklich kein Benachrichtigungsauslöser.
+[**Mehr zur Entscheidungslogik →**](docs/FUNKTIONEN.md)
 
-Benachrichtigungen verwenden ab v0.6.20 ausschließlich den aktuellen Home-Assistant-Weg über eine ausgewählte `notify`-Entity und `notify.send_message`. Titel und Nachricht kommen vom Lüftungsassistent; Ton, Vibration, Priorität und weitere gerätespezifische Eigenschaften bestimmt das gewählte Notify-Ziel. Der frühere separate `notify.mobile_app_*`-Companion-Weg mit eigenen Vibrations-/Critical-Einstellungen wurde entfernt, damit es nur noch einen klaren Benachrichtigungsweg gibt. Bestehende alte Companion-Optionen werden beim Update verworfen; ein bereits gesetztes normales Notify-Ziel bleibt erhalten.
+## Amtliche Warnungen und Fenstersicherheit
 
-Die beiden Lüftungsstatus-Hinweise bleiben zustandswechselbasiert: Sie werden nicht bei jedem Sensorupdate und nicht direkt nach einem Home-Assistant-Neustart erneut gesendet.
+Eine passende amtliche Warnung mit **eindeutig angekündigten Böen ab 90 km/h** kann das Lüften bereits **30 Minuten vor dem erwarteten Beginn** sperren. Auch eine ausdrücklich geltende amtliche Anweisung zum Schließen von Fenstern oder zum Vermeiden von Außenluft kann eine Sperre auslösen. Standort, Gültigkeitszeit und Einschränkungen werden dabei berücksichtigt.
 
-Eigene Außensensoren können bei Bedarf unter den erweiterten Optionen verwendet werden. Werden konfigurierte Außensensoren vorübergehend `unavailable` oder `unknown`, fällt Lüftungsassistent für Temperatur und Luftfeuchtigkeit unabhängig voneinander automatisch auf die aktuelle `weather.*`-Entity zurück, sofern der jeweilige Wert dort verfügbar ist. Die Raumkarte kennzeichnet einen solchen aktiven Fallback direkt am betroffenen Außenwert mit **Wetterdienst**.
+**Wichtig:** Starke *gemessene* Windböen ohne passende amtliche Meldung beeinflussen die normale Wetterbewertung, erzeugen aber nicht automatisch denselben amtlichen Hardlock. Eine Warnfarbe allein bedeutet ebenfalls noch keine absolute Fenstersperre. Bei fehlender Warnabdeckung wird keine Entwarnung vorgetäuscht.
 
-### 2. Räume hinzufügen
+Automatische amtliche Quellen hängen vom Land ab: In Deutschland ist unter anderem NINA eingebunden, in weiteren unterstützten Regionen nationale Dienste oder Wetterwarnungen über CAP/MeteoAlarm bzw. NWS. Welche Warnarten tatsächlich abgedeckt sind, wird kenntlich gemacht.
 
-Für jeden Raum können konfiguriert werden:
+[**Warnungen, Hardlocks und Quellen genau erklärt →**](docs/WARNUNGEN.md) · [**Abdeckung der Anbieter →**](PROVIDER_COVERAGE.md)
 
-- optional ein vorhandener **Home-Assistant-Bereich** zur echten Raumzuordnung des Lüftungsassistent-Geräts
-- optional ein **eigener Raumname**; bleibt er leer, wird bei gewähltem Home-Assistant-Bereich dessen Name verwendet
-- Temperatur
-- Luftfeuchtigkeit
-- optional CO₂
-- optional Fenster-/Türkontakte
-- optional Thermostat / Climate
-- optional Temperatur einer kalten/kritischen Oberfläche
-- Solltemperatur
-- Uhrzeit, ab der eine mögliche Nachtlüftungsstrategie angezeigt werden darf (Standard 22 Uhr)
+## Karten und Verlauf
 
-Ab **v0.9.4** kann ein Lüftungsassistent-Raum optional einem bereits in Home Assistant vorhandenen **Bereich (Area)** zugeordnet werden. Das erzeugte Raumgerät und seine Entities erscheinen dadurch unter diesem Home-Assistant-Bereich. Der eigene Lüftungsassistent-Raumname bleibt unabhängig davon frei wählbar. Wird nur ein Home-Assistant-Bereich ausgewählt und kein eigener Name eingetragen, übernimmt der Raum beim Anlegen den aktuellen Bereichsnamen. Bestehende Räume ohne diese neue Einstellung werden beim Update nicht automatisch umsortiert und eine bereits manuell in Home Assistant gesetzte Area wird nicht gelöscht. Die Integration legt dabei **keine Dashboard-Karte automatisch** in der Raumansicht an.
+- **Raumkarte:** Zeigt Empfehlung und Status im kompakten Modus. Bei Bedarf klappst du Gründe, Messwerte und Details aus. Nachtlüftungshinweise und aktive Sperren bleiben sichtbar.
+- **Übersicht:** Fasst mehrere Räume zusammen; die Detailkarte öffnet sich erst beim Antippen.
+- **Historienkarte:** Zeigt vorhandene Messwertverläufe. Optional können zusätzliche Historien ab der Aktivierung aufgezeichnet werden – frühere Werte werden nicht nachträglich erfunden.
 
-Die Raum-Einstellungen sind dafür in klare Bereiche aufgeteilt: **Raumklima**, **Nachtlüftung**, **Zusatzsensoren** und **Fenster & Türen**. Die Nachtzeit verwendet einen echten Uhrzeit-Selector, damit z. B. 21:00 nicht wie eine 21-°C-Temperaturvorgabe wirkt.
+[**Dashboard-Karten →**](docs/DASHBOARD.md) · [**Historienkarte einrichten →**](docs/HISTORIE.md)
 
-Ohne Fensterkontakt arbeitet der Raum rein beobachtend. Weil dabei nicht erkennbar ist, ob eine Empfehlung tatsächlich umgesetzt wurde, verwendet der reine Temperaturgrund ohne Kontakt bewusst eine deutlich gröbere Komfort-Hysterese: Er startet erst ab etwa **4,0 K** Abstand zur Solltemperatur und endet bei einer bereits laufenden Temperatur-Empfehlung unter etwa **3,0 K**. Kleine Sollabweichungen von z. B. 1–2 K halten einen Raum ohne Fensterkontakt dadurch nicht dauerhaft auf „Lüften“. CO₂, Feuchte, Schadstoffe, Schimmel-/Oberflächenrisiko und Hitzeschutz behalten ihre eigenen unveränderten Regeln. Mit Fensterkontakt bleiben die bisherigen feineren Temperaturgrenzen bestehen und Lüftungsassistent erkennt automatisch, wann tatsächlich gelüftet wurde. Laufende Lüftungen und die letzte bestätigte Lüftung werden kompakt gespeichert und überstehen einen Home-Assistant-Neustart. Ein beim Start kurz `unknown`/`unavailable` gemeldeter Fensterkontakt beendet eine laufende Lüftung nicht fälschlich. Diese Unsicherheit ist auf **2 Minuten** begrenzt: Bleibt der Kontakt länger unbekannt, wird die Live-Sitzung konservativ beendet, **ohne** daraus einen erfundenen Schließzeitpunkt bzw. ein neues `last_confirmed_airing` abzuleiten. War diese Sitzung vorher bereits mindestens fünf Minuten sicher qualifiziert, bleibt zusätzlich ein eigener schwächerer Routine-Anker (`last_qualified_airing_seen_at`) am letzten sicher bekannten Offen-Zeitpunkt erhalten. Dadurch springt eine alte 24-h-Routine nach dem Sensorverlust nicht sofort wieder an, obwohl der Assistent nachweislich schon eine ausreichende Lüftung gesehen hatte. Dieser Fallback ist ausdrücklich **kein** historischer Schließzeitpunkt und wird nicht als „letzte bestätigte Lüftung“ angezeigt. Nur ein tatsächlich beobachtetes `off` kann eine ausreichend lange Sitzung historisch abschließen; unbekannte Zeit darf die Fünf-Minuten-Grenze nicht erstmals erfüllen. Eine durch den 24-h-Fallback gestartete Routinelüftung bleibt nach dem Öffnen außerdem mindestens **fünf reale Offen-Minuten** aktiv. Nach diesen fünf sicher beobachteten Minuten wird die **aktuell laufende** Sitzung einmalig als ausreichend qualifiziert, sodass die alte 24-h-Routine die Entscheidung nicht weiter antreibt. Der historische Zeitpunkt **„letzte bestätigte Lüftung“** bleibt währenddessen unverändert und wird erst beim tatsächlich beobachteten Schließen auf den Schließzeitpunkt gesetzt. So kann ein versehentlich vier Stunden offenes Fenster nicht später als „zuletzt vor vier Stunden gelüftet“ erscheinen.
+## Sprachen, Daten und Datenschutz
 
-Die Sensor-Auswahl wird nach Home-Assistant-Geräteklassen gefiltert: Temperatur, Luftfeuchtigkeit und CO₂ werden nur in den jeweils passenden Sensorfeldern angeboten; bei Fenster-/Türkontakten erscheinen passende Öffnungs-, Fenster-, Tür- und Garagentor-Binary-Sensoren.
+Die Benutzeroberfläche und die eigenen Empfehlungen stehen auf **Deutsch, Englisch und Türkisch** zur Verfügung. Amtliche Originaltexte werden nicht automatisch übersetzt. Die Auswertung strukturierter Warnfelder ist von der Oberflächensprache getrennt; bei Freitexten hängt die Erkennung weiterhin von den unterstützten Sprachmodulen und Formulierungen ab.
 
-### Optionaler Feuchte-/Schimmelschutz
+Ohne Tailscale-Remote bleiben deine Raum- und Home-Assistant-Sensordaten lokal. Für automatische Wetter-, Luftqualitäts- und Warnquellen werden externe Dienste abgefragt. Eine eingerichtete Tailscale-Verbindung überträgt aktuelle, freigegebene Raum-Snapshots, aber keine vollständige Recorder-Historie.
 
-Die normale Feuchtebewertung funktioniert vollständig ohne zusätzliche Hardware. Optional kann pro Raum die Temperatur einer besonders kalten bzw. kritischen Oberfläche angegeben werden, zum Beispiel an einer bekannten Wärmebrücke. Nur wenn dieser **reale Oberflächentemperatursensor** vorhanden ist, berechnet Lüftungsassistent aus Raumtemperatur, Raumfeuchte und gemessener Oberflächentemperatur die relative Feuchte direkt an dieser Stelle. Ohne Sensor werden keine Oberflächenwerte geschätzt oder erfunden.
+[**Tailscale-Remote →**](docs/REMOTE.md)
 
-Ab ungefähr **80 % relativer Oberflächenfeuchte** wird die Situation im Hintergrund stärker berücksichtigt. Zusätzlich merkt sich Lüftungsassistent lokal, wie lange und wie wiederholt dieser Bereich tatsächlich anliegt. Ein kurzer Peak wird dadurch anders bewertet als eine länger anhaltende Belastung. Fehlt der Oberflächenwert länger als **10 Minuten**, wird die kritische Zeit am letzten tatsächlich bestätigten Messpunkt pausiert statt den Ausfall als gemessene Exposition weiterzuzählen. Die zeitliche Bewertung ist eine vorsichtige Beratungsheuristik und ausdrücklich **keine Schimmeldiagnose oder DIN-Grenze**. Erst wenn die Belastung relevant anhält, wird sie deutlicher in Ampel und Begründung aufgenommen.
+## Dokumentation
 
-### Automatische Standort-Provider
+| Thema | Beschreibung |
+| --- | --- |
+| [Einrichtung](docs/EINRICHTUNG.md) | Installation, Sensoren, Einstellungen, mobile Standorte und Benachrichtigungen |
+| [Funktionen](docs/FUNKTIONEN.md) | Raumklima, Wetter, Nachtlüftung, Sitzungen und Datenqualität |
+| [Warnungen](docs/WARNUNGEN.md) | Sicherheitsregeln, amtliche Quellen, Grenzen und mehrsprachiges CAP |
+| [Dashboard](docs/DASHBOARD.md) | Raumkarte, Übersicht und Anzeigeoptionen |
+| [Historie](docs/HISTORIE.md) | Historienkarte, Beispielkonfiguration, Recorder und Aufbewahrung |
+| [Tailscale-Remote](docs/REMOTE.md) | Einrichtung, Berechtigungen, Datenschutz und Fehlerfälle |
+| [Häufige Fragen](docs/FEHLERBEHEBUNG.md) | Typische Probleme und Hinweise zur Fehlermeldung |
+| [Änderungen](CHANGELOG.md) | Zusammenfassung von v0.11.9 und Link zu veröffentlichten GitHub-Releases |
 
-Neue lokale Installationen starten mit **Automatisch** für Wetter und Warnungen. Der Lüftungsassistent legt dafür keine fremden Home-Assistant-Config-Entries an, sondern nutzt intern nur den wirksamen Home-/Zonen-/Tracker-Standort. Deutschland prüft für Wetter mehrere geografisch nahe DWD-POI-Messstationen. Jede aktuelle Messgröße verwendet die **nächstgelegene Station, die für genau dieses Feld einen frischen Messwert liefert**; veraltete oder zeitlich nicht verifizierbare POI-Werte werden verworfen. Erst fehlende Felder werden koordinatengenau aus DWD ICON `current` ergänzt, die Vorhersage bleibt davon getrennt. Für Bevölkerungsschutzwarnungen wird NINA verwendet. In den USA werden punktbezogene NWS-Warnungen verwendet; für unterstützte europäische Länder werden MeteoAlarm/CAP-Warnungen räumlich gegen den Standort geprüft. Weltweites Wetter fällt auf den koordinatenbasierten Open-Meteo-Forecast zurück.
+## Probleme melden und mithelfen
 
-In Österreich wird **AT-Alert** zusätzlich zu MeteoAlarm abgefragt, in der Schweiz **Alertswiss**, in Belgien **BE-Alert**. Diese Bevölkerungsschutzfeeds werden auf die tatsächliche Warnfläche geprüft. Probealarme lösen keine Sperre aus. Eine fehlgeschlagene oder räumlich unbekannte Meldung erzeugt keine falsche Entwarnung. Die Attribute `warning_provider_coverage` (`civil_and_weather`, `weather_only`, `none`) und `warning_provider_error` zeigen Abdeckung und Störungen an.
+Etwas funktioniert nicht wie erwartet? Bitte öffne ein [GitHub-Issue](https://github.com/svemmiii/lueftungsberater/issues) und nenne nach Möglichkeit deine Home-Assistant-Version, die Version des Lüftungsassistenten, betroffene Sensoren und die entsprechenden Protokollmeldungen. **Bitte keine Zugangstoken, Standortkoordinaten oder anderen privaten Daten veröffentlichen.**
 
-Eine automatische Warnquelle wird nur dort als verfügbar behandelt, wo ein geprüfter Provider hinterlegt ist. **Deutschland ist dabei als All-Hazard-/Bevölkerungsschutzpfad über NINA abgedeckt.** Außerhalb Deutschlands, Österreichs, der Schweiz und Belgiens liefern NWS und MeteoAlarm derzeit primär amtliche Wetterwarnungen; sie werden nicht als vollständiger Ersatz für einen nationalen Bevölkerungsschutzdienst ausgegeben. In einem nicht unterstützten Land läuft die normale Lüftungslogik weiter, aber der Lüftungsassistent behauptet **keinen** amtlichen Warnschutz. Dort kann eine eigene Home-Assistant-Warnintegration ausgewählt werden. Bestehende Installationen werden konservativ migriert: eine bereits gewählte Wetterentity bleibt zunächst manuell aktiv; eine bereits gewählte Warnintegration bleibt erhalten und wird standardmäßig mit der neuen Automatik kombiniert.
+Die Integration ist als **Alpha** gekennzeichnet. Nicht jeder Wetterdienst und nicht jedes Land besitzt eine vollständige amtliche Warnabdeckung.
 
-Amtliche Warnstufen allein erzeugen **keinen** Fenster-Hard-Lock. Eine harte Sperre entsteht aus einer gültigen konkreten Fenster-/Lüftungsanweisung oder ab v0.11.9 aus eindeutig zugeordneten amtlich angekündigten Böen von mindestens 90 km/h mit 30 Minuten Vorlauf. Davon getrennt bleibt die bestehende Hagelsicherheit erhalten. Reine Windmessungen und Wind-Modellwerte erzeugen keine neue harte Sperre.
-
-Der GPS-Tracker muss regelmäßig Positionsmeldungen liefern, auch im Stillstand. Der Assistent verwendet HA `last_reported` (ersatzweise `last_updated`); wenn der Tracker einen echten GPS-Fix-Zeitstempel in `gps_timestamp` oder `location_updated_at` liefert, hat dieser Vorrang (ISO-8601 mit Zeitzone oder Unix-Sekunden). Ab fünf Minuten ohne Meldung wird die Position als veraltet erkannt. Die bisherige Position darf insgesamt höchstens 30 Minuten seit dem letzten Fix überbrückt werden. Danach gilt der mobile Standort als unbekannt; automatische Wetter-/Warnabfragen pausieren bis zu einer neuen gültigen Meldung. Manuelle Quellen bleiben davon unabhängig.
-
-Die Regions- und Länderdateien sind mitgelieferte Datenschnappschüsse. Ländergeometrien sind kartografische Grenzen, keine metergenaue Katasterdatenbasis. Unbekannte neue MeteoAlarm-Geocodes werden als nicht verfügbar angezeigt und benötigen einen aktualisierten Regionsdatensatz. Details und genaue Quellen stehen in [PROVIDER_COVERAGE.md](PROVIDER_COVERAGE.md)
-
-Bei mobilen Trackern wird zusätzlich `gps_accuracy` geprüft, sofern vorhanden: über 250 m oder ungültige Angaben lösen keinen sofortigen Wechsel aus. Die zuvor gültige Position wird höchstens 30 Minuten seit ihrer Meldung gehalten; schlechte Neumeldungen verlängern diese Frist nicht. Konkrete amtliche Schließ-/Lüftungsanweisungen werden zusätzlich auf Niederländisch, Französisch und Italienisch erkannt. Eine vollständige europaweite Bevölkerungsschutzabdeckung ist weiterhin offen; die Länderübersicht nennt die noch fehlenden Adapter.
-
-### Wetterwarnungen, Regen, Wind und Außenluftqualität
-
-Regen ist kein Ersatz für eine Feuchtebewertung: Ob Lüften trocknet, entscheidet die absolute Feuchtedifferenz innen/außen. Aktueller bzw. unmittelbar bevorstehender Niederschlag wird nur als praktischer Nachteil für ein geöffnetes Fenster gewertet. Ein Radarereignis beeinflusst die Empfehlung nur noch dann, wenn es während der erwarteten Lüftungsdauer beziehungsweise kurz danach beginnen kann; ein Niederschlag in deutlich späterer Zukunft blockiert keine kurze Lüftung.
-
-Starker Wind wird als Fenstersicherheits-/Komfortfaktor behandelt, nicht als angebliche amtliche DWD-Warnfarbe. Ab etwa **50 km/h anhaltendem Wind** (ungefähr Bft 7) oder **65 km/h Böen** wird vorsichtiger bewertet und Lüften kann insgesamt nachteilig werden. Deutlich extremere Bedingungen können in der normalen Lüftungsampel Rot werden; echte Warnlagen mit klarem Schutzgrund werden zusätzlich eindeutig mit dem separaten **🔒-Sperrzustand** dargestellt. Offizielle DWD-Warnungen werden weiterhin separat nach ihrer konkreten Warnstufe und Handlungsempfehlung berücksichtigt.
-
-Ab v0.8.1 schaut auch die normale Live-Beratung vorsichtig auf die **nächsten bis zu 60 Minuten** der stündlichen Wettervorhersage. Das ist kein zweiter Nacht-Forecast und keine minutengenaue Gewittervorhersage: Der Blick nach vorn wird nur berücksichtigt, wenn eine erkennbare Wetteränderung die gerade erwartete Lüftungsdauer realistisch treffen kann. Wird z. B. in Kürze Gewitter erwartet, kann eine sonst gute Gelegenheit vorsichtiger werden; soll sich ein aktuelles Gewitter oder starker Regen in Kürze beruhigen, kann die Begründung auf die voraussichtlich bessere Gelegenheit hinweisen. Ein Forecast allein erzeugt **keinen harten Safety-Lock**. Aktuelle Wetterlage, Radar und amtliche Schutzanweisungen haben weiterhin Vorrang.
-
-Die stündliche Vorhersage wird dafür einmal pro lokalem Lüftungsassistent gemeinsam für alle Räume zwischengespeichert und höchstens etwa alle **15 Minuten** aktualisiert. Der Cache ist an die konkret ausgewählte Weather-Entity gebunden: Wird im Reconfigure der Wetteranbieter gewechselt, wird ein Cache der vorherigen Quelle nicht mit den aktuellen Messwerten der neuen Quelle kombiniert, sondern unmittelbar neu abgefragt. Ein Cache älter als **60 Minuten** wird nicht mehr für Entscheidungen verwendet; die Karte kennzeichnet Forecastdaten dabei als `fresh`, `stale` oder `unavailable`. Liefert der Wetterdienst erfolgreich eine leere Vorhersage, wird ein älterer Cache bewusst verworfen statt weiterverwendet. Formulierungen wie „in Kürze“ oder „innerhalb der nächsten Stunde“ sind bewusst gewählt: Ein stündlicher Forecastpunkt wird nicht als exakter Beginn oder exaktes Ende eines Ereignisses ausgegeben.
-
-### Nachtlüftung
-
-Pro Raum lässt sich ein eigenes Nachtfenster **von–bis** festlegen (Standard **22:00–07:00**). Beide Zeiten sind reine Anzeigegrenzen und keine Aufforderung, genau dann ein Fenster zu öffnen oder zu schließen. Zeiträume über Mitternacht und ungewöhnliche Schichtzeiten werden unterstützt. Die Nachtkarte ist bewusst eine einfache Einschätzung vor dem Schlafengehen: Wenn ein längeres Lüften in der Nacht voraussichtlich sinnvoll ist, nennt sie den passenden Zeitraum; wenn eine grundsätzlich interessante Nachtlage nur mit Abwägung sinnvoll ist, sagt sie das kurz dazu. **Ab v0.9.3 verschwindet die Karte bei vorhandenem Temperatur- oder Feuchtebedarf nicht mehr kommentarlos, nur weil kein langes geeignetes Zeitfenster gefunden wird.** Sie unterscheidet dann zwischen „kurz lüften kann helfen“ und „längeres Nachtlüften heute eher nicht sinnvoll“. Nur wenn außerhalb des Anzeigezeitraums kein Nacht-Planungsbedarf besteht oder die nötigen Prognosedaten fehlen, bleibt der Zusatz verborgen.
-
-Ab **v0.11.2 TEST COMPLETE(5)** respektiert die Nachtplanung auch die gröbere Temperaturtoleranz von Räumen ohne Fensterkontakt: Ein neuer rein thermischer Nachtplan startet dort erst ab **4,0 K** über der Solltemperatur; ein bereits gemerkter thermischer Nachtplan endet unter **3,0 K**. Räume mit Fensterkontakt behalten die bisherige empfindlichere Nachtkarten-Logik. Sichtbare Nachtzeiten werden außerdem immer in die lokale Home-Assistant-Zeitzone normalisiert, auch wenn der Wetterdienst Forecast-Zeitpunkte in UTC liefert.
-
-Dafür wird – sofern der ausgewählte Wetterdienst sie unterstützt – die stündliche Home-Assistant-Wettervorhersage ausgewertet. Persönliche Solltemperatur sowie vorhandene Prognosen für Feuchte, Regen und Wind und aktuelle Warn-/Luftqualitätslagen können die Empfehlung beeinflussen. Ab v0.9.3 werden Nachtsegmente **grundgebunden** gebildet: Ein Temperaturfenster muss durchgehend zum Kühlen taugen und darf einen gleichzeitig aktiven Feuchtebedarf nicht verschlechtern; ein Feuchtefenster muss durchgehend zum Trocknen taugen und darf einen gleichzeitig aktiven Temperaturbedarf nicht verschlechtern. Abwechselnde Stunden nach dem Muster „eine Stunde kühlt, die nächste trocknet“ werden deshalb nicht mehr künstlich zu einem einzigen langen guten Nachtfenster zusammengefügt. Für Feuchte zählt bei langem, weitgehend unbeaufsichtigtem Offenlassen außerdem nicht mehr ein Median, der eine einzelne sehr feuchte Stunde verdecken könnte – eine klar problematische Zwischenstunde bleibt ein echter Nachteil.
-
-Ein Forecastpunkt gilt für den **längeren, weitgehend unbeaufsichtigten** Nachthinweis nur dann als plausibel, wenn seine Außentemperatur höchstens **9 K** von der aktuellen Raumtemperatur entfernt liegt. Diese **9-K-Grenze ist eine konservative Produktgrenze für langes/unbeaufsichtigtes Offenlassen**, keine allgemeine Aussage, dass kurzes Lüften jenseits davon nutzlos wäre. Zusätzlich verhindert eine zielabhängige Überschwing-Grenze, dass ein nur kleiner Abstand zum persönlichen Sollwert stundenlang extrem kalte oder extrem warme Außenluft rechtfertigt. Je größer ein echter Kühlbedarf ist, desto mehr thermischer Spielraum bleibt – bis maximal zur 9-K-Grenze. Bei reinem Feuchtebedarf ist die Langzeitgrenze enger um den Sollwert herum. Liegt die Außenluft außerhalb dieser Grenzen, kann kurzes Lüften weiterhin sinnvoll sein, wenn es **jetzt** tatsächlich hilft und die Live-Hauptkarte dem Öffnen nicht widerspricht. Bei Kühlbedarf gilt weiterhin: Für eine neue thermische Lüftungsmöglichkeit muss die Außenluft mindestens ungefähr **0,7 K kühler** als die Raumluft sein.
-
-Die Nachtkarte darf der Hauptkarte keine gegenteilige aktuelle Handlungsanweisung geben. Sagt die Live-Beratung beispielsweise wegen feuchterer Außenluft **geschlossen halten**, kann ein zukünftiger trockener Forecast nicht gleichzeitig als „bereits trockener / jetzt öffnen“ erscheinen. Umgekehrt darf ein späteres Nacht-Kühlfenster einen akuten CO₂-Hinweis der Hauptkarte nicht mit „bis dahin Fenster geschlossen lassen“ überschreiben. Die Nachtkarte plant dann nur das **längere** spätere Fenster und weist ausdrücklich darauf hin, dass der aktuelle Live-Hinweis weiter gilt. Ein „jetzt“-Nachtfenster darf außerdem nicht über einen bereits bekannten ungünstigen Forecastpunkt hinweg an ein später wieder gutes Segment angeklebt werden.
-
-Intern darf die Nachtplanung bis zu **eine Stunde hinter die konfigurierte Endzeit** in den Forecast schauen, um einen Abschnitt am Ende noch belastbar beurteilen zu können. Die sichtbare Nachtzeit wird dadurch niemals verlängert. Ein als „langes Nachtfenster“ angezeigter Abschnitt muss nach dem Clipping auf die konfigurierte Endzeit noch mindestens **60 Minuten** übrig haben. In der letzten Stunde werden aus einer dünner werdenden Forecastbasis keine neuen positiven Strategien mehr erfunden. Stattdessen bleibt nur ein **noch nicht abgelaufener** belastbarer Basisstatus erhalten; dessen eigene `end_time` ist maßgeblich. Ein altes Fenster 23:00–01:00 kann daher um 05:20 nicht mehr als „jetzt bis 01:00“ wiederbelebt werden. `short_only` gehört dabei ausdrücklich zur stabilisierbaren Nachtstrategie und wird nicht nur wegen einer Temperaturdifferenz >9 K aus dem Memory geworfen.
-
-Fehlende Forecast-Felder werden nicht geschätzt. Aktuelle und zukünftige Feuchtevorteile werden getrennt behandelt, damit „bereits trockener“ nur dann erscheint, wenn die Außenluft **jetzt** tatsächlich trockener ist. Weiche Nachteile wie Regen, Wetter-/Luftwarnung, starker Wind, belastete Außenluft oder ungünstiger Außen-CO₂-Wert bleiben auch bei `short_only` sichtbar. Die Nachtstrategie bleibt eine separate Zusatzinformation und verändert die normale Live-Entscheidung nicht; sie darf diese aber auch nicht verbal konterkarieren. Unabhängig davon nutzt die normale Karte seit v0.8.1 ausschließlich den kurzen 60-Minuten-Ausblick als vorsichtigen Vorlauf für unmittelbar relevante Wetteränderungen.
-
-### Außenluftqualität und lokaler Kontext
-
-Wenn der ausgewählte Wetter-Provider passende Ozon-, PM2.5-, PM10-, NO₂- oder SO₂-Sensoren bereitstellt, nutzt Lüftungsassistent plausible und aktuelle Einzelwerte nach den Klassen des Umweltbundesamt-Luftqualitätsindex. Der jeweils schlechteste verfügbare gültige Schadstoff bestimmt die absolute Außenluftbewertung. Fehlende Schadstoffe sind erlaubt; `unknown`, `unavailable`, veraltete, negative oder offensichtlich unplausible Providerwerte werden ignoriert. Fehlende Daten werden niemals als gute Luft interpretiert.
-
-Zusätzlich kann Lüftungsassistent pro Standort einen rollierenden typischen Bereich und den jüngsten Trend aufbauen. Dieser Verlauf dient ausschließlich als Kontext: dauerhaft schlechte Luft bleibt schlecht, der Lüftungsassistent erkennt aber zusätzlich, ob die aktuelle Belastung für den Standort üblich oder außergewöhnlich hoch ist. Bei einem deutlichen Standortwechsel wird ein anderer Verlaufsbereich verwendet. Die lokale Statistik ist bewusst größenbegrenzt und speichert keine zweite 30-Tage-Rohdatenbank. Ein optionaler eigener Außen-CO₂-Sensor ergänzt diese Bewertung für den konkreten Luftaustausch am Gebäude; er ersetzt keine Schadstoffmessung und wird nicht mit regionalen CO₂-Werten gemittelt. Seit v0.9.0 ist ein deutlich ungünstigerer Außen-CO₂-Wert ein **allgemeiner weicher Nachteil** und wird deshalb auch bei Kühl-, Feuchte-, Routine- und Nachtlüftung berücksichtigt, nicht nur wenn CO₂ innen der primäre Auslöser ist. Ist aktuell gar kein Innenraumgrund vorhanden und draußen liegt CO₂ deutlich höher als innen, wird das ebenfalls als Grund gegen unnötigen Luftaustausch sichtbar. Bei einer tatsächlich sinnvollen CO₂-Lüftung verlangt die Sitzungslogik außerdem kein Ziel unterhalb eines gemessenen höheren Außenwerts. Ab **v0.9.1** startet ausschließlich der Room-Coordinator eine explizite CO₂-Sitzung und übernimmt dafür exakt das von der Engine berechnete Ziel; ein bewusstes `target=None` erzeugt keine Ersatz-Session. Nach den fünf Mindestminuten speichert die Sitzung weiterhin Ziel und Hysterese, erzeugt aber selbst keinen künstlichen aktuellen CO₂-Bedarf mehr und überstimmt keine vorsichtigere Außenbewertung: Regen, Forecast, Temperatur-/Feuchtenachteile, Luftqualität und Warnungen dürfen die Empfehlung weiterhin auf Gelb/Orange/Rot setzen. Regen und kurzfristiger Forecast werden bei mehreren gleichzeitig aktiven Gründen anhand der jeweiligen Lüftungsdauer bereits vor der Zusammenführung bewertet, damit ein Wechsel des Entscheidungstreibers dieselben Außenbedingungen nicht plötzlich anders einstuft.
-
-## Wie die Empfehlung entschieden und stabil gehalten wird
-
-Lüftungsassistent bewertet den **Gesamtnutzen** des Lüftens. Seit v0.9.0 werden gleichzeitig aktive Innenraumgründe einzeln gegen dieselben Außenbedingungen geprüft und anschließend semantisch zusammengeführt; ein einzelner Grenzwert darf dadurch einen unabhängig weiterhin sinnvollen Lüftungsgrund nicht einfach aus der Entscheidung verdrängen. Intern wird dabei zwischen klar nützlich (`beneficial`), echter Abwägung (`tradeoff`), neutral, nachteilig (`harmful`) und stark nachteilig (`strong_harmful`) unterschieden, damit beispielsweise ein neutraler Feuchtegrund keine stärkere Empfehlung zum Geschlossenhalten aufweichen kann. Der Merger vergleicht den stärksten Grund für das Öffnen mit dem stärksten Grund dagegen **immer mit derselben Dringlichkeitslogik**; ob zusätzlich ein dritter Kandidat existiert, ändert den Auswahlweg nicht. Ungewöhnlich sehr schlechte gemessene Außenluft bleibt dabei ein starker roter Gegengrund, ist aber ausdrücklich **kein Hard Safety Lock**: echte NINA-/Wetter-`danger`-Anweisungen werden separat gesperrt, während z. B. kritisches CO₂ gegen sehr schlechte Außenluft weiterhin als reale Abwägung bewertet werden kann. Außenwarnungen und Luftqualitätsnachteile werden global berücksichtigt und tauchen nicht erst auf, weil zufällig noch ein schwacher Routine-/Komfortgrund aktiv wird. Die absolute Außenluftqualitätsklasse bleibt erhalten und wird im Mehrfachgründe-Pfad nicht auf eine generische „mäßige“ Warnung heruntergestuft. Die 24-h-Routine ist bewusst nur ein **Fallback**, wenn kein konkreter CO₂-, Feuchte-, Schimmel- oder Temperaturgrund vorliegt; das bloße Erreichen der 24-Stunden-Marke kann deshalb keine bestehende echte Entscheidung umwerfen. Ist die Routine bereits fällig und unter den aktuellen Außenbedingungen sinnvoll, geht dieser vorhandene Lüftungsnutzen beim Anspringen des ersten CO₂-Bereichs bei 1000 ppm nicht abrupt verloren: CO₂ bleibt der Entscheidungstreiber, ohne die Routine wieder als gleichberechtigten Merger-Kandidaten einzuführen. `primary_need` beschreibt weiterhin den tatsächlich stärksten Innenraum-/Anzeigegrund, während `decision_need` getrennt den tatsächlichen Entscheidungstreiber speichert. Die niedrigeren Fortsetzungsgrenzen einer laufenden Lüftung sind zusätzlich an diesen Entscheidungskontext gebunden: 60→58 % rF gilt nur für eine zuvor feuchtegeführte Sitzung, 80→78 % Oberflächen-rF nur für eine zuvor schimmelgeführte Sitzung und die kleinere Temperatur-Fortsetzungsgrenze nur für eine zuvor temperaturgeführte Sitzung. Der gemeinsame Modus `weiter_lueften` kann dadurch keine Hysterese eines anderen Grundes neu starten. Gesundheit und Sicherheit haben Vorrang; danach werden Innenraumluft, Feuchte-/Oberflächenrisiko, persönliches Temperatursoll, erwartete Komfortänderung sowie Außenbedingungen gemeinsam eingeordnet. Der persönliche Sollwert bleibt der Maßstab für thermische Behaglichkeit, während sehr hohe und länger anhaltende Raumtemperaturen zusätzlich als gesundheitlicher Hitzefaktor berücksichtigt werden. Beim gezielten Erwärmen wird Außenluft nur empfohlen, wenn sie zwar ausreichend wärmer als der Raum, aber höchstens **4 K wärmer als der persönliche Sollwert** ist; Start und Fortsetzung verwenden damit dieselbe Regel. Die wählbare Ampeldarstellung verändert diese Hintergrundentscheidung nicht: Sie bestimmt nur, ob die kurze Vorderseite stärker den **Lüftungsbedarf im Raum** oder die **aktuelle Eignung der Außen-/Lüftungsbedingungen** erklärt. Lüftungsassistent bleibt dabei eine Entscheidungshilfe und gibt kein medizinisches oder bauphysikalisches Gutachten ab.
-
-Für die absolute Feuchtedifferenz wird um **±0,5 g/m³** eine kleine technische Neutralzone verwendet. Diese Zahl ist kein Gesundheits- oder Normgrenzwert, sondern verhindert, dass Messrauschen und praktisch sehr kleine Unterschiede eine starke Empfehlung auslösen. Positive Differenzen bedeuten trocknere Außenluft; negative Differenzen bedeuten feuchtere Außenluft. Die Stärke dieser Abweichung wird zusammen mit CO₂, Raumfeuchte, Temperatur und optionalen Zusatzdaten abgewogen. Wenn ein aktiver Feuchtebedarf durch die Außenluft tatsächlich verbessert werden kann, stuft eine lediglich **mäßige** Außenluftqualität diese positive Feuchtelüftung nicht allein auf Gelb zurück; zusätzliche Warnungen, schlechteres Außen-CO₂ sowie `poor`/`very_poor` bleiben davon unberührt. Eine laufende sinnvolle Feuchtelüftung erhält zusätzlich eine kleine Hysterese.
-
-Auch an normalen CO₂-/Feuchte-/Temperaturgrenzen werden Hysteresen verwendet, damit die Karte nicht bei jedem kleinen Sensorschritt umspringt. Wird eine vom Assistenten tatsächlich empfohlene CO₂-Lüftung durch das Öffnen eines überwachten Fensters gestartet, erhält dieser Luftaustausch mindestens **5 Minuten** Zeit, bevor ein bereits stark gefallener CO₂-Wert die Sitzung beenden kann. Bereits bekannte und beim Start akzeptierte Außen-Nachteile lösen in dieser kurzen Mindestzeit kein Hin-und-her aus; neue relevante Verschlechterungen sowie harte Safety-Locks werden weiterhin sofort berücksichtigt. Danach greift wieder die bestehende CO₂-Abschlusshysterese. Kritisches CO₂ sowie echte Außenluft- und Unwettergefahren wirken dagegen unmittelbar. Die Routinelüftung nach 24 Stunden bleibt bewusst nur ein Fallback für Situationen ohne früheren echten Lüftungsgrund.
-
-Bei temperaturgeführtem Lüften ist der persönliche Sollwert die **Richtung**, aber nicht automatisch ein durch Außenluft erreichbares Endziel. Liegen z. B. 24 °C innen, 18 °C Soll und 23 °C außen an, nutzt der Assistent den noch vorhandenen Kühlvorteil, beendet die Lüftung aber bereits, sobald der sinnvolle Temperaturgradient zur Außenluft aufgebraucht ist. Die Karte formuliert deshalb bei einer reinen laufenden Temperatur-Lüftung ausdrücklich „solange die Außenluft noch sinnvoll Richtung Sollwert hilft“ statt zu versprechen, dass Lüften allein den Sollwert erreichen muss. Wenn die Karte wirklich **„kann schließen“** meldet, darf das anschließende Schließen bei unveränderten Messwerten nicht unmittelbar in eine orange/rote Aufforderung zurückspringen; genau dieser Fenster-Auf/Zu-Übergang ist als Grenzwert-Invariante getestet.
-
-Der Hauptsensor bleibt bewusst die zentrale Automation-Schnittstelle. Eine zusätzliche Binary-Entity „Lüften empfohlen“ wird nicht erzeugt, weil die Zustände des Hauptsensors (`open_now`, `keep_open`, `close_now`, `wait` usw.) bereits gezieltere Automationen erlauben.
-
-## Neustartsicherheit und Ressourcen
-
-Lüftungsassistent hält sein internes Gedächtnis bewusst klein. Gespeichert werden nur Zustände, die sich nach einem Neustart nicht zuverlässig aus den aktuellen Home-Assistant-Entities rekonstruieren lassen: laufende bzw. letzte bestätigte Lüftung, ein separater schwacher Routine-Anker für eine bereits qualifizierte Lüftung mit später verlorenem Fensterkontakt, die kurzen CO₂-Hysterese-Zeitpunkte einschließlich einer noch laufenden 5-Minuten-Mindestlüftung, der noch gültige 60-Sekunden-CO₂-Ausfallpuffer, ein belastbarer Nacht-Basisstatus bis zu dessen Endzeit, kompakter Oberflächen-Feuchtekontext und eine begrenzte lokale Außenluft-Statistik. Temperatur-, Feuchte- und CO₂-Rohverläufe werden nicht zusätzlich zum Home-Assistant-Recorder dupliziert. Persistierte CO₂-Rohwerte dienen ausschließlich dem sehr kurzen Ausfallpuffer und werden nach Ablauf dieser Grace-Periode nicht als aktueller Messwert wiederverwendet. Numerische Fehlerwerte wie **0 ppm** gelten dabei nicht als plausible CO₂-Messung und können deshalb eine laufende Grace-/Sitzungslogik nicht fälschlich beenden.
-
-Auch im Home-Assistant-Recorder wird bewusst nur ein kleiner historischer Kern behalten: **Hauptempfehlung**, **Innen-Absolutfeuchte**, **Zeitpunkt der letzten bestätigten Lüftung** und die **harte Gefahrenanzeige** werden integrationsseitig auf höchstens 20 Tage begrenzt. Abgeleitete Hilfszustände wie Außen-Absolutfeuchte, Feuchtedifferenz, CO₂-Status, Fenster-/Lüftungsstatus und „Stunden seit Lüftung“ bleiben als Live-Werte verfügbar, sind bei neuen Installationen aber standardmäßig deaktiviert; werden sie aktiviert, entfernt die tägliche Wartung deren Recorder-Verlauf wieder. Die großen dynamischen Attribute des Hauptsensors sind grundsätzlich vom Recorder ausgeschlossen. Beim Löschen eines Raums werden dessen ehemalige Entity-IDs noch einmal gezielt aus dem Recorder entfernt; beim vollständigen Entfernen der Integration werden außerdem ihre kleinen `.storage`-Stores gelöscht. Bereits vorhandene globale Recorder-Regeln des Nutzers können die Aufbewahrung natürlich zusätzlich weiter verkürzen.
-
-Im Leerlauf laufen keine minutenweisen Komplettauswertungen pro Raum nur für den 24-Stunden-Fallback. Der Minutentakt für „Fenster geöffnet seit“ ist nur während einer tatsächlichen Lüftung aktiv; der 24-Stunden-Fallback wird gezielt terminiert. Wetter, Warnungen und Außenluft werden einmal pro lokalem Lüftungsassistent aufbereitet und von den Räumen gemeinsam genutzt. Auch der 60-Minuten-Wetterausblick wird gemeinsam gecacht und höchstens etwa alle 15 Minuten erneuert, statt pro Raum eigene Forecast-Abfragen zu erzeugen. Große Kartenattribute bleiben für die Oberfläche verfügbar, werden aber nicht unnötig als eigener Recorder-Verlauf gespeichert.
-
-## Sprache und Einheiten
-
-Lüftungsassistent unterstützt aktuell **Deutsch, Englisch und Türkisch**. Empfehlungen werden nicht als kurze technische Meldungen oder wortwörtliche Maschinenübersetzungen erzeugt, sondern für jede Sprache natürlich formuliert. Ab v0.7.1 trägt die Raum-Entity nicht mehr alle Sprachvarianten gleichzeitig als `localized_texts` mit sich. Die Dashboard-Karten lassen Empfehlung, Grund, Dauer und Nachttext bei Bedarf über die Integration in der Sprache des jeweils angemeldeten Home-Assistant-Benutzers rendern und cachen das Ergebnis. Die aktuell in den Zustandsattributen vorhandenen Einzeltexte bleiben als sofortiger Fallback in der Home-Assistant-Systemsprache erhalten. Nicht unterstützte Sprachen fallen auf Englisch zurück.
-
-Amtliche Warnquellen werden handlungsorientiert ausgewertet: Der Lüftungsassistent versucht nicht selbst zu entscheiden, *wie gefährlich* ein Ereignis ist. Gibt eine offizielle Warnquelle ausdrücklich vor, Fenster/Türen geschlossen zu halten, Lüftung/Klima abzuschalten oder Außenluftzufuhr zu vermeiden, gilt diese Schutzmaßnahme unmittelbar als harte Sperre. Warnungen ohne lüftungsrelevante Handlungsanweisung beeinflussen diesen Pfad nicht. DWD behält daneben seine eigene Wetterwarnungsbewertung. Vollständige Entwarnungen heben eine amtliche Sperre auf, bleiben solange der Warneintrag vorhanden ist als Hinweis sichtbar und setzen selbst keine Farbe; danach übernimmt wieder vollständig die normale Engine. Teil-/bedingte Entwarnungen werden dagegen nicht als Vollfreigabe behandelt, solange weiterhin eine Schutzanweisung gilt. Reale MoWaS-Entwarnungen dürfen alte, noch mitgeführte Handlungsempfehlungen enthalten; eindeutige Aufhebungstexte werden deshalb bewusst von weiterhin gültigen Teilwarnungen unterschieden.
-
-Texte von externen Warnanbietern wie DWD oder NINA werden nicht automatisch übersetzt. Lüftungsassistent erzeugt daraus eine eigene lokalisierte Begründung und bewahrt den Originaltext zusätzlich im Attribut `original_warning_text` auf.
-
-Temperaturwerte werden intern einheitlich in °C verarbeitet. Anzeige und Eingabe der Fallback-Solltemperatur folgen dem in Home Assistant eingestellten Einheitensystem, sodass auch Fahrenheit-Setups korrekt funktionieren.
-
-## Dashboard
-
-Nach dem Neustart stehen im Kartenpicker zwei Karten zur Verfügung:
-
-### Lüftungsassistent – Raum
-
-Die Raumkarte zeigt im kompakten Standardzustand weiterhin **Statusfarbe, Raumname und die aktuelle Handlungsempfehlung**. Über das Info-Symbol kann die bisherige vollständige Ansicht mit „Warum?“, Lüftungsdauer, Messwerten und Diagnosehinweisen ein- und wieder ausgeklappt werden. Diese Wahl wird **pro Browser/Endgerät dauerhaft gespeichert** und bleibt damit auch bei Home-Assistant-Neustarts, Config-Reloads und Integrationsupdates erhalten.
-
-Zwei sicherheits- bzw. planungsrelevante Informationen werden im Kompaktmodus bewusst **nicht versteckt**: Eine vorhandene **Nachtlüftungs-Empfehlung** bleibt sichtbar, ebenso bei einer aktiven **harten Fenstersperre** der Sperrgrund samt „Warum?“. Eine reine Entwarnung erscheint dagegen nur in der ausgeklappten Detailansicht. Raumkarten, die aus der Übersicht heraus geöffnet werden, starten direkt vollständig ausgeklappt.
-
-### Lüftungsassistent – Übersicht
-
-Die Übersicht ist bewusst sehr kompakt: Pro Raum werden nur Name, aktuelle Empfehlung, Statusfarbe und – falls zutreffend – ein kleines **offen**-Badge gezeigt. Ein Tipp auf einen Raum erzeugt erst in diesem Moment eine vollständige Raumkarte in einem Dialog; eine separat eingerichtete Raumkarte ist dafür nicht erforderlich und es laufen keine unsichtbaren Raumkarten im Hintergrund. Der Dialog wird beim Schließen oder beim Verlassen der Dashboard-Ansicht vollständig entfernt, sodass Handy, Tablet und PC jeweils einen rein lokalen Dialogzustand besitzen.
-
-Sind mehrere Lüftungsassistent-Instanzen vorhanden, gruppiert dieselbe Übersicht die Räume automatisch nach Instanz. Bei nur einer sichtbaren Instanz wird diese Zwischenebene übersprungen. Im visuellen Karteneditor lassen sich lokale und Tailscale-Remote-Installationen sowie einzelne Räume ein-/ausblenden und per Pfeiltasten sortieren.
-
-Lokale Raumkarten verlinken echte Quellsensoren weiterhin auf Home Assistants More-Info-/Verlaufsansicht. Abgeleitete Diagnosewerte wie **CO₂-Bewertung** oder **absolute Feuchtedifferenz Δ g/m³** bleiben direkt in der Karte sichtbar; ihre separaten Hilfs-Entities sind bei neuen Installationen aus Recorder-/Entity-Hygiene standardmäßig deaktiviert. Aktiviert der Nutzer eine solche Entity bewusst, wird sie wieder als More-Info-Ziel angeboten, ihr eigener Recorder-Verlauf bleibt jedoch integrationsseitig kurzlebig. Ab v0.6.17 öffnet ausschließlich der **farbige Kopf-/Statusbereich** die Lüftungsassistent-Hauptentity; Erklärungstexte und die empfohlene Lüftungsdauer sind reine Texte und lösen keine Navigation aus.
-
-Die Dashboard-Ressource wird bei normalen Home-Assistant-Dashboards automatisch registriert.
-
-
-## Mehrere Instanzen und Tailscale-Remote
-
-Mehrere lokale Lüftungsassistent-Instanzen können parallel eingerichtet werden, zum Beispiel für mehrere Wohnungen. Jede Installation verwendet Home Assistants eigene Config-Entry-ID; eine künstliche `unique_id` wird bewusst nicht vergeben, weil lokale Lüftungsassistent-Instanzen manuell wiederholbare Konfigurationen und keine einzelne physische Hardware sind. Die gemeinsame Übersicht gruppiert die Installationen unabhängig voneinander und öffnet die Räume erst nach Auswahl der jeweiligen Instanz.
-
-Zusätzlich kann eine andere Home-Assistant-Installation als **Tailscale-Remote** eingebunden werden. Für ältere Snapshots akzeptiert der aktuelle Client weiterhin die Remote-Protokolle 1 und 2. Seit v0.9.3 verwendet Lüftungsassistent für die erweiterten Nachtzustände/-argumente **Remote-Protokoll 3** und fordert dieses Protokoll ausdrücklich an; ein älterer Client ohne Protokollangabe erhält weiterhin einen v2-kompatiblen Snapshot, bei dem nur die neuen, dort nicht lokalisierbaren Nachtzustände ausgeblendet werden. Dadurch bleibt ein Rolling Upgrade nutzbar, ohne neue Nachtsemantik stillschweigend falsch darzustellen. Für die **vollständige aktuelle Remote-Härtung und Nachtanzeige** (gepinntes Tailscale-Ziel, Admin-Sperren, aktuelle Diagnose und Night-v3-Semantik) sollten beide Home-Assistant-Installationen dieselbe aktuelle Lüftungsassistent-Version verwenden. Die entfernte Installation muss über ihre Tailscale-IP oder einen MagicDNS-Namen erreichbar sein. Die Einrichtung verlangt zusätzlich einen gültigen Home-Assistant-Long-Lived-Access-Token eines Administrators. Wird dieser Token später widerrufen oder ungültig, fordert Home Assistant über den normalen Reauth-Flow einen Ersatz an, statt die Gegenstelle dauerhaft nur als „offline“ darzustellen. Ab v0.7.0 entscheidet die Quellinstallation pro Raum, ob Remote-Abfragen erlaubt sind; die empfangende Installation wählt anschließend ausdrücklich nur die Assistenten/Räume aus, die sie sehen möchte. Neue Räume werden nicht automatisch übernommen, sondern erscheinen lediglich als zusätzliche Auswahl. Remote-Messwerte bleiben flüchtig und erzeugen auf der empfangenden Instanz weiterhin keine gespiegelten Entities oder Recorder-Historien. Auf der Quellseite kennzeichnet die Übersicht aktiv remote abgefragte Räume und weist auf Assistenten-Ebene darauf hin, wenn mindestens ein Raum gerade von einer anderen Instanz genutzt wird. Ab v0.7.1 erscheint bei einer aktiven Abfrage zusätzlich in der detaillierten lokalen Raumkarte ein kleines Remote-Symbol. `remote_shared` bedeutet nur Freigabe; eine tatsächliche laufende Abfrage wird getrennt als `remote_access_active` geführt.
-
-Tailscale-Remote-Verbindungen erzeugen auf der empfangenden Home-Assistant-Instanz weiterhin **keine Remote-Entities und keine Messwert-Historien**. Für die Geräteansicht wird lediglich eine leichte Raumkarte pro Remote-Raum registriert; die früheren unnötigen Zwischenebenen **Remote Home Assistant → Lüftungsassistent** entfallen. Die Raumkarten enthalten keine Messentities. Alle aktuellen Remote-Werte bleiben ausschließlich flüchtige Snapshots im Arbeitsspeicher.
-
-Remote-Verbindungen sind absichtlich auf die von Tailscale verwendeten Adressbereiche beschränkt. Beim laufenden Abruf wird erneut geprüft, dass das Ziel **ausschließlich** auf solche Adressen auflöst; genau diese geprüften IP-Adressen werden anschließend für den tatsächlichen HTTP-Request in einen eigenen Resolver gepinnt, sodass zwischen Prüfung und Verbindung keine zweite normale DNS-Auflösung stattfindet. Zusätzlich akzeptiert der Snapshot-Endpunkt selbst nur Anfragen, deren Quell-IP aus einem dieser Bereiche stammt **und deren authentifizierter Home-Assistant-Benutzer Administrator ist**. Auch die lokale WebSocket-Remoteübersicht ist Administratoren vorbehalten. Ein beliebiger gültiger Home-Assistant-Token beziehungsweise ein normaler lokaler HA-Benutzer reicht daher nicht aus. Diese Bereichsprüfung ist eine Transport-/Zielrichtlinie und kein kryptographischer Nachweis eines Tailscale-Peers; der eigentliche Schutz entsteht aus der Kombination mit Home-Assistant-Authentifizierung/Admin-Rechten und dem gepinnten Ziel. Übertragen werden nur die aktuellen Lüftungsassistent-Hauptzustände und deren aktuelle Detailwerte – keine Recorder-Historie und keine fremden Sensor-Entities werden im empfangenden Home Assistant angelegt.
-
-Die entfernten Snapshots werden nur im Arbeitsspeicher gehalten und bei neuen Daten ersetzt. Die Remote-Verbindung prüft alle 30 Sekunden. Kurze LTE-/Tailscale-Aussetzer werden toleriert; erst nach ungefähr 3 Minuten ohne erfolgreichen Abruf wird die Instanz als **Nicht erreichbar** angezeigt. Während dieser Karenz bleibt auch eine bereits geöffnete Remote-Raumansicht bestehen. Sobald die Verbindung wieder steht, wird wieder ein aktueller Snapshot geladen. Fehlen dagegen nur notwendige Temperatur-/Feuchtewerte auf der erreichbaren Remote-Instanz, bleibt der Raum sichtbar und zeigt gelb **„Aktuell keine zuverlässige Empfehlung möglich“** statt als offline zu gelten.
-
-In der Remote-Detailansicht sind Messwerte reine Anzeige und nicht anklickbar. Lokale Raumkarten bleiben unverändert: Dort funktionieren More-Info und Recorder-Verlauf weiterhin.
-
-Für eine möglichst enge Netzfreigabe empfiehlt sich zusätzlich eine Tailscale-Grant/ACL-Regel, die vom abfragenden Home-Assistant-Gerät nur TCP-Port 8123 des entfernten Home Assistants erlaubt.
-
-## Unterstützte Wetter- und Warndienste
-
-Grundsätzlich kann jede passende Home-Assistant-`weather.*`-Entity verwendet werden, sofern die benötigten Werte vorhanden sind.
-
-Besonders berücksichtigt werden aktuell:
-
-- DWD Weather
-- DWD Weather Warnings
-- NINA
-
-Andere Anbieter können über die standardisierten Home-Assistant-Wetterdaten bzw. generische Warnstrukturen teilweise ebenfalls funktionieren.
-
-## Hinweise zur Alpha
-
-Bitte beachte:
-
-- Nicht jede Kombination aus Wetter- und Warnintegration ist bereits getestet.
-- Die Entscheidungslogik wird aktuell weiter geprüft.
-- Bei ungewöhnlichen Zuständen bitte ein GitHub-Issue mit Home-Assistant-Version, Lüftungsassistent-Version und den betroffenen Entity-Zuständen anlegen.
-
-## Datenschutz
-
-Ohne konfigurierte Remote-Verbindung verarbeitet Lüftungsassistent die vorhandenen Entities ausschließlich lokal. Wird Tailscale-Remote verwendet, stellt die entfernte Lüftungsassistent-Installation nur über eine authentifizierte, auf Tailscale-Quell- und Zieladressen beschränkte Home-Assistant-API aktuelle Raum-Snapshots bereit. Eine Recorder-Historie wird dabei nicht übertragen oder auf der empfangenden Instanz angelegt. Externe Wetter-/Warndienste können unabhängig davon eigene Cloud-Verbindungen verwenden.
-
-## Fehler melden
-
-Issues:
-
-https://github.com/svemmiii/lueftungsberater/issues
-
-## Lizenz
-
-MIT License
-
-## HACS-Alpha und Releases
-
-Die Software ist weiterhin als Alpha gekennzeichnet, die GitHub-Releases für
-HACS-Tester werden aber als normale Releases veröffentlicht. Dadurch nutzt HACS
-die Versionsnummer des Releases statt den Commit-Hash des Default-Branches.
-
-## Branding in HACS
-
-Home Assistant verwendet das mitgelieferte lokale Brand-Icon nach der Installation.
-Die HACS-Oberfläche kann bei Custom Integrations vor der Installation weiterhin
-einen Platzhalter anzeigen, obwohl `brand/icon.png` korrekt enthalten ist.
-
-
-### Hinweis zu v0.6.20
-
-v0.6.20 überarbeitet die Beratungslogik grundlegend zu einer nachvollziehbaren Gesamtabwägung: absolute Feuchte verwendet eine technische Neutralzone statt einer harten 1,0-g/m³-Hürde, CO₂ wird gegen Außenbedingungen und Komfort abgewogen, Regen nur noch zeitlich passend zur Lüftung berücksichtigt, Wind und Warntexte differenzierter bewertet und plausible Außenluftqualität automatisch einbezogen. Der optionale Oberflächensensor erhält einen lokalen zeitlichen Feuchtekontext, ohne ohne Sensor Werte zu erfinden oder eine Schimmeldiagnose zu behaupten. Benachrichtigungen laufen nur noch über `notify.send_message`; der alte Companion-Sonderweg entfällt. Remote-Tailscale-Werte bleiben vollständig flüchtig und entity-frei, während frühere leere Remote-Geräte-Metadaten aufgeräumt werden. Deutsch, Englisch und Türkisch wurden gemeinsam aktualisiert.
-
-### Hinweis zu v0.6.19
-
-v0.6.19 erweitert die Benachrichtigungen um frei wählbare Lüftungsstatus-Hinweise und optionale Companion-App-Steuerung. Normale Hinweise können still auf dem Handy erscheinen, während Vorsicht und Gefahr getrennte Android-Vibrationsmuster erhalten. Kritische Zustellung bleibt ausdrücklich opt-in. Die Entscheidungslogik und Lüftungsschwellen bleiben unverändert.
-
-### Hinweis zu v0.6.18
-
-v0.6.18 ist ein reiner Test-/CI-Hotfix. Die Lüftungslogik aus v0.6.17 bleibt unverändert. Korrigiert wurde ausschließlich ein Regressionstest, der bei der Prüfung der CO₂-Hysterese unbeabsichtigt gleichzeitig die Kühl-Hysterese aktiviert hatte.
-
-### Hinweis zu v0.6.17
-
-v0.6.17 vereinheitlicht die Klicklogik der Raumkarte, filtert die Sensorauswahl nach passenden Geräteklassen, beruhigt Grenzbereiche mit Hysterese und ergänzt optionalen Schimmelschutz sowie gezielte Warn-Benachrichtigungen bei tatsächlich offenem Fenster/Tür. Die bestehenden Wetter-/Radarwege bleiben bewusst unverändert.
-
-### Hinweis zu v0.6.16
-
-v0.6.16 ist ein kleiner UI-Fix: Die Begründung unter **„Warum diese Empfehlung?“** ist jetzt ausschließlich Text. Sie wird nicht mehr als Verlauf-/More-Info-Link dargestellt und löst beim Antippen keine Navigation aus. Messwerte und echte Statuswerte bleiben weiterhin anklickbar.
-
-### Hinweis zu v0.6.15
-
-v0.6.15 ist ein kleiner Warnquellen-Hotfix. NINA/DWD und andere erkannte Warnanbieter sind im lokalen Einrichtungsdialog wieder auswählbar; der Warndienst bleibt weiterhin optional und `Kein Warndienst` ist der Standard.
-
-### Hinweis zu v0.6.14
-
-v0.6.14 ist ein kleiner Test- und Config-Flow-Hotfix. Er hält die Remote-Erfolgsseite zuverlässig als Bestätigungsdialog offen, macht die NINA-Auswertung robuster gegenüber fehlendem Entity Registry in Test-/Startup-Kontexten und korrigiert den GitHub-Pytest-Workflow.
-
-### Hinweis zu v0.6.13
-
-v0.6.13 behebt einen Fehler im neuen Remote-Fortschrittsdialog von v0.6.12, durch den erfolgreiche Tailscale-Verbindungen nach der Prüfung nicht gespeichert werden konnten. Außerdem wurde der lokale Mehrfach-Setup-Pfad vereinfacht und die automatische Pytest-Prüfung im GitHub-Workflow ausdrücklich aktiviert.
-
-
-### Historienkarte (v0.11.4 TEST COMPLETE(15))
-
-Im Dashboard eine neue manuelle Karte anlegen:
-
-```yaml
-type: custom:lueftungsberater-history-card
-entity: sensor.dein_lueftungsassistent_raum
-hours: 24
-metrics:
-  - co2_in
-  - co2_out
-  - humidity_in
-  - pm25_out
-colors:
-  co2_in: "#3c90df"
-  humidity_in: "#2eaa8b"
-perspective: room_air
-```
-
-Im visuellen Karteneditor lassen sich ausschließlich für den Raum konfigurierte Messgrößen und die gewünschten Kurvenfarben auswählen. Neben Originalwerten aus Home Assistants Recorder kann die Integration fehlende Verläufe ab Aktivierung als eigene sensorbasierte Historie speichern. Die erste automatische Aktivierung benötigt Administratorrechte, weil neue HA-Entitäten dauerhaft angelegt werden. Recorder-Ausschlüsse gelten weiterhin; eine Historie wird niemals nachträglich erfunden. Die Aufbewahrungsdauer hängt von der Recorder-Konfiguration und den vorhandenen Langzeitstatistiken ab. Manche älteren Entscheidungen besitzen keine aufgezeichnete Ampelfarbe und werden deshalb mit neutraler Markierung statt einer geratenen Farbe angezeigt.
-
-Der Diagramm-Cursor zeigt gemessene Rohwerte sowie den damaligen Empfehlungsschlüssel als lokalisierten Text, ohne eine erneute Entscheidungsberechnung. Die farbigen oberen und unteren Qualitätszonen stammen aus den aktuellen, pro Messgröße gültigen Bewertungsgrenzen der Integration und bilden keine zusätzlichen Grenzwerte.
-
-**Hinweis für TEST COMPLETE(14)-Tester:** Falls bereits eine fehlerhafte Hilfssensor-Historie zur Oberflächenfeuchte existiert, kann sie nicht rückwirkend bereinigt werden. Die korrigierte Version legt bei aktivierter Historie einen neuen Sensor "Historie Oberflächenfeuchte (berechnet)" mit separater Entity-Registry-Identität an und berücksichtigt die alte fehlerhafte Historie in der Karte nicht mehr. Der alte Hilfssensor kann bei Bedarf nach Prüfung der eigenen Dashboards in Home Assistant entfernt werden. Vorhandene, korrekte andere Sensorhistorien bleiben unverändert.
-
-Normale Benutzer können bereits aktivierte Historien ab COMPLETE(15) über die lesende Raumauflösung abrufen. Das erstmalige Aktivieren einer nicht vorhandenen Aufzeichnung erfordert weiterhin Administratorrechte. Bei einem temporären Schreibfehler lässt sich die Aktivierung erneut ausführen.
+**Lizenz:** [MIT](LICENSE) · **Releases:** [GitHub](https://github.com/svemmiii/lueftungsberater/releases)

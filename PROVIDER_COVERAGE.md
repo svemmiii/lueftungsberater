@@ -2,7 +2,7 @@
 
 ## CAP-Zahlenfelder und Warnsprachen
 
-Das versionsfähige NWS-Profil erkennt `maxWindGust` als Böenwert mit expliziter Einheit. Die Auswertung dieses strukturierten Feldes hängt nicht von einem Text-Sprachpaket ab; CAP-Gebiet und Geltungszeit bleiben verbindlich. Unbekannte Parameternamen oder einheitenlose Zahlen werden nicht als Böengeschwindigkeit interpretiert. Andere Anbieterprofile erhalten ihre Originalcodes, ohne aus Warnfarbe oder Ereigniscode einen km/h-Wert abzuleiten.
+Unterstützte CAP-Anbieterprofile erkennen strukturierte Böenangaben wie NWS `maxWindGust` und DWD `gusts` unabhängig vom Warntext. Die Einheit muss eindeutig und unterstützt sein; ebenso bleiben CAP-Gebiet, Warnzeitraum sowie eindeutig zugeordnete örtliche und zeitliche Einschränkungen verbindlich. Offene Grenzen wie `<90 [km/h]` dürfen nicht wie `90 km/h` behandelt werden. Unbekannte Parameternamen, fehlende Einheiten oder Warnfarben werden nicht zu erfundenen Böengeschwindigkeiten umgedeutet.
 
 DE/EN/TR-Textmodule sind separat registriert und verwenden isolierte Parserzustände. Bisherige begrenzte FR/ES/IT/NL-Konstruktionen bleiben erhalten. `set_warning_language_enabled()` steuert Warntextmodule unabhängig von UI-Sprachen und strukturierten CAP-Feldern. Die Textgrammatik bleibt begrenzt; unbekannte Freitexte und unklare Entwarnungen liefern keine bestätigte Freigabe. Eine zuverlässig erkannte Schließanweisung bleibt bei abweichender Sprachkennzeichnung wirksam und trägt den Abweichungsvermerk in ihrer Provenienz.
 
@@ -43,7 +43,7 @@ Der Regionsdatensatz ist ein Snapshot vom 06.10.2025 mit 2.054 EMMA-Gebieten und
 
 AT-Alert, Alertswiss und BE-Alert verwenden die öffentlich von ihren offiziellen Webseiten eingesetzten Endpunkte. Diese sind keine zugesichert stabilen, versionierten APIs. AT-Alert wird paginiert geladen. Bei Alertswiss wird zusätzlich das Alter des Feed-Heartbeats geprüft. Schemafehler und Ausfälle bleiben sichtbar; erfolgreich gelesene Warnungen anderer Quellen bleiben erhalten. Probe- und Übungsalarme werden ignoriert. BE-Alert wird über seinen aktuellen öffentlichen Feed mit `outdated=false` geladen. Der Feed muss seine Aktualität und den Active-Set-Filter bestätigen; passende Gebiete werden anschließend gegen die vollständigen CAP-Dokumente geprüft. Die amtliche Darstellung kennzeichnet manche Probetexte mit CAP-Status `Actual`, deshalb werden ausdrückliche Test-/Übungsangaben zusätzlich geprüft. Ein fehlendes CAP-Dokument kann keine Entwarnung bestätigen.
 
-Warnungen werden zusammengeführt. Eine harte Lüftungssperre entsteht aus einer gültigen relevanten Schließ-/Lüftungsanweisung oder aus eindeutig zugeordneten amtlichen Böenangaben ab 90 km/h mit 30 Minuten Vorlauf. Eine hohe Gefahrenstufe allein reicht nicht. Die einheitliche numerische Böenregel gilt für die hier aufgeführten Anbieter; unbekannte Einheiten, unklare Zeitangaben und nicht eindeutig zuordenbare Höhenbereiche lösen keine neue Windsperre aus. Die Textauswertung unterstützt Deutsch und Englisch sowie ausgewählte konkrete Schutzanweisungen auf Niederländisch, Französisch und Italienisch. Grundlage sind veröffentlichte amtliche Formulierungen; Negationen und qualifizierte/partielle Entwarnungen werden berücksichtigt. MeteoAlarm bevorzugt vorhandene englische CAP-Informationen. Es gibt keine automatische Übersetzung und keine Garantie, dass jede freie Formulierung dieser Sprachen erkannt wird. Andere Sprachen sind weiterhin nicht abgedeckt. Damit ist diese Version kein vollständiges weltweites NINA-Äquivalent.
+Warnungen werden zusammengeführt. Eine harte Lüftungssperre entsteht aus einer gültigen, relevanten Schließ-/Lüftungsanweisung oder aus eindeutig zugeordneten amtlichen Böenangaben ab 90 km/h mit 30 Minuten Vorlauf. Eine hohe Gefahrenstufe allein reicht nicht. Die numerische Böenregel gilt für unterstützte Anbieterprofile; unbekannte Einheiten, unklare Zeitangaben und nicht zuordenbare Höhenbereiche begründen für sich keine neue Windsperre. Textmodule für Deutsch, Englisch und Türkisch sowie eine begrenzte zusätzliche Erkennung weiterer Sprachen werten vorhandene Formulierungen aus. Mehrsprachige CAP-Blöcke können gemeinsam mit Herkunft, Gebiet und Zeitraum erhalten bleiben. Es gibt keine automatische Vollübersetzung und keine Garantie, dass jede beliebige freie Formulierung verstanden wird. Auch daraus folgt keine weltweite Abdeckung amtlicher Warnquellen.
 
 Die Warnsensorattribute `warning_provider_coverage` und `warning_provider_error` machen Abdeckung und Fehler sichtbar. Verfügbarkeit und persistente Warnsperren behalten die jeweilige Quelle bei, damit die Entwarnung eines anderen Dienstes keine ausgefallene Quelle ersetzt.
 
@@ -83,7 +83,7 @@ Grundlagen der neuen Textregeln:
 - HA-Tracker-Genauigkeit: https://www.home-assistant.io/integrations/device_tracker/
 
 
-## v0.11.2 – automatische Zuordnung
+## Deutschland – automatische Zuordnung
 
 ### Deutschland – Wetter
 
