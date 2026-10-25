@@ -2,6 +2,34 @@ const LB_NNBSP = "\u202F";
 
 const LB_I18N = {
   de: {
+    "warning.area_unknown": "Warngebiet oder Höhenbereich nicht eindeutig zuordenbar – amtliche Meldung prüfen.",
+    "warning.gust_conflict": "Widersprüchliche amtliche Böenangaben – beide Angaben beachten und Meldung prüfen.",
+    "warning.gust_polarity_conflict": "Amtliche Aussagen zum Auftreten der Böen widersprechen sich – betroffene Böenprognose unklar; Meldung prüfen.",
+    "warning.gust_time_conflict": "Amtliche Zeitangaben zu denselben Böen weichen voneinander ab – einzelne Zeiträume und Originalmeldung prüfen.",
+    "warning.gust_scope_unknown": "Einzelne Böenangaben sind örtlich eingeschränkt und für den Standort nicht bestätigt.",
+    "warning.gust_time_unknown": "Der Zeitraum einzelner Böenangaben ist nicht eindeutig zuordenbar.",
+    "warning.gust_onset": "Diese Böen angekündigt ab",
+    "warning.gust_ends": "Diese Böen angekündigt bis",
+    "warning.source_description": "Beschreibung",
+    "warning.source_parameter": "Parameter",
+    "warning.source_headline": "Überschrift",
+    "warning.source_event": "Ereignis",
+    "warning.official": "Amtliche Warnung",
+    "warning.announced": "Angekündigt",
+    "warning.prelock": "Vorsorgliche Lüftungssperre",
+    "warning.active": "Aktive Warnung",
+    "warning.start_unknown": "Beginn nicht angegeben",
+    "warning.time_uncertain": "Zeitraum unklar – amtliche Meldung prüfen",
+    "warning.onset": "Ereignis angekündigt ab",
+    "warning.ends": "Meldung gültig bis",
+    "warning.lock_from": "Lüftungssperre ab",
+    "warning.gusts": "Angekündigte Böen",
+    "warning.instruction": "Anweisung der Warnstelle",
+    "warning.advice": "Empfehlung des Assistenten",
+    "warning.close": "Fenster geschlossen halten.",
+    "warning.strong": "Fenster besser geschlossen halten; eine absolute Lüftungssperre besteht nicht.",
+    "warning.caution": "Windhinweis beachten und offene Fenster sichern.",
+    "warning.cached": "Letzte bestätigte Meldung; Warnquelle vorübergehend nicht erreichbar.",
     "recommendation.open_now": "Jetzt lüften",
     "recommendation.room_good": "Aktuell kein Lüftungsgrund",
     "recommendation.room_watch": "Werte im Blick behalten",
@@ -158,6 +186,34 @@ const LB_I18N = {
     "editor.rooms_hint": "Installationen und Räume können einzeln ein- oder ausgeblendet und mit den Pfeilen sortiert werden. Neue lokale Räume werden automatisch erkannt; neue Remote-Räume werden erst nach Auswahl in der Remote-Verbindung übernommen."
   },
   en: {
+    "warning.area_unknown": "Area or altitude coverage could not be verified – check the official message.",
+    "warning.gust_conflict": "Conflicting official gust values – consider both and check the official message.",
+    "warning.gust_polarity_conflict": "Official statements disagree on whether gusts will occur – the affected gust forecast is uncertain; check the message.",
+    "warning.gust_time_conflict": "Official time statements for the same gusts differ – check each period and the original warning.",
+    "warning.gust_scope_unknown": "Some gust values apply to unverified parts of the warning area.",
+    "warning.gust_time_unknown": "The period of some gust values could not be verified.",
+    "warning.gust_onset": "These gusts expected from",
+    "warning.gust_ends": "These gusts expected until",
+    "warning.source_description": "Description",
+    "warning.source_parameter": "Parameter",
+    "warning.source_headline": "Headline",
+    "warning.source_event": "Event",
+    "warning.official": "Official warning",
+    "warning.announced": "Announced",
+    "warning.prelock": "Precautionary ventilation lock",
+    "warning.active": "Active warning",
+    "warning.start_unknown": "Start not specified",
+    "warning.time_uncertain": "Unclear period – check the official message",
+    "warning.onset": "Event expected from",
+    "warning.ends": "Message valid until",
+    "warning.lock_from": "Ventilation locked from",
+    "warning.gusts": "Forecast gusts",
+    "warning.instruction": "Authority instruction",
+    "warning.advice": "Assistant recommendation",
+    "warning.close": "Keep windows closed.",
+    "warning.strong": "Prefer keeping windows closed; no absolute ventilation lock is active.",
+    "warning.caution": "Observe the wind advisory and secure open windows.",
+    "warning.cached": "Last confirmed message; warning provider temporarily unavailable.",
     "recommendation.open_now": "Open the windows now",
     "recommendation.room_good": "No current reason to ventilate",
     "recommendation.room_watch": "Keep an eye on the values",
@@ -314,6 +370,34 @@ const LB_I18N = {
     "editor.rooms_hint": "Installations and rooms can be shown or hidden individually and reordered with the arrow buttons. New local rooms are discovered automatically; new remote rooms appear only after they are selected in the remote connection."
   },
   tr: {
+    "warning.area_unknown": "Bölge veya rakım kapsamı doğrulanamadı – resmî bildirimi kontrol edin.",
+    "warning.gust_conflict": "Resmî rüzgâr hamlesi değerleri çelişiyor – iki bilgiyi de dikkate alın ve uyarıyı kontrol edin.",
+    "warning.gust_polarity_conflict": "Resmî bilgiler rüzgâr hamlelerinin oluşumu konusunda çelişiyor – ilgili rüzgâr tahmini belirsiz; uyarıyı kontrol edin.",
+    "warning.gust_time_conflict": "Aynı rüzgâr hamleleri için resmî zaman bilgileri farklı – her aralığı ve asıl uyarıyı kontrol edin.",
+    "warning.gust_scope_unknown": "Bazı rüzgâr hamlesi değerleri konum için doğrulanmamış bölgelerle sınırlıdır.",
+    "warning.gust_time_unknown": "Bazı rüzgâr hamlesi değerlerinin zamanı doğrulanamadı.",
+    "warning.gust_onset": "Bu rüzgâr hamlelerinin başlangıcı",
+    "warning.gust_ends": "Bu rüzgâr hamlelerinin bitişi",
+    "warning.source_description": "Açıklama",
+    "warning.source_parameter": "Parametre",
+    "warning.source_headline": "Başlık",
+    "warning.source_event": "Olay",
+    "warning.official": "Resmî uyarı",
+    "warning.announced": "Duyuruldu",
+    "warning.prelock": "Önleyici havalandırma kilidi",
+    "warning.active": "Etkin uyarı",
+    "warning.start_unknown": "Başlangıç belirtilmedi",
+    "warning.time_uncertain": "Zaman belirsiz – resmî bildirimi kontrol edin",
+    "warning.onset": "Olayın beklenen başlangıcı",
+    "warning.ends": "Bildirimin geçerlilik sonu",
+    "warning.lock_from": "Havalandırma kilidi başlangıcı",
+    "warning.gusts": "Beklenen rüzgâr hamleleri",
+    "warning.instruction": "Yetkili makamın talimatı",
+    "warning.advice": "Asistan önerisi",
+    "warning.close": "Pencereleri kapalı tutun.",
+    "warning.strong": "Pencereleri kapalı tutmak daha iyi; kesin havalandırma kilidi yok.",
+    "warning.caution": "Rüzgâr uyarısını izleyin ve açık pencereleri sabitleyin.",
+    "warning.cached": "Son doğrulanan bildirim; uyarı kaynağına geçici olarak ulaşılamıyor.",
     "recommendation.open_now": "Şimdi pencereleri aç",
     "recommendation.room_good": "Şu anda havalandırma nedeni yok",
     "recommendation.room_watch": "Değerleri takip et",
@@ -716,6 +800,74 @@ const LB_TEXT_CACHE = new Map();
 const LB_TEXT_PENDING = new Map();
 const LB_TEXT_RETRY = new Map();
 const LB_TEXT_RETRY_MAX_ATTEMPTS = 6;
+
+function lbOfficialWarningText(hass, notice) {
+  if (!notice || typeof notice !== "object" || notice.relevant !== true) return "";
+  const t = (key) => lbT(hass, `warning.${key}`);
+  const text = (value) => typeof value === "string" ? value.trim() : "";
+  const date = (value) => {
+    if (typeof value !== "string" || !/(Z|[+-]\d{2}:\d{2})$/.test(value)) return "";
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return "";
+    try {
+      return new Intl.DateTimeFormat(lbLanguage(hass), {
+        timeZone: hass?.config?.time_zone || "UTC", day: "2-digit", month: "2-digit",
+        hour: "2-digit", minute: "2-digit", timeZoneName: "short", hour12: false,
+      }).format(d);
+    } catch (_) { return ""; }
+  };
+  const provider = {nina_auto_dwd: "DWD / NINA", nws_auto: "NWS", meteoalarm_auto: "MeteoAlarm",
+    dwd_weather_warnings: "DWD", nina_auto_mowas: "MoWaS / NINA", alertswiss_auto: "Alertswiss",
+    at_alert_auto: "AT-Alert", be_alert_auto: "BE-Alert"}[notice.provider] || text(notice.provider);
+  const lines = [[t("official"), provider, text(notice.headline)].filter(Boolean).join(" · ")];
+  if (["announced", "prelock", "active", "start_unknown", "time_uncertain"].includes(notice.phase)) lines.push(t(notice.phase));
+  const max = notice.gust_max_kmh;
+  const min = notice.gust_min_kmh;
+  if (typeof max === "number" && Number.isFinite(max) && max >= 0 && max <= 500) {
+    const fmt = (value) => new Intl.NumberFormat(lbLanguage(hass), {maximumFractionDigits: 1}).format(value);
+    const range = typeof min === "number" && Number.isFinite(min) && min >= 0 && min < max
+      ? `${fmt(min)}–${fmt(max)}` : fmt(max);
+    const original = text(notice.gust_original_text).replaceAll("[", "").replaceAll("]", "");
+    // Preserve verbal bounds too: rounding "less than 90" to "90" changes
+    // the official meaning. Unit conversion remains in the numeric metadata.
+    const speed = original || `${range} km/h`;
+    lines.push(`${t("gusts")}: ${speed}`);
+  } else if (text(notice.description)) lines.push(text(notice.description));
+  if (notice.gust_conflict === true) {
+    const evidence = Array.isArray(notice.gust_evidence) ? notice.gust_evidence : [];
+    const valueConflict = notice.gust_value_conflict === true || evidence.some((item) => item?.value_conflict === true);
+    if (valueConflict || (notice.gust_polarity_conflict !== true && notice.gust_time_conflict !== true)) lines.push(t("gust_conflict"));
+    if (notice.gust_polarity_conflict === true) lines.push(t("gust_polarity_conflict"));
+    if (notice.gust_time_conflict === true) lines.push(t("gust_time_conflict"));
+    const seen = new Set();
+    for (const item of evidence) {
+      if (!item || !["description", "parameter", "headline", "event"].includes(item.source)) continue;
+      const claim = text(item.statement);
+      const line = `${t(`source_${item.source}`)}: ${claim}`;
+      if (claim && !seen.has(line)) { lines.push(line); seen.add(line); }
+    }
+  }
+  if (notice.gust_scope_uncertain === true) lines.push(t("gust_scope_unknown"));
+  if (notice.gust_time_uncertain === true) lines.push(t("gust_time_unknown"));
+  if ((notice.gust_scope_uncertain === true || notice.gust_time_uncertain === true)
+      && typeof max === "number" && text(notice.description)) lines.push(text(notice.description));
+  for (const key of ["gust_onset", "gust_ends"]) {
+    if (notice[key] && notice[key] !== notice[key === "gust_onset" ? "onset" : "ends"]) {
+      const formatted = date(notice[key]);
+      if (formatted) lines.push(`${t(key)}: ${formatted}`);
+    }
+  }
+  for (const key of ["onset", "ends", "lock_from"]) {
+    const formatted = date(notice[key]);
+    if (formatted) lines.push(`${t(key)}: ${formatted}`);
+  }
+  if (text(notice.official_instruction)) lines.push(`${t("instruction")}: ${text(notice.official_instruction)}`);
+  if (notice.hard_lock === true) lines.push(`${t("advice")}: ${t("close")}`);
+  else if (notice.wind === true && notice.phase !== "announced") lines.push(`${t("advice")}: ${t(notice.level === "strong" ? "strong" : "caution")}`);
+  if (notice.area_verified === false) lines.push(t("area_unknown"));
+  if (notice.using_cached_data === true) lines.push(t("cached"));
+  return lines.join("\n");
+}
 
 function lbTextCacheGet(key) {
   const value = LB_TEXT_CACHE.get(key);
@@ -1131,6 +1283,8 @@ class LueftungsberaterCard extends HTMLElement {
     const warningNotice = !this._config.remote_stale && (noticeType === "all_clear" || noticeType === "info")
       ? [lbT(this._hass, noticeType === "all_clear" ? "warning.all_clear" : "warning.info"), a.warning_notice_text].filter(Boolean).join(": ")
       : "";
+    const officialNotices = !this._config.remote_stale && Array.isArray(a.warning_notices)
+      ? a.warning_notices.map((notice) => lbOfficialWarningText(this._hass, notice)).filter(Boolean) : [];
     const title = this._config.name || a.room_name || a.friendly_name || "Lüftungsassistent";
     const expanded = this._isExpanded();
     const hardLock = a.safety_lock === true || status === "locked";
@@ -1404,9 +1558,11 @@ class LueftungsberaterCard extends HTMLElement {
     const reasonHtml = reason ? this._escape(reason) : "";
     const settings = lbDisplaySettings(this._config);
     const showReason = Boolean(reason) && (expanded || hardLock) && (settings.show_reason !== false || hardLock);
-    const showWarningNotice = expanded && Boolean(warningNotice);
+    const showWarningNotice = Boolean(warningNotice) && (expanded || noticeType === "info")
+      && !(officialNotices.length && (noticeType === "all_clear" || a.warning_notices.some((notice) => notice.headline === a.warning_notice_text)));
+    const showOfficialWarnings = officialNotices.length > 0;
     const showDetails = expanded;
-    const showBody = showReason || showWarningNotice || showNight || showDetails;
+    const showBody = showReason || showWarningNotice || showOfficialWarnings || showNight || showDetails;
     // A visibility-only change to the explanation must not replace the old
     // grouped temperature/humidity rows while "Klassisch" is selected.
     const customizedMeasurements = settings.layout === "split" ||
@@ -1494,6 +1650,7 @@ class LueftungsberaterCard extends HTMLElement {
         @media (max-width: 310px) { .lb-split .lb-sides { grid-template-columns: 1fr; } .lb-split .lb-side + .lb-side { border-left: 0; border-top: 1px solid var(--divider-color); padding-left: 0; padding-top: 10px; } }
         .metric-link { appearance: none; background: none; border: 0; padding: 0; margin: 0; color: inherit; font: inherit; line-height: inherit; cursor: pointer; text-decoration-line: underline; text-decoration-style: dotted; text-decoration-thickness: 1px; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-align: inherit; }
         .metric-link:hover, .metric-link:focus-visible { color: var(--primary-color); text-decoration-style: solid; outline: none; }
+        .official-warning { white-space: pre-line; }
         .warning-notice { margin: 10px 0; padding: 9px 10px; border-radius: 8px; background: color-mix(in srgb, var(--info-color, #039be5) 10%, transparent); border-left: 3px solid var(--info-color, #039be5); line-height: 1.35; font-size: 12px; }
         .hint { margin-top: 12px; color: var(--secondary-text-color); font-size: 11px; opacity: 0.8; }
         .error { padding: 16px; color: var(--error-color); }
@@ -1508,6 +1665,7 @@ class LueftungsberaterCard extends HTMLElement {
         ${showBody ? `<div class="body">
           ${this._config.remote_stale ? `<div class="warning-notice">${lbT(this._hass, "remote.stale_notice")}</div>` : ""}
           ${showReason ? `<div class="why">${lbT(this._hass, "why")}</div><div class="reason">${reasonHtml}</div>` : ""}
+          ${showOfficialWarnings ? officialNotices.map((notice) => `<div class="warning-notice official-warning">${this._escape(notice)}</div>`).join("") : ""}
           ${showWarningNotice ? `<div class="warning-notice">${this._escape(warningNotice)}</div>` : ""}
           ${showNight ? `<div class="night-advice"><ha-icon icon="mdi:weather-night"></ha-icon><div class="night-copy"><span class="night-title">${lbT(this._hass, "night.title")}</span><span class="night-text">${nightHtml}</span></div></div>` : ""}
           ${showDetails && showDuration ? `<div class="duration"><span class="duration-label">${lbT(this._hass, "duration")}</span><span>${this._escape(durationText)}</span></div>` : ""}

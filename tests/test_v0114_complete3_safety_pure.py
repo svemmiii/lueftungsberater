@@ -93,6 +93,18 @@ def test_same_bare_cap_identifier_from_two_sources_cannot_unlock_both():
 
 
 def _ast_functions(filename: str, names: set[str], extra: dict[str, Any]) -> dict[str, Any]:
+    if filename == "auto_providers.py":
+        # The adapter now delegates CAP normalization to the same pure package
+        # used in production. Keep every historical assertion unchanged.
+        from test_v0119_warning_scopes_pure import policy
+        cap = policy._warnings
+        import xml.etree.ElementTree as ET
+        names = names | {"_cap_pairs", "_as_float", "_local_name", "_warning_times"}
+        extra = {"field": __import__("dataclasses").field, "math": __import__("math"), "_cap_time": _dt,
+                 "_cap_json_infos": cap.json_infos, "_cap_xml_infos": cap.xml_infos,
+                 "_attach_cap_infos": cap.attach_infos, "_cap_with_area": cap.with_area,
+                 "_cap_info_area_element": cap.info_area_element, "ET": ET, **extra}
+        extra.setdefault("_cap_geographic_signature", cap.geographic_signature)
     tree = ast.parse((ROOT / filename).read_text(encoding="utf-8"))
     body = [node for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -160,7 +172,8 @@ def test_nws_and_meteoalarm_sent_dates_not_treated_as_freshness():
     old = "2026-10-11T15:00:00+00:00"
     nws = env["_nws_record"]({"properties": {"id": "x", "sent": old, "headline": "Rauch"}})
     assert (nws.issued_at, nws.evidence_at) == (datetime.fromisoformat(old), now)
-    cap = env["_cap_element_record"]({"identifier": "y", "sent": old, "headline": "Smoke"},
+    import xml.etree.ElementTree as ET
+    cap = env["_cap_element_record"](ET.Element("alert", {"identifier": "y", "sent": old, "headline": "Smoke"}),
                                       provider="meteoalarm_auto", lat=51.0, lon=7.0)
     assert (cap.issued_at, cap.evidence_at) == (datetime.fromisoformat(old), now)
 

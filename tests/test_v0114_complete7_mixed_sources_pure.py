@@ -157,6 +157,7 @@ def test_manual_clears_but_unavailable_auto_remains_independently_protected():
 def test_provider_adapters_preserve_per_warning_origin_before_merge():
     scope = _provider()
     now = datetime(2026, 10, 11, 18, tzinfo=timezone.utc)
+    scope["dt_util"].utcnow = lambda: now
     warning = SimpleNamespace(
         expires=None, effective=None, event="Rauch", description="Rauch in Umgebung",
         headline="Rauch", instruction="Fenster und Türen schließen", msg_type="Alert",

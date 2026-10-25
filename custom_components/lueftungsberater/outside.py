@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import asyncio
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -18,7 +19,7 @@ from homeassistant.util import dt as dt_util
 
 from .air_quality import get_air_quality_tracker
 from .auto_providers import (
-    async_refresh_auto_providers, auto_forecast_next_update, uses_auto_warning,
+    auto_forecast_next_update, uses_auto_warning, uses_auto_weather,
 )
 from .const import (
     CONF_MANUAL_OUTDOOR,
@@ -43,7 +44,6 @@ from .const import (
     DATA_OUTSIDE_COORDINATORS,
     DOMAIN,
     FORECAST_REFRESH_INTERVAL,
-    AUTO_WARNING_REFRESH_INTERVAL,
 )
 from .location import (
     LOCATION_MOBILE_STALE_HOLD,
@@ -141,6 +141,12 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         self._forecast_retry_at: datetime | None = None
         self._accepted_location: EffectiveLocation | None = None
         self._last_valid_mobile_location: EffectiveLocation | None = None
+        self._automatic = None
+        self._location_task = None
+        self._warning_transition_unsub = None
+        self._warning_transition_at = None
+        self._manual_task = None
+        self._initial_refresh_completed = False
 
     def _candidate_location(self) -> EffectiveLocation:
         """Return the throttled source candidate without jumping home on GPS loss."""
@@ -169,21 +175,32 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
 
     async def _async_update_data(self) -> OutsideSnapshot:
         candidate_location = self._candidate_location()
-        if materially_changed(self._accepted_location, candidate_location):
+        changed = materially_changed(self._accepted_location, candidate_location)
+        if changed:
             self._accepted_location = candidate_location
-        # Automatic providers follow the accepted effective coordinate. They do
-        # not create/configure foreign Home Assistant integrations and failures
-        # are deliberately non-fatal to the ventilation engine.
-        await async_refresh_auto_providers(
-            self.hass,
-            self.entry,
-            self._accepted_location or candidate_location,
-        )
+        if self._automatic is None and (uses_auto_weather(self.entry) or uses_auto_warning(self.entry)):
+            from .auto_polling import AutomaticPolling
+            self._automatic = AutomaticPolling(self.hass, self.entry, self.async_request_refresh)
+            await self._automatic.start(self._accepted_location or candidate_location)
+        elif changed and self._automatic is not None:
+            # Clear old-location evidence immediately; the new verified startup
+            # runs in the background without blocking local sensor updates.
+            from .auto_providers import _state, _clear_forecast
+            state = _state(self.hass, self.entry)
+            state.weather = None
+            state.weather_available = False
+            state.warning = None
+            _clear_forecast(state)
+            if self._location_task is not None:
+                self._location_task.cancel()
+            self._location_task = self._create_background_task(
+                self._restart_automatic(candidate_location),
+                f"Lüftungsassistent location bootstrap {self.entry.entry_id}")
         self._schedule_forecast_retry()
-        # Manual weather overrides keep Home Assistant's native forecast cache.
-        # In automatic mode this helper returns immediately.
-        await async_refresh_hourly_forecast(self.hass, self.entry)
-        await async_refresh_nina_details(self.hass, self.entry)
+        if not self._initial_refresh_completed:
+            await async_refresh_hourly_forecast(self.hass, self.entry)
+            await async_refresh_nina_details(self.hass, self.entry)
+            self._initial_refresh_completed = True
         weather = weather_assessment(self.hass, self.entry)
         warnings = warning_assessment(self.hass, self.entry)
         # A previously confirmed hard safety lock must survive a temporary
@@ -193,6 +210,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         await async_apply_persistent_safety_state(
             self.hass, self.entry, weather, warnings
         )
+        self._schedule_warning_transition(warnings)
         tracker = get_air_quality_tracker(self.hass, self.entry)
         if tracker is not None and weather.air_quality_values:
             tracker.observe(weather.air_quality_values)
@@ -238,35 +256,62 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
             )
         )
 
-        # One forecast refresh per advisor instead of one timer per room.
-        self._unsubs.append(
-            async_track_time_interval(
-                self.hass,
-                self._handle_forecast_tick,
-                FORECAST_REFRESH_INTERVAL,
-            )
-        )
-        # NINA detail fields can change while a slot/id stays stable. Entity
-        # events normally refresh us immediately; this sparse fallback makes the
-        # five-minute detail TTL effective even when Home Assistant suppresses a
-        # same-state update after the legacy long attributes disappear.
+        # Local time/expiry reevaluation performs no automatic-provider I/O.
+        self._unsubs.append(async_track_time_interval(
+            self.hass, self._handle_local_tick, timedelta(minutes=1)))
+        if not uses_auto_weather(self.entry):
+            self._unsubs.append(async_track_time_interval(
+                self.hass, self._handle_forecast_tick, FORECAST_REFRESH_INTERVAL))
         if _uses_home_assistant_nina(self.hass, self.entry):
-            self._unsubs.append(
-                async_track_time_interval(
-                    self.hass,
-                    self._handle_nina_detail_tick,
-                    NINA_DETAILS_CACHE_MAX_AGE,
-                )
-            )
+            self._unsubs.append(async_track_time_interval(
+                self.hass, self._handle_nina_detail_tick, NINA_DETAILS_CACHE_MAX_AGE))
 
-        if uses_auto_warning(self.entry):
-            self._unsubs.append(
-                async_track_time_interval(
-                    self.hass,
-                    self._handle_auto_warning_tick,
-                    AUTO_WARNING_REFRESH_INTERVAL,
-                )
-            )
+    async def _restart_automatic(self, location):
+        await self._automatic.start(location)
+        if self._started:
+            await self.async_request_refresh()
+
+    async def _refresh_manual(self):
+        try:
+            await async_refresh_hourly_forecast(self.hass, self.entry)
+            await async_refresh_nina_details(self.hass, self.entry)
+            if self._started:
+                await self.async_request_refresh()
+        finally:
+            self._manual_task = None
+
+    @callback
+    def _queue_manual_refresh(self):
+        if self._started and self._manual_task is None:
+            self._manual_task = self._create_background_task(
+                self._refresh_manual(), f"Lüftungsassistent manual providers {self.entry.entry_id}")
+
+    @callback
+    def _handle_local_tick(self, _now):
+        if self._started:
+            self._create_background_task(self.async_request_refresh(),
+                f"Lüftungsassistent cache expiry {self.entry.entry_id}")
+
+    @callback
+    def _schedule_warning_transition(self, warnings):
+        due = getattr(warnings, "next_transition_at", None)
+        if due == self._warning_transition_at:
+            return
+        if self._warning_transition_unsub is not None:
+            self._warning_transition_unsub()
+            self._warning_transition_unsub = None
+        self._warning_transition_at = due
+        if due is not None and self._started:
+            self._warning_transition_unsub = async_track_point_in_utc_time(
+                self.hass, self._handle_warning_transition, due)
+
+    @callback
+    def _handle_warning_transition(self, now):
+        self._warning_transition_unsub = None
+        self._warning_transition_at = None
+        if self._started:
+            self._create_background_task(self.async_refresh(),
+                f"Lüftungsassistent warning time {self.entry.entry_id}")
 
 
     @callback
@@ -351,37 +396,24 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         self._forecast_retry_at = None
         if self._started:
             self._create_background_task(
-                self.async_request_refresh(),
+                self._automatic.refresh_forecast() if self._automatic is not None
+                else self.async_request_refresh(),
                 f"Lüftungsassistent forecast retry {self.entry.entry_id}",
             )
 
     @callback
     def _handle_forecast_tick(self, _now) -> None:
-        """Refresh the shared short-term/night forecast cache."""
-        if not self._started:
-            return
-        self._create_background_task(
-            self.async_request_refresh(),
-            f"Lüftungsassistent forecast outside refresh {self.entry.entry_id}",
-        )
+        self._queue_manual_refresh()
 
     @callback
     def _handle_nina_detail_tick(self, _now) -> None:
-        if not self._started:
-            return
-        self._create_background_task(
-            self.async_request_refresh(),
-            f"Lüftungsassistent NINA detail refresh {self.entry.entry_id}",
-        )
+        self._queue_manual_refresh()
 
     @callback
     def _handle_auto_warning_tick(self, _now) -> None:
-        if not self._started:
-            return
-        self._create_background_task(
-            self.async_request_refresh(),
-            f"Lüftungsassistent automatic warning refresh {self.entry.entry_id}",
-        )
+        if self._started and self._automatic is not None:
+            self._create_background_task(self._automatic.refresh_warning(),
+                f"Lüftungsassistent warnings {self.entry.entry_id}")
 
     @callback
     def _handle_source_change(self, event: Event) -> None:
@@ -389,6 +421,7 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         # the coordinator refresh path instead of recomputing each room inline.
         if not self._started:
             return
+        self._queue_manual_refresh()
         tracker = str(self.entry.data.get(CONF_LOCATION_TRACKER) or "")
         if tracker and str(event.data.get("entity_id") or "") == tracker:
             current = self._candidate_location()
@@ -416,6 +449,17 @@ class LueftungsberaterOutsideCoordinator(DataUpdateCoordinator[OutsideSnapshot])
         # coordinator tears down its listeners.
         self._started = False
         self._cancel_forecast_retry()
+        if self._warning_transition_unsub is not None:
+            self._warning_transition_unsub()
+            self._warning_transition_unsub = None
+        pending = [task for task in (self._location_task, self._manual_task) if task is not None]
+        for task in pending:
+            if task is not None:
+                task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        if self._automatic is not None:
+            await self._automatic.close()
         if self._source_unsub is not None:
             self._source_unsub()
             self._source_unsub = None

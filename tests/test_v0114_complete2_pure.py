@@ -44,9 +44,20 @@ def _provider():
         "_evaluate_nina_like_entities", "_manual_warning_assessment",
         "_automatic_warning_assessment", "_is_ambiguous_clear_update",
     }
+    policy_spec = importlib.util.spec_from_file_location("lb_official_policy", ROOT / "warning_policy.py")
+    policy = importlib.util.module_from_spec(policy_spec)
+    policy_spec.loader.exec_module(policy)
+    names.add("_apply_manual_official_notice")
     return _extract("providers.py", names, {
+        "assess_official_warning": policy.assess_official_warning,
+        "aware": policy.aware,
+        "timedelta": __import__("datetime").timedelta,
+        "AutoWarningRecord": SimpleNamespace,
+        "effective_location": lambda hass, entry: SimpleNamespace(elevation=None),
         "foreign_all_clear": language.foreign_all_clear,
         "has_foreign_close_order": language.has_foreign_close_order,
+        "_cap_action_context": policy._warnings.action_context,
+        "_cap_json_infos": policy._warnings.json_infos,
         "dt_util": SimpleNamespace(utcnow=lambda: datetime.now(timezone.utc)),
         "CONF_SHOW_GENERAL_WARNINGS": "show_general_warnings",
         "CONF_WARNING_SOURCE": "warning_source",

@@ -48,6 +48,13 @@ from .const import (
 from .const import INTEGRATION_VERSION
 from .location import EffectiveLocation
 from .warning_regions import geocode_geometry, coordinate_country
+from .warning_policy import aware as _cap_time
+from .warning_language import (
+    attach_infos as _attach_cap_infos, json_infos as _cap_json_infos,
+    xml_infos as _cap_xml_infos, with_area as _cap_with_area,
+    info_area_element as _cap_info_area_element,
+    geographic_signature as _cap_geographic_signature,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -181,6 +188,15 @@ class UbaStation:
     longitude: float
 
 
+class TimedValues(dict):
+    """Numeric values retaining per-field observation and HTTP evidence times."""
+
+    def __init__(self):
+        super().__init__()
+        self.observed_at: dict[str, datetime] = {}
+        self.fetched_at: dict[str, datetime] = {}
+
+
 @dataclass(slots=True)
 class AutoWeatherData:
     """Normalized coordinate weather from the automatic provider."""
@@ -204,8 +220,12 @@ class AutoWeatherData:
     measurement_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
     air_quality_values: dict[str, float] = field(default_factory=dict)
     air_quality_sources: dict[str, str] = field(default_factory=dict)
+    air_quality_updated_at: dict[str, datetime] = field(default_factory=dict)
+    air_quality_observed_at: dict[str, datetime] = field(default_factory=dict)
     outdoor_co2_ppm: float | None = None
     outdoor_co2_source: str | None = None
+    outdoor_co2_updated_at: datetime | None = None
+    outdoor_co2_observed_at: datetime | None = None
     forecast_error: str | None = None
 
 
@@ -228,6 +248,16 @@ class AutoWarningRecord:
     evidence_at: datetime | None = None  # Last successful observation as active
     issued_at: datetime | None = None  # Original CAP sent date (not fresh evidence)
     sender: str = ""  # Original CAP sender, not the NINA feed/provider name
+    onset: datetime | None = None  # Event start, distinct from CAP effective
+    event_end: datetime | None = None
+    parameters: dict[str, Any] = field(default_factory=dict)
+    event_codes: dict[str, str] = field(default_factory=dict)
+    area_altitude: float | None = None  # CAP feet above mean sea level
+    area_ceiling: float | None = None
+    area_restriction_unknown: bool = False
+    timing_uncertain: bool = False
+    language: str = ""
+    info_blocks: tuple[Any, ...] = ()
 
 
 @dataclass(slots=True)
@@ -255,6 +285,11 @@ class AutoProviderState:
     weather: AutoWeatherData | None = None
     weather_attempted_at: datetime | None = None
     weather_available: bool = False
+    part_data: dict[str, Any] = field(default_factory=dict)
+    part_updated_at: dict[str, datetime] = field(default_factory=dict)
+    part_attempted_at: dict[str, datetime] = field(default_factory=dict)
+    part_errors: dict[str, str] = field(default_factory=dict)
+    polling_diagnostics: dict[str, Any] = field(default_factory=dict)
     # Forecast evidence has its own lifetime. Current station observations must
     # neither erase it on a partial failure nor renew its successful-fetch time.
     hourly_forecast: list[dict[str, Any]] = field(default_factory=list)
@@ -336,7 +371,34 @@ def _state(hass: HomeAssistant, entry: ConfigEntry) -> AutoProviderState:
 
 
 def auto_weather_data(hass: HomeAssistant, entry: ConfigEntry) -> AutoWeatherData | None:
-    return _state(hass, entry).weather
+    data = _state(hass, entry).weather
+    if data is None:
+        return None
+    now = dt_util.utcnow()
+    changes = {}
+    sources = dict(data.measurement_sources)
+    for key, attribute in {"temperature": "temperature", "humidity": "humidity",
+            "condition": "condition", "precipitation": "precipitation",
+            "wind_speed": "wind_speed_kmh", "wind_gust": "wind_gust_kmh"}.items():
+        source = sources.get(key, {})
+        fetched = _parse_dt(source.get("fetched_at")) or data.fetched_at
+        observed = _parse_dt(source.get("observation_at"))
+        if not _fresh(fetched, AUTO_PROVIDER_STALE_MAX_AGE, now) or (
+            observed is not None and not _fresh(observed, _DWD_OBSERVATION_MAX_AGE, now)
+        ):
+            changes[attribute] = None
+            sources.pop(key, None)
+    quality = {kind: value for kind, value in data.air_quality_values.items()
+               if _fresh(data.air_quality_updated_at.get(kind, data.fetched_at), timedelta(hours=3), now)
+               and (kind not in data.air_quality_observed_at or
+                    _fresh(data.air_quality_observed_at[kind], timedelta(hours=3), now))}
+    if (not _fresh(data.outdoor_co2_updated_at or data.fetched_at, timedelta(hours=3), now)
+            or data.outdoor_co2_observed_at is not None and not _fresh(data.outdoor_co2_observed_at, timedelta(hours=3), now)):
+        changes["outdoor_co2_ppm"] = None
+        changes["outdoor_co2_source"] = None
+    return replace(data, **changes, measurement_sources=sources, air_quality_values=quality,
+                   air_quality_sources={k: v for k, v in data.air_quality_sources.items() if k in quality},
+                   available=bool(sources))
 
 
 def auto_warning_data(hass: HomeAssistant, entry: ConfigEntry) -> AutoWarningData | None:
@@ -344,7 +406,8 @@ def auto_warning_data(hass: HomeAssistant, entry: ConfigEntry) -> AutoWarningDat
 
 
 def auto_weather_available(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    return _state(hass, entry).weather_available
+    data = auto_weather_data(hass, entry)
+    return data is not None and data.available and _state(hass, entry).weather_available
 
 
 def _complete_forecast(points: list[dict[str, Any]]) -> bool:
@@ -353,11 +416,11 @@ def _complete_forecast(points: list[dict[str, Any]]) -> bool:
         isinstance(item, dict)
         and isinstance(item.get("datetime"), datetime)
         and item["datetime"].tzinfo is not None
-        and _as_float(item.get("temperature")) is not None
+        and (temp := _as_float(item.get("temperature"))) is not None and -90 <= temp <= 60
         and (humidity := _as_float(item.get("humidity"))) is not None
         and 0 <= humidity <= 100
-        and (wind := _as_float(item.get("wind_speed"))) is not None and wind >= 0
-        and (gust := _as_float(item.get("wind_gust_speed"))) is not None and gust >= 0
+        and (wind := _as_float(item.get("wind_speed"))) is not None and 0 <= wind <= 400
+        and (gust := _as_float(item.get("wind_gust_speed"))) is not None and 0 <= gust <= 500
         and item.get("condition") in _FORECAST_CONDITIONS
         for item in points
     )
@@ -527,6 +590,9 @@ async def _get_json(
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> Any:
+    from .polling import ScheduledSession
+    if isinstance(session, ScheduledSession):
+        return await session.fetch("json", url, params=params, headers=headers, timeout=_HTTP_TIMEOUT)
     async with session.get(url, params=params, headers=headers, timeout=_HTTP_TIMEOUT) as response:
         response.raise_for_status()
         return await response.json(content_type=None)
@@ -538,6 +604,9 @@ async def _get_text(
     *,
     headers: dict[str, str] | None = None,
 ) -> str:
+    from .polling import ScheduledSession
+    if isinstance(session, ScheduledSession):
+        return await session.fetch("text", url, headers=headers, timeout=_HTTP_TIMEOUT)
     async with session.get(url, headers=headers, timeout=_HTTP_TIMEOUT) as response:
         response.raise_for_status()
         return await response.text()
@@ -549,9 +618,21 @@ async def _get_bytes(
     *,
     headers: dict[str, str] | None = None,
 ) -> bytes:
+    from .polling import ScheduledSession
+    if isinstance(session, ScheduledSession):
+        return await session.fetch("bytes", url, headers=headers, timeout=_HTTP_TIMEOUT)
     async with session.get(url, headers=headers, timeout=_HTTP_TIMEOUT) as response:
         response.raise_for_status()
         return await response.read()
+
+
+async def _post_json(session, url: str, payload: Any) -> Any:
+    from .polling import ScheduledSession
+    if isinstance(session, ScheduledSession):
+        return await session.fetch("json", url, method="POST", json=payload, timeout=_HTTP_TIMEOUT)
+    async with session.post(url, json=payload, timeout=_HTTP_TIMEOUT) as response:
+        response.raise_for_status()
+        return await response.json(content_type=None)
 
 
 def _as_float(value: Any) -> float | None:
@@ -576,10 +657,20 @@ def _parse_dt(value: Any) -> datetime | None:
     return parsed
 
 
+def _observation_time(value: Any, zone: tzinfo) -> datetime | None:
+    try:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return datetime.fromtimestamp(value, timezone.utc)
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return (stamp.replace(tzinfo=zone) if stamp.tzinfo is None else stamp).astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
 def _open_meteo_condition(code: Any) -> str | None:
     try:
         value = int(code)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if value == 0:
         return "sunny"
@@ -874,7 +965,7 @@ async def _resolve_dwd_station(
 def _dwd_current_condition(value: Any) -> str | None:
     try:
         code = int(round(float(str(value).replace(",", "."))))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if code == 1:
         return "sunny"
@@ -1219,9 +1310,13 @@ def _uba_measurement_tuple(raw: Any) -> tuple[int, float] | None:
         return None
     if len(values) < 2:
         return None
+    if isinstance(values[0], bool):
+        return None
     try:
         component_id = int(values[0])
-    except (TypeError, ValueError):
+        if float(values[0]) != component_id:
+            return None
+    except (TypeError, ValueError, OverflowError):
         return None
     value = _as_float(values[1])
     if value is None or value < 0 or value > 5000:
@@ -1330,6 +1425,7 @@ async def _fetch_uba_air_quality(
     session: aiohttp.ClientSession,
     location: EffectiveLocation,
     state: AutoProviderState,
+    *, on_progress=None,
 ) -> tuple[dict[str, float], dict[str, str]]:
     """Use the nearest *measuring* UBA station separately per pollutant."""
     candidates, components = await asyncio.gather(
@@ -1342,39 +1438,142 @@ async def _fetch_uba_air_quality(
     berlin_now = dt_util.utcnow().astimezone(berlin_zone)
     date_from = (berlin_now - timedelta(days=1)).date().isoformat()
     date_to = berlin_now.date().isoformat()
-    tasks = [
-        _get_json(
-            session,
-            _UBA_AIRQUALITY,
-            params={
-                "date_from": date_from,
-                "date_to": date_to,
-                "time_from": 1,
-                "time_to": 24,
-                "station": station.code,
-                "lang": "en",
-            },
-        )
-        for station, _distance in candidates
-    ]
-    responses = await asyncio.gather(*tasks, return_exceptions=True)
-    values: dict[str, float] = {}
+    values = TimedValues()
     sources: dict[str, str] = {}
+    distances = {}
     wanted = {"pm2_5", "pm10", "no2", "o3", "so2"}
-    for (station, distance), response in zip(candidates, responses, strict=True):
-        if isinstance(response, Exception):
-            continue
-        station_values = _parse_uba_airquality(response, components)
+    failed: list[tuple[UbaStation, float]] = []
+
+    async def read_station(station, distance):
+        response = await _get_json(session, _UBA_AIRQUALITY, params={
+            "date_from": date_from, "date_to": date_to, "time_from": 1,
+            "time_to": 24, "station": station.code, "lang": "en",
+        })
+        station_values = _parse_uba_airquality_fresh(response, components, berlin_zone)
         for kind, value in station_values.items():
-            if kind not in wanted or kind in values:
+            if kind not in wanted or distance >= distances.get(kind, math.inf):
                 continue
             values[kind] = value
-            sources[kind] = (
-                f"uba_station:{station.code}:{station.name}:{distance:.1f}km"
-            )
+            distances[kind] = distance
+            values.observed_at[kind] = station_values.observed_at[kind]
+            values.fetched_at[kind] = dt_util.utcnow()
+            sources[kind] = f"uba_station:{station.code}:{station.name}:{distance:.1f}km"
+        if station_values and on_progress is not None:
+            await on_progress((values, dict(sources)))
+        return station_values
+
+    for station, distance in candidates:
+        try:
+            if not await read_station(station, distance):
+                failed.append((station, distance))
+        except Exception:  # A bad station cannot hide the remaining candidates.
+            failed.append((station, distance))
         if wanted.issubset(values):
             break
+    if not wanted.issubset(values):
+        for station, distance in failed:
+            try:
+                await read_station(station, distance)
+            except Exception:
+                pass
+            if wanted.issubset(values):
+                break
     return values, sources
+
+
+def _parse_uba_airquality_fresh(payload, components, zone):
+    """Keep each pollutant's newest usable hour, bounded by its real age."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return {}
+    now = dt_util.utcnow()
+    rows = []
+    for station_rows in data.values():
+        if not isinstance(station_rows, dict):
+            continue
+        for stamp, value in station_rows.items():
+            text = str(stamp)
+            try:
+                # UBA uses 24:00 for the end of a reporting day.
+                if " 24:" in text or "T24:" in text:
+                    moment = datetime.fromisoformat(text.replace("24:", "00:", 1)) + timedelta(days=1)
+                else:
+                    moment = datetime.fromisoformat(text)
+                if moment.tzinfo is None:
+                    moment = moment.replace(tzinfo=zone)
+                age = now - moment
+            except (ValueError, TypeError):
+                continue
+            if timedelta(minutes=-30) <= age < timedelta(hours=3):
+                rows.append((moment, value))
+    result = TimedValues()
+    for moment, value in sorted(rows, key=lambda row: row[0], reverse=True):
+        parsed = _parse_uba_airquality({"data": {"station": {moment.isoformat(): value}}}, components)
+        for kind, number in parsed.items():
+            if kind not in result:
+                result[kind] = number
+                result.observed_at[kind] = moment.astimezone(timezone.utc)
+    return result
+
+
+_DWD_FIELDS = {
+    "dry_bulb_temperature_at_2_meter_above_ground": (-90.0, 60.0),
+    "relative_humidity": (0.0, 100.0),
+    "mean_wind_speed_during last_10_min_at_10_meters_above_ground": (0.0, 400.0),
+    "maximum_wind_speed_last_hour": (0.0, 500.0),
+    "precipitation_amount_last_hour": (0.0, 1000.0),
+}
+
+
+def _valid_dwd_measurement(raw: bytes) -> dict[str, str]:
+    measurement = _parse_dwd_measurement(raw)
+    if not _dwd_observation_is_fresh(measurement, now=dt_util.utcnow()):
+        return {}
+    for key, (lower, upper) in _DWD_FIELDS.items():
+        value = _as_float(str(measurement.get(key, "")).replace(",", "."))
+        if value is None or not lower <= value <= upper:
+            measurement.pop(key, None)
+    if not _dwd_current_condition(measurement.get("present_weather")):
+        measurement.pop("present_weather", None)
+    return measurement
+
+
+async def _fetch_dwd_observations(session, location, state, *, on_progress=None):
+    """Request reserves only while a required field is still missing."""
+    candidates = await _dwd_station_candidates(session, location, state)
+    observations = []
+    failed = []
+    missing = set(_DWD_FIELDS) | {"present_weather"}
+
+    async def read_station(station, distance):
+        raw = await _get_bytes(session, _DWD_MEASUREMENT_URL.format(station_id=station.station_id))
+        measurement = _valid_dwd_measurement(raw)
+        if not (set(measurement) & (set(_DWD_FIELDS) | {"present_weather"})):
+            return False
+        observations.append((station, distance, measurement))
+        missing.difference_update(measurement)
+        if on_progress is not None:
+            await on_progress((candidates, sorted(observations, key=lambda row: row[1])))
+        return True
+
+    for station, distance in candidates:
+        try:
+            if not await read_station(station, distance):
+                failed.append((station, distance))
+        except Exception:
+            failed.append((station, distance))
+        if not missing:
+            break
+    if missing:
+        for station, distance in failed:
+            try:
+                await read_station(station, distance)
+            except Exception:
+                pass
+            if not missing:
+                break
+    observations.sort(key=lambda row: row[1])
+    return candidates, observations
 
 
 async def _fetch_coordinate_air_quality(
@@ -1401,6 +1600,7 @@ async def _fetch_coordinate_air_quality(
             # matters because CO2 comes from the CAMS greenhouse-gas product,
             # while particulate/gas pollution can use the denser Europe model.
             "domains": "auto",
+            "timeformat": "unixtime",
         },
     )
     if not isinstance(payload, dict):
@@ -1414,17 +1614,26 @@ async def _fetch_coordinate_air_quality(
         "nitrogen_dioxide": "no2",
         "ozone": "o3",
     }
-    values: dict[str, float] = {}
+    values = TimedValues()
     sources: dict[str, str] = {}
+    zone = await _async_forecast_timezone(payload.get("timezone"))
+    observed = _observation_time(current.get("time"), zone)
+    if current.get("time") is not None and (observed is None or not timedelta(minutes=-30) <= dt_util.utcnow() - observed < timedelta(hours=3)):
+        return {}, {}, None
     for raw_key, normalized in mapping.items():
         value = _as_float(current.get(raw_key))
-        if value is None or value < 0:
+        if value is None or not 0 <= value <= 5000:
             continue
         values[normalized] = value
+        if observed is not None:
+            values.observed_at[normalized] = observed
+        values.fetched_at[normalized] = dt_util.utcnow()
         sources[normalized] = "cams_air_quality_model"
     co2 = _as_float(current.get("carbon_dioxide"))
     if co2 is not None and not (250.0 <= co2 <= 2_000.0):
         co2 = None
+    if co2 is not None and observed is not None:
+        values.observed_at["_co2"] = observed
     return values, sources, co2
 
 
@@ -1433,7 +1642,6 @@ async def _fetch_dwd_station_weather(
     location: EffectiveLocation,
     state: AutoProviderState,
 ) -> AutoWeatherData:
-    candidates = await _dwd_station_candidates(session, location, state)
     forecast_task = _get_json(
         session,
         _OPEN_METEO_DWD,
@@ -1458,21 +1666,23 @@ async def _fetch_dwd_station_weather(
     )
     aq_task = _fetch_coordinate_air_quality(session, replace(location, country="DE"))
     uba_task = _fetch_uba_air_quality(session, replace(location, country="DE"), state)
-    station_tasks = [
-        _get_bytes(session, _DWD_MEASUREMENT_URL.format(station_id=station.station_id))
-        for station, _distance in candidates
-    ]
     results = await asyncio.gather(
-        forecast_task,
-        aq_task,
-        uba_task,
-        *station_tasks,
-        return_exceptions=True,
+        forecast_task, aq_task, uba_task,
+        _fetch_dwd_observations(session, location, state), return_exceptions=True,
     )
+    candidates, observations = results[3] if isinstance(results[3], tuple) else ([], [])
     forecast_payload = results[0] if isinstance(results[0], dict) else {}
     aq_result = results[1] if isinstance(results[1], tuple) else ({}, {}, None)
     model_air_quality_values, model_air_quality_sources, outdoor_co2 = aq_result
     uba_result = results[2] if isinstance(results[2], tuple) else ({}, {})
+    uba_air_quality_values, uba_air_quality_sources = uba_result
+    return await _compose_weather(location, state, candidates, observations,
+        forecast_payload, aq_result, uba_result, _forecast_error_text(results[0]))
+
+
+async def _compose_weather(location, state, candidates, observations,
+                           forecast_payload, aq_result, uba_result, forecast_error=None):
+    model_air_quality_values, model_air_quality_sources, outdoor_co2 = aq_result
     uba_air_quality_values, uba_air_quality_sources = uba_result
     # Physical UBA/Länder measurements win per pollutant. CAMS remains the
     # coordinate-specific map/model fallback for pollutants that no nearby
@@ -1481,22 +1691,12 @@ async def _fetch_dwd_station_weather(
     air_quality_values.update(uba_air_quality_values)
     air_quality_sources = dict(model_air_quality_sources)
     air_quality_sources.update(uba_air_quality_sources)
-    station_results = results[3:]
 
     forecast_zone = await _async_forecast_timezone(forecast_payload.get("timezone"))
     forecast = _normalize_open_meteo_hourly(forecast_payload, zone=forecast_zone)
     current = forecast_payload.get("current") if isinstance(forecast_payload, dict) else None
     if not isinstance(current, dict):
         current = {}
-
-    observations: list[tuple[DwdStation, float, dict[str, str]]] = []
-    for (station, distance), raw in zip(candidates, station_results, strict=True):
-        if isinstance(raw, (bytes, bytearray)):
-            measurement = _parse_dwd_measurement(bytes(raw))
-            if measurement:
-                if not _dwd_observation_is_fresh(measurement, now=dt_util.utcnow()):
-                    continue
-                observations.append((station, distance, measurement))
 
     def observation_number(key: str) -> tuple[float | None, dict[str, Any] | None]:
         for station, distance, measurement in observations:
@@ -1550,7 +1750,19 @@ async def _fetch_dwd_station_weather(
     if source:
         measurement_sources["condition"] = source
 
-    model_source = _auto_source("dwd_icon", location="coordinate")
+    model_provider = "dwd_icon" if location.country in {None, "DE"} else "open_meteo"
+    model_observed = _observation_time(current.get("time"), forecast_zone)
+    if current.get("time") is not None and (model_observed is None or not timedelta(minutes=-30) <= dt_util.utcnow() - model_observed < _DWD_OBSERVATION_MAX_AGE):
+        current = {}
+    current_limits = {"temperature_2m": (-90, 60), "relative_humidity_2m": (0, 100),
+        "wind_speed_10m": (0, 400), "wind_gusts_10m": (0, 500), "precipitation": (0, 1000)}
+    current = dict(current)
+    for key, (lower, upper) in current_limits.items():
+        number = _as_float(current.get(key))
+        if number is None or not lower <= number <= upper:
+            current.pop(key, None)
+    model_source = _auto_source(model_provider, location="coordinate",
+        **({"observation_at": model_observed.isoformat()} if model_observed else {}))
     if temperature is None:
         temperature = _as_float(current.get("temperature_2m"))
         if temperature is not None:
@@ -1591,12 +1803,12 @@ async def _fetch_dwd_station_weather(
         state.dwd_station = primary[0]
 
     return AutoWeatherData(
-        provider_domain="dwd_station+dwd_icon" if primary is not None else "dwd_icon",
+        provider_domain="dwd_station+dwd_icon" if primary is not None else model_provider,
         fetched_at=dt_util.utcnow(),
         available=bool(measurement_sources),
         safety_source_key=_safety_location_key("weather", location),
         timezone=str(forecast_payload.get("timezone") or "Europe/Berlin") if isinstance(forecast_payload, dict) else "Europe/Berlin",
-        country="DE",
+        country=location.country or "DE",
         temperature=temperature,
         humidity=humidity,
         condition=condition,
@@ -1610,10 +1822,19 @@ async def _fetch_dwd_station_weather(
         measurement_sources=measurement_sources,
         air_quality_values=air_quality_values,
         air_quality_sources=air_quality_sources,
+        air_quality_observed_at={
+            **getattr(model_air_quality_values, "observed_at", {}),
+            **getattr(uba_air_quality_values, "observed_at", {}),
+        },
+        air_quality_updated_at={
+            **getattr(model_air_quality_values, "fetched_at", {}),
+            **getattr(uba_air_quality_values, "fetched_at", {}),
+        },
         outdoor_co2_ppm=outdoor_co2,
         outdoor_co2_source="cams_air_quality_model" if outdoor_co2 is not None else None,
+        outdoor_co2_observed_at=getattr(model_air_quality_values, "observed_at", {}).get("_co2"),
         forecast_error=(
-            _forecast_error_text(results[0]) if not forecast else None
+            forecast_error if not forecast else None
         ),
     )
 
@@ -2171,6 +2392,8 @@ def _nina_parameter_text(info: dict[str, Any], *names: str) -> str:
 def _nina_record(
     identifier: str, detail: dict[str, Any], *, source: str = "mowas",
     observed_at: datetime | None = None,
+    lat: float | None = None, lon: float | None = None,
+    geometry_verified: bool = False,
 ) -> AutoWarningRecord:
     info = _pick_info(detail)
     instruction = str(info.get("instruction") or detail.get("instruction") or "").strip()
@@ -2178,7 +2401,13 @@ def _nina_record(
         instruction = _nina_parameter_text(
             info, "instructionText", "recommendedActions", "recommended_actions"
         )
-    return AutoWarningRecord(
+    areas = info.get("area", [])
+    if isinstance(areas, dict):
+        areas = [areas]
+    bounds = {(_as_float(a.get("altitude")), _as_float(a.get("ceiling")))
+              for a in areas if isinstance(a, dict)}
+    altitude, ceiling = next(iter(bounds)) if len(bounds) == 1 else (None, None)
+    record = AutoWarningRecord(
         warning_id=identifier,
         provider_domain=f"nina_auto_{source}",
         category="weather" if source == "dwd" else "civil",
@@ -2189,12 +2418,60 @@ def _nina_record(
         severity=str(info.get("severity") or detail.get("severity") or "unknown"),
         msg_type=str(detail.get("msgType") or info.get("msgType") or "Alert"),
         references=detail.get("references") or info.get("references") or "",
-        effective=_parse_dt(info.get("effective") or info.get("onset") or detail.get("effective")),
-        expires=_parse_dt(info.get("expires") or detail.get("expires")),
+        **_warning_times(info.get("effective") or detail.get("effective"),
+            info.get("onset") or detail.get("onset"), info.get("expires") or detail.get("expires")),
+        parameters=_cap_pairs(info.get("parameter")),
+        event_codes=_cap_pairs(info.get("eventCode")),
+        area_altitude=altitude, area_ceiling=ceiling,
+        area_restriction_unknown=len(bounds) > 1 and any(lo is not None or hi is not None for lo, hi in bounds),
         evidence_at=observed_at or dt_util.utcnow(),
         issued_at=_parse_dt(detail.get("sent") or info.get("sent")),
         sender=str(detail.get("sender") or info.get("sender") or "").strip(),
+        language=str(info.get("language") or ""),
     )
+    blocks = _cap_json_infos(detail)
+    if lat is not None and lon is not None:
+        signatures = {_cap_geographic_signature(block) for block in blocks}
+        same_footprint = len(signatures) == 1 and None not in signatures
+        located = []
+        for block in blocks:
+            area = _cap_info_area_element(block)
+            if len(area):
+                try:
+                    matched = _cap_area_matches(area, lat, lon)
+                except UnresolvedWarningArea:
+                    # NINA's independently point-checked GeoJSON is proof for
+                    # a single info or identical typed footprints. It cannot
+                    # assign differing CAP subregions to the user's window.
+                    matched = True if geometry_verified and (len(blocks) == 1 or same_footprint) else None
+                block = _cap_with_area(block, matched)
+            located.append(block)
+        blocks = tuple(located)
+    return _attach_cap_infos(record, blocks, preferred_language="de", now=dt_util.utcnow())
+
+
+def _cap_pairs(rows: Any) -> dict[str, Any]:
+    if isinstance(rows, dict):
+        if "valueName" not in rows:
+            return dict(rows)
+        rows = [rows]
+    result = {}
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and row.get("valueName"):
+            name = str(row["valueName"])
+            value = row.get("value")
+            if name in result:
+                old = result[name]
+                result[name] = (old if isinstance(old, list) else [old]) + [value]
+            else:
+                result[name] = value
+    return result
+
+
+def _warning_times(effective, onset, expires, event_end=None):
+    raw = {"effective": effective, "onset": onset, "expires": expires, "event_end": event_end}
+    times = {key: _cap_time(value) for key, value in raw.items()}
+    return {**times, "timing_uncertain": any(value not in (None, "") and times[key] is None for key, value in raw.items())}
 
 
 async def _fetch_nina_warnings(
@@ -2268,7 +2545,8 @@ async def _fetch_nina_warnings(
         if str(detail.get("status") or "Actual").lower() != "actual":
             return None
         try:
-            return _nina_record(identifier, detail, source=source, observed_at=now)
+            return _nina_record(identifier, detail, source=source, observed_at=now,
+                                lat=location.latitude, lon=location.longitude, geometry_verified=True)
         except (ValueError, TypeError):
             source_availability[source_key] = False
             return None
@@ -2325,11 +2603,13 @@ def _nws_record(feature: dict[str, Any]) -> AutoWarningRecord | None:
         severity=str(props.get("severity") or "unknown"),
         msg_type=str(props.get("messageType") or "Alert"),
         references=props.get("references") or "",
-        effective=_parse_dt(props.get("effective") or props.get("onset")),
-        expires=_parse_dt(props.get("expires") or props.get("ends")),
+        **_warning_times(props.get("effective"), props.get("onset"), props.get("expires"), props.get("ends")),
+        parameters=_cap_pairs(props.get("parameters")),
+        event_codes=_cap_pairs(props.get("eventCode")),
         evidence_at=dt_util.utcnow(),
         issued_at=_parse_dt(props.get("sent")),
         sender=str(props.get("sender") or "").strip(),
+        language=str(props.get("language") or "en-US"),
     )
 
 
@@ -2407,13 +2687,7 @@ def _cap_circle_contains(text: str, lat: float, lon: float) -> bool:
 
 
 def _cap_preferred_info(element: ET.Element) -> ET.Element:
-    """Prefer an English CAP info block for provider-neutral safety text.
-
-    MeteoAlarm member CAP documents can contain several localized ``info``
-    blocks. The hard-close parser intentionally does not machine-translate
-    safety instructions, so prefer an available English block and otherwise
-    keep the authority's first original-language block.
-    """
+    """Choose display text only. Safety always receives every CAP info block."""
     infos = [child for child in element.iter() if _local_name(child.tag) == "info"]
     if not infos:
         return element
@@ -2465,13 +2739,61 @@ def _cap_element_record(
     identifier = _first_text(element, "identifier", "id")
     if not identifier:
         return None
-    info = _cap_preferred_info(element)
-    expires = _parse_dt(_first_text(info, "expires"))
-    if expires is not None and expires <= dt_util.utcnow():
-        return None
-    if not _cap_area_matches(info, lat, lon):
-        return None
-    return AutoWarningRecord(
+    blocks = _cap_xml_infos(element)
+    infos = [child for child in element if _local_name(child.tag) == "info"]
+    resolved = []
+    candidates = []
+    for info, block in zip(infos, blocks):
+        expires = _cap_time(_first_text(info, "expires"))
+        try:
+            matched = _cap_area_matches(info, lat, lon)
+        except UnresolvedWarningArea:
+            matched = None
+        bounds = set()
+        invalid_bounds = False
+        if matched:
+            for area in [child for child in info if _local_name(child.tag) == "area"]:
+                probe = ET.Element("info")
+                probe.append(area)
+                try:
+                    area_matches = _cap_area_matches(probe, lat, lon)
+                except UnresolvedWarningArea:
+                    area_matches = False
+                if area_matches:
+                    raw_bounds = (_first_text(area, "altitude"), _first_text(area, "ceiling"))
+                    parsed_bounds = tuple(_as_float(value) for value in raw_bounds)
+                    invalid_bounds |= any(raw not in (None, "") and parsed is None
+                                          for raw, parsed in zip(raw_bounds, parsed_bounds))
+                    bounds.add(parsed_bounds)
+        lower, upper = next(iter(bounds)) if len(bounds) == 1 else (None, None)
+        uncertain = invalid_bounds or len(bounds) > 1 and any(lo is not None or hi is not None for lo, hi in bounds)
+        resolved.append(_cap_with_area(block, matched, bounds=(lower, upper, uncertain)))
+        if matched and (expires is None or expires > dt_util.utcnow()):
+            candidates.append(info)
+    if blocks:
+        if not candidates:
+            if any(block.area_match is None for block in resolved):
+                raise UnresolvedWarningArea("unresolved CAP info area")
+            return None
+        display = ET.Element("alert")
+        display.extend(candidates)
+        info = _cap_preferred_info(display)
+    else:
+        # Atom summaries can have CAP fields directly on the entry.
+        info = _cap_preferred_info(element)
+        expires = _cap_time(_first_text(info, "expires"))
+        if expires is not None and expires <= dt_util.utcnow():
+            return None
+        if not _cap_area_matches(info, lat, lon):
+            return None
+    bounds = set()
+    for area in [child for child in info.iter() if _local_name(child.tag) == "area"]:
+        probe = ET.Element("info")
+        probe.append(area)
+        if _cap_area_matches(probe, lat, lon):
+            bounds.add((_as_float(_first_text(area, "altitude")), _as_float(_first_text(area, "ceiling"))))
+    altitude, ceiling = next(iter(bounds)) if len(bounds) == 1 else (None, None)
+    record = AutoWarningRecord(
         warning_id=identifier, provider_domain=provider, category="weather",
         headline=_first_text(info, "headline", "title"),
         description=_first_text(info, "description", "summary"),
@@ -2479,11 +2801,18 @@ def _cap_element_record(
         severity=_first_text(info, "severity") or "unknown",
         msg_type=_first_text(element, "msgType") or "Alert",
         references=_first_text(element, "references"),
-        effective=_parse_dt(_first_text(info, "onset") or _first_text(info, "effective")), expires=expires,
+        **_warning_times(_first_text(info, "effective"), _first_text(info, "onset"), _first_text(info, "expires")),
+        parameters=_cap_pairs([{"valueName": _first_text(item, "valueName"), "value": _first_text(item, "value")}
+                               for item in info.iter() if _local_name(item.tag) == "parameter"]),
+        event_codes=_cap_pairs([{"valueName": _first_text(item, "valueName"), "value": _first_text(item, "value")}
+                                for item in info.iter() if _local_name(item.tag) == "eventCode"]),
+        area_altitude=altitude, area_ceiling=ceiling,
+        area_restriction_unknown=len(bounds) > 1 and any(lo is not None or hi is not None for lo, hi in bounds),
         evidence_at=dt_util.utcnow(),
         issued_at=_parse_dt(_first_text(element, "sent", "updated")),
-        sender=_first_text(element, "sender"),
+        sender=_first_text(element, "sender"), language=_first_text(info, "language"),
     )
+    return _attach_cap_infos(record, tuple(resolved), now=dt_util.utcnow())
 
 
 def _parse_atom_entries(text: str, lat: float, lon: float) -> tuple[list[AutoWarningRecord], list[str], int]:

@@ -1,6 +1,13 @@
-# Automatische Wetter-, Luftqualitäts- und Warnquellen – v0.11.2 TEST
+# Automatische Wetter-, Luftqualitäts- und Warnquellen – v0.11.9
 
-Stand der Implementierung und Prüfung: 06.10.2026. Integrationsversion 0.11.2.
+## CAP-Zahlenfelder und Warnsprachen
+
+Das versionsfähige NWS-Profil erkennt `maxWindGust` als Böenwert mit expliziter Einheit. Die Auswertung dieses strukturierten Feldes hängt nicht von einem Text-Sprachpaket ab; CAP-Gebiet und Geltungszeit bleiben verbindlich. Unbekannte Parameternamen oder einheitenlose Zahlen werden nicht als Böengeschwindigkeit interpretiert. Andere Anbieterprofile erhalten ihre Originalcodes, ohne aus Warnfarbe oder Ereigniscode einen km/h-Wert abzuleiten.
+
+DE/EN/TR-Textmodule sind separat registriert und verwenden isolierte Parserzustände. Bisherige begrenzte FR/ES/IT/NL-Konstruktionen bleiben erhalten. `set_warning_language_enabled()` steuert Warntextmodule unabhängig von UI-Sprachen und strukturierten CAP-Feldern. Die Textgrammatik bleibt begrenzt; unbekannte Freitexte und unklare Entwarnungen liefern keine bestätigte Freigabe. Eine zuverlässig erkannte Schließanweisung bleibt bei abweichender Sprachkennzeichnung wirksam und trägt den Abweichungsvermerk in ihrer Provenienz.
+
+
+Stand der Implementierung: 25.10.2026. Integrationsversion 0.11.9. Hinweise zur Verteilung der HTTP-Abrufe und zu amtlichen Warnungen stehen in der README.
 
 | Land / Gebiet | Wetter | Amtliche Warnquellen | Bevölkerungsschutz |
 | --- | --- | --- | --- |
@@ -36,13 +43,13 @@ Der Regionsdatensatz ist ein Snapshot vom 06.10.2025 mit 2.054 EMMA-Gebieten und
 
 AT-Alert, Alertswiss und BE-Alert verwenden die öffentlich von ihren offiziellen Webseiten eingesetzten Endpunkte. Diese sind keine zugesichert stabilen, versionierten APIs. AT-Alert wird paginiert geladen. Bei Alertswiss wird zusätzlich das Alter des Feed-Heartbeats geprüft. Schemafehler und Ausfälle bleiben sichtbar; erfolgreich gelesene Warnungen anderer Quellen bleiben erhalten. Probe- und Übungsalarme werden ignoriert. BE-Alert wird über seinen aktuellen öffentlichen Feed mit `outdated=false` geladen. Der Feed muss seine Aktualität und den Active-Set-Filter bestätigen; passende Gebiete werden anschließend gegen die vollständigen CAP-Dokumente geprüft. Die amtliche Darstellung kennzeichnet manche Probetexte mit CAP-Status `Actual`, deshalb werden ausdrückliche Test-/Übungsangaben zusätzlich geprüft. Ein fehlendes CAP-Dokument kann keine Entwarnung bestätigen.
 
-Warnungen werden zusammengeführt. Eine harte Lüftungssperre entsteht weiterhin nur aus einer relevanten Schließ-/Lüftungsanweisung, nicht allein aus einer hohen Gefahrenstufe. Die Textauswertung unterstützt Deutsch und Englisch sowie ausgewählte konkrete Schutzanweisungen auf Niederländisch, Französisch und Italienisch. Grundlage sind veröffentlichte amtliche Formulierungen; Negationen und qualifizierte/partielle Entwarnungen werden berücksichtigt. MeteoAlarm bevorzugt vorhandene englische CAP-Informationen. Es gibt keine automatische Übersetzung und keine Garantie, dass jede freie Formulierung dieser Sprachen erkannt wird. Andere Sprachen sind weiterhin nicht abgedeckt. Damit ist diese Version kein vollständiges weltweites NINA-Äquivalent.
+Warnungen werden zusammengeführt. Eine harte Lüftungssperre entsteht aus einer gültigen relevanten Schließ-/Lüftungsanweisung oder aus eindeutig zugeordneten amtlichen Böenangaben ab 90 km/h mit 30 Minuten Vorlauf. Eine hohe Gefahrenstufe allein reicht nicht. Die einheitliche numerische Böenregel gilt für die hier aufgeführten Anbieter; unbekannte Einheiten, unklare Zeitangaben und nicht eindeutig zuordenbare Höhenbereiche lösen keine neue Windsperre aus. Die Textauswertung unterstützt Deutsch und Englisch sowie ausgewählte konkrete Schutzanweisungen auf Niederländisch, Französisch und Italienisch. Grundlage sind veröffentlichte amtliche Formulierungen; Negationen und qualifizierte/partielle Entwarnungen werden berücksichtigt. MeteoAlarm bevorzugt vorhandene englische CAP-Informationen. Es gibt keine automatische Übersetzung und keine Garantie, dass jede freie Formulierung dieser Sprachen erkannt wird. Andere Sprachen sind weiterhin nicht abgedeckt. Damit ist diese Version kein vollständiges weltweites NINA-Äquivalent.
 
 Die Warnsensorattribute `warning_provider_coverage` und `warning_provider_error` machen Abdeckung und Fehler sichtbar. Verfügbarkeit und persistente Warnsperren behalten die jeweilige Quelle bei, damit die Entwarnung eines anderen Dienstes keine ausgefallene Quelle ersetzt.
 
 ## Installation und Migration
 
-Vorhandene manuelle Wetter-Entities und Warnintegrationen bleiben über die bestehende Migration auf Minor-Version 14 erhalten. Die automatischen Wetterdaten werden intern genutzt; es wird weiterhin keine zusätzliche Home-Assistant-`weather.*`-Entity erzeugt. Lüftungsberechnung und ESP-Protokoll bleiben unverändert.
+Vorhandene manuelle Wetter-Entities und Warnintegrationen bleiben über die bestehende Migration auf Minor-Version 14 erhalten. Die automatischen Wetterdaten werden intern genutzt; es wird weiterhin keine zusätzliche Home-Assistant-`weather.*`-Entity erzeugt. Die normalen Raumquellen und ihre Identitäten bleiben erhalten.
 
 ## Quellen
 

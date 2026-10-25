@@ -282,7 +282,8 @@ async def _async_handle_assistant_warning_notification(
         any_window_open = bool(open_rooms)
         mode = result.mode
         hazard_trigger = _trigger_for_mode(mode or "")
-        all_clear = snapshot.warnings.warning_notice_kind == "all_clear"
+        all_clear = (snapshot.warnings.warning_notice_kind == "all_clear"
+            and not any(notice.get("relevant") for notice in getattr(snapshot.warnings, "warning_notices", [])))
         official_active = bool(snapshot.warnings.official_close_instruction and result.safety_lock)
 
         # Track whether this assistant actually carried the official warning so

@@ -7,6 +7,14 @@ from datetime import datetime, timedelta, time, timezone, tzinfo
 from homeassistant.util import dt as dt_util
 
 SUPPORTED_LANGUAGES = ("de", "en", "tr")
+
+
+def warning_text_capabilities() -> dict[str, dict[str, Any]]:
+    """Expose optional warning support separately from installed UI texts."""
+    from .warning_language import capabilities
+    available = capabilities()
+    return {language: available.get(language, {"ui": True, "warning_text": "unsupported"})
+            for language in SUPPORTED_LANGUAGES}
 NNBSP = "\u202f"
 
 RECOMMENDATIONS = {
@@ -1167,6 +1175,20 @@ def reason_text(
             "de": f"Die Raumfeuchte liegt bei {m(a.get('humidity'), '%', 0)}, die absolute Feuchte ist innen und außen aber nahezu gleich. Lüften würde daran kaum etwas ändern.",
             "en": f"Indoor relative humidity is {m(a.get('humidity'), '%', 0)}, but absolute humidity indoors and outdoors is very similar. Airing would hardly change it.",
             "tr": f"İç bağıl nem {m(a.get('humidity'), '%', 0)}, ancak içeride ve dışarıda mutlak nem birbirine çok yakın. Havalandırma nemi pek değiştirmez.",
+        }[lang]
+
+    if key in {"official_wind_lock", "official_wind_prelock"}:
+        speed = str(a.get("gust_text") or m(a.get("gust_kmh"), "km/h", 0)).replace("[", "").replace("]", "")
+        if key == "official_wind_prelock":
+            return {
+                "de": f"Amtlich angekündigte schwere Böen ({speed}). Die Lüftung ist vorsorglich ab 30 Minuten vor dem angekündigten Beginn gesperrt. Die Zeiten stehen bei der Warnmeldung.",
+                "en": f"Officially forecast severe gusts ({speed}). Ventilation is locked as a precaution from 30 minutes before the announced start. See the warning for the times.",
+                "tr": f"Resmî bildirime göre kuvvetli rüzgâr hamleleri bekleniyor ({speed}). Havalandırma, duyurulan başlangıçtan 30 dakika önce önlem olarak kilitlenir. Zamanlar uyarıda gösterilir.",
+            }[lang]
+        return {
+            "de": f"Eine amtliche Warnung kündigt schwere Böen an ({speed}). Deshalb ist die Lüftung gesperrt; halte die Fenster geschlossen.",
+            "en": f"An official warning forecasts severe gusts ({speed}). Ventilation is locked; keep windows closed.",
+            "tr": f"Resmî uyarı kuvvetli rüzgâr hamleleri öngörüyor ({speed}). Havalandırma kilitli; pencereleri kapalı tutun.",
         }[lang]
 
     if key in {"weather_wind_caution", "weather_wind_danger"}:

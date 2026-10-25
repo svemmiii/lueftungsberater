@@ -26,6 +26,9 @@ from homeassistant.util.unit_conversion import (
 )
 
 from .warning_language import foreign_all_clear, has_foreign_close_order
+from .warning_policy import assess_official_warning, aware
+from .warning_language import json_infos as _cap_json_infos, action_context as _cap_action_context
+from .location import effective_location
 
 from .auto_providers import (
     AutoWarningRecord,
@@ -331,6 +334,9 @@ class WarningAssessment:
     nina_original_reason: str | None = None
     warning_notice_kind: str | None = None
     warning_notice_text: str | None = None
+    warning_notices: list[dict[str, Any]] = field(default_factory=list)
+    next_transition_at: datetime | None = None
+    hard_safety_expires_at: datetime | None = None
     official_close_instruction: bool = False
     source_entities: set[str] = field(default_factory=set)
     provider_domain: str | None = None
@@ -348,7 +354,7 @@ class WarningAssessment:
     # Per-active-CAP-message proof time, independent of whichever alert was
     # selected to drive the visible recommendation. Never refresh a different
     # authority's cached warning with the selected message's newer timestamp.
-    warning_observations: list[dict[str, str]] = field(default_factory=list)
+    warning_observations: list[dict[str, Any]] = field(default_factory=list)
     # Unresolved partial/future withdrawal: do not treat a reachable feed as
     # proof that ALL previously stored window hazards were cancelled.
     warning_ambiguous_clear: bool = False
@@ -1206,11 +1212,8 @@ def _apply_live_weather_safety(
     """Apply the existing physical window-safety thresholds to normalized live data."""
     wind_kmh = result.wind_speed_kmh or 0.0
     gust_kmh = result.wind_gust_kmh or 0.0
-    hard_live_weather = bool(
-        condition == "hail"
-        or wind_kmh >= WIND_HARD_LOCK_KMH
-        or gust_kmh >= GUST_HARD_LOCK_KMH
-    )
+    # Wind-only hard locks require an official, location-matched warning.
+    hard_live_weather = condition == "hail"
     danger_live_weather = bool(
         condition in WEATHER_DANGER_CONDITIONS
         or wind_kmh >= WIND_DANGER_KMH
@@ -2426,6 +2429,30 @@ def _evaluate_nina_like_entities(
             actions,
             message_type,
         )
+        record_attributes = {**full, **(dict(state.attributes) if live_active else {})}
+        record_id = str(record_attributes.get("id") or record_attributes.get("identifier") or entity_id)
+        raw_times = {
+            "effective": record_attributes.get("effective"),
+            "onset": record_attributes.get("onset") or record_attributes.get("start"),
+            "expires": record_attributes.get("expires") or record_attributes.get("end"),
+        }
+        times = {key: aware(value) for key, value in raw_times.items()}
+        notice = _apply_manual_official_notice(result, AutoWarningRecord(
+            warning_id=record_id, provider_domain="manual_warning", category="weather",
+            headline=headline, description=description, instruction=actions, msg_type=message_type,
+            event=str(record_attributes.get("event") or ""),
+            parameters=record_attributes.get("parameters") if isinstance(record_attributes.get("parameters"), dict) else {},
+            language=str(record_attributes.get("language") or ""),
+            info_blocks=_cap_json_infos(record_attributes) if record_attributes.get("info") else (),
+            **times,
+            timing_uncertain=any(value not in (None, "") and times[key] is None
+                                 for key, value in raw_times.items()),
+            evidence_at=dt_util.utcnow() if live_active else _parse_datetime(cached_record.get("cached_at")),
+            sender=str(record_attributes.get("sender") or ""), issued_at=aware(record_attributes.get("sent")),
+        ), entity_id=entity_id)
+        if air_state == "danger" and (notice is None or not notice["hard_lock"]):
+            air_state = "none"
+            live_air_state = "none"
         if air_state == "none" or (stale_active and air_state != "danger"):
             if live_active and _is_ambiguous_clear_update(
                 " ".join((headline, description, actions)), message_type
@@ -2565,6 +2592,52 @@ def _dwd_warning_key(state: State, entity_id: str, index: int) -> str:
     return f"{entity_id}:{index}"
 
 
+def _apply_manual_official_notice(result, record, *, entity_id=None, elevation=None):
+    """Use the same numeric/timing policy for existing HA warning adapters."""
+    if getattr(record, "timing_uncertain", False):
+        result.warning_ambiguous_clear = True
+    air_status = _evaluate_air_warning(record.headline, record.description, record.instruction, record.msg_type)
+    close_context = air_status == "danger"
+    if getattr(record, "info_blocks", ()):
+        air_status, close_context, uncertain = _cap_action_context(
+            record, _evaluate_air_warning, dt_util.utcnow(), elevation=elevation)
+        result.warning_ambiguous_clear |= uncertain
+    if air_status == "clear":
+        return None
+    notice = assess_official_warning(record, dt_util.utcnow(), explicit_close=close_context, elevation=elevation)
+    if notice is None:
+        return None
+    if notice.get("timing_uncertain") or notice.get("interpretation_uncertain"):
+        result.warning_ambiguous_clear = True
+    next_time = aware(notice["next_transition"])
+    if next_time is not None and (result.next_transition_at is None or next_time < result.next_transition_at):
+        result.next_transition_at = next_time
+    if notice["relevant"]:
+        result.warning_notices.append(notice)
+    if notice["wind"] and notice["hard_lock"] and not notice["explicit_close"]:
+        wind_expires = notice.get("lock_ends") or notice["ends"]
+        result.weather_hard_lock = True
+        result.weather_danger = True
+        result.weather_caution = False
+        result.weather_reason_key = "official_wind_prelock" if notice["phase"] == "prelock" else "official_wind_lock"
+        result.weather_reason_args = {"gust_kmh": round(notice["gust_max_kmh"], 1), "gust_text": notice["gust_original_text"]}
+        result.weather_original_reason = notice["headline"]
+        result.source_weather_entity = entity_id
+        result.warning_ids.add(record.warning_id)
+        signature = _cap_identity_signature(record.sender, record.issued_at)
+        if signature:
+            result.warning_cap_identities.setdefault(record.warning_id, set()).add(signature)
+        result.warning_components.append({"id": record.warning_id, "origin": "", "cap": signature or "", "entity": entity_id or ""})
+        result.warning_observations.append({"id": record.warning_id, "origin": "", "cap": signature or "", "entity": entity_id or "",
+            "confirmed_at": (record.evidence_at or dt_util.utcnow()).isoformat(),
+            "kind": "warning_weather_danger", "reason_key": result.weather_reason_key,
+            "reason_args": dict(result.weather_reason_args), "official_close_instruction": False,
+            "notice": dict(notice),
+            **({"expires": wind_expires} if wind_expires else {})})
+        result.hard_safety_expires_at = aware(wind_expires)
+    return notice
+
+
 def _evaluate_dwd_warning_entities(
     hass: HomeAssistant,
     entity_ids: list[str],
@@ -2607,6 +2680,18 @@ def _evaluate_dwd_warning_entities(
             )
             text = f"{name} {headline} {description} {instruction}"
 
+            raw_onset = state.attributes.get(f"warning_{index}_start")
+            raw_expires = state.attributes.get(f"warning_{index}_end")
+            notice = _apply_manual_official_notice(result, AutoWarningRecord(
+                warning_id=warning_key, provider_domain="dwd_weather_warnings", category="weather",
+                headline=headline or name, event=name, description=description, instruction=instruction,
+                onset=aware(raw_onset), expires=aware(raw_expires),
+                timing_uncertain=any(value not in (None, "") and aware(value) is None
+                                     for value in (raw_onset, raw_expires)),
+            ), entity_id=entity_id)
+            if notice is None or not notice["relevant"] or notice["phase"] == "announced":
+                continue
+
             # If DWD itself gives a window/ventilation protection instruction,
             # that instruction is authoritative regardless of the numeric level.
             if _has_official_close_instruction(instruction, description):
@@ -2624,6 +2709,8 @@ def _evaluate_dwd_warning_entities(
             if not _contains_any(text, WEATHER_WARNING_WORDS):
                 continue
 
+            if result.weather_hard_lock:
+                continue
             result.warning_ids.add(warning_key)
 
             # DWD exposes a level for every individual warning. Prefer that
@@ -2705,6 +2792,9 @@ def _manual_warning_assessment(
     result.nina_original_reason = assessed.nina_original_reason
     result.warning_notice_kind = assessed.warning_notice_kind
     result.warning_notice_text = assessed.warning_notice_text
+    result.warning_notices = [dict(item) for item in assessed.warning_notices]
+    result.next_transition_at = assessed.next_transition_at
+    result.hard_safety_expires_at = assessed.hard_safety_expires_at
     result.official_close_instruction = assessed.official_close_instruction
     result.warning_ids = set(assessed.warning_ids)
     result.warning_origins = {ident: f"manual:{source}" for ident in result.warning_ids}
@@ -2747,6 +2837,12 @@ def _automatic_warning_assessment(
             result.provider_availability[f"{data.safety_source_key}:{domain}"] = available
 
     hard_records: list[AutoWarningRecord] = []
+    wind_hard_records: list[AutoWarningRecord] = []
+    now = dt_util.utcnow()
+    try:
+        elevation = effective_location(hass, entry).elevation
+    except (AttributeError, TypeError, ValueError):
+        elevation = None
     clear_records: list[AutoWarningRecord] = []
     info_records: list[AutoWarningRecord] = []
     weather_danger_records: list[AutoWarningRecord] = []
@@ -2754,8 +2850,6 @@ def _automatic_warning_assessment(
     for warning in data.warnings:
         now = dt_util.utcnow()
         if warning.expires is not None and warning.expires <= now:
-            continue
-        if warning.effective is not None and warning.effective > now:
             continue
         combined_description = " ".join(
             value for value in (warning.event, warning.description) if value
@@ -2766,6 +2860,32 @@ def _automatic_warning_assessment(
             warning.instruction,
             warning.msg_type,
         )
+        close_context = air_status == "danger"
+        if getattr(warning, "info_blocks", ()):
+            air_status, close_context, uncertain = _cap_action_context(
+                warning, _evaluate_air_warning, now, elevation=elevation)
+            result.warning_ambiguous_clear |= uncertain
+        notice = assess_official_warning(warning, now, explicit_close=close_context, elevation=elevation)
+        if (getattr(warning, "timing_uncertain", False)
+                or notice is not None and (notice.get("timing_uncertain") or notice.get("interpretation_uncertain"))):
+            # A reachable feed with malformed CAP times is not proof that an
+            # older confirmed hazard ended. Keep its existing bounded fallback.
+            result.warning_ambiguous_clear = True
+        if air_status == "danger" and (notice is None or not notice["hard_lock"]):
+            air_status = "none"
+        proof_time = aware(getattr(warning, "evidence_at", None)) or aware(getattr(data, "fetched_at", None)) or now
+        evidence_current = timedelta(0) <= now - proof_time < timedelta(hours=1)
+        if notice is not None:
+            next_time = aware(notice["next_transition"])
+            if next_time is not None and (result.next_transition_at is None or next_time < result.next_transition_at):
+                result.next_transition_at = next_time
+            if notice["relevant"] and air_status != "clear" and evidence_current:
+                notice["using_cached_data"] = not data.available
+                result.warning_notices.append(notice)
+        if warning.effective is not None and warning.effective > now:
+            continue
+        if not evidence_current:
+            continue
         if air_status == "danger":
             hard_records.append(warning)
             result.warning_ids.add(warning.warning_id)
@@ -2790,9 +2910,21 @@ def _automatic_warning_assessment(
         # on the next refresh; this guard makes the transition deterministic.
         if air_status == "clear":
             continue
-        if warning.category == "weather":
+        if notice is not None and notice["wind"] and notice["hard_lock"] and air_status != "danger":
+            wind_hard_records.append(warning)
+            result.warning_ids.add(warning.warning_id)
+            signature = _cap_identity_signature(getattr(warning, "sender", ""), warning.issued_at)
+            if signature:
+                result.warning_cap_identities.setdefault(warning.warning_id, set()).add(signature)
+        if (warning.category == "weather" and notice is not None and notice["relevant"]
+                and notice["phase"] not in {"announced", "time_uncertain"}):
             severity = str(warning.severity or "").strip().lower()
-            if severity in {"extreme", "severe"}:
+            if notice["wind"]:
+                if notice["gust_max_kmh"] is not None and notice["gust_max_kmh"] >= 65:
+                    weather_danger_records.append(warning)
+                else:
+                    weather_caution_records.append(warning)
+            elif severity in {"extreme", "severe"}:
                 weather_danger_records.append(warning)
             elif severity in {"moderate", "minor"}:
                 weather_caution_records.append(warning)
@@ -2806,8 +2938,13 @@ def _automatic_warning_assessment(
         result.official_close_instruction = True
         result.nina_status = "danger"
         result.nina_reason_key = "nina_air_danger"
+        close_notice = next((item for item in result.warning_notices
+                             if item["id"] == strongest.warning_id and item["provider"] == strongest.provider_domain
+                             and item.get("sender", "") == getattr(strongest, "sender", "")
+                             and item.get("issued_at") == (aware(strongest.issued_at).isoformat() if aware(strongest.issued_at) else None)), {})
         result.nina_original_reason = (
-            strongest.instruction
+            close_notice.get("official_instruction")
+            or strongest.instruction
             or strongest.headline
             or strongest.description
             or strongest.event
@@ -2861,17 +2998,59 @@ def _automatic_warning_assessment(
         result.weather_caution = True
         result.weather_reason_key = "weather_caution"
         result.weather_original_reason = strongest.headline or strongest.event or None
+    if wind_hard_records:
+        strongest = max((notice for notice in result.warning_notices if notice["hard_lock"] and notice["wind"]),
+                        key=lambda notice: notice["gust_max_kmh"] or 0)
+        result.weather_hard_lock = True
+        result.weather_danger = True
+        result.weather_caution = False
+        result.weather_reason_key = "official_wind_prelock" if strongest["phase"] == "prelock" else "official_wind_lock"
+        result.weather_reason_args = {"gust_kmh": round(strongest["gust_max_kmh"], 1), "gust_text": strongest["gust_original_text"]}
+        result.weather_original_reason = strongest["headline"]
+        if not hard_records:
+            result.hard_safety_evidence_at = max(w.evidence_at or data.fetched_at for w in wind_hard_records)
+    safety_records = hard_records + wind_hard_records
+    ends = []
+    for warning in hard_records:
+        notice = next((item for item in result.warning_notices
+                       if item["id"] == warning.warning_id and item["provider"] == warning.provider_domain
+                       and item.get("sender", "") == getattr(warning, "sender", "")
+                       and item.get("issued_at") == (aware(warning.issued_at).isoformat() if aware(warning.issued_at) else None)), {})
+        times = [stamp for stamp in (aware(getattr(warning, "event_end", None)), aware(warning.expires),
+                                    aware(notice.get("close_ends"))) if stamp]
+        ends.append(min(times) if times else None)
+    ends.extend(aware(notice.get("lock_ends") or notice["ends"]) for notice in result.warning_notices
+                if notice["hard_lock"] and notice["wind"] and not notice["explicit_close"])
+    if ends and all(ends):
+        result.hard_safety_expires_at = max(ends)
+    result.warning_notices.sort(key=lambda notice: (not notice["hard_lock"], notice["level"] != "strong", notice["id"]))
     if data.safety_source_key:
-        for warning in hard_records:
+        for warning in safety_records:
             signature = _cap_identity_signature(
                 getattr(warning, "sender", ""), warning.issued_at
             )
             proof = warning.evidence_at or dt_util.utcnow()
             if isinstance(proof, str):
                 proof = datetime.fromisoformat(proof)
+            notice = next((dict(item) for item in result.warning_notices
+                           if item["id"] == warning.warning_id and item["provider"] == warning.provider_domain
+                           and item.get("sender", "") == getattr(warning, "sender", "")
+                           and item.get("issued_at") == (aware(warning.issued_at).isoformat() if aware(warning.issued_at) else None)), {})
+            times = [stamp for stamp in (aware(getattr(warning, "event_end", None)), aware(warning.expires)) if stamp]
+            if warning in hard_records and (close_end := aware(notice.get("close_ends"))):
+                times.append(close_end)
+            if warning not in hard_records and (wind_end := aware(notice.get("lock_ends"))):
+                times.append(wind_end)
+            expiry = min(times) if times else None
             result.warning_observations.append({
                 "id": warning.warning_id, "origin": f"auto:{data.safety_source_key}",
                 "cap": signature or "", "confirmed_at": proof.isoformat(),
+                "kind": "nina_danger" if warning in hard_records else "warning_weather_danger",
+                "reason_key": "nina_air_danger" if warning in hard_records else result.weather_reason_key,
+                "reason_args": {} if warning in hard_records else dict(result.weather_reason_args),
+                "official_close_instruction": warning in hard_records,
+                "notice": notice,
+                **({"expires": expiry.isoformat()} if expiry else {}),
             })
         result.warning_origins = {
             ident: f"auto:{data.safety_source_key}" for ident in result.warning_ids
@@ -2928,6 +3107,9 @@ def _copy_warning_assessment(target: WarningAssessment, source: WarningAssessmen
     target.nina_original_reason = source.nina_original_reason
     target.warning_notice_kind = source.warning_notice_kind
     target.warning_notice_text = source.warning_notice_text
+    target.warning_notices = [dict(item) for item in source.warning_notices]
+    target.next_transition_at = source.next_transition_at
+    target.hard_safety_expires_at = source.hard_safety_expires_at
     target.official_close_instruction = source.official_close_instruction
     target.source_entities = set(source.source_entities)
     target.provider_domain = source.provider_domain
@@ -2959,6 +3141,12 @@ def _merge_warning_assessments(
     auto_active = automatic.official_close_instruction or automatic.weather_danger or automatic.weather_caution
     manual_active = manual.official_close_instruction or manual.weather_danger or manual.weather_caution
     _copy_warning_assessment(result, manual if manual_active or not auto_active else automatic)
+    result.warning_notices = [dict(notice) for assessed in (automatic, manual) for notice in assessed.warning_notices]
+    transitions = [item.next_transition_at for item in (automatic, manual) if item.next_transition_at is not None]
+    result.next_transition_at = min(transitions) if transitions else None
+    expiries = [item.hard_safety_expires_at for item in (automatic, manual)
+                if item.official_close_instruction or item.weather_hard_lock]
+    result.hard_safety_expires_at = max(expiries) if expiries and all(expiries) else None
     result.source_entities.update(automatic.source_entities)
     result.source_entities.update(manual.source_entities)
     # A simultaneous all-clear from one provider must not become a *hazard*

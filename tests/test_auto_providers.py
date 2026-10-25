@@ -435,7 +435,8 @@ def test_safety_keys_are_location_stable_and_provider_independent():
     assert _safety_location_key("warning", location) == "auto_warning:50.7000:7.1000"
 
 
-def test_auto_warning_close_instruction_hard_locks_but_severe_weather_stays_soft():
+def test_auto_warning_close_instruction_hard_locks_but_severe_weather_stays_soft(freezer):
+    freezer.move_to(NOW)
     data = AutoWarningData(
         provider_domain="nina_auto",
         fetched_at=NOW,
@@ -621,3 +622,217 @@ async def test_nina_region_keeps_both_exact_boundary_districts():
             object(), _location(lat=50.7, lon=7.1), AutoProviderState()
         )
     assert result == ["053140000000", "053820000000"]
+
+
+# CAP language/normalization regressions retained in the existing test file.
+from datetime import datetime as _cap_regression_datetime, timedelta as _cap_regression_timedelta, timezone as _cap_regression_timezone
+import json as _cap_regression_json
+from types import SimpleNamespace as _cap_regression_SimpleNamespace
+from unittest.mock import patch as _cap_regression_patch
+import xml.etree.ElementTree as _cap_regression_ET
+import pytest as _cap_regression_pytest
+from custom_components.lueftungsberater import auto_providers as _cap_regression_ap
+from custom_components.lueftungsberater import providers as _cap_regression_providers
+from custom_components.lueftungsberater.warning_language import json_infos as _cap_regression_json_infos
+from custom_components.lueftungsberater.warning_policy import assess_official_warning as _cap_regression_assess_official_warning
+_cap_regression_NOW = _cap_regression_datetime(2026, 10, 25, 12, tzinfo=_cap_regression_timezone.utc)
+_cap_regression_NEAR = '50.6,7.0 50.6,7.2 50.8,7.2 50.8,7.0 50.6,7.0'
+_cap_regression_FAR = '51.0,8.0 51.0,8.2 51.2,8.2 51.2,8.0 51.0,8.0'
+
+def _cap_regression_info(text, language='de-DE', **changes):
+    return {'language': language, 'headline': 'Wind gusts', 'description': text, 'effective': (_cap_regression_NOW - _cap_regression_timedelta(hours=1)).isoformat(), 'onset': _cap_regression_NOW.isoformat(), 'expires': (_cap_regression_NOW + _cap_regression_timedelta(hours=3)).isoformat(), 'area': {'polygon': _cap_regression_NEAR}, **changes}
+
+def _cap_regression_document(infos):
+    root = _cap_regression_ET.Element('alert', xmlns='urn:oasis:names:tc:emergency:cap:1.2')
+    for key, value in {'identifier': 'multilingual', 'sender': 'authority@example.org', 'sent': (_cap_regression_NOW - _cap_regression_timedelta(hours=1)).isoformat(), 'msgType': 'Alert', 'status': 'Actual', 'scope': 'Public'}.items():
+        _cap_regression_ET.SubElement(root, key).text = value
+
+    def add(parent, key, value):
+        for item in value if isinstance(value, list) else [value]:
+            child = _cap_regression_ET.SubElement(parent, key)
+            if isinstance(item, dict):
+                for nested, contents in item.items():
+                    add(child, nested, contents)
+            else:
+                child.text = str(item)
+    for block in infos:
+        add(root, 'info', block)
+    return _cap_regression_ET.tostring(root, encoding='unicode')
+
+def _cap_regression_parse(infos):
+    with _cap_regression_patch.object(_cap_regression_ap.dt_util, 'utcnow', return_value=_cap_regression_NOW):
+        return _cap_regression_ap._parse_cap_document(_cap_regression_document(infos), 50.7, 7.1)
+
+def _cap_regression_notice(infos):
+    record = _cap_regression_parse(infos)
+    assert record is not None
+    result = _cap_regression_assess_official_warning(record, _cap_regression_NOW, elevation=60)
+    assert result is not None
+    _cap_regression_json.dumps(result, allow_nan=False)
+    return (record, result)
+
+def test_all_language_blocks_are_retained_and_equal_claims_merge_with_provenance():
+    record, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h erwartet.'), _cap_regression_info('Gusts 110 km/h expected.', 'en-GB'), _cap_regression_info('Rüzgâr hamleleri 110 km/sa bekleniyor.', 'tr-TR')])
+    assert len(record.info_blocks) == 3
+    assert result['hard_lock']
+    assert len(result['gust_evidence']) == 1
+    assert {source['language'] for source in result['gust_evidence'][0]['provenance']} == {'de-DE', 'en-GB', 'tr-TR'}
+    assert result['cap_languages'] == ['de-DE', 'en-GB', 'tr-TR']
+
+def test_conflicting_translations_are_explicit_and_no_confirmed_clear_is_invented():
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h erwartet.'), _cap_regression_info('Gusts 110 km/h are now ruled out.', 'en-GB')])
+    assert not result['hard_lock']
+    assert result['gust_polarity_conflict'] and result['interpretation_uncertain']
+
+def test_conflicting_values_keep_the_confirmed_higher_peak_and_all_originals():
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h erwartet.'), _cap_regression_info('Gusts 70 km/h expected.', 'en-GB')])
+    assert result['hard_lock'] and result['gust_value_conflict']
+    assert {item['max'] for item in result['gust_evidence']} == {70, 110}
+
+def test_far_away_translation_cannot_supply_a_local_gust_or_cancel_it():
+    record, result = _cap_regression_notice([_cap_regression_info('Böen 70 km/h erwartet.'), _cap_regression_info('Gusts 145 km/h expected.', 'en-GB', area={'polygon': _cap_regression_FAR})])
+    assert len(record.info_blocks) == 2
+    assert not result['hard_lock'] and result['gust_max_kmh'] == 70
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h erwartet.'), _cap_regression_info('Gusts 110 km/h ruled out.', 'en-GB', area={'polygon': _cap_regression_FAR})])
+    assert result['hard_lock'] and (not result['gust_polarity_conflict'])
+
+def test_future_and_expired_infos_never_become_current_confirmed_gusts():
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 70 km/h erwartet.'), _cap_regression_info('Gusts 145 km/h expected.', 'en-GB', effective=(_cap_regression_NOW + _cap_regression_timedelta(hours=1)).isoformat(), onset=(_cap_regression_NOW + _cap_regression_timedelta(hours=1)).isoformat()), _cap_regression_info('Rüzgâr hamleleri 145 km/h bekleniyor.', 'tr-TR', expires=(_cap_regression_NOW - _cap_regression_timedelta(seconds=1)).isoformat())])
+    assert not result['hard_lock']
+    assert result['next_transition'] is not None
+
+def test_denial_in_a_different_time_period_does_not_cancel_current_wind():
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h erwartet.', expires=(_cap_regression_NOW + _cap_regression_timedelta(hours=1)).isoformat()), _cap_regression_info('Gusts 110 km/h are ruled out.', 'en-GB', onset=(_cap_regression_NOW + _cap_regression_timedelta(hours=2)).isoformat())])
+    assert result['hard_lock'] and (not result['gust_polarity_conflict'])
+
+@_cap_regression_pytest.mark.parametrize('change', [{'onset': 'invalid'}, {'onset': '0001-01-01T00:00:00Z'}, {'area': {'areaDesc': 'Unknown'}}])
+def test_unverifiable_other_info_never_erases_a_valid_hazard(change):
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h erwartet.'), _cap_regression_info('Gusts 110 km/h are ruled out.', 'en-GB', **change)])
+    assert result['hard_lock']
+    assert result['interpretation_uncertain'] or result['timing_uncertain']
+
+def test_all_original_parameter_values_event_codes_and_provenance_are_retained():
+    block = _cap_regression_info('Böen 110 km/h.', parameter=[{'valueName': 'gusts', 'value': '70 km/h'}, {'valueName': 'gusts', 'value': '110 km/h'}], eventCode=[{'valueName': 'II', 'value': '51'}, {'valueName': 'II', 'value': '52'}])
+    record, result = _cap_regression_notice([block])
+    variant = record.info_blocks[0].to_record(record)
+    assert variant.parameters['gusts'] == ['70 km/h', '110 km/h']
+    assert variant.event_codes['II'] == ['51', '52']
+    assert result['hard_lock'] and result['gust_conflict']
+    assert result['gust_evidence'][0]['provenance'][0]['sender'] == 'authority@example.org'
+
+def test_nina_keeps_all_languages_instead_of_only_german():
+    with _cap_regression_patch.object(_cap_regression_ap.dt_util, 'utcnow', return_value=_cap_regression_NOW):
+        record = _cap_regression_ap._nina_record('dwd-multi', {'sender': 'dwd', 'sent': _cap_regression_NOW.isoformat(), 'info': [_cap_regression_info('Böen 110 km/h erwartet.'), _cap_regression_info('Gusts 110 km/h are now ruled out.', 'en-GB')]}, source='dwd', lat=50.7, lon=7.1)
+    assert len(record.info_blocks) == 2
+    assert _cap_regression_assess_official_warning(record, _cap_regression_NOW, elevation=60)['gust_polarity_conflict']
+
+def test_json_wrappers_do_not_merge_independent_warning_versions():
+    payload = {'alerts': [{'info': [_cap_regression_info('Böen 110 km/h.')]}, {'info': [_cap_regression_info('Keine Böen.')]}]}
+    assert not _cap_regression_json_infos(payload)
+    assert len(_cap_regression_json_infos({'alert': {'info': [_cap_regression_info('Böen 110 km/h.')]}})) == 1
+
+def _cap_regression_automatic(record):
+    data = _cap_regression_ap.AutoWarningData('meteoalarm_auto', _cap_regression_NOW, True, 'DE', safety_source_key='auto_warning:50.7:7.1', warnings=[record])
+    with _cap_regression_patch.object(_cap_regression_providers, 'auto_warning_data', return_value=data), _cap_regression_patch.object(_cap_regression_providers.dt_util, 'utcnow', return_value=_cap_regression_NOW), _cap_regression_patch.object(_cap_regression_providers, 'effective_location', return_value=_cap_regression_SimpleNamespace(elevation=60)):
+        return _cap_regression_providers._automatic_warning_assessment(_cap_regression_SimpleNamespace(), _cap_regression_SimpleNamespace(data={}))
+
+def test_cross_language_conflict_marks_existing_safety_as_unknown():
+    record = _cap_regression_parse([_cap_regression_info('Böen 110 km/h erwartet.'), _cap_regression_info('Gusts 110 km/h are now ruled out.', 'en-GB')])
+    result = _cap_regression_automatic(record)
+    assert not result.weather_hard_lock
+    assert result.warning_ambiguous_clear
+
+def test_original_close_order_in_a_nonpreferred_language_is_honored():
+    record = _cap_regression_parse([_cap_regression_info('Rauch', 'de-DE', instruction='Fenster und Türen schließen.', headline='Rauch'), _cap_regression_info('Smoke', 'en-GB', headline='Smoke')])
+    result = _cap_regression_automatic(record)
+    assert result.official_close_instruction
+    assert result.nina_status == 'danger'
+
+def test_unverified_close_order_cannot_create_a_new_hard_lock():
+    record = _cap_regression_parse([_cap_regression_info('Rauch', 'de-DE', instruction='Fenster und Türen schließen.', headline='Rauch', area={'areaDesc': 'Unknown region'}), _cap_regression_info('Smoke', 'en-GB', headline='Smoke')])
+    result = _cap_regression_automatic(record)
+    assert not result.official_close_instruction
+    assert result.warning_ambiguous_clear
+
+def test_valid_lower_wind_is_still_a_confirmed_reachable_feed():
+    record = _cap_regression_parse([_cap_regression_info('Böen 70 km/h erwartet.'), _cap_regression_info('Gusts 70 km/h expected.', 'en-GB')])
+    result = _cap_regression_automatic(record)
+    assert not result.weather_hard_lock
+    assert not result.warning_ambiguous_clear
+
+def test_exact_thirty_minute_lead_is_unchanged_per_info():
+    onset = _cap_regression_NOW + _cap_regression_timedelta(minutes=30)
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h erwartet.', onset=onset.isoformat())])
+    assert result['hard_lock'] and result['phase'] == 'prelock'
+    record = _cap_regression_parse([_cap_regression_info('Böen 110 km/h erwartet.', onset=(onset + _cap_regression_timedelta(microseconds=1)).isoformat())])
+    assert not _cap_regression_assess_official_warning(record, _cap_regression_NOW, elevation=60)['hard_lock']
+
+def test_nina_point_checked_geometry_preserves_single_and_identical_geocoded_infos():
+    area = {'geocode': {'valueName': 'WARNCELLID', 'value': 'unlisted-cell'}}
+    with _cap_regression_patch.object(_cap_regression_ap.dt_util, 'utcnow', return_value=_cap_regression_NOW):
+        for blocks in ([_cap_regression_info('Böen 110 km/h.', area=area)], [_cap_regression_info('Böen 110 km/h.', area=area), _cap_regression_info('Gusts 110 km/h.', 'en-GB', area=area)]):
+            record = _cap_regression_ap._nina_record('dwd-geometry', {'sender': 'dwd', 'info': blocks}, source='dwd', lat=50.7, lon=7.1, geometry_verified=True)
+            assert _cap_regression_assess_official_warning(record, _cap_regression_NOW, elevation=60)['hard_lock']
+
+def test_nina_envelope_geometry_does_not_verify_different_unknown_subregions():
+    areas = [{'geocode': {'valueName': 'WARNCELLID', 'value': value}} for value in ('one', 'two')]
+    with _cap_regression_patch.object(_cap_regression_ap.dt_util, 'utcnow', return_value=_cap_regression_NOW):
+        record = _cap_regression_ap._nina_record('dwd-geometry', {'sender': 'dwd', 'info': [_cap_regression_info('Böen 110 km/h.', area=areas[0]), _cap_regression_info('Gusts 70 km/h.', 'en-GB', area=areas[1])]}, source='dwd', lat=50.7, lon=7.1, geometry_verified=True)
+    result = _cap_regression_assess_official_warning(record, _cap_regression_NOW, elevation=60)
+    assert not result['hard_lock'] and result['interpretation_uncertain']
+
+def test_numeric_height_of_an_unmatched_area_does_not_restrict_the_matched_area():
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h.', area=[{'polygon': _cap_regression_NEAR, 'altitude': '0'}, {'polygon': _cap_regression_FAR, 'altitude': '9000'}])])
+    assert result['hard_lock']
+
+@_cap_regression_pytest.mark.parametrize('value', ['unknown', 'NaN', 'Infinity'])
+def test_malformed_matched_area_altitude_is_preserved_as_unknown(value):
+    _, result = _cap_regression_notice([_cap_regression_info('Böen 110 km/h.', area={'polygon': _cap_regression_NEAR, 'altitude': value})])
+    assert not result['hard_lock'] and result['interpretation_uncertain']
+
+def test_missing_effective_defaults_to_original_cap_sent_time():
+    record = _cap_regression_parse([_cap_regression_info('Böen 110 km/h.', effective='')])
+    assert record.info_blocks[0].to_record(record).effective == record.issued_at
+
+def test_future_effective_on_a_wind_info_does_not_delay_an_active_close_order():
+    record = _cap_regression_parse([_cap_regression_info('Gusts 145 km/h.', 'en-GB', effective=(_cap_regression_NOW + _cap_regression_timedelta(hours=1)).isoformat(), onset=(_cap_regression_NOW + _cap_regression_timedelta(hours=1)).isoformat()), _cap_regression_info('Rauch', headline='Rauch', instruction='Fenster schließen.')])
+    assert _cap_regression_automatic(record).official_close_instruction
+
+def test_unknown_language_text_cannot_confirm_an_all_clear():
+    record = _cap_regression_parse([_cap_regression_info('Unbekannter Text', 'ja-JP', headline='Entwarnung')])
+    result = _cap_regression_automatic(record)
+    assert result.warning_ambiguous_clear
+    assert result.warning_notice_kind != 'all_clear'
+
+
+def test_actual_nws_adapter_keeps_profiled_gust_with_japanese_text():
+    with _cap_regression_patch.object(_cap_regression_ap.dt_util, "utcnow", return_value=_cap_regression_NOW):
+        record = _cap_regression_ap._nws_record({"properties": {
+            "id": "nws-profiled-japanese", "sender": "nws@example.org", "language": "ja-JP",
+            "headline": "強風", "description": "風が強まります", "messageType": "Alert",
+            "sent": (_cap_regression_NOW - _cap_regression_timedelta(hours=1)).isoformat(),
+            "effective": (_cap_regression_NOW - _cap_regression_timedelta(hours=1)).isoformat(),
+            "onset": (_cap_regression_NOW - _cap_regression_timedelta(minutes=10)).isoformat(),
+            "expires": (_cap_regression_NOW + _cap_regression_timedelta(hours=2)).isoformat(),
+            "parameters": {"maxWindGust": ["110 km/h"]},
+        }})
+    result = _cap_regression_automatic(record)
+    assert result.weather_hard_lock and result.weather_danger
+    assert result.weather_reason_args["gust_kmh"] == 110
+    assert result.warning_ambiguous_clear  # The free text remains unsupported.
+    assert result.warning_observations[0]["notice"]["gust_evidence"][0]["evidence_kind"] == "structured_cap"
+
+
+def test_actual_nina_adapter_keeps_a_recognized_command_under_wrong_language_metadata():
+    with _cap_regression_patch.object(_cap_regression_ap.dt_util, "utcnow", return_value=_cap_regression_NOW):
+        record = _cap_regression_ap._nina_record("nina-wrong-language", {
+            "sender": "authority@example.org", "sent": _cap_regression_NOW.isoformat(),
+            "info": [_cap_regression_info("Giftiger Rauch zieht auf.", "ja-JP", headline="Rauch",
+                                           instruction="Fenster und Türen schließen.")],
+        }, lat=50.7, lon=7.1, geometry_verified=True)
+    result = _cap_regression_automatic(record)
+    assert result.official_close_instruction and result.nina_status == "danger"
+    assert result.warning_ambiguous_clear
+    proof = result.warning_observations[0]
+    assert proof["official_close_instruction"]
+    assert proof["notice"]["close_evidence"][0]["provenance"]["language_mismatch"]

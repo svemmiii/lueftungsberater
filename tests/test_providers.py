@@ -545,7 +545,7 @@ def test_lone_zero_with_unavailable_air_quality_siblings_is_ignored():
     assert used == {pm25, pm10, ozone}
 
 
-def test_wind_thresholds_split_orange_disadvantage_from_red_hazard():
+def test_wind_thresholds_remain_soft_without_an_official_warning():
     ordinary = assess(
         {
             WEATHER: FakeState(
@@ -614,7 +614,7 @@ def test_wind_thresholds_split_orange_disadvantage_from_red_hazard():
     assert disadvantage.weather_caution is True and disadvantage.weather_danger is False
     assert danger.weather_danger is True and danger.weather_hard_lock is False
     assert hazard.weather_danger is True
-    assert hazard.weather_hard_lock is True
+    assert hazard.weather_hard_lock is False
 
 
 async def test_nina_get_details_is_cached_by_warning_id(hass, enable_custom_integrations):

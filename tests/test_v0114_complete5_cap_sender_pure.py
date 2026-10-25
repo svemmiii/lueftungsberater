@@ -81,6 +81,7 @@ def test_full_cap_reference_parser_keeps_sender_sent_and_known_provider():
 def test_automatic_and_manual_pipelines_keep_cap_original_sender():
     scope = _provider()
     now = datetime(2026, 10, 11, 18, 0, tzinfo=timezone.utc)
+    scope["dt_util"].utcnow = lambda: now
     active = SimpleNamespace(
         expires=None, effective=None, event="Smoke", description="Rauch",
         headline="Rauch", instruction="Fenster und Türen schließen",

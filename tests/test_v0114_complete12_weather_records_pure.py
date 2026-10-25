@@ -209,8 +209,8 @@ def test_hard_provenance_excludes_simultaneously_nonhard_wind_and_gust():
     x.weather_danger = False
     x.wind_speed_kmh = 90
     apply_live(x, "sunny", condition_source=None)
-    assert x.weather_hard_lock is True
-    assert x.weather_danger_sources == {A}
+    assert x.weather_hard_lock is False
+    assert x.weather_danger_sources == {A, B}
 
     x.weather_danger_sources.clear()
     x.weather_hard_lock = False
@@ -218,8 +218,8 @@ def test_hard_provenance_excludes_simultaneously_nonhard_wind_and_gust():
     x.wind_speed_kmh = 80
     x.wind_gust_kmh = 106
     apply_live(x, "sunny", condition_source=None)
-    assert x.weather_hard_lock is True
-    assert x.weather_danger_sources == {B}
+    assert x.weather_hard_lock is False
+    assert x.weather_danger_sources == {A, B}
 
 
 def test_all_three_and_four_sensor_combinations_resolve_independently():

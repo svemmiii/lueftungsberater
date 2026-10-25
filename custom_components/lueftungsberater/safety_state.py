@@ -670,6 +670,9 @@ def _warning_provider_availability(
     ):
         return "active", str(getattr(warnings, "safety_source_key", None) or source_key)
 
+    if getattr(warnings, "warning_ambiguous_clear", False):
+        return "unknown", previous_key or source_key
+
     # Only a cancellation of the *same* previously relevant warning may
     # release a persisted hard lock. A drinking-water all-clear (or a new slot)
     # must never unlock an unrelated fumes warning.
@@ -888,6 +891,8 @@ def _record_from_warning(
     )
     evidence_at = _parse_datetime(getattr(warnings, "hard_safety_evidence_at", None))
     confirmed_at = evidence_at or now
+    expires_at = _parse_datetime(getattr(warnings, "hard_safety_expires_at", None))
+    valid_until = min(confirmed_at + SAFETY_FALLBACK_MAX_AGE, expires_at) if expires_at else confirmed_at + SAFETY_FALLBACK_MAX_AGE
     return {
         "source_key": source_key,
         "source_entity": source_entity,
@@ -917,7 +922,7 @@ def _record_from_warning(
         # Evidence refers to the last verified *active* observation, not the
         # original CAP sent timestamp. Failed refreshes must not renew this TTL.
         "last_confirmed_at": confirmed_at.isoformat(),
-        "valid_until": (confirmed_at + SAFETY_FALLBACK_MAX_AGE).isoformat(),
+        "valid_until": valid_until.isoformat(),
     }
 
 
@@ -960,39 +965,67 @@ def _should_refresh_confirmation(old: Any, now: datetime) -> bool:
     )
 
 
-def _apply_warning_record(warnings: Any, record: dict[str, Any]) -> None:
-    warnings.provider_domain = record.get("provider_domain") or warnings.provider_domain
-    warnings.warning_ids = {
-        str(item) for item in record.get("warning_ids", []) if item
-    }
-    warnings.warning_origins = dict(record.get("warning_origins") or {})
-    warnings.warning_components = _warning_components(record)
-    warnings.warning_cap_identities = {
-        str(ident): set(signatures)
-        for ident, signatures in (record.get("warning_cap_identities") or {}).items()
-        if isinstance(signatures, list)
-    }
+def _apply_warning_record(warnings: Any, record: dict[str, Any], *, restore_identity=True) -> None:
+    if restore_identity:
+        warnings.provider_domain = record.get("provider_domain") or warnings.provider_domain
+        warnings.warning_ids = {
+            str(item) for item in record.get("warning_ids", []) if item
+        }
+        warnings.warning_origins = dict(record.get("warning_origins") or {})
+        warnings.warning_components = _warning_components(record)
+        warnings.warning_cap_identities = {
+            str(ident): set(signatures)
+            for ident, signatures in (record.get("warning_cap_identities") or {}).items()
+            if isinstance(signatures, list)
+        }
     warnings.warning_notice_kind = None
     warnings.warning_notice_text = None
-    kind = record.get("kind")
-    if kind == "nina_danger":
-        warnings.source_nina_entity = record.get("source_entity") or warnings.source_nina_entity
-        warnings.nina_status = "danger"
-        warnings.nina_reason_key = str(record.get("reason_key") or "nina_air_danger")
-        warnings.nina_reason_args = dict(record.get("reason_args") or {})
-        warnings.nina_original_reason = None
-        warnings.official_close_instruction = True
-    elif kind == "warning_weather_danger":
-        warnings.source_weather_entity = record.get("source_entity") or warnings.source_weather_entity
-        warnings.weather_danger = True
-        warnings.weather_hard_lock = True
-        warnings.weather_caution = False
-        warnings.weather_reason_key = str(record.get("reason_key") or "weather_danger")
-        warnings.weather_reason_args = dict(record.get("reason_args") or {})
-        warnings.weather_original_reason = None
-        warnings.official_close_instruction = bool(
-            record.get("official_close_instruction", False)
-        )
+    parts = record.get("warning_records")
+    if not isinstance(parts, list):
+        parts = [record]
+    for part in sorted(parts, key=lambda item: str(item.get("last_confirmed_at") or ""), reverse=True):
+        kind = part.get("kind")
+        if kind == "nina_danger":
+            if getattr(warnings, "nina_status", "none") != "danger":
+                warnings.source_nina_entity = part.get("source_entity") or warnings.source_nina_entity
+                warnings.nina_reason_key = str(part.get("reason_key") or "nina_air_danger")
+                warnings.nina_reason_args = dict(part.get("reason_args") or {})
+                warnings.nina_original_reason = None
+            warnings.nina_status = "danger"
+            warnings.official_close_instruction = True
+        elif kind == "warning_weather_danger":
+            if not getattr(warnings, "weather_hard_lock", False):
+                warnings.source_weather_entity = part.get("source_entity") or warnings.source_weather_entity
+                warnings.weather_reason_key = str(part.get("reason_key") or "weather_danger")
+                warnings.weather_reason_args = dict(part.get("reason_args") or {})
+                warnings.weather_original_reason = None
+            warnings.weather_danger = True
+            warnings.weather_hard_lock = True
+            warnings.weather_caution = False
+            warnings.official_close_instruction |= bool(part.get("official_close_instruction", False))
+        notice = part.get("notice")
+        if not isinstance(notice, dict) or not notice:
+            continue
+        notices = getattr(warnings, "warning_notices", [])
+        if any(item.get("id") == notice.get("id") and item.get("provider") == notice.get("provider")
+               and item.get("sender") == notice.get("sender") for item in notices):
+            continue
+        cached = dict(notice)
+        now = dt_util.utcnow()
+        onset = _parse_datetime(cached.get("gust_onset") or cached.get("onset"))
+        cached["using_cached_data"] = True
+        if onset is not None and onset <= now and cached.get("phase") == "prelock":
+            cached["phase"] = "active"
+            if warnings.weather_reason_key == "official_wind_prelock":
+                warnings.weather_reason_key = "official_wind_lock"
+        notices.append(cached)
+        warnings.warning_notices = notices
+        boundaries = [_parse_datetime(cached.get(key)) for key in ("onset", "ends", "gust_onset", "gust_ends", "lock_ends")]
+        boundaries.append(_parse_datetime(part.get("valid_until")))
+        due = getattr(warnings, "next_transition_at", None)
+        future = [stamp for stamp in boundaries if stamp is not None and stamp > now]
+        if future:
+            warnings.next_transition_at = min([due, *future]) if due is not None else min(future)
 
 
 def _apply_weather_record(weather: Any, record: dict[str, Any]) -> None:
@@ -1184,12 +1217,20 @@ async def async_apply_persistent_safety_state(
                 if isinstance(item, dict) and _identity(item) == key
             ), None)
             if observation is not None:
+                if isinstance(observation.get("notice"), dict):
+                    candidate["notice"] = dict(observation["notice"])
+                if observation.get("kind") in {"nina_danger", "warning_weather_danger"}:
+                    for field in ("kind", "reason_key", "reason_args", "official_close_instruction"):
+                        if field in observation:
+                            candidate[field] = observation[field]
                 proof_at = _parse_datetime(observation.get("confirmed_at"))
                 if proof_at is not None:
                     candidate["last_confirmed_at"] = proof_at.isoformat()
-                    candidate["valid_until"] = (
-                        proof_at + SAFETY_FALLBACK_MAX_AGE
-                    ).isoformat()
+                    expires_at = _parse_datetime(observation.get("expires"))
+                    valid_until = proof_at + SAFETY_FALLBACK_MAX_AGE
+                    if expires_at is not None:
+                        valid_until = min(valid_until, expires_at)
+                    candidate["valid_until"] = valid_until.isoformat()
             # An assessment merged from two live sources can carry a single
             # selected-source evidence timestamp. Don't use that timestamp to
             # renew an unrelated feed when it did not provide fresh evidence.
@@ -1311,8 +1352,8 @@ async def async_apply_persistent_safety_state(
                     or previous_warning.get("warning_records") != aggregate["warning_records"])):
             channels[_WARNING_CHANNEL] = aggregate
             changed = True
-        if latest is None:
-            _apply_warning_record(warnings, aggregate)
+        if latest is None or missing_statuses:
+            _apply_warning_record(warnings, aggregate, restore_identity=latest is None)
     elif _WARNING_CHANNEL in channels:
         channels.pop(_WARNING_CHANNEL, None)
         changed = True

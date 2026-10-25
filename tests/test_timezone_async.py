@@ -106,6 +106,7 @@ async def test_uba_paths_use_berlin_calendar_without_blocking(freezer, path, now
     location = EffectiveLocation(50.7, 7.1, 60, "DE", "home", instant)
     state = ap.AutoProviderState()
     station = ap.UbaStation("123", "DENW123", "Teststation", 50.7, 7.1)
+    berlin_zone = await dt_util.async_get_time_zone("Europe/Berlin")
     with no_timezone_file_reads_on_loop():
         if path == "stations":
             payload = {"data": {"123": [123, "DENW123", "Teststation", "City", None, None, None, 7.1, 50.7]}}
@@ -113,7 +114,8 @@ async def test_uba_paths_use_berlin_calendar_without_blocking(freezer, path, now
                 result = await ap._uba_station_candidates(object(), location, state)
             assert result[0][0] == station
         else:
-            payload = {"data": {"123": {"2026-10-19 08:00:00": ["2026-10-19 09:00:00", 1, 0, [9, 7.0, 1, "1.0"]]}}}
+            local_stamp = instant.astimezone(berlin_zone).strftime("%Y-%m-%d %H:%M:%S")
+            payload = {"data": {"123": {local_stamp: [local_stamp, 1, 0, [9, 7.0, 1, "1.0"]]}}}
             with (
                 patch.object(ap, "_uba_station_candidates", AsyncMock(return_value=[(station, 1.0)])),
                 patch.object(ap, "_uba_component_index", AsyncMock(return_value={9: "pm2_5"})),

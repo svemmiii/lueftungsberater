@@ -390,6 +390,7 @@ async def test_real_shared_coordinator_fires_one_retry_and_cancels_on_shutdown(h
     from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
     from custom_components.lueftungsberater.outside import LueftungsberaterOutsideCoordinator
     from custom_components.lueftungsberater.const import DOMAIN
+    from custom_components.lueftungsberater import auto_polling
     from custom_components.lueftungsberater.providers import WarningAssessment
 
     freezer.move_to(NOW)
@@ -398,10 +399,12 @@ async def test_real_shared_coordinator_fires_one_retry_and_cancels_on_shutdown(h
     config._async_set_state(hass, ConfigEntryState.SETUP_IN_PROGRESS, None)
     coordinator = LueftungsberaterOutsideCoordinator(hass, config)
     with (
-        patch.object(ap, "async_get_clientsession", return_value=object()),
-        patch.object(ap, "coordinate_country", return_value="DE"),
-        patch.object(ap, "_fetch_auto_weather", AsyncMock(return_value=weather(forecast=False))) as full,
-        patch.object(ap, "_get_json", AsyncMock(return_value=payload(NOW + timedelta(minutes=1)))) as retry,
+        patch.object(auto_polling, "async_get_clientsession", return_value=object()),
+        patch.object(auto_polling, "coordinate_country", return_value="DE"),
+        patch.object(ap, "_fetch_dwd_observations", AsyncMock(return_value=([], []))),
+        patch.object(ap, "_fetch_uba_air_quality", AsyncMock(return_value=({}, {}))),
+        patch.object(ap, "_fetch_coordinate_air_quality", AsyncMock(return_value=({}, {}, 442))),
+        patch.object(ap, "_get_json", AsyncMock(side_effect=[{}, payload(NOW + timedelta(minutes=1))])) as retry,
         patch.object(coordinator, "_candidate_location", return_value=LOCATION),
         patch("custom_components.lueftungsberater.outside.warning_assessment", return_value=WarningAssessment()),
         patch("custom_components.lueftungsberater.outside.async_apply_persistent_safety_state", AsyncMock()),
@@ -416,16 +419,14 @@ async def test_real_shared_coordinator_fires_one_retry_and_cancels_on_shutdown(h
             async_fire_time_changed(hass, ap.dt_util.utcnow())
             await hass.async_block_till_done()
             assert coordinator.data.weather.forecast_data_status == "fresh"
-            full.assert_awaited_once()
-            retry.assert_awaited_once()
+            assert retry.await_count == 2
         finally:
             await coordinator.async_shutdown()
         assert coordinator._forecast_retry_unsub is None
         freezer.tick(timedelta(hours=2))
         async_fire_time_changed(hass, ap.dt_util.utcnow())
         await hass.async_block_till_done()
-        full.assert_awaited_once()
-        retry.assert_awaited_once()
+        assert retry.await_count == 2
 
 
 @pytest.mark.parametrize("status", ["fresh", "stale", "unavailable"])

@@ -48,8 +48,11 @@ jobs:
         run: |
           find custom_components/lueftungsberater -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
-      - name: Test bounded frontend text cache
-        run: node tests/frontend_cache_test.mjs
+      - name: Test frontend regressions
+        run: |
+          for test_file in tests/frontend*_test.mjs; do
+            node "$test_file"
+          done
 
       - name: Set up Python
         uses: actions/setup-python@v7

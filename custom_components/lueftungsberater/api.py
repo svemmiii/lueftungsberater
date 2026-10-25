@@ -114,6 +114,8 @@ REMOTE_ATTRIBUTE_KEYS = {
     "night_ventilation_args",
     "warning_notice_kind",
     "warning_notice_text",
+    "warning_notices",
+    "warning_next_transition_at",
     "official_close_instruction",
     "has_co2",
     "has_window_contacts",

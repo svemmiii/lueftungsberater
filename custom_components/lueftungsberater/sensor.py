@@ -13,6 +13,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers import entity_registry as er
 
 from .airing import get_tracker
+from .auto_providers import _state as auto_provider_state
 from .api import remote_access_info
 from .const import (
     CONF_CLIMATE,
@@ -818,6 +819,13 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             attrs["warning_notice_kind"] = warnings.warning_notice_kind
         if warnings.warning_notice_text:
             attrs["warning_notice_text"] = warnings.warning_notice_text
+        if warnings.warning_notices:
+            attrs["warning_notices"] = [dict(item) for item in warnings.warning_notices]
+        if warnings.next_transition_at is not None:
+            attrs["warning_next_transition_at"] = warnings.next_transition_at.isoformat()
+        polling = auto_provider_state(self.hass, self.entry).polling_diagnostics
+        if polling:
+            attrs["http_polling"] = dict(polling)
         if warnings.official_close_instruction:
             attrs["official_close_instruction"] = True
         return attrs

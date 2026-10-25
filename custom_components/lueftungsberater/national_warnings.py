@@ -16,7 +16,7 @@ from homeassistant.util import dt as dt_util
 from .auto_providers import (
     AutoWarningData, AutoWarningRecord, EffectiveLocation, _as_float,
     _cap_polygon_contains, _get_json, _geojson_contains_point,
-    _parse_dt, _point_in_polygon, _safety_location_key, _HTTP_TIMEOUT,
+    _parse_dt, _point_in_polygon, _safety_location_key, _post_json,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -144,9 +144,8 @@ async def fetch_civil_warnings(hass, session, location: EffectiveLocation, count
         rows = []
         offset = 0
         while True:
-            async with session.post(_AT_ALERT_FEED, json={"json": {"limit": 100, "offset": offset}}, timeout=_HTTP_TIMEOUT) as response:
-                response.raise_for_status()
-                payload = await response.json(content_type=None)
+            payload = await _post_json(session, _AT_ALERT_FEED,
+                                       {"json": {"limit": 100, "offset": offset}})
             body = payload.get("json") if isinstance(payload, dict) else None
             if not isinstance(body, dict) or not isinstance(body.get("alerts"), list) or not isinstance(body.get("totalCount"), int):
                 raise ValueError("AT-Alert invalid active-set response")
