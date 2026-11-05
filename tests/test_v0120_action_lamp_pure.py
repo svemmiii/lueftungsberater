@@ -1,6 +1,5 @@
 """Action lamp v0.12.0 invariants without a Home Assistant installation."""
 from __future__ import annotations
-from dataclasses import replace
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType, SimpleNamespace

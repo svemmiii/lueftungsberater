@@ -61,12 +61,18 @@ def test_incomplete_sensor_data_has_natural_text_in_all_languages() -> None:
 
 
 
-def test_room_good_uses_clear_reason_wording_in_all_languages() -> None:
+def test_room_good_describes_window_action_in_all_languages() -> None:
     from custom_components.lueftungsberater.localization import recommendation_text
 
-    assert recommendation_text("room_good", "de") == "Aktuell kein Lüftungsgrund"
-    assert recommendation_text("room_good", "en") == "No current reason to ventilate"
-    assert recommendation_text("room_good", "tr") == "Şu anda havalandırma nedeni yok"
+    # The room-action perspective must not imply that all indoor readings are good.
+    # Green means that opening/continuing window airing is not recommended now.
+    expected = {
+        "de": "Aktuell kein Fensterlüften nötig",
+        "en": "No need to open the windows right now",
+        "tr": "Şu anda pencereleri açmak gerekmiyor",
+    }
+    for language, wording in expected.items():
+        assert recommendation_text("room_good", language) == wording
 
 def test_night_advice_text_is_localized() -> None:
     from custom_components.lueftungsberater.localization import night_advice_text

@@ -4,6 +4,8 @@ Hier stehen die **zusammengefassten Änderungen pro Version**, nicht einzelne in
 
 ## v0.12.0 – Alpha (5. November 2026)
 
+- GitHub-CI-Nachprüfung: Ruff-F401 in einem reinen Testmodul korrigiert; Übersetzungs- und Lifetime-Regressionsprüfungen auf die bereits geltende Fenster-Handlungsampel abgestimmt. Der CO₂-Lifetime-Test prüft ausdrücklich, dass anhaltender CO₂-Bedarf nicht wegen einer erfolglosen Feuchtesitzung als Grün erscheint. Keine Änderung an der Produktlogik.
+
 - Anzeige-Randfälle: Ein eingerichteter, aber zeitweise ausgefallener Fensterkontakt erhält auch in der klassischen und individuell gestalteten Detailansicht einen gelben Hinweis. Insbesondere behauptet das Feld „Zuletzt gelüftet“ während `grace`, `unknown` oder `unavailable` keine weiterhin bestätigte Fensteröffnung. Der letzte bekannte Zustand wird intern nicht verändert; der Raum bewertet verfügbare Messwerte weiter. `unknown` und `unavailable` verändern nicht allein die Hauptampel.
 - Ältere Remote-Snapshots der zwischenzeitlichen v0.12.0 mit vereinheitlichten Farben verwenden in der Lüftungsperspektive wieder den ursprünglichen nativen Empfehlungstext. Die damals gespeicherte, raumbezogene Begründung wird dort nicht zusätzlich angezeigt, wenn ihre Herkunft nicht zur Lüftungsperspektive passt; offizielle Sicherheitshinweise bleiben sichtbar. Aktuelle Remote-Versionen bleiben unverändert.
 

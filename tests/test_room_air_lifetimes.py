@@ -237,8 +237,13 @@ async def test_humidity_rises_without_measurable_success(lifetime):
     assert record["action"] == "can_close"
     await s.at(19, window="off")
     record = await s.at(25)
-    assert record["status"] == "yellow"
+    # Closing is still appropriate despite 72 % RH: green describes the WINDOW
+    # action, not a successful humidity session or good indoor readings.
+    assert record["humidity"] == 72
+    assert record["humidity_exhausted"]
+    assert record["status"] == "green"
     assert record["action"] in {"keep_closed", "caution_keep_closed", "room_good"}
+    assert not s.tracker.session_successful
 
 
 @pytest.mark.parametrize("weather", [
@@ -389,12 +394,23 @@ async def test_finished_humidity_does_not_hide_still_required_co2_airing(lifetim
     record = await s.at(18, co2=1700)
     assert record["humidity_exhausted"]
     assert record["co2_active"]
+    assert record["co2"] == 1700
     assert record["action"] in {"keep_open", "room_keep_brief"}
+    # This is the important safety assertion: a stalled humidity attempt must
+    # never suppress still-needed CO2 airing.
+    assert record["status"] in {"yellow", "orange", "red"}
     for minute, ppm in [(22, 1500), (26, 1100), (30, 800), (33, 600), (36, 590)]:
         record = await s.at(minute, co2=ppm)
     assert record["action"] in {"can_close", "better_close", "room_watch"}
-    # CO2 recovered, but RH remains unresolved after the stalled attempt.
-    assert record["status"] != "green"
+    # The CO2 demand has ended, so green is allowed for a closing action even
+    # though unresolved humidity stays on record; green is not air quality.
+    assert record["co2"] == 590
+    assert record["humidity"] == 70
+    assert record["humidity_exhausted"]
+    if record["action"] in {"can_close", "better_close"}:
+        assert record["status"] == "green"
+    else:
+        assert record["status"] == "yellow"
 
 
 @pytest.mark.parametrize("lifetime", [50], indirect=True)
