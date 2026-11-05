@@ -31,10 +31,10 @@ Bei einem vorhandenen Sensor an einer kalten Oberfläche kann die lokale Oberfl�
 
 ## Zwei Ampelperspektiven
 
-- **Lüftungsbedarf:** Wie wichtig ist frische Luft für diesen Raum gerade? In dieser Ansicht bedeutet Rot hohen Handlungsbedarf.
-- **Lüftungsampel:** Wie gut sind die aktuellen Bedingungen zum Lüften? Hier kann Rot bedeuten, dass Lüften deutlich nachteilig ist.
+- **Raumluft-Ampel (`room_air`):** Grün = Fenster schließen oder geschlossen lassen; Gelb = Lüftung möglich beziehungsweise Messwerte beobachten; Orange = Fensterlüftung empfohlen; Rot = dringend lüften, sofern sicher.
+- **Lüftungsampel (`ventilation`):** Grün = Außenbedingungen zum Lüften günstig; Gelb = eingeschränkt; Orange = eher ungünstig; Rot = sehr ungünstig.
 
-Das ist **dieselbe Auswertung mit einer anderen Darstellung**. Eine harte Sicherheitssperre erscheint in beiden Fällen getrennt mit einem Schlosssymbol.
+Beide Ansichten verwenden dieselbe intelligente Engine, **aber bewusst unterschiedliche Farbperspektiven**. Der native Hauptsensorzustand und die bestehenden Attribute für Lüftungseignung werden nicht als Raum-Handlungsfarbe umgedeutet. Fehlende Sensorwerte sind gelb markierte Hinweise, kein eigenständiger Grund, eine zuvor erkannte Raumdringlichkeit zu überschreiben. Eine echte Sicherheitssperre hat in beiden Perspektiven Vorrang und erscheint als Schloss.
 
 ## Laufende Lüftung und Fensterkontakte
 
@@ -46,7 +46,7 @@ Wird das Fenster vor Ablauf der Mindestdauer geschlossen, bleibt die Lüftung **
 
 Eine bestätigte **Dauer** und eine anhand der Raumwerte erfolgreiche Lüftung sind zwei getrennte Sachverhalte. Eine Empfehlung, bei schlechten Außenbedingungen besser zu schließen, ist nicht automatisch eine Bestätigung guter Raumluft.
 
-**Ohne Feuchte-Fortschritt:** Sinkt die absolute Luftfeuchte während eines offenen Fensters über rund 15 Minuten nicht messbar genug, ist weiteres Lüften für **diesen Versuch** nicht mehr sinnvoll. Der Assistent empfiehlt dann das Schließen, markiert die Feuchte jedoch **nicht** als erledigt: Bei weiterhin mindestens 60 % relativer Luftfeuchte bleibt die Raumluft-Ampel Gelb, ab 63 % Orange. Das gilt auch nach dem Schließen und bei späteren Updates. Erst eine echte Verbesserung der Werte erlaubt wieder Grün. Andere dringende Gründe wie CO₂ oder Schimmel sowie amtliche Sicherheitssperren bleiben unabhängig davon aktiv.
+**Ohne Feuchte-Fortschritt:** Sinkt die absolute Luftfeuchte während eines offenen Fensters über rund 15 Minuten nicht messbar genug, ist weiteres Lüften für **diesen Versuch** nicht mehr sinnvoll. Der Assistent empfiehlt dann das Schließen, markiert die Feuchte jedoch **nicht** als erledigt: Bei weiterhin mindestens 60 % relativer Luftfeuchte bleibt der ungelöste Feuchtegrund **in Sitzungsdaten und Begründung erhalten**. Die sichtbare Handlungsampel wird bei einer Schließempfehlung trotzdem **Grün**. Das ist kein Lüftungserfolg: Erst eine echte Verbesserung darf den Feuchtebedarf zurücksetzen. Andere dringende Gründe wie CO₂ oder Schimmel sowie amtliche Sicherheitssperren bleiben unabhängig davon aktiv.
 
 Kurze Kontakt-Ausfälle führen nicht sofort zu einer erfundenen Schließung. Bleibt ein Kontakt länger unbekannt, wird eine laufende Sitzung konservativ beendet, ohne einen nicht beobachteten Zeitpunkt als bestätigte Lüftung auszugeben.
 

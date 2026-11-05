@@ -33,9 +33,9 @@ function make(language='de') {
   return card;
 }
 for(const [lang,title,recommendation] of [
-  ['de','Raumbewertung','Aktuell kein Lüftungsgrund'],
-  ['en','Room assessment','No current reason to ventilate'],
-  ['tr','Oda değerlendirmesi','Şu anda havalandırma nedeni yok'],
+  ['de','Raumbewertung','Aktuell kein Fensterlüften nötig'],
+  ['en','Room assessment','No need to open the windows right now'],
+  ['tr','Oda değerlendirmesi','Şu anda pencereleri açmak gerekmiyor'],
 ]) {
   const card=make(lang);card._recommendationLabels=null;card._render();
   const html=card.shadowRoot.innerHTML;

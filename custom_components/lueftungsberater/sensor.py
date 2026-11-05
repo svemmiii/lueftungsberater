@@ -375,7 +375,11 @@ class HistoryRoomSensor(LueftungsberaterRoomEntity, SensorEntity):
         if result is None:
             return None
         display = self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
-        return result.room_recommendation_key if display == DISPLAY_MODE_ROOM_AIR and not result.safety_lock else result.recommendation_key
+        return (
+            result.room_recommendation_key
+            if display == DISPLAY_MODE_ROOM_AIR and not result.safety_lock
+            else result.recommendation_key
+        )
 
     @property
     def extra_state_attributes(self):
@@ -393,6 +397,9 @@ class HistoryRoomSensor(LueftungsberaterRoomEntity, SensorEntity):
             "ventilation_status": result.color,
             "room_recommendation_key": result.room_recommendation_key,
             "ventilation_recommendation_key": result.recommendation_key,
+            "native_ventilation_recommendation_key": result.recommendation_key,
+            "ventilation_suitability_status": result.color,
+            "perspective_semantics_version": 2,
             "safety_lock": result.safety_lock,
             "display_mode": self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE),
         }
@@ -509,10 +516,10 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             current_co2_status = co2_status(values.get("co2_ppm"))
         else:
             display_mode = self.entry.data.get(CONF_DISPLAY_MODE, DEFAULT_DISPLAY_MODE)
+            # Only the selected perspective changes the card presentation.
+            # The advisor's native value remains the stable automation API.
             room_view = display_mode == DISPLAY_MODE_ROOM_AIR and not r.safety_lock
-            recommendation_key = (
-                r.room_recommendation_key if room_view else r.recommendation_key
-            )
+            recommendation_key = r.room_recommendation_key if room_view else r.recommendation_key
             reason_key = r.room_reason_key if room_view else r.reason_key
             reason_args = dict(r.room_reason_args if room_view else r.reason_args)
             duration_key = _display_duration_key(
@@ -561,8 +568,15 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
             "status": status,
             "display_mode": display_mode,
             "safety_lock": bool(r.safety_lock) if r is not None else False,
+            # Preserve the original HA attribute contracts for automations,
+            # templates, remote peers and pre-v0.12.0 dashboards.
             "ventilation_status": r.color if r is not None else "yellow",
             "room_status": r.room_status_color if r is not None else "yellow",
+            "ventilation_suitability_status": r.color if r is not None else "yellow",
+            "native_ventilation_recommendation_key": r.recommendation_key if r is not None else "unknown",
+            "room_recommendation_key": r.room_recommendation_key if r is not None else "unknown",
+            "ventilation_recommendation_key": r.recommendation_key if r is not None else "unknown",
+            "perspective_semantics_version": 2,
             "recommendation": recommendation_text(recommendation_key, language),
             "recommendation_key": recommendation_key,
             "mode": mode,

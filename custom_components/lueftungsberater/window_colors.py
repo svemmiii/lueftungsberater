@@ -132,6 +132,43 @@ def protect_room_color(
     early_open = window_now_open and minutes is not None and minutes < 5
     if not (opening or closing or early_open or hold_after_abort):
         return False
+    # A real closing recommendation can become urgent during the minimum
+    # airing period (storm, polluted outside air, futile drying). It must win
+    # over the contact-colour hold, but the contact action *alone* does not
+    # justify this exception. Compare the outside/assessment state rather
+    # than treating all green results as proof of successful airing.
+    closing_actions = {"close_now", "better_close", "can_close", "keep_closed", "caution_keep_closed"}
+    outside_fields = (
+        "temperature_outside", "humidity_outside", "weather_danger",
+        "weather_caution", "weather_hard_lock", "weather_reason_key",
+        "air_quality", "outdoor_air_quality", "nina_status",
+        "forecast_data_status", "weather_forecast_worsening",
+    )
+    outside_changed = any(
+        previous.values.get(field) != current.values.get(field)
+        for field in outside_fields
+    )
+    independent_close = (
+        after.room_recommendation_key in closing_actions
+        and getattr(after, "recommendation_key", None) in closing_actions
+        and (
+            getattr(before, "recommendation_key", None) in closing_actions
+            or outside_changed
+            or not (opening or closing or early_open or short_close)
+        )
+    )
+    independent_open = (
+        outside_changed and old_green and not new_green
+        and getattr(before, "recommendation_key", None) in closing_actions
+        and getattr(after, "recommendation_key", None) in {"open_now", "keep_open"}
+    )
+    if (independent_close or independent_open or (
+        after.room_recommendation_key in closing_actions
+        and getattr(after, "room_reason_key", None) == "humidity_stalled"
+    )):
+        # Stalled drying is a distinct, time-based reason to finish even when
+        # closing a window coincides with this refresh.
+        return False
     if (short_close or (hold_after_abort and independent_recovery)) and not old_green and new_green and exceptional_short_airing_good(
         previous, current, original_reasons=original_reasons
     ):
@@ -220,7 +257,14 @@ class ShortAiringColorGuard:
             self.clear()
         if (short_close or unresolved_humidity_close) and previous is not None and previous.result is not None:
             prior = previous.result
-            if prior.room_status_color != "green" and (
+            genuine_closing_action = (
+                result.room_recommendation_key in {"close_now", "better_close", "keep_closed", "caution_keep_closed"}
+                and (getattr(prior, "recommendation_key", None) in {"close_now", "better_close", "keep_closed", "caution_keep_closed"}
+                     or result.room_reason_key == "humidity_stalled")
+            )
+            if genuine_closing_action:
+                self.clear()
+            elif prior.room_status_color != "green" and (
                 unresolved_humidity_close or not exceptional_short_airing_good(previous, current)
             ):
                 self.baseline = {key: current.values.get(key) for key in _GUARD_INPUTS}
@@ -259,6 +303,8 @@ class ShortAiringColorGuard:
 
         if previous is None:
             if (self.baseline is not None and result.room_status_color == "green"
+                    and result.room_recommendation_key not in {"close_now", "better_close", "keep_closed", "caution_keep_closed"}
+                    and result.room_reason_key != "humidity_stalled"
                     and not result.safety_lock and current.values.get("has_window_contacts")):
                 result.room_status_color = self.color
                 result.room_recommendation_key = (

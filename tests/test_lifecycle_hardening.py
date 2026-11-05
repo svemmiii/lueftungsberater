@@ -86,6 +86,7 @@ async def test_room_coordinator_shutdown_drains_notification_tasks_before_cleari
     coordinator._humidity_session_unsub = None
     coordinator._effectiveness_session_unsub = None
     coordinator._indoor_air_session_unsub = None
+    coordinator._air_observation_unsub = None
     coordinator._unsubs = []
     coordinator._notification_tasks = set()
     coordinator._started = True
@@ -115,6 +116,7 @@ async def test_room_coordinator_shutdown_drains_notification_tasks_before_cleari
         lambda *_args: order.append("clear"),
     )
 
+    coordinator._air_observation_unsub = lambda: order.append("observation_unsub")
     started = asyncio.Event()
 
     async def _pending_notification():
@@ -130,6 +132,7 @@ async def test_room_coordinator_shutdown_drains_notification_tasks_before_cleari
     await coordinator.async_shutdown()
 
     assert task.done()
+    assert order.index("observation_unsub") < order.index("clear")
     assert order.index("notification_done") < order.index("clear")
 
 

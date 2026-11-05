@@ -7,6 +7,7 @@ import pytest
 
 from custom_components.lueftungsberater.engine import evaluate_room
 from custom_components.lueftungsberater.models import RoomInput
+from custom_components.lueftungsberater.localization import reason_text
 
 
 def open_room(**changes):
@@ -42,7 +43,7 @@ def reported_room(**changes):
     ) | changes))
 
 
-def test_reported_quiet_humidity_can_close_without_claiming_good_room_air():
+def test_reported_quiet_humidity_can_close_without_claiming_good_measurements():
     result = evaluate_room(reported_room())
 
     assert result.decision_need == "none"
@@ -52,11 +53,16 @@ def test_reported_quiet_humidity_can_close_without_claiming_good_room_air():
     assert result.mode == "aussen_zu_kalt"
     assert result.recommendation_key == "better_close"
     assert result.reason_key == "outside_too_cold"
-    # A close recommendation concerns the outside conditions, not indoor air quality.
-    assert result.room_status_color == "yellow"
+    # Green means close the window, NOT that the measured humidity is good.
+    assert result.room_status_color == "green"
     assert result.room_recommendation_key == "better_close"
-    assert result.room_reason_key == result.reason_key
-    assert result.room_reason_args == result.reason_args
+    assert result.room_reason_key == "humidity_observe_close"
+    assert result.room_reason_args["closing_reason_key"] == result.reason_key
+    assert result.room_reason_args["closing_reason_args"] == result.reason_args
+    for language, needle in (("de", "Raumfeuchte"), ("en", "humidity"), ("tr", "nem")):
+        explanation = reason_text(result.room_reason_key, result.room_reason_args, language)
+        assert needle in explanation
+        assert "66" in explanation or "66,7" in explanation
     assert result.duration_key == "not_needed"
 
 
@@ -64,14 +70,14 @@ def test_reported_quiet_humidity_can_close_without_claiming_good_room_air():
     "changes,action,reason,native_color,room_color",
     [
         pytest.param(dict(indoor_humidity=70, outdoor_temp=22, outdoor_humidity=80),
-                     "better_close", "humidity_wait", "orange", "yellow", id="wetter-outside"),
+                     "better_close", "humidity_wait", "orange", "green", id="wetter-outside"),
         pytest.param(dict(indoor_humidity=70, outdoor_temp=11, humidity_disarmed=True),
-                     "better_close", "outside_too_cold", "orange", "yellow", id="cold-outside"),
+                     "better_close", "outside_too_cold", "orange", "green", id="cold-outside"),
         pytest.param(dict(indoor_humidity=70, outdoor_temp=30, humidity_disarmed=True),
-                     "better_close", "outside_more_humid", "orange", "yellow", id="hot-humid-outside"),
+                     "better_close", "outside_more_humid", "orange", "green", id="hot-humid-outside"),
         *[
             pytest.param(dict(indoor_humidity=70, humidity_disarmed=True, air_quality=quality),
-                         action, reason, color, "yellow", id=f"outside-air-{quality}")
+                         action, reason, color, "green", id=f"outside-air-{quality}")
             for quality, action, reason, color in (
                 ("moderate", "better_close", "air_quality_moderate", "orange"),
                 ("poor", "better_close", "air_quality_poor", "orange"),
@@ -79,12 +85,12 @@ def test_reported_quiet_humidity_can_close_without_claiming_good_room_air():
             )
         ],
         pytest.param(dict(indoor_humidity=70, humidity_disarmed=True, weather_caution=True),
-                     "better_close", "weather_caution", "orange", "yellow", id="weather-caution"),
+                     "better_close", "weather_caution", "orange", "green", id="weather-caution"),
         pytest.param(dict(indoor_humidity=70, humidity_disarmed=True, weather_danger=True),
                      "close_now", "weather_danger", "red", "green", id="unlocked-severe-weather"),
     ],
 )
-def test_closing_actions_do_not_override_indoor_room_air_status(
+def test_closing_actions_use_green_but_keep_indoor_need_diagnostics(
     changes, action, reason, native_color, room_color,
 ):
     result = evaluate_room(open_room(**changes))
@@ -93,12 +99,20 @@ def test_closing_actions_do_not_override_indoor_room_air_status(
     assert result.color == native_color
     assert result.recommendation_key == action
     assert result.room_recommendation_key == action
-    assert result.room_reason_key == reason
-    # The room colour is independent of the outside-driven closing advice.
-    assert result.room_status_color == room_color
+    assert result.reason_key == reason
+    if result.primary_need == "humidity_observe":
+        assert result.room_reason_key == "humidity_observe_close"
+        assert result.room_reason_args["closing_reason_key"] == reason
+        assert "70" in reason_text(result.room_reason_key, result.room_reason_args, "de")
+    else:
+        assert result.room_reason_key == reason
+    # Closing is the visible action. The diagnostic/native suitability remains
+    # independent and its explanation retains the actual outside hazard.
+    assert result.room_status_color == room_color == "green"
+    assert result.color == native_color
 
 
-def test_ineffective_humidity_can_close_but_not_show_good_air():
+def test_ineffective_humidity_can_close_without_claiming_humidity_recovered():
     result = evaluate_room(open_room(
         indoor_humidity=70, outdoor_temp=21, outdoor_humidity=40,
         previous_mode="weiter_lueften", previous_need="humidity",
@@ -108,8 +122,10 @@ def test_ineffective_humidity_can_close_but_not_show_good_air():
     assert result.reason_key == "humidity_exhausted"
     assert result.room_recommendation_key == "can_close"
     assert result.room_reason_key == "humidity_stalled"
-    assert result.room_status_color in {"yellow", "orange"}
+    assert result.room_status_color == "green"  # no more window action
     assert result.active_reasons == ()
+    assert result.room_reason_args["humidity"] == 70
+    assert result.room_reason_key == "humidity_stalled"
 
 
 def test_current_humidity_need_is_not_marked_finished():
@@ -120,12 +136,15 @@ def test_current_humidity_need_is_not_marked_finished():
     assert result.room_recommendation_key == "room_keep_brief"
 
 
-def test_closed_window_keeps_quiet_humidity_observation_yellow():
+def test_closed_window_stays_green_with_high_humidity_diagnostic():
     result = evaluate_room(reported_room(window_open=False, open_minutes=None))
 
-    assert result.room_status_color == "yellow"
-    assert result.room_recommendation_key == "room_watch"
-    assert result.room_reason_args["room_color"] == "yellow"
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "caution_keep_closed"
+    assert result.reason_key == "outside_too_cold"
+    assert result.room_reason_key == "humidity_observe_close"
+    assert result.room_reason_args["closing_reason_key"] == "outside_too_cold"
+    assert result.primary_need == "humidity_observe"
 
 
 @pytest.mark.parametrize("co2,color,action", [
@@ -157,13 +176,13 @@ def test_missing_co2_does_not_become_a_successful_finished_measurement():
     assert result.reason_key == "co2_measurement_unknown_close"
 
 
-def test_unknown_window_contact_keeps_observation_and_no_closing_instruction():
-    result = evaluate_room(reported_room(window_data_status="unavailable"))
-
-    assert result.room_status_color == "yellow"
-    assert result.room_recommendation_key == "window_state_unknown"
-    assert result.room_reason_key == "window_state_unknown"
-    assert result.room_reason_args["room_color"] == "yellow"
+def test_missing_optional_window_contact_does_not_override_room_needs():
+    normal = evaluate_room(reported_room(window_data_status="current"))
+    missing = evaluate_room(reported_room(window_data_status="unavailable"))
+    assert missing.room_status_color == normal.room_status_color
+    assert missing.room_recommendation_key == normal.room_recommendation_key
+    assert missing.room_reason_key == normal.room_reason_key
+    assert missing.active_reasons == normal.active_reasons
 
 
 @pytest.mark.parametrize("window_open,co2,humidity", product([False, True], [800, 2600], [50, 70]))

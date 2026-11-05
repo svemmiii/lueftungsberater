@@ -16,8 +16,10 @@ from test_room_air_closing_colors import reported_room
 
 @pytest.mark.parametrize("display", ["room_air", "ventilation"])
 @pytest.mark.parametrize("changes,room_color,room_action", [
+    # Green is the handlungsampel instruction to close; internal humidity
+    # remains elevated and is exposed in independent diagnostics.
     ({}, "green", "better_close"),
-    ({"window_open": False}, "yellow", "room_watch"),
+    ({"window_open": False}, "green", "caution_keep_closed"),
     ({"humidity_disarmed": False}, "yellow", "room_keep_brief"),
     ({"air_quality": "very_poor"}, "green", "close_now"),
     ({"nina_status": "danger", "nina_reason_key": "air_smoke_danger"}, "locked", "close_now"),
@@ -28,6 +30,10 @@ async def test_room_card_and_history_receive_final_colour_and_action(
 ):
     data = reported_room(**changes)
     result = evaluate_room(data)
+    # Verify the engine itself, not just the card's forwarding of its colour.
+    if not result.safety_lock:
+        assert result.room_status_color == room_color
+        assert result.room_recommendation_key == room_action
     entry = MockConfigEntry(
         domain=DOMAIN, title="Meine Wohnung", data={"display_mode": display},
         subentries_data=[{
@@ -56,10 +62,10 @@ async def test_room_card_and_history_receive_final_colour_and_action(
     history = HistoryRoomSensor(entry, room, coordinator, "decision")
     attrs = advisor.extra_state_attributes
 
-    expected_action = room_action if display == "room_air" else result.recommendation_key
-    expected_status = (
-        "locked" if result.safety_lock
-        else room_color if display == "room_air" else result.color
+    room_view = display == "room_air" and not result.safety_lock
+    expected_action = room_action if room_view else result.recommendation_key
+    expected_status = "locked" if result.safety_lock else (
+        room_color if room_view else result.color
     )
     assert attrs["status"] == expected_status
     assert attrs["recommendation_key"] == expected_action
@@ -77,3 +83,10 @@ async def test_room_card_and_history_receive_final_colour_and_action(
             assert attrs["duration_key"] != "not_needed"
         else:
             assert attrs["duration_key"] == "not_needed"
+    assert attrs["room_status"] == result.room_status_color
+    assert attrs["ventilation_status"] == result.color
+    assert attrs["room_recommendation_key"] == result.room_recommendation_key
+    assert attrs["ventilation_recommendation_key"] == result.recommendation_key
+    assert attrs["native_ventilation_recommendation_key"] == result.recommendation_key
+    assert attrs["ventilation_suitability_status"] == result.color
+    assert attrs["perspective_semantics_version"] == 2

@@ -4,11 +4,28 @@ Hier stehen die **zusammengefassten Änderungen pro Version**, nicht einzelne in
 
 ## v0.12.0 – Alpha (5. November 2026)
 
+- Anzeige-Randfälle: Ein eingerichteter, aber zeitweise ausgefallener Fensterkontakt erhält auch in der klassischen und individuell gestalteten Detailansicht einen gelben Hinweis. Insbesondere behauptet das Feld „Zuletzt gelüftet“ während `grace`, `unknown` oder `unavailable` keine weiterhin bestätigte Fensteröffnung. Der letzte bekannte Zustand wird intern nicht verändert; der Raum bewertet verfügbare Messwerte weiter. `unknown` und `unavailable` verändern nicht allein die Hauptampel.
+- Ältere Remote-Snapshots der zwischenzeitlichen v0.12.0 mit vereinheitlichten Farben verwenden in der Lüftungsperspektive wieder den ursprünglichen nativen Empfehlungstext. Die damals gespeicherte, raumbezogene Begründung wird dort nicht zusätzlich angezeigt, wenn ihre Herkunft nicht zur Lüftungsperspektive passt; offizielle Sicherheitshinweise bleiben sichtbar. Aktuelle Remote-Versionen bleiben unverändert.
+
+### Perspektivengetrennte Raum-Handlungsampel und Lüftungseignung (05.11.2026)
+- **Grün heißt Fenster schließen oder geschlossen lassen**, auch wenn Innenwerte noch erhöht sind und weiteres Lüften wegen Außenluft oder fehlendem Fortschritt nicht sinnvoll ist. Gelb/Orange/Rot fordern niemals gleichzeitig zum Schließen auf; die interne Lüftungseignung bleibt als Diagnose erhalten.
+- **Zwei Perspektiven bleiben getrennt:** `room_air` zeigt die sinnvolle Fensteraktion; `ventilation` bewertet die Eignung der Außenbedingungen (Grün bedeutet dort weiterhin zum Lüften geeignet). Raumkarte, Übersicht und Remote-Daten berücksichtigen den gewählten Modus.
+- Bestehende Sensorattribute `ventilation_status` und `ventilation_recommendation_key` behalten ihre native Bedeutung. Der historische Entscheidungssensor speichert weiterhin die beim jeweiligen Modus gewählte Empfehlung; alte Recorder-Farben werden nicht nachträglich als neue Handlungsfarben ausgelegt. Der native Hauptsensorzustand für Automationen bleibt unverändert.
+- Ein zeitweise nicht verfügbarer optionaler Fensterkontakt erscheint weiterhin als gelber Hinweis, überschreibt aber keine anhand der übrigen Sensoren ermittelte Raum-Handlungsfarbe.
+- Fünf-Minuten-Schutz und 15-%-Ausnahme bleiben erhalten; wetterbedingte Schließentscheidungen werden auch während der Mindestzeit sichtbar. **Grün darf keinen Lüftungserfolg vortäuschen:** Die Erfolgsbestätigung prüft Sitzungs- und Messwerte separat.
+- Historische Tests und aktualisierte Handlungsinvarianten für Engine, Transport, Lifetime-Tests und Frontend ergänzt.
+
+### CI-Korrekturen (GitHub Actions, 05.11.2026)
+- Veralteten DWD-Retry-Test auf höchstens einen Versuch pro Station und Abruf sowie Wiederaufnahme im nächsten Abruf angepasst.
+- Unvollständige Lifecycle-/Speicher-Test-Attrappen um die bereits vorhandenen Zustandsfelder und den Ablauf-Timer ergänzt.
+- Manifest um die gültige HACS-Kategorie `climate.fans_ventilation` ergänzt.
+
+
 ### Verlässlichere Fenster- und Feuchtebewertung
 
 - Ein Fensterkontaktwechsel allein lässt die Raumampel nicht zwischen Grün und Nicht-Grün springen. Tatsächliche Messwertverschlechterungen und Sicherheitswarnungen können die Anzeige jederzeit verschärfen.
 - Fünf Minuten Öffnungsdauer sind eine Mindestzeit, **kein Erfolgsnachweis**. Kürzere Lüftungen werden als Abbruch behandelt; ausschließlich bei mindestens 15 % Sicherheitsreserve innerhalb aller relevanten Gutbereiche kann eine vorzeitige Grünfreigabe erfolgen.
-- Feuchtelüftungen behalten ungelösten Bedarf nach Abbruch, nach mindestens fünf Minuten ohne Verbesserung und nach wirkungslosen Langzeitversuchen. Eine Schließempfehlung aus ungünstigen Außenbedingungen oder fehlendem Fortschritt bedeutet nicht automatisch grüne Raumluft.
+- Feuchtelüftungen behalten ungelösten Bedarf nach Abbruch, nach mindestens fünf Minuten ohne Verbesserung und nach wirkungslosen Langzeitversuchen. Die nun **grüne Handlungsampel** bei einer Schließempfehlung bedeutet trotzdem keinen behobenen Feuchtewert und keinen nachgewiesenen Lüftungserfolg.
 - Bestätigte, erfolgreiche und abgebrochene Sitzungen werden getrennt geführt. Anzeige- und Sitzungszustände bleiben bei regelmäßigen Aktualisierungen und Neustarts konsistent.
 - Begründungstexte erklären die aktuellen Lüftungsgründe und die sinnvollste Fensteraktion, ohne störende Zehntelminuten-Angaben; Deutsch, Englisch und Türkisch bleiben unterstützt.
 
@@ -33,7 +50,7 @@ Hier stehen die **zusammengefassten Änderungen pro Version**, nicht einzelne in
 ### Qualitätsstatus
 
 - Ergänzte Regressionstests für Sitzungs- und Ampelfarben, Feuchte-Spitzen, Stationsausfälle und Remote-Gesamtansichten sowie bestehende Frontend- und Geodaten-Gegenproben.
-- **Alpha / Pre-release:** Ein vollständiger GitHub-Validate-Lauf mit installiertem Home Assistant, HACS und Hassfest sowie ein Update- und UI-Smoke-Test auf einer realen HA-Instanz stehen noch aus. Vor dem Update ein vollständiges Backup erstellen.
+- **Alpha / Pre-release:** Nach der Änderung der Handlungsampel stehen ein neuer vollständiger GitHub-Validate-Lauf und Update-/UI-Smoke-Tests auf einer echten HA-Instanz aus. Vor dem Update ein vollständiges Backup erstellen.
 
 ## v0.11.10
 

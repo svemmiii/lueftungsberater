@@ -2879,10 +2879,8 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         elif room_recommendation_key == "room_keep_brief":
             room_color = "yellow"
 
-    if data.window_data_status == "unavailable" and hard_mode is None:
-        room_recommendation_key = "window_state_unknown"
-        room_reason_key = "window_state_unknown"
-        room_reason_args = {"room_color": room_color}
+    # An unavailable *optional* window contact is a separate data warning.
+    # It cannot by itself overwrite the measured indoor need or the main lamp.
 
     # A normal closing/finished action means no further airing is requested in
     # the room-air perspective. Yellow is reserved for observation/trade-offs;
@@ -2928,6 +2926,70 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
             else:
                 if room_recommendation_key in {"room_good", "room_need", "room_urgent", "can_close"}:
                     room_recommendation_key = "room_watch"
+
+    # v0.12.0: the public main lamp describes the WINDOW ACTION. A closing
+    # instruction is never paired with a yellow/orange/red lamp. The indoor
+    # reasons, urgency, native ventilation suitability and session state above
+    # remain unchanged; green does not mean that a humidity/CO2 problem is solved.
+    closing_actions = {
+        "close_now", "better_close", "can_close", "keep_closed",
+        "caution_keep_closed",
+    }
+    opening_actions = {
+        "open_now", "keep_open", "room_need", "room_urgent",
+        "room_keep_brief", "short_observation",
+    }
+    if hard_mode is None:
+        # A concrete native decision to close takes precedence over the
+        # informative room-air view, including while a minimum-airing timer is
+        # active. Neither success flags nor active indoor reasons are cleared.
+        if recommendation_key in closing_actions:
+            room_color = "green"
+            room_recommendation_key = recommendation_key
+            room_reason_key = reason_key
+            room_reason_args = dict(reason_args)
+        elif room_recommendation_key in closing_actions:
+            room_color = "green"
+        elif room_recommendation_key in opening_actions and room_color == "green":
+            room_color = "yellow" if room_recommendation_key in {
+                "room_keep_brief", "short_observation",
+            } else "orange"
+        elif room_color == "green" and room_recommendation_key in {
+            "room_watch", "wait",
+        }:
+            # Merely observing an elevated sensor value is compatible with
+            # green only if no further window action is requested. 'Wait' is
+            # not an invitation to open during unfavorable outside conditions.
+            room_recommendation_key = "room_good"
+        if room_color == "green" and room_recommendation_key in opening_actions:
+            room_color = "yellow"
+
+    # A disarmed but still humid room may correctly be told to keep closed
+    # because of outdoor conditions. Do not let the native closing reason
+    # erase the factual humidity observation from the public explanation.
+    if (hard_mode is None and room_need == "humidity_observe"
+            and room_recommendation_key in closing_actions):
+        room_reason_key = "humidity_observe_close"
+        room_reason_args = {
+            "humidity": hi,
+            "closing_reason_key": reason_key,
+            "closing_reason_args": dict(reason_args),
+        }
+
+    # Preserve the concrete stalled-humidity explanation even when the native
+    # decision says close. In particular no session is ever marked successful
+    # from this presentation-only green.
+    if humidity_stalled and not active_needs:
+        if not data.window_open and room_recommendation_key == "room_watch":
+            room_recommendation_key = "keep_closed"
+            room_color = "green"
+        room_reason_key = "humidity_stalled"
+        room_reason_args = {
+            "humidity": hi, "window_open": data.window_open,
+            "room_color": room_color,
+        }
+        if not data.window_open and room_color == "green":
+            room_recommendation_key = "keep_closed"
 
     # Keep explanations on the final colour/action snapshot. Otherwise an
     # opening invariant repair could still render the old green wording.

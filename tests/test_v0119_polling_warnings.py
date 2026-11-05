@@ -162,18 +162,26 @@ async def test_dwd_lazy_nearest_station_and_invalid_field_reserve(freezer):
     assert observations[1][2]["relative_humidity"] == "72"
 
 
-async def test_dwd_complete_response_stops_after_one_and_failed_station_retries(freezer):
+async def test_dwd_complete_response_stops_after_one_and_failed_station_recovers_next_job(freezer):
     freezer.move_to(NOW)
     candidates = [(ap.DwdStation(str(i), str(i), 50.7, 7.1), float(i)) for i in range(8)]
     with (patch.object(ap, "_dwd_station_candidates", AsyncMock(return_value=candidates)),
           patch.object(ap, "_get_bytes", AsyncMock(return_value=dwd_bytes())) as get):
         await ap._fetch_dwd_observations(object(), LOCATION, ap.AutoProviderState())
     assert get.await_count == 1
+    # K1: each failed station is attempted once per provider job. A complete
+    # outage must not immediately retry the same station in a second pass.
     with (patch.object(ap, "_dwd_station_candidates", AsyncMock(return_value=candidates[:2])),
           patch.object(ap, "_get_bytes", AsyncMock(side_effect=[
-              TimeoutError(), b"broken", dwd_bytes()])) as get):
+              TimeoutError(), b"broken"])) as get):
         _, observations = await ap._fetch_dwd_observations(object(), LOCATION, ap.AutoProviderState())
-    assert get.await_count == 3
+    assert get.await_count == 2
+    assert observations == []
+    # No persistent blacklist: a recovered station can be used on the next job.
+    with (patch.object(ap, "_dwd_station_candidates", AsyncMock(return_value=candidates[:2])),
+          patch.object(ap, "_get_bytes", AsyncMock(return_value=dwd_bytes())) as get):
+        _, observations = await ap._fetch_dwd_observations(object(), LOCATION, ap.AutoProviderState())
+    assert get.await_count == 1
     assert observations[0][0].station_id == "0"
 
 

@@ -29,7 +29,7 @@ Die optionale Raumeinstellung **Passive Belüftung** sowie das lokale, begrenzte
 
 Du brauchst dafür keine komplette Sensorlandschaft: **Temperatur und Luftfeuchtigkeit innen genügen für den Einstieg.** CO₂, Fensterkontakte, zusätzliche Luftsensoren und eigene Außensensoren sind optional.
 
-Bei einer erfolglosen Feuchtelüftung kann der Assistent zum Schließen raten, **ohne** die unverändert erhöhte Raumfeuchte als Grün darzustellen. Schließen, zeitliche Bestätigung und gemessener Erfolg sind bewusst getrennt. Details stehen unter [laufender Lüftung und Fensterkontakten](docs/FUNKTIONEN.md#laufende-lüftung-und-fensterkontakte).
+In der **Raumansicht** kann eine erfolglose Feuchtelüftung **Grün mit Schließempfehlung** ergeben, obwohl die Raumfeuchte noch erhöht ist. Das bedeutet nicht, dass die Feuchte behoben wäre. In der **Lüftungsampel** bedeutet Grün dagegen wie bisher, dass die Außenbedingungen zum Lüften günstig sind. Details stehen unter [laufender Lüftung und Fensterkontakten](docs/FUNKTIONEN.md#laufende-lüftung-und-fensterkontakte).
 
 ## In wenigen Schritten starten
 
@@ -49,12 +49,14 @@ Alles Weitere – von eigenen Warnquellen über Fensterkontakte bis zu Benachric
 
 Der Assistent wägt mehrere Gründe gemeinsam ab: Ist die Luft im Raum zu feucht? Hilft die Außenluft beim Abkühlen? Ist der CO₂-Wert hoch? Würden Regen, Wind oder schlechte Außenluft das Lüften gerade unvorteilhaft machen?
 
-Du kannst zwischen zwei Ampelperspektiven wählen:
+Beide Ansichten greifen auf dieselbe intelligente Entscheidung zurück, aber die **Farben bedeuten nicht dasselbe**:
 
-| Ansicht | Wofür die Farbe steht |
-| --- | --- |
-| **Lüftungsbedarf** (Standard) | Wie dringend der Raum frische Luft braucht |
-| **Lüftungsampel** | Wie günstig die aktuellen Bedingungen zum Lüften sind |
+| Ansicht | Grün | Orange/Rot |
+| --- | --- | --- |
+| **Raumluft-Ampel (`room_air`, Standard)** | Fenster schließen oder geschlossen lassen | Fensterlüftung empfohlen / dringend nötig |
+| **Lüftungsampel (`ventilation`)** | Außenbedingungen sind zum Lüften günstig | Außenbedingungen sind ungünstig bis sehr ungünstig |
+
+Gelb signalisiert in der Raumluft-Ampel einen Hinweis oder eine Lüftungsmöglichkeit, in der Lüftungsampel eingeschränkte Außenbedingungen. Fehlende Sensordaten bleiben in den Hinweisen gelb gekennzeichnet, auch wenn ein optionaler Fensterkontakt ausfällt. Beide Ansichten zeigen amtliche Sperren gesondert an.
 
 Beide Darstellungen verwenden dieselbe Entscheidungslogik. Die Raumkarte erklärt zusätzlich, **warum** sie etwas empfiehlt. Eine echte Sicherheitssperre wird getrennt mit einem **🔒** angezeigt und hat Vorrang vor normalen Lüftungsempfehlungen.
 

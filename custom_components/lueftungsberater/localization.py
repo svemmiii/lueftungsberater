@@ -31,7 +31,7 @@ RECOMMENDATIONS = {
         "wait": "Noch etwas warten",
         "unknown": "Aktuell keine zuverlässige Empfehlung möglich",
         "window_state_unknown": "Fensterzustand unbekannt. Bitte prüfen.",
-        "room_good": "Aktuell kein Lüftungsgrund",
+        "room_good": "Aktuell kein Fensterlüften nötig",
         "room_watch": "Werte im Blick behalten",
         "room_need": "Lüften ist sinnvoll",
         "room_urgent": "Jetzt lüften",
@@ -50,7 +50,7 @@ RECOMMENDATIONS = {
         "wait": "Better wait a little longer",
         "unknown": "No reliable recommendation is available right now",
         "window_state_unknown": "Window status is currently unavailable — please check",
-        "room_good": "No current reason to ventilate",
+        "room_good": "No need to open the windows right now",
         "room_watch": "Keep an eye on the values",
         "room_need": "Ventilation is worthwhile",
         "room_urgent": "Ventilate now",
@@ -69,7 +69,7 @@ RECOMMENDATIONS = {
         "wait": "Biraz daha bekle",
         "unknown": "Şu anda güvenilir bir öneri verilemiyor",
         "window_state_unknown": "Pencere durumu şu anda kullanılamıyor — lütfen kontrol et",
-        "room_good": "Şu anda havalandırma nedeni yok",
+        "room_good": "Şu anda pencereleri açmak gerekmiyor",
         "room_watch": "Değerleri takip et",
         "room_need": "Havalandırmak faydalı",
         "room_urgent": "Şimdi havalandır",
@@ -894,6 +894,28 @@ def reason_text(
 
     if key == "room_perspective":
         return _room_perspective_reason(a, lang, temperature_unit)
+
+    if key == "humidity_observe_close":
+        # Keep the unresolved indoor fact visible, even though the recommended
+        # WINDOW action is now green/close. Preserve the actual outside reason.
+        lead = {
+            "de": f"Die Raumfeuchte ist mit {m(a.get('humidity'), '%', 1)} weiterhin erhöht. ",
+            "en": f"Indoor humidity is still elevated at {m(a.get('humidity'), '%', 1)}. ",
+            "tr": f"İç nem {m(a.get('humidity'), '%', 1)} ile hâlâ yüksek. ",
+        }[lang]
+        closing_key = str(a.get("closing_reason_key") or "")
+        if closing_key in {"", "humidity_observe_close", "room_perspective"}:
+            return lead + {
+                "de": "Weitere Fensterlüftung wird derzeit nicht empfohlen.",
+                "en": "Further window airing is not recommended right now.",
+                "tr": "Şu anda daha fazla pencere havalandırması önerilmiyor.",
+            }[lang]
+        closing_args = a.get("closing_reason_args")
+        return lead + reason_text(
+            closing_key, closing_args if isinstance(closing_args, dict) else {},
+            lang, temperature_unit,
+        )
+
 
     if key == "humidity_add_moisture":
         return {

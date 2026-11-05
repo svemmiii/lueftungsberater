@@ -164,14 +164,18 @@ def test_severe_weather_keeps_1300_ppm_room_air_green_for_now():
     r = evaluate_room(base(co2=1300, weather_danger=True))
     assert r.safety_lock is False
     assert r.room_status_color == "green"
-    assert r.room_recommendation_key == "room_good"
+    assert r.room_recommendation_key == "keep_closed"
+    assert "co2_elevated" in r.active_reasons
 
 
 def test_severe_weather_moves_high_but_not_critical_co2_to_yellow_late():
     below = evaluate_room(base(co2=1600, weather_danger=True))
     approaching = evaluate_room(base(co2=1750, weather_danger=True))
     assert below.room_status_color == "green"
-    assert approaching.room_status_color == "yellow"
+    assert approaching.room_status_color == "green"
+    assert approaching.room_recommendation_key == "keep_closed"
+    # The critical indoor facts are not thrown away by the closing decision.
+    assert "co2_high" in approaching.active_reasons
 
 
 def test_weather_hard_lock_still_beats_critical_indoor_air():
@@ -920,9 +924,10 @@ def test_room_view_keeps_borderline_humidity_green_when_outside_is_worse():
     assert result.color == "orange"
     assert result.mode == "feuchte_warten"
     assert result.room_status_color == "green"
-    assert result.room_recommendation_key == "room_good"
+    assert result.room_recommendation_key == "caution_keep_closed"
+    assert "humidity" in result.active_reasons
     text = reason_text(result.room_reason_key, result.room_reason_args, "de")
-    assert "leicht erhöht" in text
+    assert "erhöht" in text
     assert "Außenluft" in text
 
 
@@ -975,8 +980,9 @@ def test_room_view_meaningful_co2_need_jumps_to_orange_when_outside_is_good():
 def test_room_view_routine_fallback_stays_visible_as_yellow():
     result = evaluate_room(base(co2=None, hours_since_airing=25))
     assert result.primary_need == "routine"
-    assert result.room_status_color == "yellow"
-    assert result.room_recommendation_key == "room_watch"
+    assert result.room_status_color == "green"
+    assert result.room_recommendation_key == "caution_keep_closed"
+    assert "routine" in result.active_reasons
 
 
 def test_short_term_thunderstorm_can_turn_current_co2_airing_into_tradeoff():
@@ -2835,9 +2841,10 @@ def test_room_view_open_window_never_continues_against_native_close_action():
     )
     assert result.mode == "feuchte_warten"
     assert result.recommendation_key == "better_close"
-    # v0.12.0: closing because outside air is worse is NOT proof the
-    # still-humid room has good air. Keep the truthful yellow room state.
-    assert result.room_status_color == "yellow"
+    # The window-action lamp is green for closing, without marking the high
+    # humidity as resolved or removing the factual active reason.
+    assert result.room_status_color == "green"
+    assert "humidity_urgent" in result.active_reasons
     assert result.room_recommendation_key == "better_close"
     assert result.room_reason_key == result.reason_key
 
@@ -3145,19 +3152,20 @@ def test_co2_measurement_timeout_does_not_claim_target_reached():
     assert "erreicht" not in text
 
 
-def test_unavailable_window_contact_overrides_room_air_action_but_keeps_urgency():
-    result = evaluate_room(
-        base(
-            indoor_humidity=78.0,
-            outdoor_humidity=40.0,
-            window_open=False,
-            window_data_status="unavailable",
-        )
-    )
-    assert result.recommendation_key == "open_now"
-    assert result.room_status_color in {"orange", "red"}
-    assert result.room_recommendation_key == "window_state_unknown"
-    assert result.room_reason_key == "window_state_unknown"
+def test_unavailable_optional_window_contact_does_not_override_room_air_action():
+    normal = evaluate_room(base(
+        indoor_humidity=78.0, outdoor_humidity=40.0,
+        window_open=False, window_data_status="current",
+    ))
+    missing = evaluate_room(base(
+        indoor_humidity=78.0, outdoor_humidity=40.0,
+        window_open=False, window_data_status="unavailable",
+    ))
+    assert missing.recommendation_key == normal.recommendation_key == "open_now"
+    assert "humidity_urgent" in missing.active_reasons
+    assert missing.room_status_color == normal.room_status_color
+    assert missing.room_recommendation_key == normal.room_recommendation_key
+    assert missing.room_reason_key == normal.room_reason_key
 
 
 def test_v010_room_green_never_contains_an_open_or_continue_action():
@@ -3264,8 +3272,9 @@ def test_exhausted_humidity_session_tells_open_window_it_can_close():
     assert result.mode == "lueftung_fertig"
     assert result.recommendation_key == "can_close"
     assert result.reason_key == "humidity_exhausted"
-    # Exhausting an ineffective attempt does not mean 60% RH became good.
-    assert result.room_status_color == "yellow"
+    # A green *closing action* must not mark ineffective humidity as resolved.
+    assert result.room_status_color == "green"
+    assert result.primary_need == "humidity_stalled"
     assert result.room_recommendation_key == "can_close"
     assert result.room_reason_key == "humidity_stalled"
 
@@ -3489,11 +3498,13 @@ def test_humidity_observe_has_matching_explanation_text():
         )
     )
 
-    assert result.room_status_color == "yellow"
+    assert result.room_status_color == "green"
     assert result.primary_need == "humidity_observe"
+    assert result.room_recommendation_key == "caution_keep_closed"
     text = reason_text(result.room_reason_key, result.room_reason_args, "de")
-    assert "bereits behandelte Feuchtesituation" in text
-    assert "keine erneute Lüftung" in text
+    assert "Raumfeuchte" in text
+    assert "70" in text
+    assert "geschlossen" in text or "Lüften" in text
 
 
 def test_humidity_session_start_uses_humidity_physics_not_other_reasons():

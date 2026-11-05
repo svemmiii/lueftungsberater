@@ -1253,8 +1253,12 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if tracker is not None and tracker.is_open and snapshot.result is not None:
             tracker.update_success(
                 not snapshot.result.safety_lock
-                and snapshot.result.room_status_color == "green"
                 and not snapshot.result.active_reasons
+                and not self._humidity_session.session_active
+                and not self._humidity_session.unresolved_close
+                and not self._humidity_session.exhausted
+                and (not self._co2_hysteresis.session_active or co2_hysteresis.finish_ready)
+                and self._color_guard.baseline is None
             )
         return snapshot
 

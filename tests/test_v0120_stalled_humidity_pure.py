@@ -77,29 +77,29 @@ def test_ineffective_fifteen_minute_airing_stays_orange_through_refresh_and_clos
     previous = snap(engine.evaluate_room(reading()))
     current = snap(engine.evaluate_room(reading(exhausted=True, disarmed=True)))
     assert current.result.active_reasons == ()  # do not ask for endless airing
-    assert current.result.room_status_color == "orange"
+    assert current.result.room_status_color == "green"
     assert current.result.room_recommendation_key == "can_close"
     assert current.result.room_reason_key == "humidity_stalled"
     guard.apply(previous, current, short_close=False, opening=False, closing=False)
-    assert current.result.room_status_color == "orange"
+    assert current.result.room_status_color == "green"
     closed = snap(engine.evaluate_room(reading(open_window=False, exhausted=True, disarmed=True)), open_window=False)
     guard.apply(current, closed, short_close=False, opening=False, closing=True)
-    assert closed.result.room_status_color == "orange"
-    assert closed.result.room_recommendation_key == "room_watch"
+    assert closed.result.room_status_color == "green"
+    assert closed.result.room_recommendation_key == "keep_closed"
     assert closed.result.room_reason_key == "humidity_stalled"
     later = evaluate(state, 180, False)
     assert later.disarmed and later.exhausted
     refreshed = engine.evaluate_room(reading(open_window=False, exhausted=later.exhausted,
                                              disarmed=later.disarmed))
-    assert refreshed.room_status_color == "orange"
+    assert refreshed.room_status_color == "green"
     restored = sessions.HumiditySessionState()
     restored.restore(state.as_dict(), parse_dt=lambda x: datetime.fromisoformat(x) if x else None)
     assert engine.evaluate_room(reading(open_window=False, exhausted=restored.exhausted,
-                                        disarmed=restored.disarmed)).room_status_color == "orange"
+                                        disarmed=restored.disarmed)).room_status_color == "green"
 
 
-@pytest.mark.parametrize("rh, expected", [(64, "orange"), (63, "orange"),
-                                          (62, "yellow"), (60.1, "yellow"),
+@pytest.mark.parametrize("rh, expected", [(64, "green"), (63, "green"),
+                                          (62, "green"), (60.1, "green"),
                                           (59, "green"), (56, "green")])
 def test_exhausted_humidity_uses_measured_recovery_not_elapsed_time(rh, expected):
     result = engine.evaluate_room(reading(rh=rh, exhausted=True, disarmed=True))
@@ -108,6 +108,7 @@ def test_exhausted_humidity_uses_measured_recovery_not_elapsed_time(rh, expected
     if rh >= 60:
         assert result.room_reason_key == "humidity_stalled"
         assert result.room_recommendation_key == "can_close"
+        assert result.room_reason_args["humidity"] == rh
     else:
         assert result.room_reason_key != "humidity_stalled"
 

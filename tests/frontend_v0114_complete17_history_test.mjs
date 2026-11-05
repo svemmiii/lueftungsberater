@@ -39,7 +39,7 @@ card._config={entity:'sensor.room',perspective:'room_air',metrics:['co2_in']};
 card._metrics=[{key:'co2_in',unit:'ppm',source:'sensor.co2',high:1000,low:null}];
 card._series=new Map([['co2_in',samples]]);
 card._hass={language:'de',states:{'sensor.room':{attributes:{room_name:'Room'}}}};
-card._history=[{t:at,kind:'decision',key:'open_now',attrs:{room_status:'red',room_recommendation_key:'open_now',ventilation_status:'orange'}},{t:at+7000,kind:'advisor',key:'open_now',attrs:{}}];
+card._history=[{t:at,kind:'decision',key:'open_now',attrs:{display_mode:'room_air',room_status:'red',room_recommendation_key:'open_now',ventilation_status:'orange'}},{t:at+7000,kind:'advisor',key:'open_now',attrs:{}}];
 card._decisionEvents=card._history.filter(e=>e.kind==='decision');
 assert.equal(card._historicalDecision(at+9000).color,'red','matching advisor should keep actual recorded color beyond 5s');
 assert.equal(card._historicalDecision(at+9000).key,'open_now');
@@ -47,7 +47,7 @@ card._history.push({t:at+10000,kind:'advisor',key:'close_window',attrs:{}});
 assert.equal(card._historicalDecision(at+11000).color,'red','technical advisor updates cannot overwrite the last recorded room decision');
 assert.match(card._cursorDetail(card._metrics,at+10*60000,()=>''),/—/,'outage must have no numeric cursor value');
 card._hass.states['sensor.room'].attributes.display_mode='ventilation';
-assert.equal(card._historicalDecision(at+9000).color,'orange','perspective follows the configured room view');
+assert.equal(card._historicalDecision(at+9000).color,'red','stored room perspective remains unchanged by a later mode change');
 
 // Editor is driven by the backend allowlist, including derived values that do
 // not have distinct configured sensor entity IDs in the room advisor.

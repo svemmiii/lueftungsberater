@@ -306,6 +306,8 @@ async def test_airing_store_persists_registry_identity_for_restart_repair():
     tracker.minimum_reached_at = None
     tracker.last_qualified_airing_seen_at = None
     tracker.last_confirmed_airing = None
+    tracker.last_successful_airing = None
+    tracker.session_successful = False
     tracker.tracking_started_at = None
     tracker._window_aliases = {}
     tracker._window_identities = {
@@ -323,6 +325,8 @@ async def test_airing_store_persists_registry_identity_for_restart_repair():
     await tracker._async_save()
 
     assert saved[0]["last_qualified_airing_seen_at"] is None
+    assert saved[0]["last_successful_airing"] is None
+    assert saved[0]["session_successful"] is False
     assert saved[0]["window_identities"]["binary_sensor.fenster"] == [
         "binary_sensor",
         "zha",

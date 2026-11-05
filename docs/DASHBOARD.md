@@ -37,3 +37,11 @@ Viele abgeleitete Diagnosewerte erscheinen direkt in der Karte, auch wenn ihre e
 Für eigene Diagramme gibt es außerdem die [Historienkarte](HISTORIE.md).
 
 [← Zur Übersicht](../README.md)
+
+## Zwei Ampelperspektiven ab v0.12.0
+
+**Raumluft (`room_air`)** ist eine **Fenster-Handlungsampel**: Grün = schließen beziehungsweise geschlossen lassen; Gelb = Lüften möglich/Werte beobachten; Orange = Lüften empfohlen; Rot = dringend lüften. Eine Schließempfehlung kann auch bei weiterhin erhöhter Feuchte Grün anzeigen – das ist kein nachgewiesener Lüftungserfolg.
+
+**Lüftungseignung (`ventilation`)** bewertet die Außenbedingungen: Grün = zum Lüften geeignet; Gelb = eingeschränkt; Orange = eher ungünstig; Rot = sehr ungünstig. **Nicht mit den Raum-Handlungsfarben vertauschen.** Der Modus wird bei Raumkarte, Gesamtübersicht, Remote-Räumen und Recorder-Einträgen berücksichtigt; die aufgezeichnete historische Farbe bleibt die aus der damals gewählten Ansicht.
+
+Vorhandene Automationen können weiterhin `ventilation_status` (native Eignungsfarbe) und `ventilation_recommendation_key` (native Empfehlung) verwenden. Daneben geben `room_status` und `room_recommendation_key` die Raum-Handlung wieder. Der native Zustand des Hauptsensors ist unverändert. Nicht verfügbare Messwerte und ein ausgefallener optionaler Fensterkontakt erscheinen als gelbe Datenhinweise, **ohne** allein die aus anderen Sensoren gewonnene Raumampelfarbe zu ändern. Sicherheitsentscheidungen bleiben in beiden Modi gesperrt.

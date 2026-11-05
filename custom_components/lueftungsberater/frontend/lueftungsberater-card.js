@@ -31,7 +31,7 @@ const LB_I18N = {
     "warning.caution": "Windhinweis beachten und offene Fenster sichern.",
     "warning.cached": "Letzte bestätigte Meldung; Warnquelle vorübergehend nicht erreichbar.",
     "recommendation.open_now": "Jetzt lüften",
-    "recommendation.room_good": "Aktuell kein Lüftungsgrund",
+    "recommendation.room_good": "Aktuell kein Fensterlüften nötig",
     "recommendation.room_watch": "Werte im Blick behalten",
     "recommendation.room_need": "Lüften ist sinnvoll",
     "recommendation.room_urgent": "Jetzt lüften",
@@ -218,7 +218,7 @@ const LB_I18N = {
     "warning.caution": "Observe the wind advisory and secure open windows.",
     "warning.cached": "Last confirmed message; warning provider temporarily unavailable.",
     "recommendation.open_now": "Open the windows now",
-    "recommendation.room_good": "No current reason to ventilate",
+    "recommendation.room_good": "No need to open the windows right now",
     "recommendation.room_watch": "Keep an eye on the values",
     "recommendation.room_need": "Ventilation is worthwhile",
     "recommendation.room_urgent": "Ventilate now",
@@ -405,7 +405,7 @@ const LB_I18N = {
     "warning.caution": "Rüzgâr uyarısını izleyin ve açık pencereleri sabitleyin.",
     "warning.cached": "Son doğrulanan bildirim; uyarı kaynağına geçici olarak ulaşılamıyor.",
     "recommendation.open_now": "Şimdi pencereleri aç",
-    "recommendation.room_good": "Şu anda havalandırma nedeni yok",
+    "recommendation.room_good": "Şu anda pencereleri açmak gerekmiyor",
     "recommendation.room_watch": "Değerleri takip et",
     "recommendation.room_need": "Havalandırmak faydalı",
     "recommendation.room_urgent": "Şimdi havalandır",
@@ -996,6 +996,30 @@ function lbLocalizedEntityTexts(hass, attributes, onReady) {
 }
 
 
+// The two cards intentionally describe DIFFERENT things: room_air is the
+// action to take with the window, ventilation is OUTDOOR suitability. Never
+// derive ventilation suitability from a room-side closing instruction.
+function lbPerspectiveStatus(attrs = {}) {
+  if (attrs.safety_lock === true || attrs.status === "locked") return "locked";
+  const mode = attrs.display_mode === "room_air" ? "room_air" : "ventilation";
+  if (mode === "room_air") return attrs.room_status || attrs.status || "yellow";
+  // COMPLETE(15) temporarily overwrote ventilation_status with the room lamp.
+  // Such REMOTE snapshots still contain the original suitability separately.
+  if (attrs.action_semantics_version === 1 && attrs.ventilation_suitability_status)
+    return attrs.ventilation_suitability_status;
+  return attrs.ventilation_status || attrs.ventilation_suitability_status || attrs.status || "yellow";
+}
+
+// COMPLETE(15) remote snapshots accidentally published room-air advice even
+// in ventilation mode. Only that explicitly marked legacy schema is repaired;
+// the current native HA recommendation and modern remote schemas are untouched.
+function lbLegacyVentilationRecommendation(attrs = {}) {
+  if (attrs.action_semantics_version !== 1 || attrs.display_mode !== "ventilation"
+      || attrs.safety_lock === true) return null;
+  const key = attrs.native_ventilation_recommendation_key;
+  return typeof key === "string" && /^[a-z_]+$/.test(key) ? key : null;
+}
+
 class LueftungsberaterCard extends HTMLElement {
   constructor() {
     super();
@@ -1121,24 +1145,17 @@ class LueftungsberaterCard extends HTMLElement {
   }
 
   _statusMeta(status, displayMode = "ventilation") {
-    if (status === "locked") {
-      return { cls: "locked", icon: "mdi:lock" };
-    }
+    if (status === "locked") return { cls: "locked", icon: "mdi:lock" };
+    if (status === "unknown") return { cls: "yellow", icon: "mdi:help-circle-outline" };
     if (displayMode === "room_air") {
       if (status === "green") return { cls: "green", icon: "mdi:check-circle-outline" };
       if (status === "red") return { cls: "red", icon: "mdi:alert-circle-outline" };
       if (status === "orange") return { cls: "orange", icon: "mdi:alert-outline" };
       return { cls: "yellow", icon: "mdi:information-outline" };
     }
-    if (status === "green") {
-      return { cls: "green", icon: "mdi:window-open-variant" };
-    }
-    if (status === "orange") {
-      return { cls: "orange", icon: "mdi:window-closed-variant" };
-    }
-    if (status === "red") {
-      return { cls: "red", icon: "mdi:window-closed-variant" };
-    }
+    if (status === "green") return { cls: "green", icon: "mdi:window-open-variant" };
+    if (status === "red") return { cls: "red", icon: "mdi:window-closed-variant" };
+    if (status === "orange") return { cls: "orange", icon: "mdi:window-closed-variant" };
     return { cls: "yellow", icon: "mdi:window-open" };
   }
 
@@ -1220,8 +1237,8 @@ class LueftungsberaterCard extends HTMLElement {
     if (this._isRemoteSnapshot() || !this._config?.entity) return;
     const attributes = this._stateObject()?.attributes || {};
     // The room-air card and the advisor's HA state have distinct purposes:
-    // room_good describes indoor comfort, open_now is the stable automation
-    // action. Default taps should explain what the green card ACTUALLY says,
+    // room_good describes a window action, while the native entity state is
+    // the stable automation interface. Taps show the actual card recommendation,
     // not open a More-Info dialog headed by the different action state.
     // Honor every explicitly configured tap_action as before.
     if (attributes.display_mode === "room_air" && !this._explicitTapAction) {
@@ -1270,18 +1287,34 @@ class LueftungsberaterCard extends HTMLElement {
 
     const remote = this._isRemoteSnapshot();
     const a = st.attributes || {};
-    const status = a.status || "yellow";
+    const status = lbPerspectiveStatus(a);
     const meta = this._statusMeta(this._config.remote_stale ? "yellow" : status, a.display_mode || "ventilation");
     const incompleteData = ["unknown", "unavailable", "none", ""].includes(String(st.state ?? "").toLowerCase());
-    const localizedTexts = lbLocalizedEntityTexts(this._hass, a, () => {
-      this._renderSignature = null;
-      this._render();
-    });
-    const recommendation = this._config.remote_stale ? lbT(this._hass,"remote.offline") : (localizedTexts?.recommendation
-      || a.recommendation
-      || (incompleteData ? lbT(this._hass, "recommendation.unknown") : this._localizeState(st.state)));
+    const legacyVentilationKey = remote && lbLegacyVentilationRecommendation(a);
+    const localizedTexts = lbLocalizedEntityTexts(this._hass,
+      legacyVentilationKey ? { ...a, recommendation_key: legacyVentilationKey } : a, () => {
+        this._renderSignature = null;
+        this._render();
+      });
+    const recommendation = this._config.remote_stale ? lbT(this._hass,"remote.offline")
+      : legacyVentilationKey
+        // Do not display the legacy room-air closing text beside a green
+        // ventilation-suitability lamp while the async translation is loading.
+        ? (LB_I18N[lbLanguage(this._hass)]?.[`recommendation.${legacyVentilationKey}`]
+          || LB_I18N.en[`recommendation.${legacyVentilationKey}`]
+          || lbT(this._hass, "recommendation.unknown"))
+        : (localizedTexts?.recommendation || a.recommendation
+          || (incompleteData ? lbT(this._hass, "recommendation.unknown") : this._localizeState(st.state)));
     // Old remote readings remain visible, but old advice must never appear current.
-    const reason = this._config.remote_stale ? "" : (localizedTexts?.reason
+    // COMPLETE(15) remote snapshots (action_semantics_version=1) stored the
+    // room-action explanation even in ventilation mode. The native suitability
+    // recommendation can be recovered, but its original reason cannot. Never
+    // pair an obsolete room-closing explanation with ventilation advice.
+    // Official safety locks and independent warning notices remain visible.
+    const untrustedLegacyReason = remote && a.action_semantics_version === 1
+      && a.display_mode === "ventilation"
+      && a.safety_lock !== true && status !== "locked";
+    const reason = this._config.remote_stale || untrustedLegacyReason ? "" : (localizedTexts?.reason
       || a.reason
       || (incompleteData ? lbT(this._hass, "reason.incomplete_data") : ""));
     const durationText = this._config.remote_stale ? "" : (localizedTexts?.duration
@@ -1324,6 +1357,7 @@ class LueftungsberaterCard extends HTMLElement {
 
     const hasWindows = a.has_window_contacts === true;
     const windowOpen = a.window_open === true;
+    const windowContactMissing = hasWindows && ["grace", "unavailable", "unknown"].includes(a.window_data_status);
     const windowSources = Array.isArray(a.source_window_entities) ? a.source_window_entities : [];
     const airingSource =
       a.source_airing ||
@@ -1344,7 +1378,14 @@ class LueftungsberaterCard extends HTMLElement {
 
     const rows = [];
     if (hasWindows) {
-      if (windowOpen) {
+      if (windowContactMissing) {
+        // Do not show a last airing as if the currently configured contact
+        // had reliably reported that the window was closed.
+        rows.push({
+          icon: "mdi:alert-circle-outline", cls: "data-warning",
+          html: this._escape(lbT(this._hass, "recommendation.window_state_unknown")),
+        });
+      } else if (windowOpen) {
         const label = openDuration
           ? lbT(this._hass, "window.open_since", { duration: openDuration })
           : lbT(this._hass, "window.open");
@@ -1595,6 +1636,9 @@ class LueftungsberaterCard extends HTMLElement {
           a.source_co2,
           lbT(this._hass, "co2.open")
         )}</span></div>` : "";
+    const hiddenWindowWarning = customFacts !== null && windowContactMissing
+      && settings.hidden?.includes("window_state")
+      ? `<div class="fact data-warning"><ha-icon icon="mdi:alert-circle-outline"></ha-icon><span>${this._escape(lbT(this._hass, "recommendation.window_state_unknown"))}</span></div>` : "";
     const toggleLabel = lbT(this._hass, expanded ? "details.hide" : "details.show");
 
     // Opacity belongs to this room card only. Keep theme defaults entirely
@@ -1687,7 +1731,7 @@ class LueftungsberaterCard extends HTMLElement {
           ${showWarningNotice ? `<div class="warning-notice">${this._escape(warningNotice)}</div>` : ""}
           ${showNight ? `<div class="night-advice"><ha-icon icon="mdi:weather-night"></ha-icon><div class="night-copy"><span class="night-title">${lbT(this._hass, "night.title")}</span><span class="night-text">${nightHtml}</span></div></div>` : ""}
           ${showDetails && showDuration ? `<div class="duration"><span class="duration-label">${lbT(this._hass, "duration")}</span><span>${this._escape(durationText)}</span></div>` : ""}
-          ${showDetails && customFacts !== null ? `<div class="facts">${customFacts}${hiddenCo2Warning}${rows.filter((row) => row.cls === "data-warning" && (row.icon === "mdi:weather-clock" || row.icon === "mdi:weather-cloudy-alert")).map((row) => `<div class="fact data-warning"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : (showDetails && rows.length ? `<div class="facts">${rows.map((row) => `<div class="fact ${row.cls || ""}"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : "")}
+          ${showDetails && customFacts !== null ? `<div class="facts">${customFacts}${hiddenCo2Warning}${hiddenWindowWarning}${rows.filter((row) => row.cls === "data-warning" && (row.icon === "mdi:weather-clock" || row.icon === "mdi:weather-cloudy-alert")).map((row) => `<div class="fact data-warning"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : (showDetails && rows.length ? `<div class="facts">${rows.map((row) => `<div class="fact ${row.cls || ""}"><ha-icon icon="${row.icon}"></ha-icon><span>${row.html}</span></div>`).join("")}</div>` : "")}
           ${showDetails && !remote ? `<div class="hint">${lbT(this._hass, "hint")}</div>` : ""}
         </div>` : ""}
       </ha-card>`;
@@ -1748,6 +1792,11 @@ class LueftungsberaterCard extends HTMLElement {
 
   _metricItems(a, tempUnit) {
     const unavailable = () => `<span class="lb-missing">${lbT(this._hass,"metric.unavailable")}</span>`;
+    // A configured but unresponsive contact is not proof of an open/closed
+    // window. In particular, "open_minutes" may describe the LAST known
+    // opening, not an opening which is still continuing right now.
+    const windowContactMissing = a.has_window_contacts === true
+      && ["grace", "unavailable", "unknown"].includes(a.window_data_status);
 
     const locValue = (value, unit = "", source = null) => {
       const n = this._fmt(value);
@@ -1762,7 +1811,9 @@ class LueftungsberaterCard extends HTMLElement {
     const values = {
       // Historical close time is not the current airing. Do not display
       // "yesterday" while the contact is still open, even after 48 hours.
-      last_airing: a.has_window_contacts && a.window_open
+      last_airing: windowContactMissing
+        ? `<span class="lb-missing">${lbT(this._hass, "recommendation.window_state_unknown")}</span>`
+        : a.has_window_contacts && a.window_open
         ? this._metric(
             this._openDuration(a.open_minutes)
               ? lbT(this._hass, "window.open_since", {duration: this._openDuration(a.open_minutes)})
@@ -1773,7 +1824,10 @@ class LueftungsberaterCard extends HTMLElement {
         : this._metric(this._airingDateLabel(a.last_confirmed_airing), a.source_last_airing, lbT(this._hass, "airing.history")),
       target: locValue(this._displayTemperature(a.target_temperature, tempUnit), tempUnit, a.source_target_temperature),
       humidity_delta: locValue(a.absolute_humidity_difference, "g/m³", a.source_absolute_humidity_difference),
-      window_state: a.window_data_status === "unavailable" ? unavailable() : (a.window_open ? lbT(this._hass,"window.open") : lbT(this._hass,"recommendation.keep_closed")),
+      // A configured contact in grace/unavailable is not a proven closed window.
+      window_state: windowContactMissing
+        ? `<span class="lb-missing">${lbT(this._hass, "recommendation.window_state_unknown")}</span>`
+        : (a.window_open ? lbT(this._hass,"window.open") : lbT(this._hass,"recommendation.keep_closed")),
       temp_in: locValue(this._displayTemperature(a.temperature_inside,tempUnit),tempUnit,a.source_temperature_inside),
       temp_out: locValue(this._displayTemperature(a.temperature_outside,tempUnit),tempUnit,a.source_temperature_outside),
       humidity_in: locValue(a.humidity_inside,"%",a.source_humidity_inside),
@@ -2209,6 +2263,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
 
   _statusMeta(status, displayMode = "ventilation") {
     if (status === "locked") return { rank: 5, cls: "locked", icon: "mdi:lock" };
+    if (status === "unknown") return { rank: 2, cls: "yellow", icon: "mdi:help-circle-outline" };
     if (displayMode === "room_air") {
       if (status === "red") return { rank: 4, cls: "red", icon: "mdi:alert-circle-outline" };
       if (status === "orange") return { rank: 3, cls: "orange", icon: "mdi:alert-outline" };
@@ -2263,7 +2318,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
 
   _roomFromLocal(stateObj, index) {
     const a = stateObj.attributes || {};
-    const meta = this._statusMeta(a.status || "yellow", a.display_mode || "ventilation");
+    const meta = this._statusMeta(lbPerspectiveStatus(a), a.display_mode || "ventilation");
     const state = String(stateObj.state || "unknown");
     return {
       key: stateObj.entity_id,
@@ -2271,14 +2326,14 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       state,
       attributes: a,
       name: this._roomName(stateObj),
-      status: a.status || "yellow",
+      status: lbPerspectiveStatus(a),
       cls: meta.cls,
       icon: meta.icon,
       rank: meta.rank,
       recommendation: (lbLocalizedEntityTexts(this._hass, a, () => {
         this._localizedTextsReady();
       })?.recommendation) || a.recommendation || lbT(this._hass, `recommendation.${state}`),
-      windowOpen: a.window_open === true,
+      windowOpen: a.window_open === true && !["unavailable", "grace", "unknown"].includes(a.window_data_status),
       remoteAccess: a.remote_access_active === true,
       remote: false,
       index,
@@ -2332,8 +2387,11 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   _remoteRoom(group, room, index) {
     const attrs = room?.attributes && typeof room.attributes === "object" ? room.attributes : {};
     const state = String(room?.state || "unknown");
-    const status = String(attrs.status || "yellow");
+    const status = lbPerspectiveStatus(attrs);
     const meta = this._statusMeta(status, attrs.display_mode || "ventilation");
+    const legacyVentilationKey = lbLegacyVentilationRecommendation(attrs);
+    const textAttributes = legacyVentilationKey
+      ? { ...attrs, recommendation_key: legacyVentilationKey } : attrs;
     const name = String(room?.name || attrs.room_name || attrs.friendly_name || `${lbT(this._hass, "overview.room")} ${index + 1}`);
     return {
       key: this._remoteRoomKey(group, room, index),
@@ -2344,10 +2402,19 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       cls: meta.cls,
       icon: meta.icon,
       rank: meta.rank,
-      recommendation: (lbLocalizedEntityTexts(this._hass, attrs, () => {
-        this._localizedTextsReady();
-      })?.recommendation) || attrs.recommendation || lbT(this._hass, `recommendation.${state}`),
-      windowOpen: attrs.window_open === true,
+      recommendation: (() => {
+        const translated = lbLocalizedEntityTexts(this._hass, textAttributes, () => {
+          this._localizedTextsReady();
+        })?.recommendation;
+        // The former v0.12.0 schema exposed a room closing text in this
+        // ventilation overview. Use its separately preserved native key.
+        if (legacyVentilationKey) return LB_I18N[lbLanguage(this._hass)]?.[`recommendation.${legacyVentilationKey}`]
+          || LB_I18N.en[`recommendation.${legacyVentilationKey}`]
+          || lbT(this._hass, "recommendation.unknown");
+        return translated || attrs.recommendation || lbT(this._hass, `recommendation.${state}`);
+      })(),
+      windowOpen: attrs.window_open === true && attrs.window_data_status !== "unavailable"
+        && attrs.window_data_status !== "grace" && attrs.window_data_status !== "unknown",
       remoteAccess: false,
       remote: true,
       index,
@@ -4119,14 +4186,19 @@ class LueftungsberaterHistoryCard extends HTMLElement {
     const decision=recorded || fallback;
     if(!decision || ['unknown','unavailable'].includes(decision.key))return null;
     const attrs=decision.attrs||{};
-    const perspective=this._source()?.attributes?.display_mode||'room_air';
-    const color=decision.kind==='decision'
-      ? (attrs.safety_lock?'locked':perspective==='room_air'?attrs.room_status:attrs.ventilation_status)
-      : null;
-    const key=decision.kind==='decision'
-      ? (attrs.safety_lock ? attrs.ventilation_recommendation_key||decision.key
-        : (perspective==='room_air'?attrs.room_recommendation_key:attrs.ventilation_recommendation_key)||decision.key)
-      : decision.key;
+    const perspective=attrs.display_mode || this._source()?.attributes?.display_mode || 'room_air';
+    let color=null;
+    if (decision.kind==='decision') {
+      if (attrs.safety_lock) color='locked';
+      else if (perspective==='room_air') color=attrs.room_status || null;
+      else if (attrs.action_semantics_version===1 && attrs.ventilation_suitability_status)
+        color=attrs.ventilation_suitability_status;
+      else color=attrs.ventilation_status || null;
+    }
+    // Recorder history must show the exact recommendation that was stored
+    // then; don't silently replace it based on today's display mode.
+    const key=decision.key || (perspective==='room_air'
+      ? attrs.room_recommendation_key : attrs.ventilation_recommendation_key);
     return {key,color:color||null};
   }
   _statusPaint(status) {

@@ -54,12 +54,13 @@ class Lifetime:
             if result.safety_lock:
                 assert color == "locked"
             else:
-                # Exhaustion may justify closing, while RH stays unresolved.
-                stalled = result.room_reason_key == "humidity_stalled"
-                if action in closing and not stalled:
+                # Green is a WINDOW ACTION, not a claim of healthy indoor air.
+                if action in closing | {"keep_closed", "caution_keep_closed"}:
                     assert color == "green", (self.minute, action, color)
-                if color == "yellow" and not stalled:
-                    assert action not in closing
+                if result.room_reason_key == "humidity_stalled":
+                    assert color == "green", (self.minute, action, color)
+                    assert attrs["humidity_inside"] >= 60
+                    assert not self.tracker.session_successful
                 if color == "green":
                     assert action not in {"open_now", "keep_open", "room_need", "room_urgent", "room_keep_brief"}
             if action in closing | {"room_good", "room_watch", "window_state_unknown"}:
@@ -189,14 +190,15 @@ async def test_humidity_stagnates_and_timer_finishes_attempt(lifetime):
     record = await s.at(18)
     assert record["humidity_exhausted"]
     assert record["action"] == "can_close"
-    assert record["status"] != "green"
+    assert record["status"] == "green"
     assert s.result.room_reason_key == "humidity_stalled"
+    assert not s.tracker.session_successful
     await s.at(19, window="off")
-    assert s.result.room_status_color != "green"
+    assert s.result.room_status_color == "green"
     assert s.result.room_reason_key == "humidity_stalled"
     record = await s.at(90)
     assert record["humidity_disarmed"]
-    assert record["action"] == "room_watch"
+    assert record["action"] in {"keep_closed", "caution_keep_closed", "room_good"}
 
 
 async def test_slow_measurable_drying_does_not_exhaust_the_session(lifetime):
@@ -236,7 +238,7 @@ async def test_humidity_rises_without_measurable_success(lifetime):
     await s.at(19, window="off")
     record = await s.at(25)
     assert record["status"] == "yellow"
-    assert record["action"] == "room_watch"
+    assert record["action"] in {"keep_closed", "caution_keep_closed", "room_good"}
 
 
 @pytest.mark.parametrize("weather", [
@@ -244,7 +246,7 @@ async def test_humidity_rises_without_measurable_success(lifetime):
     pytest.param({"outdoor_temperature": 8, "humidity": 85}, id="colder-outside"),
     pytest.param({"air_quality_index": "very_poor"}, id="polluted-outside"),
 ])
-async def test_weather_changes_after_stalled_session_keep_closing_green(lifetime, weather):
+async def test_weather_changes_after_stalled_session_keep_closing_without_claiming_good_air(lifetime, weather):
     s = lifetime
     await s.at(1, rh=70)
     await s.at(2, window="on")
@@ -255,7 +257,7 @@ async def test_weather_changes_after_stalled_session_keep_closing_green(lifetime
     assert record["action"] in {"can_close", "better_close", "close_now"}
     await s.at(21, window="off")
     record = await s.at(40)
-    assert record["action"] == "room_watch"
+    assert record["action"] in {"keep_closed", "caution_keep_closed", "room_good"}
 
 
 async def test_wetter_outside_interrupts_an_active_airing(lifetime):
@@ -268,7 +270,7 @@ async def test_wetter_outside_interrupts_an_active_airing(lifetime):
     assert record["reason"] == "humidity_wait"
     await s.at(7, window="off")
     record = await s.at(25)
-    assert record["action"] == "room_watch"
+    assert record["action"] in {"keep_closed", "caution_keep_closed", "room_good"}
 
 
 @pytest.mark.parametrize("danger", ["nina", "weather"])
@@ -364,7 +366,13 @@ async def test_contact_outage_does_not_invent_a_confirmed_close(lifetime):
     assert record["window_open"] is True
     assert s.tracker.last_confirmed_airing is None
     record = await s.at(14)
-    assert record["action"] == "window_state_unknown"
+    # Losing an optional contact must not suppress a real humidity need or
+    # fabricate a successful window action. The outage remains visible in the
+    # data-status attribute while other sensors still drive the main lamp.
+    assert record["window_data_status"] == "unavailable"
+    assert record["action"] != "window_state_unknown"
+    assert record["status"] in {"yellow", "orange", "red"}
+    assert s.result is not None and s.result.active_reasons
     assert s.tracker.last_confirmed_airing is None
     record = await s.at(15, window="on")
     assert record["window_open"] is True
