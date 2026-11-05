@@ -21,11 +21,15 @@ Lüftungsassistent ist eine Integration für **Home Assistant**. Sie verbindet d
 | 🌤️ **Außenbedingungen** | Wetter, Regen, Wind und Außenluftqualität – auf Wunsch automatisch passend zum Standort |
 | 🛡️ **Sicherheit** | Amtliche Warnungen, nachvollziehbare Sperrgründe und vorsichtiger Umgang mit unklaren Daten |
 | 🌙 **Nachtlüftung** | Ein zusätzlicher Ausblick, wann längeres Lüften in der Nacht sinnvoll sein könnte |
-| 🪟 **Fensterkontakte** | Erkennt laufende Lüftungen und merkt sich bestätigte Lüftungsvorgänge |
+| 🪟 **Fensterkontakte** | Erkennt laufende Lüftungen, unterscheidet Mindestdauer von Erfolg und schützt die Raumampel vor reinen Fenster-Umschalt-Effekten |
 | 📊 **Dashboard & Verlauf** | Kompakte Raumkarten, Mehrraumübersicht und eine optionale Historienkarte |
 | 🏠 **Mehrere Installationen** | Mehrere lokale Instanzen und optionaler Zugriff auf ein zweites Home Assistant über Tailscale |
 
+Die optionale Raumeinstellung **Passive Belüftung** sowie das lokale, begrenzte Raumlernen können eine dauerhaft gute Luftversorgung berücksichtigen, ohne eine vermutete Frischluftzufuhr als nachgewiesenes Fensterlüften zu behandeln. Die Luftaustauscherkennung ist zunächst im Beobachtungsmodus. Für die Unterdrückung einer reinen 24-Stunden-Routine werden auch CO₂-Schwankungen, Messlücken und die Aktualität des CO₂-Sensors geprüft. Die Einstellung verkürzt bei stabil guten Messwerten die erforderliche Beobachtungszeit, ersetzt aber keinen Messnachweis.
+
 Du brauchst dafür keine komplette Sensorlandschaft: **Temperatur und Luftfeuchtigkeit innen genügen für den Einstieg.** CO₂, Fensterkontakte, zusätzliche Luftsensoren und eigene Außensensoren sind optional.
+
+Bei einer erfolglosen Feuchtelüftung kann der Assistent zum Schließen raten, **ohne** die unverändert erhöhte Raumfeuchte als Grün darzustellen. Schließen, zeitliche Bestätigung und gemessener Erfolg sind bewusst getrennt. Details stehen unter [laufender Lüftung und Fensterkontakten](docs/FUNKTIONEN.md#laufende-lüftung-und-fensterkontakte).
 
 ## In wenigen Schritten starten
 
@@ -68,7 +72,7 @@ Automatische amtliche Quellen hängen vom Land ab: In Deutschland ist unter ande
 
 ## Karten und Verlauf
 
-- **Raumkarte:** Zeigt Empfehlung und Status im kompakten Modus. Bei Bedarf klappst du Gründe, Messwerte und Details aus. Nachtlüftungshinweise und aktive Sperren bleiben sichtbar.
+- **Raumkarte:** Zeigt Empfehlung und Status im kompakten Modus. Bei Bedarf klappst du Gründe, Messwerte und Details aus. Nachtlüftungshinweise und aktive Sperren bleiben sichtbar. Im visuellen Editor lässt sich die Hintergrund-Deckkraft optional auf 0–100 % einstellen; ohne Änderung bleibt dein Theme erhalten.
 - **Übersicht:** Fasst mehrere Räume zusammen; die Detailkarte öffnet sich erst beim Antippen.
 - **Historienkarte:** Zeigt vorhandene Messwertverläufe. Optional können zusätzliche Historien ab der Aktivierung aufgezeichnet werden – frühere Werte werden nicht nachträglich erfunden.
 
@@ -93,7 +97,7 @@ Ohne Tailscale-Remote bleiben deine Raum- und Home-Assistant-Sensordaten lokal. 
 | [Historie](docs/HISTORIE.md) | Historienkarte, Beispielkonfiguration, Recorder und Aufbewahrung |
 | [Tailscale-Remote](docs/REMOTE.md) | Einrichtung, Berechtigungen, Datenschutz und Fehlerfälle |
 | [Häufige Fragen](docs/FEHLERBEHEBUNG.md) | Typische Probleme und Hinweise zur Fehlermeldung |
-| [Änderungen](CHANGELOG.md) | Zusammenfassung von v0.11.10 und Link zu veröffentlichten GitHub-Releases |
+| [Änderungen](CHANGELOG.md) | Zusammenfassung von v0.12.0 und älteren veröffentlichten GitHub-Releases |
 
 ## Probleme melden und mithelfen
 

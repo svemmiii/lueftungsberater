@@ -132,6 +132,9 @@ const LB_I18N = {
     "editor.card_name": "Kartenname (optional)",
     "editor.card_name_placeholder": "z. B. Wohnzimmer",
     "editor.room_hint": "Empfehlung, Farbe, Begründung und Messwerte werden automatisch übernommen.",
+    "editor.background_opacity": "Hintergrunddeckkraft",
+    "editor.background_theme": "Theme-Standard",
+    "editor.background_manual": "Manuell",
     "editor.title": "Titel (optional)",
     "editor.rooms": "Lokale Räume",
     "editor.installations": "Installationen und Räume",
@@ -316,6 +319,9 @@ const LB_I18N = {
     "editor.card_name": "Card name (optional)",
     "editor.card_name_placeholder": "e.g. Living room",
     "editor.room_hint": "Recommendation, color, explanation, and measurements are filled in automatically.",
+    "editor.background_opacity": "Background opacity",
+    "editor.background_theme": "Use theme default",
+    "editor.background_manual": "Custom",
     "editor.title": "Title (optional)",
     "editor.rooms": "Local rooms",
     "editor.installations": "Installations and rooms",
@@ -500,6 +506,9 @@ const LB_I18N = {
     "editor.card_name": "Kart adı (isteğe bağlı)",
     "editor.card_name_placeholder": "örn. Salon",
     "editor.room_hint": "Öneri, renk, açıklama ve ölçüm değerleri otomatik olarak alınır.",
+    "editor.background_opacity": "Arka plan opaklığı",
+    "editor.background_theme": "Tema varsayılanı",
+    "editor.background_manual": "Özel",
     "editor.title": "Başlık (isteğe bağlı)",
     "editor.rooms": "Yerel odalar",
     "editor.installations": "Kurulumlar ve odalar",
@@ -1588,11 +1597,20 @@ class LueftungsberaterCard extends HTMLElement {
         )}</span></div>` : "";
     const toggleLabel = lbT(this._hass, expanded ? "details.hide" : "details.show");
 
+    // Opacity belongs to this room card only. Keep theme defaults entirely
+    // untouched unless the user explicitly selects a manual percentage.
+    const rawOpacity = Number(this._config.background_opacity);
+    const customOpacity = this._config.background_opacity !== undefined &&
+      this._config.background_opacity !== null && Number.isFinite(rawOpacity);
+    const opacity = Math.max(0, Math.min(100, rawOpacity));
+    const cardBackgroundStyle = customOpacity
+      ? ` style="--lb-card-background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color)) ${opacity}%, transparent); background: var(--lb-card-background);"`
+      : "";
     this.shadowRoot.innerHTML = `
       <style>
         :host { --lb-green: var(--success-color, #43a047); --lb-yellow: #f9c74f; --lb-orange: #f57c00; --lb-red: var(--error-color, #db4437); --lb-lock: #111; display: block; }
         ha-card { overflow: hidden; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
-        .header { display: flex; align-items: center; gap: 14px; padding: 16px; color: var(--primary-text-color); border-left: 6px solid var(--lb-accent); background: color-mix(in srgb, var(--lb-accent) 14%, var(--ha-card-background, var(--card-background-color))); }
+        .header { display: flex; align-items: center; gap: 14px; padding: 16px; color: var(--primary-text-color); border-left: 6px solid var(--lb-accent); background: color-mix(in srgb, var(--lb-accent) 14%, var(--lb-card-background, var(--ha-card-background, var(--card-background-color)))); }
         .header.main-tap { cursor: pointer; }
         .header.main-tap:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
         .header.green { --lb-accent: var(--lb-green); } .header.yellow { --lb-accent: var(--lb-yellow); } .header.orange { --lb-accent: var(--lb-orange); } .header.red { --lb-accent: var(--lb-red); } .header.locked { --lb-accent: var(--lb-lock); background: #fff; color: #111; }
@@ -1655,7 +1673,7 @@ class LueftungsberaterCard extends HTMLElement {
         .hint { margin-top: 12px; color: var(--secondary-text-color); font-size: 11px; opacity: 0.8; }
         .error { padding: 16px; color: var(--error-color); }
       </style>
-      <ha-card aria-label="${this._escape(title)}">
+      <ha-card aria-label="${this._escape(title)}"${cardBackgroundStyle}>
         <div class="header ${meta.cls}${mainTapEnabled ? " main-tap" : ""}" ${mainTapEnabled ? 'tabindex="0" role="button"' : ""}>
           <div class="icon-wrap"><ha-icon class="main-icon" icon="${meta.icon}"></ha-icon></div>
           <div class="head-text"><div class="title">${this._escape(title)}</div><div class="recommendation">${this._escape(recommendation)}</div></div>
@@ -1929,13 +1947,61 @@ if (!window.customCards.some((card) => card.type === "lueftungsberater-card")) {
   });
 }
 
+// A local-only overview needs one initial snapshot, not perpetual remote WS
+// polling. Watch HA's config-entry changes so a newly configured remote peer
+// becomes visible even if the dashboard stays open. This subscription is
+// event-driven and does not fetch remote snapshots on unrelated state updates.
+function lbStopRemoteEntryWatch(card) {
+  card._remoteWatchGeneration = (card._remoteWatchGeneration || 0) + 1;
+  if (typeof card._remoteUnsubscribe === "function") card._remoteUnsubscribe();
+  card._remoteUnsubscribe = null;
+  card._remoteWatchPending = false;
+  card._remoteWatchConnection = null;
+}
+
+function lbEnsureRemoteEntryWatch(card) {
+  if (!card.isConnected) return;
+  const connection = card._hass?.connection;
+  if (card._remoteWatchConnection !== connection) {
+    lbStopRemoteEntryWatch(card);
+    card._remoteWatchConnection = connection;
+  }
+  if (card._remoteUnsubscribe || card._remoteWatchPending ||
+      typeof connection?.subscribeMessage !== "function") return;
+  const generation = card._remoteWatchGeneration;
+  card._remoteWatchPending = true;
+  Promise.resolve().then(() => connection.subscribeMessage((changes) => {
+    if (!card.isConnected || !Array.isArray(changes)) return;
+    if (changes.some(({ type, entry } = {}) => type != null && entry?.domain === "lueftungsberater")) {
+      card._fetchRemote();
+    }
+  }, { type: "config_entries/subscribe" })).then((unsubscribe) => {
+    if (generation !== card._remoteWatchGeneration || !card.isConnected) {
+      if (typeof unsubscribe === "function") unsubscribe();
+      return;
+    }
+    card._remoteUnsubscribe = unsubscribe;
+  }).catch(() => {
+    // On older HA versions, ordinary navigation/reconnection still discovers
+    // remote peers. Do not replace the failed subscription with local polling.
+  }).finally(() => {
+    if (generation === card._remoteWatchGeneration) card._remoteWatchPending = false;
+  });
+}
+
 class LueftungsberaterOverviewCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
     this._remoteGroups = [];
     this._remoteFetchBusy = false;
+    this._remoteRefreshPending = false;
+    this._remoteNeedsDiscovery = true;
     this._remoteTimer = null;
+    this._remoteWatchConnection = null;
+    this._remoteWatchGeneration = 0;
+    this._remoteWatchPending = false;
+    this._remoteUnsubscribe = null;
     this._dialog = null;
     this._dialogMode = null;
     this._dialogGroupId = null;
@@ -1951,12 +2017,16 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   connectedCallback() {
+    lbEnsureRemoteEntryWatch(this);
     this._ensureRemoteTimer();
+    if (this._hass && this._remoteNeedsDiscovery) this._fetchRemote();
     window.addEventListener("location-changed", this._handleNavigation);
     window.addEventListener("popstate", this._handleNavigation);
   }
 
   disconnectedCallback() {
+    this._remoteNeedsDiscovery = true;
+    lbStopRemoteEntryWatch(this);
     if (this._remoteTimer) clearInterval(this._remoteTimer);
     this._remoteTimer = null;
     if (this._advisorDiscoveryTimer) clearTimeout(this._advisorDiscoveryTimer);
@@ -2046,7 +2116,10 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       this._popupCard.hass = hass;
     }
 
-    if (first || previousLanguage !== lbLanguage(hass)) this._fetchRemote();
+    const connectionChanged = Boolean(this._remoteWatchConnection &&
+      this._remoteWatchConnection !== hass.connection);
+    if (first || previousLanguage !== lbLanguage(hass) || connectionChanged) this._fetchRemote();
+    lbEnsureRemoteEntryWatch(this);
     this._ensureRemoteTimer();
   }
 
@@ -2065,13 +2138,22 @@ class LueftungsberaterOverviewCard extends HTMLElement {
   }
 
   _ensureRemoteTimer() {
-    if (this._remoteTimer || !this.isConnected) return;
-    this._remoteTimer = setInterval(() => this._fetchRemote(), 30000);
-    if (this._hass) this._fetchRemote();
+    // Empty remote list (including purely local installs): no recurring calls.
+    if (!this.isConnected || !this._remoteGroups.length) {
+      if (this._remoteTimer) clearInterval(this._remoteTimer);
+      this._remoteTimer = null;
+      return;
+    }
+    if (!this._remoteTimer) this._remoteTimer = setInterval(() => this._fetchRemote(), 30000);
   }
 
   async _fetchRemote() {
-    if (!this._hass || this._remoteFetchBusy) return;
+    if (!this._hass) return;
+    this._remoteNeedsDiscovery = false;
+    if (this._remoteFetchBusy) {
+      this._remoteRefreshPending = true;
+      return;
+    }
     this._remoteFetchBusy = true;
     try {
       const message = { type: "lueftungsberater/remote_overview" };
@@ -2084,6 +2166,7 @@ class LueftungsberaterOverviewCard extends HTMLElement {
         return;
       }
       this._remoteGroups = Array.isArray(result) ? result : [];
+      this._ensureRemoteTimer();
       this._renderOverview();
       this._refreshRemoteDialog();
     } catch (_err) {
@@ -2091,6 +2174,10 @@ class LueftungsberaterOverviewCard extends HTMLElement {
       // frontend websocket hiccup must not invalidate a cached remote snapshot.
     } finally {
       this._remoteFetchBusy = false;
+      if (this._remoteRefreshPending) {
+        this._remoteRefreshPending = false;
+        if (this.isConnected) this._fetchRemote();
+      }
     }
   }
 
@@ -2694,10 +2781,31 @@ class LueftungsberaterCardEditor extends HTMLElement {
         <label>${lbT(this._hass, "editor.room")}<select id="entity"><option value="">${lbT(this._hass, "editor.select_room")}</option>${entities.map((stateObj) => `<option value="${this._escape(stateObj.entity_id)}" ${stateObj.entity_id === current ? "selected" : ""}>${this._escape(this._name(stateObj))}</option>`).join("")}</select></label>
         <label>${lbT(this._hass, "editor.card_name")}<input id="name" type="text" value="${this._escape(this._config.name || "")}" placeholder="${this._escape(lbT(this._hass, "editor.card_name_placeholder"))}" /></label>
         <div class="hint">${lbT(this._hass, "editor.room_hint")}</div>
+        <label>${lbT(this._hass, "editor.background_opacity")}
+          <select id="background_mode">
+            <option value="theme" ${this._config.background_opacity === undefined ? "selected" : ""}>${lbT(this._hass, "editor.background_theme")}</option>
+            <option value="manual" ${this._config.background_opacity !== undefined ? "selected" : ""}>${lbT(this._hass, "editor.background_manual")}</option>
+          </select>
+        </label>
+        <label id="background_opacity_row" ${this._config.background_opacity === undefined ? "hidden" : ""}>
+          <input id="background_opacity" type="range" min="0" max="100" step="1" value="${Math.min(100,Math.max(0,Number(this._config.background_opacity ?? 100)||0))}" aria-label="${lbT(this._hass, "editor.background_opacity")}" />
+          <output id="background_opacity_value">${Math.min(100,Math.max(0,Number(this._config.background_opacity ?? 100)||0))}%</output>
+        </label>
         ${lbViewEditorHtml(this._hass, this._config, lbConfiguredFields(this._hass?.states?.[current]?.attributes || {}), v=>this._escape(v))}
       </div>`;
     this.shadowRoot.querySelector("#entity")?.addEventListener("change", (event) => this._changed({ entity: event.target.value || undefined }));
     this.shadowRoot.querySelector("#name")?.addEventListener("change", (event) => this._changed({ name: event.target.value.trim() || undefined }));
+    this.shadowRoot.querySelector("#background_mode")?.addEventListener("change", event => {
+      this._changed({background_opacity: event.target.value === "manual" ? 100 : undefined});
+      this._render();
+    });
+    this.shadowRoot.querySelector("#background_opacity")?.addEventListener("input", event => {
+      this.shadowRoot.querySelector("#background_opacity_value").textContent = `${event.target.value}%`;
+    });
+    this.shadowRoot.querySelector("#background_opacity")?.addEventListener("change", event => {
+      const value = Number(event.target.value);
+      if (Number.isFinite(value)) this._changed({background_opacity: Math.max(0,Math.min(100,Math.round(value)))});
+    });
     lbBindViewEditor(this.shadowRoot, this._hass, this._config, lbConfiguredFields(this._hass?.states?.[current]?.attributes || {}), next=>{
       this._changed({display_settings: next || undefined});this._render();
     });
@@ -2716,15 +2824,25 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
     this._remoteSignature = "";
     this._remoteGroups = [];
     this._remoteFetchBusy = false;
+    this._remoteRefreshPending = false;
+    this._remoteNeedsDiscovery = true;
     this._remoteTimer = null;
+    this._remoteWatchConnection = null;
+    this._remoteWatchGeneration = 0;
+    this._remoteWatchPending = false;
+    this._remoteUnsubscribe = null;
     this._pendingRender = false;
   }
 
   connectedCallback() {
+    lbEnsureRemoteEntryWatch(this);
     this._ensureRemoteTimer();
+    if (this._hass && this._remoteNeedsDiscovery) this._fetchRemote();
   }
 
   disconnectedCallback() {
+    this._remoteNeedsDiscovery = true;
+    lbStopRemoteEntryWatch(this);
     if (this._remoteTimer) clearInterval(this._remoteTimer);
     this._remoteTimer = null;
   }
@@ -2743,18 +2861,30 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
       this._hassSignature = signature;
       this._requestRender();
     }
-    if (first || previousLanguage !== lbLanguage(hass)) this._fetchRemote();
+    const connectionChanged = Boolean(this._remoteWatchConnection &&
+      this._remoteWatchConnection !== hass.connection);
+    if (first || previousLanguage !== lbLanguage(hass) || connectionChanged) this._fetchRemote();
+    lbEnsureRemoteEntryWatch(this);
     this._ensureRemoteTimer();
   }
 
   _ensureRemoteTimer() {
-    if (this._remoteTimer || !this.isConnected) return;
-    this._remoteTimer = setInterval(() => this._fetchRemote(), 30000);
-    if (this._hass) this._fetchRemote();
+    // Empty remote list (including purely local installs): no recurring calls.
+    if (!this.isConnected || !this._remoteGroups.length) {
+      if (this._remoteTimer) clearInterval(this._remoteTimer);
+      this._remoteTimer = null;
+      return;
+    }
+    if (!this._remoteTimer) this._remoteTimer = setInterval(() => this._fetchRemote(), 30000);
   }
 
   async _fetchRemote() {
-    if (!this._hass || this._remoteFetchBusy) return;
+    if (!this._hass) return;
+    this._remoteNeedsDiscovery = false;
+    if (this._remoteFetchBusy) {
+      this._remoteRefreshPending = true;
+      return;
+    }
     this._remoteFetchBusy = true;
     try {
       const message = { type: "lueftungsberater/remote_overview" };
@@ -2775,6 +2905,7 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
         }
         return group;
       });
+      this._ensureRemoteTimer();
       const signature = this._remoteStructureSignature();
       if (signature !== this._remoteSignature) {
         this._remoteSignature = signature;
@@ -2784,6 +2915,10 @@ class LueftungsberaterOverviewCardEditor extends HTMLElement {
       // Keep the last structural editor snapshot during a short frontend hiccup.
     } finally {
       this._remoteFetchBusy = false;
+      if (this._remoteRefreshPending) {
+        this._remoteRefreshPending = false;
+        if (this.isConnected) this._fetchRemote();
+      }
     }
   }
 

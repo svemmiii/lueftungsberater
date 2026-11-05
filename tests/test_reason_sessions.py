@@ -278,8 +278,8 @@ def test_peak_is_not_declared_recovered_while_room_is_still_very_humid():
     assert still_high.disarmed is False
 
 
-def test_manual_window_close_finishes_humidity_attempt_into_quiet_state():
-    """Closing a running comfort airing must not immediately ask to reopen."""
+def test_manual_window_close_without_improvement_keeps_humidity_reason():
+    """Five minutes alone do not prove humidity has improved."""
     state = HumiditySessionState()
     start = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
     started = _evaluate(state, now=start, rh=60.4, indoor_ah=11.7, outdoor_ah=8.4)
@@ -296,8 +296,8 @@ def test_manual_window_close_finishes_humidity_attempt_into_quiet_state():
         still_needed=True,
     )
     assert closed.session_active is False
-    assert closed.disarmed is True
-    assert state.reference_rh == 60.4
+    assert closed.disarmed is False
+    assert state.reference_rh is None
 
 
 def test_indoor_air_aftercare_only_suppresses_lingering_moderate_state():

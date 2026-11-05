@@ -54,9 +54,11 @@ class Lifetime:
             if result.safety_lock:
                 assert color == "locked"
             else:
-                if action in closing:
+                # Exhaustion may justify closing, while RH stays unresolved.
+                stalled = result.room_reason_key == "humidity_stalled"
+                if action in closing and not stalled:
                     assert color == "green", (self.minute, action, color)
-                if color == "yellow":
+                if color == "yellow" and not stalled:
                     assert action not in closing
                 if color == "green":
                     assert action not in {"open_now", "keep_open", "room_need", "room_urgent", "room_keep_brief"}
@@ -187,8 +189,11 @@ async def test_humidity_stagnates_and_timer_finishes_attempt(lifetime):
     record = await s.at(18)
     assert record["humidity_exhausted"]
     assert record["action"] == "can_close"
-    assert record["status"] == "green"
+    assert record["status"] != "green"
+    assert s.result.room_reason_key == "humidity_stalled"
     await s.at(19, window="off")
+    assert s.result.room_status_color != "green"
+    assert s.result.room_reason_key == "humidity_stalled"
     record = await s.at(90)
     assert record["humidity_disarmed"]
     assert record["action"] == "room_watch"
@@ -379,8 +384,9 @@ async def test_finished_humidity_does_not_hide_still_required_co2_airing(lifetim
     assert record["action"] in {"keep_open", "room_keep_brief"}
     for minute, ppm in [(22, 1500), (26, 1100), (30, 800), (33, 600), (36, 590)]:
         record = await s.at(minute, co2=ppm)
-    assert record["action"] in {"can_close", "better_close"}
-    assert record["status"] == "green"
+    assert record["action"] in {"can_close", "better_close", "room_watch"}
+    # CO2 recovered, but RH remains unresolved after the stalled attempt.
+    assert record["status"] != "green"
 
 
 @pytest.mark.parametrize("lifetime", [50], indirect=True)

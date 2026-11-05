@@ -1,4 +1,4 @@
-# Automatische Wetter-, Luftqualitäts- und Warnquellen – v0.11.10
+# Automatische Wetter-, Luftqualitäts- und Warnquellen – v0.12.0
 
 ## CAP-Zahlenfelder und Warnsprachen
 
@@ -7,7 +7,7 @@ Unterstützte CAP-Anbieterprofile erkennen strukturierte Böenangaben wie NWS `m
 DE/EN/TR-Textmodule sind separat registriert und verwenden isolierte Parserzustände. Bisherige begrenzte FR/ES/IT/NL-Konstruktionen bleiben erhalten. `set_warning_language_enabled()` steuert Warntextmodule unabhängig von UI-Sprachen und strukturierten CAP-Feldern. Die Textgrammatik bleibt begrenzt; unbekannte Freitexte und unklare Entwarnungen liefern keine bestätigte Freigabe. Eine zuverlässig erkannte Schließanweisung bleibt bei abweichender Sprachkennzeichnung wirksam und trägt den Abweichungsvermerk in ihrer Provenienz.
 
 
-Stand der Implementierung: 25.10.2026. Integrationsversion 0.11.10. Hinweise zur Verteilung der HTTP-Abrufe und zu amtlichen Warnungen stehen in der README.
+Anbieterabdeckung überprüft anhand des übernommenen Provider-Codes aus v0.11.10 (Stand 25.10.2026); Integrationsversion 0.12.0. Hinweise zur Verteilung der HTTP-Abrufe und zu amtlichen Warnungen stehen in der README.
 
 | Land / Gebiet | Wetter | Amtliche Warnquellen | Bevölkerungsschutz |
 | --- | --- | --- | --- |

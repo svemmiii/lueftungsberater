@@ -580,6 +580,8 @@ class RoomAdvisorSensor(LueftungsberaterRoomEntity, SensorEntity):
                 getattr(r, "reason_args", {}).get("co2_minutes_to_2000")
                 if r is not None and isinstance(getattr(r, "reason_args", None), dict) else None
             ),
+            "air_exchange_observation": values.get("air_exchange_observation", {"mode": "observation", "status": "none"}),
+            "routine_suppressed_by_good_air": bool(values.get("routine_suppressed_by_good_air")),
             "co2_ppm": (
                 round(values["co2_ppm"])
                 if values["co2_ppm"] is not None
@@ -981,6 +983,8 @@ class RoomAiringStatusSensor(LueftungsberaterRoomEntity, SensorEntity):
                 else None
             ),
             "current_airing_qualified": tracker.current_airing_qualified,
+            "current_airing_successful": tracker.session_successful,
+            "last_successful_airing": tracker.last_successful_airing.isoformat() if tracker.last_successful_airing else None,
             "minimum_reached_at": (
                 tracker.minimum_reached_at.isoformat()
                 if tracker.minimum_reached_at

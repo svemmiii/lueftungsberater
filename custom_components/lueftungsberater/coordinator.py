@@ -21,6 +21,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .airing import get_tracker, tracker_signal
+from .air_exchange import RoomAirPattern
+from .window_colors import ShortAiringColorGuard
 from .auto_providers import uses_auto_weather
 from .co2 import co2_tracker_signal
 from .co2_hysteresis import (
@@ -35,6 +37,7 @@ from .reason_sessions import (
 from .engine import humidity_airing_can_improve, temperature_need_applicable
 from .const import (
     CONF_CO2,
+    CONF_PASSIVE_VENTILATION,
     CONF_NIGHT_START_HOUR,
     CONF_NIGHT_START_TIME,
     CONF_NIGHT_END_TIME,
@@ -183,10 +186,13 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         self._temperature_session = EffectivenessSessionState()
         self._particulate_session = EffectivenessSessionState()
         self._indoor_air_session = IndoorAirSessionState()
+        self._air_pattern = RoomAirPattern()
+        self._color_guard = ShortAiringColorGuard()
         self._co2_hysteresis_unsub: Callable[[], None] | None = None
         self._humidity_session_unsub: Callable[[], None] | None = None
         self._effectiveness_session_unsub: Callable[[], None] | None = None
         self._indoor_air_session_unsub: Callable[[], None] | None = None
+        self._air_observation_unsub: Callable[[], None] | None = None
         self._night_memory: NightAdvice | None = None
         self._night_memory_start: datetime | None = None
         self._night_memory_end: datetime | None = None
@@ -378,6 +384,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if isinstance(indoor_air_memory, dict):
             self._indoor_air_session.restore(indoor_air_memory, parse_dt=_parse_dt)
 
+        self._air_pattern.restore(stored.get("air_pattern"), now=now_utc)
+        self._color_guard.restore(stored.get("short_airing_color_guard"))
+
         night = stored.get("night")
         if isinstance(night, dict):
             start = _parse_dt(night.get("interval_start"))
@@ -429,6 +438,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             "temperature_session": self._temperature_session.as_dict(),
             "particulate_session": self._particulate_session.as_dict(),
             "indoor_air_session": self._indoor_air_session.as_dict(),
+            "air_pattern": self._air_pattern.as_dict(),
+            "short_airing_color_guard": self._color_guard.as_dict(),
             "night": self._night_memory_payload(),
         }
 
@@ -745,6 +756,27 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             self.hass, max(1.0, float(seconds)), _refresh
         )
 
+    def _schedule_air_observation_check(self, seconds: float | None) -> None:
+        """Refresh a room once when its air-exchange observation gets stale.
+
+        Sensor changes already trigger new evaluations. This adds at most one
+        bounded one-shot timer per room and never polls any external source.
+        """
+        if self._air_observation_unsub is not None:
+            self._air_observation_unsub()
+            self._air_observation_unsub = None
+        if seconds is None or seconds < 0:
+            return
+
+        @callback
+        def _refresh(_now) -> None:
+            self._air_observation_unsub = None
+            self._handle_tracker_change()
+
+        self._air_observation_unsub = async_call_later(
+            self.hass, max(0.05, seconds + 0.05), _refresh
+        )
+
     def _build_snapshot(self) -> RoomSnapshot:
         outside_coordinator = get_outside_coordinator(self.hass, self.entry)
         weather = outside_coordinator.data.weather if outside_coordinator is not None and outside_coordinator.data is not None else None
@@ -761,6 +793,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         )
         now_utc = dt_util.utcnow()
         co2, window_open = room_co2_window_values(self.hass, self.entry, self.subentry)
+        if window_open and self.subentry.data.get(CONF_WINDOWS):
+            if self._air_pattern.invalidate_for_open_window():
+                self._queue_memory_save()
 
         co2_before = self._co2_hysteresis.as_dict()
         co2_hysteresis = self._co2_hysteresis.evaluate(
@@ -782,13 +817,50 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
             and self._night_memory.reason_args.get("thermal_need")
         )
 
+        passive_hint = bool(self.subentry.data.get(CONF_PASSIVE_VENTILATION, False))
+        co2_entity = self.subentry.data.get(CONF_CO2)
+        co2_state = self.hass.states.get(co2_entity) if co2_entity else None
+        co2_reported = (
+            getattr(co2_state, "last_reported", None)
+            or getattr(co2_state, "last_updated", None)
+        )
+        co2_fresh = bool(
+            co2_reported is not None and co2_reported.tzinfo is not None
+            and timedelta(0) <= now_utc - co2_reported <= timedelta(hours=1)
+        )
+        routine_suppressed = self._air_pattern.stable_good(
+            now=now_utc, passive_hint=passive_hint, co2_fresh=co2_fresh
+        )
+
+        # The same calculation was previously performed several times per
+        # refresh even when *all* input/session flags were unchanged. Keep a
+        # per-refresh cache, keyed by every mutable decision-session state.
+        # No cache survives a coordinator refresh or a state transition.
+        snapshot_cache: dict[tuple[Any, ...], RoomSnapshot] = {}
+
         def _snapshot_for_co2_state(
             *,
             minimum_active: bool = False,
             minimum_cautious: bool = False,
             humidity_optional_opportunity: bool = False,
         ) -> RoomSnapshot:
-            return build_room_snapshot(
+            key = (
+                minimum_active, minimum_cautious, humidity_optional_opportunity,
+                routine_suppressed,
+                repr(self._co2_hysteresis.as_dict()),
+                repr(self._humidity_session.as_dict()),
+                repr(self._temperature_session.as_dict()),
+                repr(self._particulate_session.as_dict()),
+                repr(self._indoor_air_session.as_dict()),
+            )
+            if key in snapshot_cache:
+                room_snapshot = snapshot_cache[key]
+                room_snapshot.values["air_exchange_observation"] = self._air_pattern.summary(
+                    now=now_utc, contact_open=window_open and bool(room_snapshot.values.get("has_window_contacts")),
+                    passive_hint=passive_hint, co2_fresh=co2_fresh,
+                )
+                return room_snapshot
+            room_snapshot = build_room_snapshot(
                 self.hass,
                 self.entry,
                 self.subentry,
@@ -822,14 +894,52 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 # two-consecutive-rise guard and reintroduce one-sample alarms.
                 co2_minutes_to_2000=co2_hysteresis.minutes_to_2000,
                 night_temperature_already_active=night_thermal_active,
+                routine_suppressed=routine_suppressed,
                 weather=weather,
                 warnings=warnings,
             )
+            room_snapshot.values["air_exchange_observation"] = self._air_pattern.summary(
+                now=now_utc,
+                contact_open=window_open and bool(room_snapshot.values.get("has_window_contacts")),
+                passive_hint=passive_hint, co2_fresh=co2_fresh,
+            )
+            room_snapshot.values["routine_suppressed_by_good_air"] = routine_suppressed
+            snapshot_cache[key] = room_snapshot
+            return room_snapshot
 
         # First calculate the untouched normal decision. The minimum-airing
         # layer may then preserve an already accepted CO₂ session, but it never
         # decides whether the user should have started airing in the first place.
         base_snapshot = _snapshot_for_co2_state()
+        # Use whichever configured room sensor updated most recently. A room
+        # with humidity/temperature/PM but no CO2 must still be observable.
+        source_stamps = [
+            state.last_updated
+            for entity in room_source_entities(self.hass, self.entry, self.subentry)
+            if (state := self.hass.states.get(entity)) is not None
+            and getattr(state, "last_updated", None) is not None
+        ]
+        source_stamp = max(source_stamps) if source_stamps else None
+        fresh_sample = self._air_pattern.observe(
+            now=now_utc,
+            source_stamp=source_stamp,
+            co2=base_snapshot.values.get("co2_ppm"),
+            humidity=base_snapshot.values.get("humidity_inside"),
+            temperature=base_snapshot.values.get("temperature_inside"),
+            window_open=window_open,
+            pollutants=base_snapshot.values.get("indoor_air_quality_values"),
+        )
+        if fresh_sample:
+            self._queue_memory_save()
+        self._schedule_air_observation_check(
+            self._air_pattern.next_observation_check(now=now_utc)
+        )
+        new_suppressed = self._air_pattern.stable_good(
+            now=now_utc, passive_hint=passive_hint, co2_fresh=co2_fresh
+        )
+        if new_suppressed != routine_suppressed:
+            routine_suppressed = new_suppressed
+            base_snapshot = _snapshot_for_co2_state()
 
         minimum_before = self._co2_minimum_airing.as_dict()
         minimum = self._co2_minimum_airing.evaluate(
@@ -941,6 +1051,17 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 humidity_still_needed=humidity_need,
                 safety_lock=result.safety_lock,
                 mold_risk=bool(result.mold_risk or result.mold_persistent),
+                airing_minutes=(
+                    snapshot.values.get("open_minutes")
+                    if snapshot.values.get("window_open") else
+                    (
+                        tracker.last_session_duration_minutes
+                        if (tracker := get_tracker(self.hass, self.entry, self.subentry))
+                        is not None and tracker.last_session_closed_at is not None
+                        and (now_utc - tracker.last_session_closed_at).total_seconds() < 30
+                        else 0.0  # unobserved close cannot prove five minutes
+                    )
+                ),
             )
             self._schedule_humidity_session_check(
                 humidity_decision.next_check_seconds
@@ -1093,7 +1214,49 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         ):
             self._queue_memory_save()
 
-        return self._apply_night_memory(snapshot)
+        snapshot = self._apply_night_memory(snapshot)
+        previous = self.data
+        was_open = bool(previous.values.get("window_open")) if previous is not None else False
+        now_open = bool(snapshot.values.get("window_open"))
+        tracker = get_tracker(self.hass, self.entry, self.subentry)
+        short_close = bool(
+            previous is not None and was_open and not now_open and tracker is not None
+            and tracker.last_session_closed_at is not None
+            and tracker.last_session_was_aborted is True
+            and 0 <= (now_utc - tracker.last_session_closed_at).total_seconds() < 30
+            or (
+                previous is not None and was_open and not now_open
+                and previous.values.get("open_minutes") is not None
+                and 0 <= previous.values["open_minutes"] < 5
+                and (tracker is None or tracker.last_session_was_aborted is not False)
+            )
+        )
+        guard_before = self._color_guard.as_dict()
+        self._color_guard.apply(
+            previous, snapshot, opening=(not was_open and now_open),
+            closing=(was_open and not now_open), short_close=short_close,
+            unresolved_humidity_close=bool(
+                was_open and not now_open and self._humidity_session.unresolved_close
+                and not short_close
+            ),
+            unresolved_humidity_active=self._humidity_session.unresolved_close,
+        )
+        if self._color_guard.as_dict() != guard_before:
+            self._queue_memory_save()
+        # The event may have been recognised during observe(), *after* the
+        # initial snapshot. Publish the latest observation in this very tick.
+        snapshot.values["air_exchange_observation"] = self._air_pattern.summary(
+            now=now_utc, contact_open=now_open and bool(snapshot.values.get("has_window_contacts")),
+            passive_hint=passive_hint, co2_fresh=co2_fresh,
+        )
+        tracker = get_tracker(self.hass, self.entry, self.subentry)
+        if tracker is not None and tracker.is_open and snapshot.result is not None:
+            tracker.update_success(
+                not snapshot.result.safety_lock
+                and snapshot.result.room_status_color == "green"
+                and not snapshot.result.active_reasons
+            )
+        return snapshot
 
     async def _async_update_data(self) -> RoomSnapshot:
         snapshot = self._build_snapshot()
@@ -1127,6 +1290,8 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
                 self._temperature_session = EffectivenessSessionState()
                 self._particulate_session = EffectivenessSessionState()
                 self._indoor_air_session = IndoorAirSessionState()
+                self._air_pattern = RoomAirPattern()
+                self._color_guard = ShortAiringColorGuard()
                 self._night_memory = None
                 self._night_memory_start = None
                 self._night_memory_end = None
@@ -1276,6 +1441,9 @@ class LueftungsberaterRoomCoordinator(DataUpdateCoordinator[RoomSnapshot]):
         if self._indoor_air_session_unsub is not None:
             self._indoor_air_session_unsub()
             self._indoor_air_session_unsub = None
+        if self._air_observation_unsub is not None:
+            self._air_observation_unsub()
+            self._air_observation_unsub = None
         while self._unsubs:
             self._unsubs.pop()()
         # Event-triggered notification jobs can otherwise outlive our own

@@ -251,7 +251,6 @@ def _continue_reason(args: dict[str, Any], lang: str, unit: str) -> str:
             }[lang]
         )
     if args.get("continue_routine"):
-        open_minutes = _number(args.get("open_minutes"), lang, 1)
         minimum = _number(args.get("routine_min_minutes"), lang, 0)
         if args.get("open_minutes") is None:
             text = {
@@ -261,9 +260,9 @@ def _continue_reason(args: dict[str, Any], lang: str, unit: str) -> str:
             }[lang]
         else:
             text = {
-                "de": f"die Routinelüftung läuft erst seit {open_minutes} Minuten und soll mindestens etwa {minimum} Minuten dauern",
-                "en": f"the routine airing has only run for {open_minutes} minutes and should last at least about {minimum} minutes",
-                "tr": f"rutin havalandırma yalnızca {open_minutes} dakikadır sürüyor ve en az yaklaşık {minimum} dakika sürmeli",
+                "de": f"der regelmäßige Frischluftaustausch noch nicht abgeschlossen ist (Mindestdauer etwa {minimum} Minuten)",
+                "en": f"the routine fresh-air exchange is not yet complete (minimum around {minimum} minutes)",
+                "tr": f"rutin temiz hava değişimi henüz tamamlanmadı (en az yaklaşık {minimum} dakika)",
             }[lang]
         parts.append(text)
 
@@ -912,9 +911,18 @@ def reason_text(
 
     if key == "humidity_exhausted":
         return {
-            "de": "Mehr Lüften trocknet kaum noch. Du kannst das Fenster schließen.",
-            "en": "More airing will not dry the room much further. You can close the window.",
-            "tr": "Daha fazla havalandırmak pek kurutmuyor. Pencereyi kapatabilirsin.",
+            "de": f"Die Raumfeuchte liegt weiterhin bei {m(a.get('humidity'), '%', 1)}. Weiteres Lüften bringt derzeit kaum Fortschritt. Du kannst das Fenster schließen und den Feuchtewert weiter beobachten.",
+            "en": f"Indoor humidity is still at {m(a.get('humidity'), '%', 1)}. Further airing is making little progress. You can close the window and keep monitoring humidity.",
+            "tr": f"İç nem hâlâ {m(a.get('humidity'), '%', 1)}. Daha fazla havalandırmak şu anda pek ilerleme sağlamıyor. Pencereyi kapatıp nemi izleyebilirsin.",
+        }[lang]
+
+    if key == "humidity_stalled":
+        humidity = m(a.get("humidity"), "%", 1)
+        window_open = bool(a.get("window_open"))
+        return {
+            "de": f"Die Raumfeuchte liegt weiterhin bei {humidity}. Die letzte Lüftung hat sie nicht ausreichend gesenkt. " + ("Weiterlüften bringt aktuell kaum Fortschritt; das Fenster kann geschlossen werden." if window_open else "Derzeit ist kein erneuter wirkungsloser Lüftungsversuch nötig. Bitte den Wert weiter beobachten."),
+            "en": f"Indoor humidity is still at {humidity}. The last airing did not lower it sufficiently. " + ("Further airing is making little progress; you can close the window." if window_open else "Another ineffective airing attempt is not necessary right now. Keep monitoring the reading."),
+            "tr": f"İç nem hâlâ {humidity}. Son havalandırma nemi yeterince düşürmedi. " + ("Daha fazla havalandırmak şu anda pek işe yaramıyor; pencereyi kapatabilirsin." if window_open else "Şimdilik sonuç vermeyen başka bir havalandırma denemesi gerekmiyor. Değeri izlemeye devam et."),
         }[lang]
 
     if key == "humidity_opportunity":
@@ -970,8 +978,8 @@ def reason_text(
                 else ""
             )
             return (
-                "Die gestartete CO₂-Lüftung läuft noch keine fünf Minuten. "
-                "Lüfte noch kurz weiter, damit der Luftaustausch Zeit hat zu wirken."
+                "Die CO₂-Lüftung soll die verbrauchte Raumluft ausreichend austauschen. "
+                "Lüfte noch kurz weiter; die Mindestdauer von fünf Minuten ist noch nicht erreicht."
                 + value
                 + target
                 + tail
@@ -989,8 +997,8 @@ def reason_text(
                 else ""
             )
             return (
-                "Başlatılan CO₂ havalandırması henüz beş dakika sürmedi. "
-                "Hava değişiminin etkili olması için biraz daha havalandır."
+                "CO₂ havalandırması odadaki havanın yeterince yenilenmesini sağlamalı. "
+                "Biraz daha havalandır; beş dakikalık asgari süre henüz dolmadı."
                 + value
                 + target
                 + tail
@@ -1007,8 +1015,8 @@ def reason_text(
             else ""
         )
         return (
-            "The CO₂ airing session has not yet run for five minutes. "
-            "Keep ventilating a little longer so the air exchange has time to work."
+            "The CO₂ airing session should allow enough fresh-air exchange. "
+            "Keep ventilating a little longer; the five-minute minimum has not yet been reached."
             + value
             + target
             + tail
@@ -1265,11 +1273,7 @@ def reason_text(
             "warming": f"Drinnen sind es {t(a.get('ti'))}, bei einem Soll von {t(a.get('target'))}. Draußen ist es wärmer und kann den Raum beim Lüften Richtung Solltemperatur bringen.",
             "routine_ventilate": f"Seit rund {n(a.get('hours'), 1)} Stunden wurde keine bestätigte Lüftung erfasst. Die Außenbedingungen passen gerade gut, deshalb ist jetzt ein kurzer Luftaustausch sinnvoll.",
             "routine_wait": f"Seit rund {n(a.get('hours'), 1)} Stunden wurde keine bestätigte Lüftung erfasst. Die Bedingungen draußen passen gerade aber nicht gut genug – warte lieber noch etwas.",
-            "routine_open_unfavorable": (
-                f"Das Fenster ist bereits seit rund {n(a.get('open_minutes'), 1)} Minuten geöffnet, die Außenbedingungen sind gerade aber ungünstig. Schließe besser wieder und hole die Routinelüftung bei passenderen Bedingungen nach."
-                if a.get("open_minutes") is not None
-                else "Das Fenster ist bereits geöffnet, die Außenbedingungen sind gerade aber ungünstig. Schließe besser wieder und hole die Routinelüftung bei passenderen Bedingungen nach."
-            ),
+            "routine_open_unfavorable": "Das Fenster ist bereits geöffnet, aber die Außenbedingungen sind gerade ungünstig. Schließe besser wieder und hole die Routinelüftung bei passenderen Bedingungen nach.",
             "routine_open_sufficient_close": "Das Fenster ist bereits lange genug für den kurzen Luftaustausch geöffnet. Die Außenbedingungen sprechen dafür, die Lüftung jetzt zu beenden.",
             "outside_too_hot": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Beim Lüften würdest du gerade zusätzliche Wärme hereinholen – die Fenster bleiben besser zu.",
             "outside_too_cold": f"Drinnen sind es {t(a.get('ti'))}, draußen {t(a.get('ta'))}. Lüften würde den Raum gerade unnötig auskühlen – deshalb besser geschlossen lassen.",
@@ -1319,11 +1323,7 @@ def reason_text(
             "warming": f"İçeride sıcaklık {t(a.get('ti'))}, hedefin ise {t(a.get('target'))}. Dışarısı daha sıcak; pencereleri açmak odayı hedef sıcaklığa yaklaştırmaya yardımcı olabilir.",
             "routine_ventilate": f"Yaklaşık {n(a.get('hours'), 1)} saattir doğrulanmış bir havalandırma kaydedilmedi. Dışarıdaki koşullar uygun, bu yüzden kısa bir hava değişimi iyi olur.",
             "routine_wait": f"Yaklaşık {n(a.get('hours'), 1)} saattir doğrulanmış bir havalandırma kaydedilmedi, ancak dışarıdaki koşullar şu anda yeterince uygun değil. Biraz daha beklemek daha iyi.",
-            "routine_open_unfavorable": (
-                f"Pencere yaklaşık {n(a.get('open_minutes'), 1)} dakikadır açık, ancak dış koşullar şu anda elverişsiz. Pencereyi kapatıp rutin havalandırmayı daha uygun koşullarda tamamlamak daha iyi."
-                if a.get("open_minutes") is not None
-                else "Pencere zaten açık, ancak dış koşullar şu anda elverişsiz. Pencereyi kapatıp rutin havalandırmayı daha uygun koşullarda tamamlamak daha iyi."
-            ),
+            "routine_open_unfavorable": "Pencere zaten açık, ancak dış koşullar şu anda elverişsiz. Pencereyi kapatıp rutin havalandırmayı daha uygun koşullarda tamamlamak daha iyi.",
             "routine_open_sufficient_close": "Pencere kısa hava değişimi için yeterince uzun süre açık kaldı. Dış koşullar havalandırmayı şimdi bitirmeyi destekliyor.",
             "outside_too_hot": f"İçeride {t(a.get('ti'))}, dışarıda {t(a.get('ta'))}. Pencereleri açmak şu anda içeri ekstra sıcaklık getirir; kapalı tutmak daha iyi.",
             "outside_too_cold": f"İçeride {t(a.get('ti'))}, dışarıda {t(a.get('ta'))}. Pencereleri açmak odayı gereksiz yere soğutur; kapalı tutmak daha iyi.",
@@ -1373,11 +1373,7 @@ def reason_text(
             "warming": f"It is {t(a.get('ti'))} indoors, while your target is {t(a.get('target'))}. It is warmer outside, so opening the windows can help bring the room closer to your target.",
             "routine_ventilate": f"No confirmed window airing has been recorded for about {n(a.get('hours'), 1)} hours. Outdoor conditions are good, so a short air exchange makes sense now.",
             "routine_wait": f"No confirmed window airing has been recorded for about {n(a.get('hours'), 1)} hours, but outdoor conditions are not good enough right now. It is better to wait a little longer.",
-            "routine_open_unfavorable": (
-                f"The window has already been open for about {n(a.get('open_minutes'), 1)} minutes, but outdoor conditions are unfavorable right now. It is better to close it again and complete the routine airing when conditions improve."
-                if a.get("open_minutes") is not None
-                else "The window is already open, but outdoor conditions are unfavorable right now. It is better to close it again and complete the routine airing when conditions improve."
-            ),
+            "routine_open_unfavorable": "The window is already open, but outdoor conditions are unfavorable right now. It is better to close it again and complete the routine airing when conditions improve.",
             "routine_open_sufficient_close": "The window has already been open long enough for the short air exchange. Outdoor conditions favor ending the airing now.",
             "outside_too_hot": f"It is {t(a.get('ti'))} indoors and {t(a.get('ta'))} outside. Opening the windows now would bring extra heat in, so it is better to keep them closed.",
             "outside_too_cold": f"It is {t(a.get('ti'))} indoors and {t(a.get('ta'))} outside. Opening the windows now would cool the room unnecessarily, so it is better to keep them closed.",

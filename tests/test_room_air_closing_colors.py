@@ -42,7 +42,7 @@ def reported_room(**changes):
     ) | changes))
 
 
-def test_reported_quiet_humidity_closes_green_without_changing_native_advice():
+def test_reported_quiet_humidity_can_close_without_claiming_good_room_air():
     result = evaluate_room(reported_room())
 
     assert result.decision_need == "none"
@@ -52,7 +52,8 @@ def test_reported_quiet_humidity_closes_green_without_changing_native_advice():
     assert result.mode == "aussen_zu_kalt"
     assert result.recommendation_key == "better_close"
     assert result.reason_key == "outside_too_cold"
-    assert result.room_status_color == "green"
+    # A close recommendation concerns the outside conditions, not indoor air quality.
+    assert result.room_status_color == "yellow"
     assert result.room_recommendation_key == "better_close"
     assert result.room_reason_key == result.reason_key
     assert result.room_reason_args == result.reason_args
@@ -60,17 +61,17 @@ def test_reported_quiet_humidity_closes_green_without_changing_native_advice():
 
 
 @pytest.mark.parametrize(
-    "changes,action,reason,native_color",
+    "changes,action,reason,native_color,room_color",
     [
         pytest.param(dict(indoor_humidity=70, outdoor_temp=22, outdoor_humidity=80),
-                     "better_close", "humidity_wait", "orange", id="wetter-outside"),
+                     "better_close", "humidity_wait", "orange", "yellow", id="wetter-outside"),
         pytest.param(dict(indoor_humidity=70, outdoor_temp=11, humidity_disarmed=True),
-                     "better_close", "outside_too_cold", "orange", id="cold-outside"),
+                     "better_close", "outside_too_cold", "orange", "yellow", id="cold-outside"),
         pytest.param(dict(indoor_humidity=70, outdoor_temp=30, humidity_disarmed=True),
-                     "better_close", "outside_more_humid", "orange", id="hot-humid-outside"),
+                     "better_close", "outside_more_humid", "orange", "yellow", id="hot-humid-outside"),
         *[
             pytest.param(dict(indoor_humidity=70, humidity_disarmed=True, air_quality=quality),
-                         action, reason, color, id=f"outside-air-{quality}")
+                         action, reason, color, "yellow", id=f"outside-air-{quality}")
             for quality, action, reason, color in (
                 ("moderate", "better_close", "air_quality_moderate", "orange"),
                 ("poor", "better_close", "air_quality_poor", "orange"),
@@ -78,16 +79,14 @@ def test_reported_quiet_humidity_closes_green_without_changing_native_advice():
             )
         ],
         pytest.param(dict(indoor_humidity=70, humidity_disarmed=True, weather_caution=True),
-                     "better_close", "weather_caution", "orange", id="weather-caution"),
+                     "better_close", "weather_caution", "orange", "yellow", id="weather-caution"),
         pytest.param(dict(indoor_humidity=70, humidity_disarmed=True, weather_danger=True),
-                     "close_now", "weather_danger", "red", id="unlocked-severe-weather"),
-        pytest.param(dict(indoor_humidity=70, outdoor_temp=21, outdoor_humidity=40,
-                          previous_mode="weiter_lueften", previous_need="humidity",
-                          humidity_session_exhausted=True, humidity_disarmed=True),
-                     "can_close", "humidity_exhausted", "yellow", id="humidity-exhausted"),
+                     "close_now", "weather_danger", "red", "green", id="unlocked-severe-weather"),
     ],
 )
-def test_normal_closing_actions_are_green_after_all_overlays(changes, action, reason, native_color):
+def test_closing_actions_do_not_override_indoor_room_air_status(
+    changes, action, reason, native_color, room_color,
+):
     result = evaluate_room(open_room(**changes))
 
     assert result.safety_lock is False
@@ -95,7 +94,22 @@ def test_normal_closing_actions_are_green_after_all_overlays(changes, action, re
     assert result.recommendation_key == action
     assert result.room_recommendation_key == action
     assert result.room_reason_key == reason
-    assert result.room_status_color == "green"
+    # The room colour is independent of the outside-driven closing advice.
+    assert result.room_status_color == room_color
+
+
+def test_ineffective_humidity_can_close_but_not_show_good_air():
+    result = evaluate_room(open_room(
+        indoor_humidity=70, outdoor_temp=21, outdoor_humidity=40,
+        previous_mode="weiter_lueften", previous_need="humidity",
+        humidity_session_exhausted=True, humidity_disarmed=True,
+    ))
+    assert result.recommendation_key == "can_close"
+    assert result.reason_key == "humidity_exhausted"
+    assert result.room_recommendation_key == "can_close"
+    assert result.room_reason_key == "humidity_stalled"
+    assert result.room_status_color in {"yellow", "orange"}
+    assert result.active_reasons == ()
 
 
 def test_current_humidity_need_is_not_marked_finished():

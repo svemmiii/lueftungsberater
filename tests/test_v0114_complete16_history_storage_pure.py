@@ -247,8 +247,11 @@ def test_complete37_decision_restore_rejects_corrupt_context_without_resurrectin
          '_parse_dt':lambda value:None}
     restore=_room_method('coordinator.py','LueftungsberaterRoomCoordinator','_restore_memory',env)
     for damaged in ([1],'error'):
+        # The production coordinator now owns two additional persisted parts.
         tracker=NS(_memory_store=Store(damaged),_memory_store_readonly=False,
-                   _previous_mode=None,_previous_decision_need=None)
+                   _previous_mode=None,_previous_decision_need=None,
+                   _air_pattern=NS(restore=lambda *_args, **_kwargs: None),
+                   _color_guard=NS(restore=lambda *_args, **_kwargs: None))
         asyncio.run(restore(tracker))
         assert tracker._memory_store_readonly is True
         assert tracker._previous_mode is None

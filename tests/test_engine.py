@@ -2835,7 +2835,9 @@ def test_room_view_open_window_never_continues_against_native_close_action():
     )
     assert result.mode == "feuchte_warten"
     assert result.recommendation_key == "better_close"
-    assert result.room_status_color == "green"
+    # v0.12.0: closing because outside air is worse is NOT proof the
+    # still-humid room has good air. Keep the truthful yellow room state.
+    assert result.room_status_color == "yellow"
     assert result.room_recommendation_key == "better_close"
     assert result.room_reason_key == result.reason_key
 
@@ -3262,8 +3264,10 @@ def test_exhausted_humidity_session_tells_open_window_it_can_close():
     assert result.mode == "lueftung_fertig"
     assert result.recommendation_key == "can_close"
     assert result.reason_key == "humidity_exhausted"
-    assert result.room_status_color == "green"
+    # Exhausting an ineffective attempt does not mean 60% RH became good.
+    assert result.room_status_color == "yellow"
     assert result.room_recommendation_key == "can_close"
+    assert result.room_reason_key == "humidity_stalled"
 
 
 def test_humidity_quiet_state_never_suppresses_critical_co2():

@@ -879,6 +879,7 @@ def build_room_snapshot(
     co2_trend_ppm_per_min: float | None = None,
     co2_minutes_to_2000: float | None = None,
     night_temperature_already_active: bool = False,
+    routine_suppressed: bool = False,
     weather: WeatherAssessment | None = None,
     warnings: WarningAssessment | None = None,
 ) -> RoomSnapshot:
@@ -911,7 +912,28 @@ def build_room_snapshot(
     )
     mold_tracker = get_mold_tracker(hass, entry, subentry)
     if mold_tracker is not None:
-        mold_tracker.observe(surface_rh)
+        # The surface risk is a joint reading: the oldest source must still be
+        # fresh. Different coordinator rebuilds with identical source stamps
+        # are not new measurements, even if weather or recommendations change.
+        source_ids = (
+            subentry.data.get(CONF_SURFACE_TEMP),
+            subentry.data.get(CONF_INDOOR_HUMIDITY),
+            subentry.data.get(CONF_INDOOR_TEMP) or subentry.data.get(CONF_CLIMATE),
+        )
+        source_stamps = []
+        for entity_id in source_ids:
+            state = hass.states.get(entity_id) if entity_id else None
+            stamp = getattr(state, "last_reported", None) or getattr(state, "last_updated", None)
+            if stamp is None:
+                source_stamps = []
+                break
+            source_stamps.append(stamp)
+        if len(source_stamps) == len(source_ids):
+            mold_tracker.observe_from_sources(surface_rh, min(source_stamps))
+        else:
+            # Preserve behaviour of synthetic/test Home Assistant state objects
+            # lacking report timestamps; real HA always exposes timestamps.
+            mold_tracker.observe(surface_rh)
         values["mold_current_critical_minutes"] = mold_tracker.current_critical_minutes
         values["mold_critical_minutes_24h"] = mold_tracker.critical_minutes_24h
         values["mold_persistent"] = mold_tracker.persistent
@@ -957,6 +979,7 @@ def build_room_snapshot(
         open_minutes=values.get("open_minutes"),
         current_airing_qualified=bool(values.get("current_airing_qualified")),
         hours_since_airing=values.get("hours_since_airing_for_routine"),
+        routine_suppressed=routine_suppressed,
         rain_now=(weather.rain_now or legacy_rain_now),
         rain_soon=(weather.rain_soon or legacy_rain_soon),
         rain_minutes_until=weather.rain_minutes_until,

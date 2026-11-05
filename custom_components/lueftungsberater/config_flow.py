@@ -88,6 +88,7 @@ from .const import (
     CONF_WEATHER,
     CONF_WEATHER_SOURCE_MODE,
     CONF_WINDOWS,
+    CONF_PASSIVE_VENTILATION,
     DEFAULT_REMOTE_PORT,
     DEFAULT_DISPLAY_MODE,
     DEFAULT_NIGHT_START_HOUR,
@@ -699,6 +700,7 @@ def _room_schema(hass: HomeAssistant) -> vol.Schema:
             vol.Optional(SECTION_ROOM_OPENINGS): section(
                 vol.Schema(
                     {
+                        vol.Optional(CONF_PASSIVE_VENTILATION, default=False): BooleanSelector(),
                         vol.Optional(CONF_WINDOWS): _entity(
                             "binary_sensor",
                             multiple=True,
@@ -821,8 +823,11 @@ def _room_form_defaults(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, 
         )
     }
     openings = flat.get(CONF_WINDOWS)
+    form[SECTION_ROOM_OPENINGS] = {
+        CONF_PASSIVE_VENTILATION: bool(flat.get(CONF_PASSIVE_VENTILATION, False))
+    }
     if openings:
-        form[SECTION_ROOM_OPENINGS] = {CONF_WINDOWS: openings}
+        form[SECTION_ROOM_OPENINGS][CONF_WINDOWS] = openings
     configured_area = flat.get(CONF_AREA_ID)
     if configured_area and room_area_name(hass, str(configured_area)) is not None:
         form[CONF_AREA_ID] = str(configured_area)

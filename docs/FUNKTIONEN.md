@@ -40,9 +40,23 @@ Das ist **dieselbe Auswertung mit einer anderen Darstellung**. Eine harte Sicher
 
 Mit einem Fensterkontakt erkennt die Integration tatsächliche Offen- und Schließphasen. Eine sicher beobachtete Lüftung von **mindestens fünf Minuten** kann für Routineentscheidungen bereits ausreichen; der Zeitpunkt der **letzten bestätigten Lüftung** wird jedoch erst beim beobachteten Schließen gesetzt.
 
+**Neu in v0.12.0:** Das reine Öffnen oder Schließen verändert bei der **Raumluft-Ampel** nicht unmittelbar Grün zu Nicht-Grün oder zurück. Solange ein Fenster weniger als fünf Minuten geöffnet ist, erzeugt die laufende Sitzung allein keine Grün-Freigabe. Tatsächlich gemessene Verschlechterungen und Sicherheitssperren dürfen weiterhin sofort wirksam werden.
+
+Wird das Fenster vor Ablauf der Mindestdauer geschlossen, bleibt die Lüftung **abgebrochen und unbestätigt**. Ausnahmsweise kann die Raumampel bei diesem Schließen Grün freigeben, wenn alle vorhandenen Lüftungsgründe tatsächlich beendet sind und die Messwerte mit mindestens 15 % Abstand innerhalb ihrer jeweiligen Gutbereiche liegen. Dazu gehören bei entsprechender Sensorbestückung unter anderem CO₂ im Bereich bis 910 ppm und die relative Feuchte zwischen 43 und 57 %. Nichtnumerische Gründe, Sperren und bestehende Hysteresen bleiben berücksichtigt. Die Ausnahme bestätigt **keine** Lüftungssitzung. Nach fünf Minuten wird ohne diesen zusätzlichen Puffer normal bewertet.
+
+Eine bestätigte **Dauer** und eine anhand der Raumwerte erfolgreiche Lüftung sind zwei getrennte Sachverhalte. Eine Empfehlung, bei schlechten Außenbedingungen besser zu schließen, ist nicht automatisch eine Bestätigung guter Raumluft.
+
+**Ohne Feuchte-Fortschritt:** Sinkt die absolute Luftfeuchte während eines offenen Fensters über rund 15 Minuten nicht messbar genug, ist weiteres Lüften für **diesen Versuch** nicht mehr sinnvoll. Der Assistent empfiehlt dann das Schließen, markiert die Feuchte jedoch **nicht** als erledigt: Bei weiterhin mindestens 60 % relativer Luftfeuchte bleibt die Raumluft-Ampel Gelb, ab 63 % Orange. Das gilt auch nach dem Schließen und bei späteren Updates. Erst eine echte Verbesserung der Werte erlaubt wieder Grün. Andere dringende Gründe wie CO₂ oder Schimmel sowie amtliche Sicherheitssperren bleiben unabhängig davon aktiv.
+
 Kurze Kontakt-Ausfälle führen nicht sofort zu einer erfundenen Schließung. Bleibt ein Kontakt länger unbekannt, wird eine laufende Sitzung konservativ beendet, ohne einen nicht beobachteten Zeitpunkt als bestätigte Lüftung auszugeben.
 
 Normale Grenzen besitzen Hysteresen. Das verhindert, dass Empfehlungen bei jedem kleinen Sensorschritt umspringen. **Neue Sicherheitsgefahren haben Vorrang** und müssen nicht auf das Ende einer laufenden Routine-Lüftung warten.
+
+## Passive Belüftung und beobachteter Luftaustausch
+
+In den Raumeinstellungen lässt sich optional **Passive Belüftung** aktivieren. Die Angabe dient als Hinweis, ist aber kein Nachweis einer geöffneten Fensterfläche. Die Integration beobachtet vorhandene CO₂-, Feuchte- und Temperaturwerte in einer lokalen, auf 64 Stichproben je Raum begrenzten Struktur. Ein auffälliger CO₂-Abfall kann als **vermuteter** Luftaustausch erscheinen; er wird weder als Fensterkontakt-Meldung noch als bestätigte Lüftung gespeichert.
+
+Die Erkennung arbeitet zunächst **nur beobachtend**. Erst bei über längere Zeit belegter stabil guter Luft kann die reine 24-Stunden-Routine zurücktreten. Andere Lüftungs-, Schimmel-, Sicherheits- und Schadstoffgründe bleiben in Kraft. Zusätzliche Internetanfragen werden dafür nicht benötigt.
 
 ## Wetter und kurzer Ausblick
 

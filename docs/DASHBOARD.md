@@ -14,6 +14,10 @@ Sicherheitsrelevante Informationen sollen dabei nicht verschwinden: **Aktive har
 
 Bei lokalen Räumen kannst du echte Messsensoren öffnen, um Home Assistants More-Info- und Verlaufsansicht zu sehen. Erklärungstexte selbst sind keine anklickbaren Messsensoren.
 
+### Hintergrunddeckkraft der Raumkarte
+
+Im visuellen Karteneditor gibt es die Einstellung **Hintergrunddeckkraft**. Standardmäßig wird das Home-Assistant-Theme unverändert verwendet. Wählst du **Manuell**, kannst du den Kartenhintergrund von **0 %** (transparent) bis **100 %** (deckend) einstellen. Nur die jeweilige Raumkarte ist betroffen; Text, Icons und Ampelfarben behalten ihre eigene Deckkraft. Die Einstellung benötigt kein `card-mod`.
+
 ## Lüftungsassistent – Übersicht
 
 Die Übersicht zeigt mehrere Räume nebeneinander beziehungsweise untereinander, ohne für jeden Raum dauerhaft eine umfangreiche Detailkarte zu laden. Ein Tipp auf einen Eintrag öffnet dessen vollständige Raumansicht in einem Dialog.

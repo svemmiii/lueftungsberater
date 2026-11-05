@@ -270,14 +270,16 @@
             "indoor_pm10": "Indoor PM10 (optional)",
             "indoor_voc": "Indoor VOC (index or raw value, optional)",
             "indoor_no2": "Indoor NO₂ / NOx (index or raw value, optional)",
-            "indoor_formaldehyde": "Indoor formaldehyde (optional)"
+            "indoor_formaldehyde": "Indoor formaldehyde (optional)",
+            "passive_ventilation": "Passive ventilation available (optional)"
           },
           "data_description": {
             "target_temperature": "Used when no suitable target temperature is available from a climate entity.",
             "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
             "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action.",
             "area_id": "Assigns this Fresh Air Assistant room to an existing Home Assistant area. If you do not enter a custom room name, the area name is used.",
-            "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name."
+            "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name.",
+            "passive_ventilation": "Room has permanent background fresh-air supply. This setting does not override measured air or safety warnings."
           },
           "sections": {
             "room_climate": {
@@ -361,7 +363,8 @@
             "indoor_pm10": "Indoor PM10 (optional)",
             "indoor_voc": "Indoor VOC (index or raw value, optional)",
             "indoor_no2": "Indoor NO₂ / NOx (index or raw value, optional)",
-            "indoor_formaldehyde": "Indoor formaldehyde (optional)"
+            "indoor_formaldehyde": "Indoor formaldehyde (optional)",
+            "passive_ventilation": "Passive ventilation available (optional)"
           },
           "description": "Choose temperature and humidity sensors. Other sensors are optional. You can change the room name and assignments later.",
           "data_description": {
@@ -369,7 +372,8 @@
             "night_advice_start_time": "From this time onward the assistant may show night advice. 22:00 only means “start checking then”, not “open the window then”.",
             "night_advice_end_time": "Night advice may remain visible until this time. Afterwards, the normal daytime assessment resumes without automatically triggering any action.",
             "area_id": "Assigns this Fresh Air Assistant room to an existing Home Assistant area. If you do not enter a custom room name, the area name is used.",
-            "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name."
+            "room_name": "Optional. If a Home Assistant area is selected and this field is left empty, Fresh Air Assistant uses the area name.",
+            "passive_ventilation": "Room has permanent background fresh-air supply. This setting does not override measured air or safety warnings."
           },
           "sections": {
             "room_climate": {

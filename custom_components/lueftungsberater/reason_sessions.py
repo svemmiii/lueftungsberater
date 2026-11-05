@@ -16,9 +16,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from math import floor, isfinite
 from typing import Any
 
 
+HUMIDITY_MIN_CONFIRMED = timedelta(minutes=5)
 HUMIDITY_PROGRESS_WINDOW = timedelta(minutes=15)
 HUMIDITY_PROGRESS_MIN_DROP = 0.25  # g/m3; practical sensor/UX dead-band
 HUMIDITY_MIN_REST = timedelta(hours=1)
@@ -28,6 +30,13 @@ HUMIDITY_OUTDOOR_IMPROVEMENT = 1.0  # g/m3 more drying potential
 HUMIDITY_RESOLVED_RH = 57.0
 HUMIDITY_PEAK_RISE = 6.0
 HUMIDITY_PEAK_WINDOW = timedelta(minutes=15)
+HUMIDITY_PEAK_MAX_SAMPLES = 180
+# A fixed humidity-value bin keeps the newest observation in every RH range.
+# There are only 161 bins over the physical 0..100 %RH range.  Keeping the
+# current global extrema as well stays below 180 entries, even if every range
+# is occupied.  A discarded value therefore has a *newer* representative
+# within <0.625 RH percentage points for as long as that value is still valid.
+HUMIDITY_PEAK_VALUE_BIN_RH = 0.625
 HUMIDITY_PEAK_RECOVERY_DROP = 3.0
 HUMIDITY_PEAK_RECOVERY_MAX_RH = 65.0
 
@@ -54,6 +63,10 @@ class HumiditySessionState:
     session_start_ah: float | None = None
     session_start_rh: float | None = None
     session_start_temp: float | None = None
+    short_aborted: bool = False
+    # A time-confirmed airing was closed while its humidity reason remained.
+    # Different from a short abort and different from successful aftercare.
+    unresolved_close: bool = False
     progress_anchor_at: datetime | None = None
     progress_anchor_ah: float | None = None
     best_ah: float | None = None
@@ -75,8 +88,9 @@ class HumiditySessionState:
     peak_rh: float | None = None
     peak_recovery: bool = False
 
-    # Short live-only sample history for rapid-peak detection.  It is not worth
-    # persisting; persistent peak/session flags are stored separately.
+    # Short live-only sample history for rapid-peak detection.  On high-rate
+    # sensors it is condensed to timestamped min/max extrema, rather than
+    # dropping samples indiscriminately.  It is not persisted.
     samples: list[tuple[datetime, float, float]] = field(default_factory=list)
 
     def reset(self) -> None:
@@ -85,6 +99,8 @@ class HumiditySessionState:
         self.session_start_ah = None
         self.session_start_rh = None
         self.session_start_temp = None
+        self.short_aborted = False
+        self.unresolved_close = False
         self.progress_anchor_at = None
         self.progress_anchor_ah = None
         self.best_ah = None
@@ -125,6 +141,8 @@ class HumiditySessionState:
     ) -> None:
         self._end_live_session()
         self.disarmed = True
+        self.short_aborted = False
+        self.unresolved_close = False
         self.exhausted = bool(exhausted)
         self.exhausted_at = now
         self.reference_rh = float(indoor_rh)
@@ -160,11 +178,83 @@ class HumiditySessionState:
         self.peak_rh = None
         self.peak_recovery = False
 
+    def _compact_peak_samples(self) -> None:
+        """Reduce a busy history with a bounded RH error and linear work.
+
+        The peak detector needs the sliding *minimum* RH, not the complete
+        chronology. Retaining only time-bucket extrema can lose a still-valid
+        successor when an older low expires. Instead, retain the most recent
+        sample in each narrow RH interval: an evicted sample always has a
+        later (hence longer-lived) representative less than 0.625 percentage
+        points away for physically valid 0..100 % RH readings. Keep the
+        absolute minimum and maximum exactly until their own timestamps
+        expire. Sparse histories are never touched.
+
+        This is a deliberate <0.625-point worst-case baseline approximation,
+        not an impossible promise of lossless arbitrary high-rate histories.
+        It only takes one forward pass, with no per-bucket sorts or ranking.
+        """
+        samples = self.samples
+        if len(samples) <= HUMIDITY_PEAK_MAX_SAMPLES:
+            return
+
+        # Outside the physical range, keep the hard bound and avoid an index
+        # overflow. The stated 0.625-point bound applies to valid RH readings.
+        first_rh = samples[0][1]
+        minimum = maximum = first_rh
+        minimum_index = maximum_index = 0
+        for index in range(1, len(samples)):
+            value = samples[index][1]
+            if value <= minimum:
+                minimum, minimum_index = value, index
+            if value >= maximum:
+                maximum, maximum_index = value, index
+
+        if minimum >= 0.0 and maximum <= 100.0:
+            origin = 0.0
+            bin_width = HUMIDITY_PEAK_VALUE_BIN_RH
+        else:
+            origin = minimum
+            bin_width = max(
+                HUMIDITY_PEAK_VALUE_BIN_RH,
+                (maximum - minimum) / (HUMIDITY_PEAK_MAX_SAMPLES - 4),
+            )
+
+        latest_by_bin: dict[int, int] = {}
+        for index, (_, value, _) in enumerate(samples):
+            latest_by_bin[floor((value - origin) / bin_width)] = index
+
+        kept_indices = set(latest_by_bin.values())
+        kept_indices.add(minimum_index)
+        kept_indices.add(maximum_index)
+        self.samples = [
+            sample for index, sample in enumerate(samples) if index in kept_indices
+        ]
+
     def _observe_peak(self, *, now: datetime, rh: float, ah: float) -> bool:
         cutoff = now - HUMIDITY_PEAK_WINDOW
-        self.samples = [sample for sample in self.samples if sample[0] >= cutoff]
+        # Drop invalid humidity observations rather than letting NaN/inf leak
+        # into bucket indices or into the rolling baseline.
+        if not isfinite(rh):
+            return False
+        # Normal chronological reports can discard expired values only at the
+        # front; avoid rebuilding the list on every high-frequency update.
+        if self.samples and self.samples[-1][0] > now:
+            # An NTP/clock correction invalidates any future observations.
+            self.samples = [
+                sample for sample in self.samples if cutoff <= sample[0] <= now
+            ]
+        elif self.samples and self.samples[0][0] < cutoff:
+            expired = 0
+            for stamp, _, _ in self.samples:
+                if stamp >= cutoff:
+                    break
+                expired += 1
+            del self.samples[:expired]
+
         baseline = min((sample[1] for sample in self.samples), default=rh)
         self.samples.append((now, float(rh), float(ah)))
+        self._compact_peak_samples()
 
         new_peak = rh >= baseline + HUMIDITY_PEAK_RISE
         if new_peak:
@@ -174,6 +264,8 @@ class HumiditySessionState:
             self.peak_active = True
             self.peak_rh = max(float(rh), float(self.peak_rh or rh))
             self.peak_recovery = False
+            self.short_aborted = False
+            self.unresolved_close = False
             # A genuine rapid event is a new situation and may break the normal
             # humidity quiet state immediately (mould/safety remain separate).
             self._clear_quiet_state()
@@ -200,6 +292,8 @@ class HumiditySessionState:
         if self.session_active or self.disarmed:
             return False
         self.session_active = True
+        self.short_aborted = False
+        self.unresolved_close = False
         self.session_started_at = now
         self.session_start_ah = float(indoor_ah)
         self.session_start_rh = float(indoor_rh)
@@ -219,6 +313,8 @@ class HumiditySessionState:
             "session_start_ah": self.session_start_ah,
             "session_start_rh": self.session_start_rh,
             "session_start_temp": self.session_start_temp,
+            "short_aborted": self.short_aborted,
+            "unresolved_close": self.unresolved_close,
             "progress_anchor_at": stamp(self.progress_anchor_at),
             "progress_anchor_ah": self.progress_anchor_ah,
             "best_ah": self.best_ah,
@@ -245,6 +341,8 @@ class HumiditySessionState:
         self.session_start_ah = _float_or_none(data.get("session_start_ah"))
         self.session_start_rh = _float_or_none(data.get("session_start_rh"))
         self.session_start_temp = _float_or_none(data.get("session_start_temp"))
+        self.short_aborted = bool(data.get("short_aborted"))
+        self.unresolved_close = bool(data.get("unresolved_close"))
         self.progress_anchor_at = parse_dt(data.get("progress_anchor_at"))
         self.progress_anchor_ah = _float_or_none(data.get("progress_anchor_ah"))
         self.best_ah = _float_or_none(data.get("best_ah"))
@@ -286,9 +384,18 @@ class HumiditySessionState:
         humidity_still_needed: bool,
         safety_lock: bool,
         mold_risk: bool,
+        airing_minutes: float | None = None,
     ) -> HumiditySessionDecision:
         """Advance humidity session/re-arm memory and return engine flags."""
         drying_potential = float(indoor_ah) - float(outdoor_ah)
+        # The contact's verified window duration takes precedence over the
+        # later start of a reason-specific humidity session.
+        duration = (
+            timedelta(minutes=max(0.0, airing_minutes))
+            if airing_minutes is not None
+            else now - (self.session_started_at or now)
+        )
+        min_reached = duration >= HUMIDITY_MIN_CONFIRMED
         new_peak = self._observe_peak(now=now, rh=indoor_rh, ah=indoor_ah)
 
         if mold_risk:
@@ -317,22 +424,30 @@ class HumiditySessionState:
 
         if self.session_active:
             if not window_open:
-                # The user deliberately ended this comfort airing. Treat that
-                # as a completed attempt, otherwise the identical sensor sample
-                # would immediately produce ``open_now`` again after closing.
-                # This is reason-specific quiet memory only: CO2, pollutants,
-                # mould and safety remain fully able to react.
-                self._arm_quiet_state(
-                    now=now,
-                    indoor_rh=indoor_rh,
-                    indoor_ah=indoor_ah,
-                    drying_potential=drying_potential,
-                    exhausted=False,
-                )
-            elif not humidity_still_needed:
-                # A real successful reduction is still a completed attempt. Keep
-                # the achieved level as the new reference so 59↔61 % does not
-                # immediately start the same conversation again.
+                if min_reached and not humidity_still_needed:
+                    # Five minutes only confirms the *duration*, not success.
+                    # Aftercare is justified only if the measured humidity
+                    # reason has independently cleared under engine rules.
+                    self._arm_quiet_state(
+                        now=now,
+                        indoor_rh=indoor_rh,
+                        indoor_ah=indoor_ah,
+                        drying_potential=drying_potential,
+                        exhausted=False,
+                    )
+                else:
+                    # Keep unresolved humidity actionable after closing, even
+                    # when the five-minute minimum has elapsed. A short
+                    # attempt is separately remembered as unconfirmed.
+                    self._end_live_session()
+                    if not min_reached:
+                        self.short_aborted = True
+                    else:
+                        self.unresolved_close = True
+                        # A remaining humidity reason cannot simultaneously
+                        # be a completed peak-recovery reason.
+                        self.peak_recovery = False
+            elif not humidity_still_needed and min_reached:
                 self._arm_quiet_state(
                     now=now,
                     indoor_rh=indoor_rh,
@@ -348,6 +463,9 @@ class HumiditySessionState:
                 if elapsed >= HUMIDITY_PROGRESS_WINDOW:
                     drop = anchor_ah - float(self.best_ah)
                     if drop < HUMIDITY_PROGRESS_MIN_DROP:
+                        # Exhausted == this attempt has no measurable progress.
+                        # The quiet/disarmed latch stops endless retries, but
+                        # the engine must still display unresolved measured RH.
                         self._arm_quiet_state(
                             now=now,
                             indoor_rh=indoor_rh,
@@ -372,6 +490,8 @@ class HumiditySessionState:
             and self.peak_recovery
             and not self.session_active
             and not self.disarmed
+            and not self.short_aborted
+            and not self.unresolved_close
             and not mold_risk
         ):
             self._arm_quiet_state(
@@ -381,6 +501,18 @@ class HumiditySessionState:
                 drying_potential=drying_potential,
                 exhausted=False,
             )
+
+        # An independently resolved reading can clear aborted-session memory;
+        # it must not arm the old completed-session quiet state.
+        if self.short_aborted and indoor_rh <= HUMIDITY_RESOLVED_RH and not humidity_still_needed:
+            self.short_aborted = False
+        if self.unresolved_close:
+            if not humidity_still_needed:
+                self.unresolved_close = False
+            else:
+                # Do not let the unrelated short-peak recovery heuristic
+                # suppress an independently unresolved five-minute attempt.
+                self.peak_recovery = False
 
         optional_opportunity = False
         next_checks: list[float] = []

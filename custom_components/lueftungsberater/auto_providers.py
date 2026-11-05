@@ -1471,7 +1471,9 @@ async def _fetch_uba_air_quality(
     sources: dict[str, str] = {}
     distances = {}
     wanted = {"pm2_5", "pm10", "no2", "o3", "so2"}
-    failed: list[tuple[UbaStation, float]] = []
+    # One attempt per station and fetch job. The next regular provider job
+    # supplies the retry/backoff boundary; immediate repeats amplify outages.
+    attempted_station_codes: set[str] = set()
 
     async def read_station(station, distance):
         response = await _get_json(session, _UBA_AIRQUALITY, params={
@@ -1492,21 +1494,16 @@ async def _fetch_uba_air_quality(
         return station_values
 
     for station, distance in candidates:
+        if station.code in attempted_station_codes:
+            continue
+        attempted_station_codes.add(station.code)
         try:
-            if not await read_station(station, distance):
-                failed.append((station, distance))
-        except Exception:  # A bad station cannot hide the remaining candidates.
-            failed.append((station, distance))
+            await read_station(station, distance)
+        except Exception:  # A bad station cannot hide remaining candidates.
+            pass
         if wanted.issubset(values):
             break
-    if not wanted.issubset(values):
-        for station, distance in failed:
-            try:
-                await read_station(station, distance)
-            except Exception:
-                pass
-            if wanted.issubset(values):
-                break
+    # Missing individual pollutants are completed by the existing model path.
     return values, sources
 
 
@@ -1571,7 +1568,7 @@ async def _fetch_dwd_observations(session, location, state, *, on_progress=None)
     """Request reserves only while a required field is still missing."""
     candidates = await _dwd_station_candidates(session, location, state)
     observations = []
-    failed = []
+    attempted_station_ids: set[str] = set()
     missing = set(_DWD_FIELDS) | {"present_weather"}
 
     async def read_station(station, distance):
@@ -1586,21 +1583,17 @@ async def _fetch_dwd_observations(session, location, state, *, on_progress=None)
         return True
 
     for station, distance in candidates:
+        if station.station_id in attempted_station_ids:
+            continue
+        attempted_station_ids.add(station.station_id)
         try:
-            if not await read_station(station, distance):
-                failed.append((station, distance))
+            await read_station(station, distance)
         except Exception:
-            failed.append((station, distance))
+            # Keep trying suitable reserves; the next provider job can retry
+            # failed stations without doubling requests in this one.
+            pass
         if not missing:
             break
-    if missing:
-        for station, distance in failed:
-            try:
-                await read_station(station, distance)
-            except Exception:
-                pass
-            if not missing:
-                break
     observations.sort(key=lambda row: row[1])
     return candidates, observations
 

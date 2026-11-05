@@ -25,6 +25,7 @@ class RoomInput:
     open_minutes: float | None = None
     current_airing_qualified: bool = False
     hours_since_airing: float | None = None
+    routine_suppressed: bool = False
     rain_now: bool = False
     rain_soon: bool = False
     rain_minutes_until: float | None = None

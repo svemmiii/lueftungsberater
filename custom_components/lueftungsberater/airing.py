@@ -71,6 +71,11 @@ class RoomAiringTracker:
         # exposed as last_confirmed_airing because it is not a close timestamp.
         self.last_qualified_airing_seen_at: datetime | None = None
         self.last_confirmed_airing: datetime | None = None
+        self.last_successful_airing: datetime | None = None
+        self.session_successful = False
+        self.last_session_duration_minutes: float | None = None
+        self.last_session_was_aborted: bool | None = None
+        self.last_session_closed_at: datetime | None = None
         self.tracking_started_at: datetime | None = None
         self._unsub_state = None
         self._unsub_registry = None
@@ -462,6 +467,9 @@ class RoomAiringTracker:
         self.last_confirmed_airing = clamp_not_future(
             now, _parse_dt(stored.get("last_confirmed_airing"))
         )
+        self.last_successful_airing = clamp_not_future(
+            now, _parse_dt(stored.get("last_successful_airing"))
+        )
         self.last_qualified_airing_seen_at = clamp_not_future(
             now, _parse_dt(stored.get("last_qualified_airing_seen_at"))
         )
@@ -488,6 +496,7 @@ class RoomAiringTracker:
         self._restore_window_aliases(stored)
         self._repair_missing_windows_from_registry()
         stored_open_since = clamp_not_future(now, _parse_dt(stored.get("open_since")))
+        self.session_successful = bool(stored.get("session_successful")) and stored_open_since is not None
         stored_unknown_since = clamp_not_future(
             now, _parse_dt(stored.get("unknown_since"))
         )
@@ -537,6 +546,7 @@ class RoomAiringTracker:
             self.open_since = None
             self._unknown_since = None
             self.minimum_reached_at = None
+            self.session_successful = False
 
         self._active = True
         if self.windows:
@@ -694,16 +704,31 @@ class RoomAiringTracker:
         duration = max(timedelta(0), end - self.open_since)
         minimum_was_proven = self.minimum_reached_at is not None
         continuously_known = self._unknown_since is None
+        self.last_session_duration_minutes = duration.total_seconds() / 60.0
+        self.last_session_was_aborted = not (minimum_was_proven or (continuously_known and duration >= MIN_CONFIRMED_AIRING))
+        self.last_session_closed_at = end if observed_close else None
         if observed_close and (
             minimum_was_proven
             or (continuously_known and duration >= MIN_CONFIRMED_AIRING)
         ):
             self.last_confirmed_airing = end
+            if self.session_successful:
+                self.last_successful_airing = end
             # A real close is stronger and newer than the fallback evidence.
             self.last_qualified_airing_seen_at = None
         self.open_since = None
         self._unknown_since = None
         self.minimum_reached_at = None
+        self.session_successful = False
+
+    def update_success(self, success: bool) -> None:
+        """Distinguish confirmed duration from independent measured success."""
+        if not self.is_open:
+            return
+        value = bool(self.current_airing_qualified and success)
+        if value != self.session_successful:
+            self.session_successful = value
+            self._queue_save()
 
     @callback
     def _async_unknown_grace_expired(self, now: datetime) -> None:
@@ -801,6 +826,7 @@ class RoomAiringTracker:
             if self.open_since is None:
                 self.open_since = now
                 self.minimum_reached_at = None
+                self.session_successful = False
                 changed = True
             if self._unknown_since is not None:
                 self._unknown_since = None
@@ -865,6 +891,8 @@ class RoomAiringTracker:
                     else None
                 ),
                 "last_confirmed_airing": self.last_confirmed_airing.isoformat() if self.last_confirmed_airing else None,
+                "last_successful_airing": self.last_successful_airing.isoformat() if self.last_successful_airing else None,
+                "session_successful": self.session_successful,
                 "tracking_started_at": (
                     self.tracking_started_at.isoformat()
                     if self.tracking_started_at

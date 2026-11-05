@@ -61,6 +61,7 @@ class RoomMoldTracker:
         self.subentry = subentry
         self.critical_since: datetime | None = None
         self.last_valid_at: datetime | None = None
+        self._last_source_stamp: datetime | None = None
         self.intervals: list[tuple[datetime, datetime]] = []
         self._store_readonly = False
         self._store: Store[dict[str, Any]] = Store(
@@ -152,6 +153,32 @@ class RoomMoldTracker:
         self.critical_since = None
         self._prune(now)
         return True
+
+    def observe_from_sources(
+        self, surface_rh: float | None,
+        source_stamp: datetime | None,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        """Count only fresh sensor reports as samples, never coordinator ticks.
+
+        A constant critical surface remains relevant between fresh reports, but
+        stops accumulating after the existing unknown-data grace if the sensors
+        have gone silent. This does not add a polling task or a history row.
+        """
+        now = now or dt_util.utcnow()
+        if source_stamp is None or source_stamp.tzinfo is None:
+            self.observe(None, now)
+            return
+        if not timestamp_is_fresh(now, source_stamp, MOLD_UNKNOWN_GRACE):
+            self.observe(None, now)
+            return
+        if self._last_source_stamp is not None and source_stamp <= self._last_source_stamp:
+            if self._close_stale_active_interval(now):
+                self._schedule_save()
+            return
+        self._last_source_stamp = source_stamp
+        self.observe(surface_rh, now)
 
     def observe(self, surface_rh: float | None, now: datetime | None = None) -> None:
         """Observe one derived surface RH value without inventing missing time.

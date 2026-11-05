@@ -270,14 +270,16 @@
             "indoor_pm10": "PM10 innen (optional)",
             "indoor_voc": "VOC innen (Index oder Rohwert, optional)",
             "indoor_no2": "NO₂ / NOx innen (Index oder Rohwert, optional)",
-            "indoor_formaldehyde": "Formaldehyd innen (optional)"
+            "indoor_formaldehyde": "Formaldehyd innen (optional)",
+            "passive_ventilation": "Passive Belüftung vorhanden (optional)"
           },
           "data_description": {
             "target_temperature": "Wird verwendet, wenn keine passende Solltemperatur aus einer Climate-Entity verfügbar ist.",
             "night_advice_start_time": "Ab dieser Uhrzeit kann der Lüftungsassistent einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
             "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen.",
             "area_id": "Ordnet diesen Lüftungsassistent-Raum einem vorhandenen Home-Assistant-Bereich zu. Wenn du keinen eigenen Raumnamen angibst, wird der Name des Bereichs verwendet.",
-            "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs."
+            "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs.",
+            "passive_ventilation": "Hinweis auf dauerhafte Frischluftzufuhr. Die Messwerte werden trotzdem geprüft; diese Angabe allein unterdrückt keine Warnungen."
           },
           "sections": {
             "room_climate": {
@@ -361,7 +363,8 @@
             "indoor_pm10": "PM10 innen (optional)",
             "indoor_voc": "VOC innen (Index oder Rohwert, optional)",
             "indoor_no2": "NO₂ / NOx innen (Index oder Rohwert, optional)",
-            "indoor_formaldehyde": "Formaldehyd innen (optional)"
+            "indoor_formaldehyde": "Formaldehyd innen (optional)",
+            "passive_ventilation": "Passive Belüftung vorhanden (optional)"
           },
           "description": "Wähle Temperatur- und Feuchtesensoren. Weitere Sensoren sind optional. Raumname und Zuordnungen kannst du jederzeit ändern.",
           "data_description": {
@@ -369,7 +372,8 @@
             "night_advice_start_time": "Ab dieser Uhrzeit kann der Lüftungsassistent einen Nacht-Hinweis anzeigen. 22:00 bedeutet nur „ab dann prüfen“, nicht automatisch „ab dann lüften“.",
             "night_advice_end_time": "Bis zu dieser Uhrzeit darf der Nacht-Hinweis sichtbar bleiben. Danach übernimmt wieder die normale Tagesbewertung, ohne automatisch eine Aktion auszulösen.",
             "area_id": "Ordnet diesen Lüftungsassistent-Raum einem vorhandenen Home-Assistant-Bereich zu. Wenn du keinen eigenen Raumnamen angibst, wird der Name des Bereichs verwendet.",
-            "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs."
+            "room_name": "Optional. Wenn ein Home-Assistant-Bereich gewählt ist und dieses Feld leer bleibt, verwendet der Lüftungsassistent den Namen des Bereichs.",
+            "passive_ventilation": "Hinweis auf dauerhafte Frischluftzufuhr. Die Messwerte werden trotzdem geprüft; diese Angabe allein unterdrückt keine Warnungen."
           },
           "sections": {
             "room_climate": {

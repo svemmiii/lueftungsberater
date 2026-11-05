@@ -2,6 +2,39 @@
 
 Hier stehen die **zusammengefassten Änderungen pro Version**, nicht einzelne interne Testläufe oder unfertige Zwischenstände. Für ältere tatsächlich veröffentlichte Fassungen ist die [GitHub-Releaseübersicht](https://github.com/svemmiii/lueftungsberater/releases) die maßgebliche Quelle.
 
+## v0.12.0 – Alpha (5. November 2026)
+
+### Verlässlichere Fenster- und Feuchtebewertung
+
+- Ein Fensterkontaktwechsel allein lässt die Raumampel nicht zwischen Grün und Nicht-Grün springen. Tatsächliche Messwertverschlechterungen und Sicherheitswarnungen können die Anzeige jederzeit verschärfen.
+- Fünf Minuten Öffnungsdauer sind eine Mindestzeit, **kein Erfolgsnachweis**. Kürzere Lüftungen werden als Abbruch behandelt; ausschließlich bei mindestens 15 % Sicherheitsreserve innerhalb aller relevanten Gutbereiche kann eine vorzeitige Grünfreigabe erfolgen.
+- Feuchtelüftungen behalten ungelösten Bedarf nach Abbruch, nach mindestens fünf Minuten ohne Verbesserung und nach wirkungslosen Langzeitversuchen. Eine Schließempfehlung aus ungünstigen Außenbedingungen oder fehlendem Fortschritt bedeutet nicht automatisch grüne Raumluft.
+- Bestätigte, erfolgreiche und abgebrochene Sitzungen werden getrennt geführt. Anzeige- und Sitzungszustände bleiben bei regelmäßigen Aktualisierungen und Neustarts konsistent.
+- Begründungstexte erklären die aktuellen Lüftungsgründe und die sinnvollste Fensteraktion, ohne störende Zehntelminuten-Angaben; Deutsch, Englisch und Türkisch bleiben unterstützt.
+
+### Individuelle Luftbeobachtung
+
+- Optionale Raumeinstellung für **passive Belüftung** sowie begrenzte Beobachtung von CO₂-, Feuchte-, Temperatur- und verfügbaren Luftqualitätswerten; sie funktioniert auch ohne CO₂-Sensor mit eingeschränkter Aussagekraft.
+- Ohne Fensterkontakt wird möglicher Luftaustausch nur **vermutet**, nicht als bestätigte Fensterlüftung gespeichert. Veraltete Vermutungen verschwinden nach 60 Minuten auch ohne weitere Sensoränderung.
+- Die 24-Stunden-Routine kann bei nachweislich stabil guter Luft zurücktreten; große CO₂-Schwankungen, Messlücken und eigenständige Feuchte-, Schimmel- oder Schadstoffgründe bleiben relevant.
+
+### Ressourcen, Datenquellen und Sicherheit
+
+- Länder- und Warnregionsgeometrien werden über eine indexierte SQLite-Datenbank bedarfsgerecht geladen. Der bisherige vollständige JSON-RAM-Aufbau entfällt; Warnregions- und Länderdaten bleiben enthalten.
+- Die 15-Minuten-Feuchtespitzenhistorie ist auf **180 Messwerte pro Raum** begrenzt. Bei sehr schnellen Sensorupdates werden Originalwerte und Zeitstempel nach schmalen Feuchtebereichen zusammengefasst. Die maximale Abweichung des gleitenden Minimums beträgt für gültige 0–100 % unter **0,625 Prozentpunkten**; Grenzfälle unmittelbar an der Sechs-Punkte-Spitzenschwelle können verzögert reagieren.
+- Die bestehende gemeinsame, zeitversetzte Außenabfrageplanung bleibt erhalten. **DWD- und UBA-Stationskandidaten werden innerhalb eines Abrufs höchstens einmal angefragt.** Geeignete Ersatzstationen werden weiter geprüft; fehlende Messgrößen dürfen weiterhin aus dem bestehenden Modell-Fallback stammen.
+- Doppelte Snapshot-Berechnungen und unnötige Messverlaufs-Schreibvorgänge wurden vermindert. Strukturierte amtliche Warnungen und ihre Sicherheitssperren bleiben vorrangig.
+
+### Dashboard und Remote-Übersicht
+
+- Die Raumkarte erlaubt eine individuell einstellbare Hintergrunddeckkraft von **0–100 %**; ohne Einstellung gilt weiterhin das aktive Theme. Texte und Ampelfarben werden nicht mit transparent.
+- Die Gesamtansicht und ihr visueller Editor laden Remote-Gruppen beim Aufruf. **Ohne eingerichtete Remote-Instanzen läuft anschließend kein 30-Sekunden-Remote-Polling mehr.** Ein Home-Assistant-Konfigurationsereignis erkennt nachträglich hinzugefügte Verbindungen. Bei vorhandenen Remote-Instanzen werden die bestehenden 30-Sekunden-Aktualisierungen beibehalten; bei Entfernung und beim Abbau der Karte werden Timer und Abonnements freigegeben.
+
+### Qualitätsstatus
+
+- Ergänzte Regressionstests für Sitzungs- und Ampelfarben, Feuchte-Spitzen, Stationsausfälle und Remote-Gesamtansichten sowie bestehende Frontend- und Geodaten-Gegenproben.
+- **Alpha / Pre-release:** Ein vollständiger GitHub-Validate-Lauf mit installiertem Home Assistant, HACS und Hassfest sowie ein Update- und UI-Smoke-Test auf einer realen HA-Instanz stehen noch aus. Vor dem Update ein vollständiges Backup erstellen.
+
 ## v0.11.10
 
 ### Standort und Verfügbarkeit

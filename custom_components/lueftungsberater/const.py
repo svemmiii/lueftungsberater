@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "lueftungsberater"
-INTEGRATION_VERSION = "0.11.10"
+INTEGRATION_VERSION = "0.12.0"
 PLATFORMS = ["sensor", "binary_sensor"]
 SUBENTRY_TYPE_ROOM = "room"
 
@@ -104,6 +104,7 @@ CONF_INDOOR_PM10 = "indoor_pm10"
 CONF_INDOOR_VOC = "indoor_voc"
 CONF_INDOOR_NO2 = "indoor_no2"
 CONF_INDOOR_FORMALDEHYDE = "indoor_formaldehyde"
+CONF_PASSIVE_VENTILATION = "passive_ventilation"
 CONF_WINDOWS = "window_entities"
 CONF_CLIMATE = "climate_entity"
 CONF_TARGET_TEMP = "target_temperature"

@@ -575,7 +575,8 @@ def _active_needs(
     window_open: bool,
     has_window_contacts: bool,
     current_airing_qualified: bool,
-    co2_pending_hold: bool,
+    routine_suppressed: bool = False,
+    co2_pending_hold: bool = False,
     co2_airing_active: bool,
     co2_rearm_threshold: float | None,
     humidity_session_active: bool = False,
@@ -696,6 +697,7 @@ def _active_needs(
     # new candidate that can change the existing multi-need conflict.
     if (
         hours >= 24
+        and not routine_suppressed
         and not needs
         and not (window_open and current_airing_qualified)
     ):
@@ -1555,6 +1557,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         window_open=data.window_open,
         has_window_contacts=data.has_window_contacts,
         current_airing_qualified=data.current_airing_qualified,
+        routine_suppressed=data.routine_suppressed,
         co2_pending_hold=data.co2_pending_hold,
         co2_airing_active=data.co2_airing_active,
         co2_rearm_threshold=data.co2_rearm_threshold,
@@ -1942,6 +1945,7 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
         # independently safe green airing opportunity.
         if (
             hours >= 24.0
+            and not data.routine_suppressed
             and not (data.window_open and data.current_airing_qualified)
             and decision_need.startswith("co2_")
             and _action_semantic(mode) == "tradeoff"
@@ -2887,8 +2891,43 @@ def evaluate_room(data: RoomInput) -> VentilationResult:
     # Real safety locks retain their native danger colour in both sensor views.
     if hard_mode is None and room_recommendation_key in {
         "close_now", "better_close", "can_close"
-    }:
+    } and room_urgency <= 0:
         room_color = "green"
+
+    # Exhaustion means *this attempt is no longer productive*, not that the
+    # measured humidity has recovered. ``disarmed`` intentionally prevents an
+    # endless new open-window request, while the independent room-air display
+    # must continue to show an unresolved reading until RH is actually good.
+    # This is an observation (orange for >=63% RH, yellow at the 60% edge),
+    # never an instruction to keep an ineffective window open. It also applies
+    # on later refreshes and after restoring the persisted session state.
+    humidity_stalled = (
+        hard_mode is None
+        and data.humidity_session_exhausted
+        and data.humidity_disarmed
+        and hi >= RH_GOOD_UPPER
+    )
+    if humidity_stalled:
+        unresolved_color = "orange" if hi >= 63.0 else "yellow"
+        if room_color == "green":
+            room_color = unresolved_color
+        if not active_needs:
+            room_need = "humidity_stalled"
+            room_reason_key = "humidity_stalled"
+            room_reason_args = {
+                "humidity": hi,
+                "window_open": data.window_open,
+                "room_color": room_color,
+            }
+            # The room still needs attention, but another attempt to air it
+            # immediately would not help. Distinguish a *closing* instruction
+            # from a claim that the humidity problem has disappeared.
+            if data.window_open:
+                if room_recommendation_key in {"room_good", "room_watch", "room_need", "room_urgent"}:
+                    room_recommendation_key = "can_close"
+            else:
+                if room_recommendation_key in {"room_good", "room_need", "room_urgent", "can_close"}:
+                    room_recommendation_key = "room_watch"
 
     # Keep explanations on the final colour/action snapshot. Otherwise an
     # opening invariant repair could still render the old green wording.
